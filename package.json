@@ -22,7 +22,8 @@
     "test": "vitest run",
     "changeset": "changeset",
     "version": "changeset version",
-    "release": "changeset publish"
+    "release": "changeset publish",
+    "drift": "node scripts/drift-check.js"
   },
   "devDependencies": {
     "@changesets/cli": "2.31.0",

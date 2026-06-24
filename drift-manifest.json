@@ -1,0 +1,40 @@
+{
+  "$comment": "Canonical engineering baseline for the @cosyte/* parser repos. scripts/drift-check.js fails when a repo diverges. The authoritative prose is the meta-repo documentation/conventions.md; this is its machine-checkable shadow. Until Phases D/E migrate each parser, drift here is EXPECTED — it is the worklist.",
+  "targets": ["hl7", "mllp", "dicom", "x12", "ccda", "ncpdp"],
+  "packageManagerPrefix": "pnpm@10",
+  "nodeEngineMinMajor": 22,
+  "tsconfigExtends": "@cosyte/tsconfig/base.json",
+  "prettier": "@cosyte/prettier-config",
+  "requiredScripts": [
+    "build",
+    "typecheck",
+    "lint",
+    "lint:fix",
+    "format",
+    "format:check",
+    "test",
+    "test:watch",
+    "test:coverage",
+    "attw",
+    "clean",
+    "prepublishOnly"
+  ],
+  "lintMustInclude": "--max-warnings=0",
+  "devDepVersions": {
+    "typescript": "5.9",
+    "eslint": "10",
+    "vitest": "4",
+    "@vitest/coverage-v8": "4",
+    "tsup": "8",
+    "prettier": "3.8",
+    "@types/node": "22",
+    "@arethetypeswrong/cli": ""
+  },
+  "caretAllowed": ["@types/node"],
+  "requiredCosyteConfigDeps": [
+    "@cosyte/tsconfig",
+    "@cosyte/eslint-config",
+    "@cosyte/prettier-config"
+  ],
+  "requiredWorkflows": ["ci.yml", "release.yml"]
+}
