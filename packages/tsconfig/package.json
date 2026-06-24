@@ -1,0 +1,22 @@
+{
+  "name": "@cosyte/tsconfig",
+  "version": "0.0.1",
+  "description": "Shared TypeScript configuration for @cosyte/* packages.",
+  "keywords": ["tsconfig", "typescript", "cosyte"],
+  "homepage": "https://github.com/cosyte/config/tree/main/packages/tsconfig#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cosyte/config.git",
+    "directory": "packages/tsconfig"
+  },
+  "license": "MIT",
+  "author": "Cosyte <hello@cosyte.com> (https://cosyte.com)",
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": ["base.json", "library.json"],
+  "exports": {
+    "./base.json": "./base.json",
+    "./library.json": "./library.json"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "@cosyte/prettier-config",
+  "version": "0.0.1",
+  "description": "Shared Prettier configuration for @cosyte/* packages.",
+  "keywords": ["prettier", "prettier-config", "cosyte"],
+  "homepage": "https://github.com/cosyte/config/tree/main/packages/prettier-config#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cosyte/config.git",
+    "directory": "packages/prettier-config"
+  },
+  "license": "MIT",
+  "author": "Cosyte <hello@cosyte.com> (https://cosyte.com)",
+  "publishConfig": {
+    "access": "public"
+  },
+  "main": "index.json",
+  "exports": {
+    ".": "./index.json"
+  },
+  "files": ["index.json"]
+}

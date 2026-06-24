@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "display": "@cosyte/tsconfig library",
+  "_comment": "For publishable libraries: base.json + declaration/sourcemap emit. Consumers still set outDir and include/exclude.",
+  "extends": "./base.json",
+  "compilerOptions": {
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true
+  }
+}
