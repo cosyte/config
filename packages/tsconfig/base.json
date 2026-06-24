@@ -3,10 +3,10 @@
   "display": "@cosyte/tsconfig base",
   "_comment": "Type-check baseline for @cosyte/* packages. Emit options live in library.json; consumers set outDir/noEmit/include.",
   "compilerOptions": {
-    "target": "ES2022",
+    "target": "ES2023",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "lib": ["ES2022"],
+    "lib": ["ES2023"],
     "types": ["node"],
 
     "strict": true,

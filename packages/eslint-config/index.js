@@ -6,7 +6,7 @@ import tseslint from "typescript-eslint";
 /**
  * Shared ESLint flat config for `@cosyte/*` packages.
  *
- * ESLint 9 + unified `typescript-eslint` (`recommendedTypeChecked`), hardened with the cosyte
+ * ESLint 10 + unified `typescript-eslint` (`recommendedTypeChecked`), hardened with the cosyte
  * guardrails: no `any`, no unjustified casts, JSDoc + `@example` on public exports, no `console.*`
  * in library code. Tests and build scripts relax the JSDoc/console rules.
  *
