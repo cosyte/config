@@ -1,6 +1,6 @@
 {
   "name": "@cosyte/eslint-config",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Shared ESLint flat config (ESLint 10 + typescript-eslint) for @cosyte/* packages.",
   "keywords": [
     "eslint",
