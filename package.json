@@ -14,5 +14,27 @@
   "engines": {
     "node": ">=22"
   },
-  "packageManager": "pnpm@10.0.0"
+  "packageManager": "pnpm@10.0.0",
+  "prettier": "@cosyte/prettier-config",
+  "scripts": {
+    "format": "prettier --write \"**/*.{js,ts,json,md,yml,yaml}\"",
+    "format:check": "prettier --check \"**/*.{js,ts,json,md,yml,yaml}\"",
+    "test": "vitest run",
+    "changeset": "changeset",
+    "version": "changeset version",
+    "release": "changeset publish"
+  },
+  "devDependencies": {
+    "@changesets/cli": "2.31.0",
+    "@cosyte/eslint-config": "workspace:*",
+    "@cosyte/prettier-config": "workspace:*",
+    "@cosyte/tsconfig": "workspace:*",
+    "@cosyte/tsup-config": "workspace:*",
+    "@cosyte/vitest-config": "workspace:*",
+    "@vitest/coverage-v8": "4.1.4",
+    "prettier": "3.8.3",
+    "tsup": "8.5.1",
+    "typescript": "5.9.3",
+    "vitest": "4.1.4"
+  }
 }

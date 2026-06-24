@@ -24,7 +24,13 @@ export default function cosyteConfig(tsconfigRootDir, opts = {}) {
 
   return tseslint.config(
     {
-      ignores: ["dist/**", "coverage/**", "node_modules/**", "*.config.js", ...(opts.ignores ?? [])],
+      ignores: [
+        "dist/**",
+        "coverage/**",
+        "node_modules/**",
+        "*.config.js",
+        ...(opts.ignores ?? []),
+      ],
     },
     {
       files,

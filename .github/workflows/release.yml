@@ -1,0 +1,45 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write # create the version PR / tags
+  id-token: write # npm provenance
+  pull-requests: write # open the "Version Packages" PR
+
+# Changesets flow: a push to main with pending changesets opens a "Version Packages" PR. Merging that
+# PR (the human approval gate) bumps versions and triggers publish with provenance.
+# NOTE: uses NPM_TOKEN today; Phase C migrates to npm OIDC trusted publishing once configured npm-side.
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: https://registry.npmjs.org
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Verify
+        run: |
+          pnpm format:check
+          pnpm test
+      - name: Create release PR or publish
+        uses: changesets/action@v1
+        with:
+          version: pnpm version
+          publish: pnpm release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: "true"

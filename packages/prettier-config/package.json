@@ -2,7 +2,11 @@
   "name": "@cosyte/prettier-config",
   "version": "0.0.1",
   "description": "Shared Prettier configuration for @cosyte/* packages.",
-  "keywords": ["prettier", "prettier-config", "cosyte"],
+  "keywords": [
+    "prettier",
+    "prettier-config",
+    "cosyte"
+  ],
   "homepage": "https://github.com/cosyte/config/tree/main/packages/prettier-config#readme",
   "repository": {
     "type": "git",
@@ -18,5 +22,9 @@
   "exports": {
     ".": "./index.json"
   },
-  "files": ["index.json", "README.md", "CHANGELOG.md"]
+  "files": [
+    "index.json",
+    "README.md",
+    "CHANGELOG.md"
+  ]
 }

@@ -2,7 +2,13 @@
   "name": "@cosyte/tsup-config",
   "version": "0.0.0",
   "description": "Shared tsup build config (dual ESM + CJS, ES2023) for @cosyte/* libraries.",
-  "keywords": ["tsup", "build", "esm", "cjs", "cosyte"],
+  "keywords": [
+    "tsup",
+    "build",
+    "esm",
+    "cjs",
+    "cosyte"
+  ],
   "homepage": "https://github.com/cosyte/config/tree/main/packages/tsup-config#readme",
   "repository": {
     "type": "git",
@@ -20,7 +26,12 @@
       "default": "./index.js"
     }
   },
-  "files": ["index.js", "index.d.ts", "README.md", "CHANGELOG.md"],
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "README.md",
+    "CHANGELOG.md"
+  ],
   "publishConfig": {
     "access": "public"
   },

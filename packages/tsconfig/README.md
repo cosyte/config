@@ -23,7 +23,7 @@ pnpm add -D @cosyte/tsconfig typescript
 {
   "extends": "@cosyte/tsconfig/base.json",
   "compilerOptions": { "noEmit": true },
-  "include": ["src", "test"]
+  "include": ["src", "test"],
 }
 ```
 
@@ -33,7 +33,7 @@ pnpm add -D @cosyte/tsconfig typescript
 {
   "extends": "@cosyte/tsconfig/library.json",
   "compilerOptions": { "outDir": "dist", "rootDir": "src" },
-  "include": ["src"]
+  "include": ["src"],
 }
 ```
 

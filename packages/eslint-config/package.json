@@ -2,7 +2,13 @@
   "name": "@cosyte/eslint-config",
   "version": "0.0.2",
   "description": "Shared ESLint flat config (ESLint 10 + typescript-eslint) for @cosyte/* packages.",
-  "keywords": ["eslint", "eslint-config", "eslintconfig", "typescript-eslint", "cosyte"],
+  "keywords": [
+    "eslint",
+    "eslint-config",
+    "eslintconfig",
+    "typescript-eslint",
+    "cosyte"
+  ],
   "homepage": "https://github.com/cosyte/config/tree/main/packages/eslint-config#readme",
   "repository": {
     "type": "git",
@@ -16,7 +22,11 @@
   "exports": {
     ".": "./index.js"
   },
-  "files": ["index.js", "README.md", "CHANGELOG.md"],
+  "files": [
+    "index.js",
+    "README.md",
+    "CHANGELOG.md"
+  ],
   "publishConfig": {
     "access": "public"
   },
