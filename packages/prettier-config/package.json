@@ -18,5 +18,5 @@
   "exports": {
     ".": "./index.json"
   },
-  "files": ["index.json"]
+  "files": ["index.json", "README.md", "CHANGELOG.md"]
 }

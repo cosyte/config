@@ -14,7 +14,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "files": ["base.json", "library.json"],
+  "files": ["base.json", "library.json", "README.md", "CHANGELOG.md"],
   "exports": {
     "./base.json": "./base.json",
     "./library.json": "./library.json"

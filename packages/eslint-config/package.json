@@ -16,7 +16,7 @@
   "exports": {
     ".": "./index.js"
   },
-  "files": ["index.js"],
+  "files": ["index.js", "README.md", "CHANGELOG.md"],
   "publishConfig": {
     "access": "public"
   },
