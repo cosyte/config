@@ -7,10 +7,11 @@ declarations), and **enabled, gating** per-directory thresholds at **>= 90**.
 ## Install
 
 ```sh
-pnpm add -D @cosyte/vitest-config vitest @vitest/coverage-v8
+pnpm add -D @cosyte/vitest-config vitest @vitest/coverage-v8 vite
 ```
 
-`vitest` and `@vitest/coverage-v8` are peer dependencies.
+`vitest`, `@vitest/coverage-v8`, and `vite` are peer dependencies (Vitest 4 needs `vite` >= 6 — install
+it explicitly so the resolver doesn't keep an incompatible vite 5).
 
 ## Use
 
