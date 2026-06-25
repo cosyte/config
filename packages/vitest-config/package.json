@@ -1,6 +1,6 @@
 {
   "name": "@cosyte/vitest-config",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "Shared Vitest config (v8 coverage, per-directory >=90 gates) for @cosyte/* packages.",
   "keywords": [
     "vitest",
