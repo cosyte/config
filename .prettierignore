@@ -4,3 +4,5 @@ coverage
 **/dist
 **/coverage
 pnpm-lock.yaml
+# Scaffold templates contain {{PLACEHOLDER}} tokens — not valid TS/JSON until generated.
+scripts/parser-template

@@ -1,0 +1,16 @@
+name: Release
+
+# Thin caller of the shared release pipeline: Changesets -> npm publish (provenance auto-enables when
+# this repo is public) -> docs artifacts -> GitHub release -> repository_dispatch to cosyte/docs.
+# Requires the NPM_TOKEN and DOCS_REPO_DISPATCH_TOKEN secrets (passed via `secrets: inherit`).
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  release:
+    uses: cosyte/.github/.github/workflows/release.yml@main
+    with:
+      package-name: "{{PKG}}"
+    secrets: inherit
