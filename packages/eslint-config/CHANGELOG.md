@@ -16,6 +16,11 @@ the **`0.0.x`-until-first-alpha** ladder.
 ### Added
 
 - `typescript` is now a declared peer dependency (the type-checked rules require it).
+- **Application mode:** `cosyte(rootDir, { library: false })` drops the JSDoc + `@example` gate and
+  `no-console` while keeping every type-safety rule (no `any`, no unjustified casts, exhaustiveness,
+  strict imports). Libraries (the default, `library: true`) are unchanged. This makes applications —
+  like the `pathways` engine — first-class consumers of the one shared config instead of forking it:
+  an app has no published API surface to document and legitimately logs.
 
 ## [0.0.2] - 2026-06-24
 

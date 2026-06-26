@@ -17,6 +17,33 @@ describe("@cosyte/eslint-config", () => {
     expect(Array.isArray(cfg)).toBe(true);
     expect(cfg.length).toBeGreaterThan(0);
   });
+
+  it("library mode (default) enables the JSDoc + no-console gate", () => {
+    const cfg = cosyteEslint(import.meta.dirname);
+    const hasDocGate = cfg.some((block) =>
+      block.rules?.["jsdoc/require-jsdoc"] === "off"
+        ? false
+        : block.rules?.["jsdoc/require-jsdoc"] != null || block.rules?.["no-console"] === "error",
+    );
+    expect(hasDocGate).toBe(true);
+  });
+
+  it("app mode ({ library: false }) drops the JSDoc + no-console gate but keeps type safety", () => {
+    const cfg = cosyteEslint(import.meta.dirname, { library: false });
+    // No block turns the doc-surface gates on.
+    const docGateOn = cfg.some(
+      (block) =>
+        block.rules?.["jsdoc/require-jsdoc"] === "error" ||
+        block.rules?.["jsdoc/require-example"] === "error" ||
+        block.rules?.["no-console"] === "error",
+    );
+    expect(docGateOn).toBe(false);
+    // Type-safety guardrails still present.
+    const noAnyOn = cfg.some(
+      (block) => block.rules?.["@typescript-eslint/no-explicit-any"] === "error",
+    );
+    expect(noAnyOn).toBe(true);
+  });
 });
 
 describe("@cosyte/tsup-config", () => {

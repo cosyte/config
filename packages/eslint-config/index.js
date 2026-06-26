@@ -10,17 +10,31 @@ import tseslint from "typescript-eslint";
  * guardrails: no `any`, no unjustified casts, JSDoc + `@example` on public exports, no `console.*`
  * in library code. Tests and build scripts relax the JSDoc/console rules.
  *
+ * The type-safety guardrails (no `any`, no unjustified casts, exhaustiveness, strict imports) apply
+ * to **every** consumer. The documentation-surface guardrails — the JSDoc + `@example` gate and
+ * `no-console` — are *library* defaults: a published `@cosyte/*` package owes its callers documented,
+ * `console`-free public exports. Applications (e.g. the `pathways` engine) are first-class consumers
+ * too, but they have no published API surface to document and legitimately log, so they opt out with
+ * `{ library: false }`. Everything else — strictness, type-checking, Prettier interop — is identical.
+ *
  * @param {string} tsconfigRootDir - The consumer's package root; pass `import.meta.dirname`.
- * @param {{ ignores?: string[], files?: string[] }} [opts] - Optional extra `ignores`, or a `files`
- *   override for which globs the type-checked rules apply to (defaults to src/test/scripts/configs).
+ * @param {{ ignores?: string[], files?: string[], library?: boolean }} [opts] - Optional extra
+ *   `ignores`; a `files` override for which globs the type-checked rules apply to (defaults to
+ *   src/test/scripts/configs); and `library` (default `true`) — set `false` for an application to
+ *   drop the JSDoc/`@example` gate and `no-console`, keeping every type-safety rule.
  * @returns {import("typescript-eslint").ConfigArray} The flat config array.
  * @example
- * // eslint.config.js
+ * // eslint.config.js — a published @cosyte/* library (the default)
  * import cosyte from "@cosyte/eslint-config";
  * export default cosyte(import.meta.dirname);
+ * @example
+ * // eslint.config.js — an application (no public API to document, may log)
+ * import cosyte from "@cosyte/eslint-config";
+ * export default cosyte(import.meta.dirname, { library: false });
  */
 export default function cosyteConfig(tsconfigRootDir, opts = {}) {
   const files = opts.files ?? ["src/**/*.ts", "test/**/*.ts", "scripts/**/*.ts", "*.config.ts"];
+  const library = opts.library ?? true;
 
   return tseslint.config(
     {
@@ -62,46 +76,6 @@ export default function cosyteConfig(tsconfigRootDir, opts = {}) {
         ],
         "@typescript-eslint/switch-exhaustiveness-check": "error",
 
-        // --- No console in library code ---
-        "no-console": "error",
-
-        // --- JSDoc + @example on public exports ---
-        "jsdoc/require-jsdoc": [
-          "error",
-          {
-            publicOnly: true,
-            require: {
-              ArrowFunctionExpression: true,
-              ClassDeclaration: true,
-              ClassExpression: true,
-              FunctionDeclaration: true,
-              FunctionExpression: true,
-              MethodDefinition: true,
-            },
-            contexts: [
-              "ExportNamedDeclaration > VariableDeclaration",
-              "ExportNamedDeclaration > TSTypeAliasDeclaration",
-              "ExportNamedDeclaration > TSInterfaceDeclaration",
-              "ExportNamedDeclaration > TSEnumDeclaration",
-            ],
-          },
-        ],
-        "jsdoc/require-example": [
-          "error",
-          {
-            contexts: [
-              "ExportNamedDeclaration > VariableDeclaration",
-              "ExportNamedDeclaration > FunctionDeclaration",
-              "ExportNamedDeclaration > ClassDeclaration",
-            ],
-            exemptedBy: ["internal", "private"],
-          },
-        ],
-        "jsdoc/check-tag-names": [
-          "error",
-          { definedTags: ["internal", "remarks", "packageDocumentation", "module", "typeParam"] },
-        ],
-
         // --- General safety ---
         eqeqeq: ["error", "always"],
         "no-var": "error",
@@ -116,22 +90,82 @@ export default function cosyteConfig(tsconfigRootDir, opts = {}) {
       },
     },
 
-    // Tests + build scripts don't need JSDoc/@example.
-    {
-      files: ["test/**/*.ts", "scripts/**/*.ts"],
-      rules: {
-        "jsdoc/require-jsdoc": "off",
-        "jsdoc/require-example": "off",
-      },
-    },
+    // --- Library-only documentation-surface gates ---
+    // A published @cosyte/* package owes its callers documented, console-free public exports.
+    // Applications opt out with `{ library: false }` (they have no published API and may log).
+    ...(library
+      ? [
+          {
+            files,
+            rules: {
+              // --- No console in library code ---
+              "no-console": "error",
 
-    // Build scripts may log.
-    {
-      files: ["scripts/**/*.ts"],
-      rules: {
-        "no-console": "off",
-      },
-    },
+              // --- JSDoc + @example on public exports ---
+              "jsdoc/require-jsdoc": [
+                "error",
+                {
+                  publicOnly: true,
+                  require: {
+                    ArrowFunctionExpression: true,
+                    ClassDeclaration: true,
+                    ClassExpression: true,
+                    FunctionDeclaration: true,
+                    FunctionExpression: true,
+                    MethodDefinition: true,
+                  },
+                  contexts: [
+                    "ExportNamedDeclaration > VariableDeclaration",
+                    "ExportNamedDeclaration > TSTypeAliasDeclaration",
+                    "ExportNamedDeclaration > TSInterfaceDeclaration",
+                    "ExportNamedDeclaration > TSEnumDeclaration",
+                  ],
+                },
+              ],
+              "jsdoc/require-example": [
+                "error",
+                {
+                  contexts: [
+                    "ExportNamedDeclaration > VariableDeclaration",
+                    "ExportNamedDeclaration > FunctionDeclaration",
+                    "ExportNamedDeclaration > ClassDeclaration",
+                  ],
+                  exemptedBy: ["internal", "private"],
+                },
+              ],
+              "jsdoc/check-tag-names": [
+                "error",
+                {
+                  definedTags: [
+                    "internal",
+                    "remarks",
+                    "packageDocumentation",
+                    "module",
+                    "typeParam",
+                  ],
+                },
+              ],
+            },
+          },
+
+          // Tests + build scripts don't need JSDoc/@example.
+          {
+            files: ["test/**/*.ts", "scripts/**/*.ts"],
+            rules: {
+              "jsdoc/require-jsdoc": "off",
+              "jsdoc/require-example": "off",
+            },
+          },
+
+          // Build scripts may log.
+          {
+            files: ["scripts/**/*.ts"],
+            rules: {
+              "no-console": "off",
+            },
+          },
+        ]
+      : []),
 
     // eslint-config-prettier MUST be last — turns off formatting-conflicting rules.
     prettierConfig,
