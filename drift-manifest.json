@@ -35,7 +35,9 @@
   "requiredCosyteConfigDeps": [
     "@cosyte/tsconfig",
     "@cosyte/eslint-config",
-    "@cosyte/prettier-config"
+    "@cosyte/prettier-config",
+    "@cosyte/tsup-config",
+    "@cosyte/vitest-config"
   ],
   "requiredWorkflows": ["ci.yml", "release.yml"]
 }
