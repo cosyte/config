@@ -6,6 +6,8 @@ this file is hand-maintained. The package stays on the **`0.0.x`-until-first-alp
 
 ## [Unreleased]
 
+## [0.0.1] - 2026-06-26
+
 ### Added
 
 - First real release of the conformance kit — the first built (publishable) package in `config`.

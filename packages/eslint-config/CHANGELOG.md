@@ -7,6 +7,8 @@ the **`0.0.x`-until-first-alpha** ladder.
 
 ## [Unreleased]
 
+## [0.0.4] - 2026-06-26
+
 ### Added
 
 - **Application mode:** `cosyte(rootDir, { library: false })` drops the JSDoc + `@example` gate and
