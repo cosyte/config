@@ -173,6 +173,7 @@ function main() {
       "Next steps:",
       `  cd ${destDir}`,
       "  pnpm install            # resolves @cosyte/* config packages from npm",
+      "  pnpm format             # the generated files are placeholder-substituted; format once",
       "  pnpm typecheck && pnpm lint --max-warnings=0 && pnpm test && pnpm build && pnpm attw",
       "",
       "Then follow the crew skill `scaffold-a-new-parser` for the post-scaffold steps:",

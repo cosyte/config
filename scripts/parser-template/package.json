@@ -2,7 +2,14 @@
   "name": "{{PKG}}",
   "version": "0.0.0",
   "description": "{{TITLE}} parser, serializer, and builder for Node.js and TypeScript — lenient on parse, spec-clean on emit.",
-  "keywords": ["{{NAME}}", "parser", "healthcare", "interoperability", "typescript", "serializer"],
+  "keywords": [
+    "{{NAME}}",
+    "parser",
+    "healthcare",
+    "interoperability",
+    "typescript",
+    "serializer"
+  ],
   "homepage": "https://github.com/cosyte/{{NAME}}#readme",
   "bugs": {
     "url": "https://github.com/cosyte/{{NAME}}/issues"
@@ -34,7 +41,12 @@
     },
     "./package.json": "./package.json"
   },
-  "files": ["dist", "README.md", "LICENSE", "CHANGELOG.md"],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
   "sideEffects": false,
   "publishConfig": {
     "access": "public",
@@ -61,7 +73,7 @@
   "devDependencies": {
     "@arethetypeswrong/cli": "0.18.4",
     "@changesets/cli": "2.31.0",
-    "@cosyte/eslint-config": "^0.0.3",
+    "@cosyte/eslint-config": "^0.0.4",
     "@cosyte/prettier-config": "^0.0.2",
     "@cosyte/test-utils": "^0.0.1",
     "@cosyte/tsconfig": "^0.0.2",
