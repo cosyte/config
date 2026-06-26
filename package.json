@@ -19,10 +19,16 @@
   "scripts": {
     "format": "prettier --write \"**/*.{js,ts,json,md,yml,yaml}\"",
     "format:check": "prettier --check \"**/*.{js,ts,json,md,yml,yaml}\"",
-    "test": "vitest run",
+    "test:root": "vitest run",
+    "test:packages": "pnpm --filter \"./packages/*\" run test",
+    "test": "pnpm run test:root && pnpm run test:packages",
+    "build": "pnpm --filter \"./packages/*\" run build",
+    "typecheck": "pnpm --filter \"./packages/*\" run typecheck",
+    "lint": "pnpm --filter \"./packages/*\" run lint",
+    "attw": "pnpm --filter \"./packages/*\" run attw",
     "changeset": "changeset",
     "version": "changeset version",
-    "release": "changeset publish",
+    "release": "pnpm run build && changeset publish",
     "drift": "node scripts/drift-check.js"
   },
   "devDependencies": {

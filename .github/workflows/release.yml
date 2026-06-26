@@ -33,7 +33,11 @@ jobs:
       - name: Verify
         run: |
           pnpm format:check
+          pnpm typecheck
+          pnpm lint
           pnpm test
+          pnpm build
+          pnpm attw
       - name: Create release PR or publish
         uses: changesets/action@v1
         with:

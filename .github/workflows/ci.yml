@@ -31,7 +31,13 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm format:check
+      - run: pnpm typecheck
+      - run: pnpm lint
       - run: pnpm test
+      # Build the workspace's TS packages (test-utils is the first), then verify
+      # their published types resolve under every module mode.
+      - run: pnpm build
+      - run: pnpm attw
 
   actionlint:
     runs-on: ubuntu-latest

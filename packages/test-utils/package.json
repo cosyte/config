@@ -1,14 +1,20 @@
 {
   "name": "@cosyte/test-utils",
   "version": "0.0.0",
-  "private": true,
-  "description": "Shared conformance test kit for the @cosyte/* parsers. Scaffold — filled in the test-strategy phase.",
+  "description": "Framework-agnostic conformance test kit for the @cosyte/* parsers — generic round-trip, lenient-mode, immutability, warning-code, and PHI-leak invariant runners.",
   "keywords": [
     "testing",
     "conformance",
+    "property-testing",
     "fast-check",
+    "phi",
+    "healthcare",
     "cosyte"
   ],
+  "homepage": "https://github.com/cosyte/config/tree/main/packages/test-utils#readme",
+  "bugs": {
+    "url": "https://github.com/cosyte/config/issues"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/cosyte/config.git",
@@ -16,5 +22,67 @@
   },
   "license": "MIT",
   "author": "Cosyte <hello@cosyte.com> (https://cosyte.com)",
-  "type": "module"
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "packageManager": "pnpm@10.0.0",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "prettier": "@cosyte/prettier-config",
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\" --max-warnings=0",
+    "lint:fix": "eslint \"src/**/*.ts\" \"test/**/*.ts\" --fix",
+    "format": "prettier --write \"src/**/*.{ts,md}\" \"test/**/*.ts\" \"*.{json,md,yml}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,md}\" \"test/**/*.ts\" \"*.{json,md,yml}\"",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "attw": "attw --pack .",
+    "clean": "rm -rf dist coverage",
+    "prepublishOnly": "pnpm clean && pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm attw"
+  },
+  "peerDependencies": {
+    "fast-check": "^3.0.0"
+  },
+  "devDependencies": {
+    "@arethetypeswrong/cli": "0.18.4",
+    "@cosyte/eslint-config": "^0.0.3",
+    "@cosyte/prettier-config": "^0.0.2",
+    "@cosyte/tsconfig": "^0.0.2",
+    "@cosyte/tsup-config": "^0.0.1",
+    "@types/node": "^22.0.0",
+    "@vitest/coverage-v8": "4.1.4",
+    "eslint": "10.5.0",
+    "fast-check": "3.23.2",
+    "prettier": "3.8.3",
+    "tsup": "8.5.1",
+    "typescript": "5.9.3",
+    "vite": "7.3.6",
+    "vitest": "4.1.4"
+  }
 }
