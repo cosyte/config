@@ -71,17 +71,17 @@ importers:
         specifier: 0.18.4
         version: 0.18.4
       '@cosyte/eslint-config':
-        specifier: ^0.0.3
-        version: 0.0.3(eslint@10.5.0)(typescript@5.9.3)
+        specifier: workspace:^
+        version: link:../eslint-config
       '@cosyte/prettier-config':
-        specifier: ^0.0.2
-        version: 0.0.2
+        specifier: workspace:^
+        version: link:../prettier-config
       '@cosyte/tsconfig':
-        specifier: ^0.0.2
-        version: 0.0.2
+        specifier: workspace:^
+        version: link:../tsconfig
       '@cosyte/tsup-config':
-        specifier: ^0.0.1
-        version: 0.0.1(tsup@8.5.1(postcss@8.5.15)(typescript@5.9.3))
+        specifier: workspace:^
+        version: link:../tsup-config
       '@types/node':
         specifier: ^22.0.0
         version: 22.20.0
@@ -230,23 +230,6 @@ packages:
   '@colors/colors@1.5.0':
     resolution: {integrity: sha512-ooWCrlZP11i8GImSjTHYHLkvFDP48nS4+204nGb1RiX/WXYHmJA2III9/e2DWVabCESdW7hBAEzHRqUn9OUVvQ==}
     engines: {node: '>=0.1.90'}
-
-  '@cosyte/eslint-config@0.0.3':
-    resolution: {integrity: sha512-AcH7JED37/XrXtfvM2z/gCugwYGqQxbmxZAsyx6hSFmsT9sCa6ddcqgvguhc0uE2HtlY9QMGz1Xpbv2QZlk7xQ==}
-    peerDependencies:
-      eslint: ^9.0.0 || ^10.0.0
-      typescript: '>=5.0.0'
-
-  '@cosyte/prettier-config@0.0.2':
-    resolution: {integrity: sha512-nmplXQKNq5DZ+Su/tCUF6m9UJ9MOArhw5NG0X9yqi6B5zvxmVXtKMAX1N2bKkqpKhZqyQOR9ALGYVpTx022R/g==}
-
-  '@cosyte/tsconfig@0.0.2':
-    resolution: {integrity: sha512-+V3F04HIlvQskPMz/YuGr40IT89mZ/T/2S5fe5PAxIE3MER3v4fMBdh0/IYRtqqwGEX5g3DNDj61x68Xr8f/9Q==}
-
-  '@cosyte/tsup-config@0.0.1':
-    resolution: {integrity: sha512-i15Pa7lLx+E7niBVXiFB8DOSeDNl46PEf3JYzeobqDhU4Yvvczf5l7CrA1o7ikoaIlF9hYF4EBs3AGKZFnKh8A==}
-    peerDependencies:
-      tsup: ^8.0.0
 
   '@emnapi/core@1.11.1':
     resolution: {integrity: sha512-RSvbQmHzdKzNsLYa/wHrbc3KN4sYLKAdPZxqiM2HATqv/SBk2/ENSHpvXGaLOMcsAyz0poEGqkmmKYG3OWiJEQ==}
@@ -2245,25 +2228,6 @@ snapshots:
 
   '@colors/colors@1.5.0':
     optional: true
-
-  '@cosyte/eslint-config@0.0.3(eslint@10.5.0)(typescript@5.9.3)':
-    dependencies:
-      '@eslint/js': 10.0.1(eslint@10.5.0)
-      eslint: 10.5.0
-      eslint-config-prettier: 10.1.8(eslint@10.5.0)
-      eslint-plugin-jsdoc: 63.0.7(eslint@10.5.0)
-      typescript: 5.9.3
-      typescript-eslint: 8.62.0(eslint@10.5.0)(typescript@5.9.3)
-    transitivePeerDependencies:
-      - supports-color
-
-  '@cosyte/prettier-config@0.0.2': {}
-
-  '@cosyte/tsconfig@0.0.2': {}
-
-  '@cosyte/tsup-config@0.0.1(tsup@8.5.1(postcss@8.5.15)(typescript@5.9.3))':
-    dependencies:
-      tsup: 8.5.1(postcss@8.5.15)(typescript@5.9.3)
 
   '@emnapi/core@1.11.1':
     dependencies:
