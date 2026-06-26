@@ -1,6 +1,6 @@
 {
   "name": "@cosyte/test-utils",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "Framework-agnostic conformance test kit for the @cosyte/* parsers — generic round-trip, lenient-mode, immutability, warning-code, and PHI-leak invariant runners.",
   "keywords": [
     "testing",
@@ -71,7 +71,7 @@
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "0.18.4",
-    "@cosyte/eslint-config": "^0.0.3",
+    "@cosyte/eslint-config": "^0.0.4",
     "@cosyte/prettier-config": "^0.0.2",
     "@cosyte/tsconfig": "^0.0.2",
     "@cosyte/tsup-config": "^0.0.1",
