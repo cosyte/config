@@ -7,6 +7,8 @@ the **`0.0.x`-until-first-alpha** ladder.
 
 ## [Unreleased]
 
+## [0.0.2] - 2026-06-25
+
 ### Changed
 
 - `target` and `lib` raised from `ES2022` to `ES2023` (the suite's Node ≥ 22 floor supports it).

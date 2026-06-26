@@ -7,6 +7,8 @@ the **`0.0.x`-until-first-alpha** ladder.
 
 ## [Unreleased]
 
+## [0.0.2] - 2026-06-25
+
 ### Added
 
 - Package `README.md` and this `CHANGELOG.md` (now shipped in the published tarball).

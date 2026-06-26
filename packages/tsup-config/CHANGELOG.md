@@ -6,6 +6,8 @@ this file is hand-maintained. The package stays on the **`0.0.x`-until-first-alp
 
 ## [Unreleased]
 
+## [0.0.1] - 2026-06-25
+
 ### Added
 
 - Initial release: `cosyteTsup(overrides)` — the standard dual ESM + CJS, ES2023, Node-platform tsup

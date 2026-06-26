@@ -8,7 +8,13 @@ this file is hand-maintained. The package stays on the **`0.0.x`-until-first-alp
 
 ### Added
 
+- Declared `vite` (`^6 || ^7 || ^8`) as a peer dependency — Vitest 4 requires vite >= 6, and the
+  resolver otherwise keeps an incompatible vite 5 (missing the `./module-runner` export). _(Added after
+  `0.0.1` published; ships in the next release.)_
+
+## [0.0.1] - 2026-06-25
+
+### Added
+
 - Initial release: `cosyteVitest(opts)` — v8 coverage, standard excludes, and enabled, gating
   per-directory thresholds at >= 90.
-- Declared `vite` (`^6 || ^7 || ^8`) as a peer dependency — Vitest 4 requires vite >= 6, and the
-  resolver otherwise keeps an incompatible vite 5 (missing the `./module-runner` export).
