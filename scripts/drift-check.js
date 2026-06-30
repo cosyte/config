@@ -110,6 +110,16 @@ function checkRepo(name) {
     );
   }
 
+  // canonical pnpm.overrides (Dependabot dev-dep advisory remediation — suite-wide, no per-repo drift)
+  const overrides = pkg.pnpm?.overrides ?? {};
+  for (const [key, want] of Object.entries(manifest.pnpmOverrides ?? {})) {
+    if (overrides[key] !== want) {
+      violations.push(
+        `pnpm.overrides["${key}"]: want "${want}", got ${JSON.stringify(overrides[key] ?? null)}`,
+      );
+    }
+  }
+
   // tsconfig extends the shared base
   const tsconfig = tryReadJson(join(repoDir, "tsconfig.json"));
   if (!tsconfig) {

@@ -15,6 +15,12 @@
     "node": ">=22"
   },
   "packageManager": "pnpm@10.0.0",
+  "pnpm": {
+    "overrides": {
+      "esbuild@>=0.27.3 <0.28.1": "0.28.1",
+      "js-yaml@>=4.0.0 <4.2.0": "4.2.0"
+    }
+  },
   "prettier": "@cosyte/prettier-config",
   "scripts": {
     "format": "prettier --write \"**/*.{js,ts,json,md,yml,yaml}\"",
