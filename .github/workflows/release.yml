@@ -14,11 +14,27 @@ permissions:
   pull-requests: write # open the "Version Packages" PR
 
 # Changesets flow: a push to main with pending changesets opens a "Version Packages" PR. Merging that
-# PR (the human approval gate) bumps versions and triggers publish with provenance.
-# NOTE: uses NPM_TOKEN today; Phase C migrates to npm OIDC trusted publishing once configured npm-side.
+# PR bumps versions and triggers publish. Once the `release` environment is created as PROTECTED (see
+# the ⚠️ at the job below + RELEASING.md), it becomes the human approval gate — every run waits for a
+# required reviewer before it can create the version PR or publish, so nothing reaches npm unattended.
+#
+# AUTH TODAY: NPM_TOKEN (this repo is private). npm provenance + OIDC trusted publishing both require a
+# PUBLIC repo, so they light up at launch (PUB-FLIP), not now:
+#   - `NPM_CONFIG_PROVENANCE` already auto-enables the moment this repo goes public (see below).
+#   - The tokenless OIDC migration (remove NPM_TOKEN; add the npm-side Trusted Publisher pointing at
+#     org `cosyte` / repo `config` / workflow `release.yml` / environment `release`) is a PUB-FLIP step
+#     and needs the runner toolchain floor bumped first (npm ≥ 11.5.1, pnpm ≥ 10.16). RELEASING.md has
+#     the exact turnkey steps. The pipeline itself is proven every push by the `release-dry-run` CI job.
 jobs:
   release:
     runs-on: ubuntu-latest
+    # Release approval gate. ⚠️ ONE-TIME SETUP REQUIRED: create a PROTECTED `release` environment
+    # (Settings → Environments → release: add a Required reviewer + a `main`-only deployment-branch
+    # policy) — see RELEASING.md for the exact steps. Until it exists, GitHub auto-creates an
+    # UNPROTECTED environment of this name on first run (same as no gate — no regression), so this
+    # reference is safe to ship; the gate activates automatically once the protected env is added.
+    # This is also the OIDC subject the npm Trusted Publisher binds to at PUB-FLIP.
+    environment: release
     steps:
       - uses: actions/checkout@v7
         with:

@@ -44,3 +44,29 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: reviewdog/action-actionlint@v1
+
+  # Prove the publish pipeline on every push/PR WITHOUT burning a version (REL-PIPE). No registry
+  # auth, no upload: `publish --dry-run` exercises the publish command path (the release itself
+  # publishes via `changeset publish`; this is a faithful proxy for the pack/manifest/access path) —
+  # green as "no new packages" until a changeset bumps a version, at which point it packs+validates
+  # that version — and `npm pack --dry-run` asserts each publishable tarball actually assembles with the
+  # right file set + built dist — independent of what's already on npm. A red here means a real
+  # release would fail. Real provenance publish stays gated on the public flip (PUB-FLIP).
+  release-dry-run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      # Exercise the publish command path (auth-free dry run; never uploads).
+      - name: Publish dry-run
+        run: pnpm -r publish --dry-run --no-git-checks
+      # Assert every publishable tarball assembles (catches missing files/dist/exports) even when
+      # the current version is already on npm — which `publish --dry-run` skips.
+      - name: Pack integrity
+        run: pnpm -r --filter "./packages/*" exec npm pack --dry-run

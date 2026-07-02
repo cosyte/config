@@ -16,4 +16,6 @@ The standard these encode is documented in the meta-repo's `documentation/conven
 ## Versioning
 
 Every package follows the cosyte ladder: **`0.0.x` until first alpha**. Releases are managed with
-Changesets.
+Changesets and — once the environment is created (a one-time setup step) — gated on a protected
+`release` environment; the full pipeline (and the OIDC / npm provenance migration deferred to launch)
+is documented in [`RELEASING.md`](RELEASING.md).
