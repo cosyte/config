@@ -14,6 +14,28 @@ no package, so entries here are **dated** rather than versioned.
 
 ## [Unreleased]
 
+### Added
+
+- **REL-PIPE** — proved the publish pipeline without burning a version. New **`release-dry-run` CI
+  job** exercises the publish path (`pnpm -r publish --dry-run`) + asserts every publishable tarball
+  assembles (`npm pack --dry-run`) on each push/PR — auth-free, no upload, no version consumed; a red
+  here means a real release would fail. `release.yml` now references an **`environment: release`**
+  approval gate. New **`RELEASING.md`** documents the whole pipeline + the turnkey OIDC-trusted-
+  publishing / provenance migration deferred to the public launch (PUB-FLIP).
+
+### Changed
+
+- `release.yml` NOTE rewritten to reflect the environment gate and the OIDC-at-PUB-FLIP reality
+  (provenance auto-enables on the public flip; tokenless OIDC needs npm ≥ 11.5.1 / pnpm ≥ 10.16
+  first).
+
+### Remaining (one-time, privileged — not autopilot-doable)
+
+- **Create the protected `release` environment** (required reviewer + `main`-only branch policy). The
+  autopilot PAT lacks `Environments: write`, so the `environment: release` reference ships un-gated
+  until a founder (or a scoped token) creates it — GitHub auto-creates an unprotected env of that name
+  on first run meanwhile (no regression). Exact UI + API steps in `RELEASING.md`.
+
 ## 2026-06-30
 
 ### Added
