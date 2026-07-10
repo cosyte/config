@@ -33,7 +33,7 @@
   "dependencies": {
     "@eslint/js": "^10.0.0",
     "eslint-config-prettier": "^10.1.0",
-    "eslint-plugin-jsdoc": "^63.0.0",
+    "eslint-plugin-jsdoc": "^63.0.13",
     "typescript-eslint": "^8.62.0"
   },
   "peerDependencies": {
