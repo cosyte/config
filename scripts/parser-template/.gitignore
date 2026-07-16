@@ -9,6 +9,7 @@ dist/
 # Test / coverage
 coverage/
 .vitest-cache/
+.cosyte-doc-snippets*/
 
 # Environment
 .env

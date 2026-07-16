@@ -6,6 +6,8 @@
     "vitest",
     "coverage",
     "test",
+    "doctest",
+    "documentation",
     "cosyte"
   ],
   "homepage": "https://github.com/cosyte/config/tree/main/packages/vitest-config#readme",
@@ -23,11 +25,17 @@
     ".": {
       "types": "./index.d.ts",
       "default": "./index.js"
+    },
+    "./snippets": {
+      "types": "./snippets.d.ts",
+      "default": "./snippets.js"
     }
   },
   "files": [
     "index.js",
     "index.d.ts",
+    "snippets.js",
+    "snippets.d.ts",
     "README.md",
     "CHANGELOG.md"
   ],
