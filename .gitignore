@@ -3,3 +3,8 @@ dist/
 coverage/
 *.log
 .DS_Store
+
+# Transient TS modules emitted by @cosyte/vitest-config/snippets (docSnippetSuite / runSnippet),
+# and the parser-template regression test's scratch dir.
+.cosyte-doc-snippets*/
+.cosyte-template-check/
