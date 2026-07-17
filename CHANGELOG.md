@@ -14,6 +14,12 @@ no package, so entries here are **dated** rather than versioned.
 
 ## [Unreleased]
 
+### Changed
+
+- **Published with npm provenance.** The repo is public, so every `@cosyte/*` config package now
+  ships a signed SLSA provenance attestation linking the tarball to the exact commit and workflow
+  that built it — verifiable with `npm audit signatures`. No API or behaviour change.
+
 ### Added
 
 - **REL-PIPE** — proved the publish pipeline without burning a version. New **`release-dry-run` CI
@@ -31,10 +37,8 @@ no package, so entries here are **dated** rather than versioned.
 
 ### Remaining (one-time, privileged — not autopilot-doable)
 
-- **Create the protected `release` environment** (required reviewer + `main`-only branch policy). The
-  autopilot PAT lacks `Environments: write`, so the `environment: release` reference ships un-gated
-  until a founder (or a scoped token) creates it — GitHub auto-creates an unprotected env of that name
-  on first run meanwhile (no regression). Exact UI + API steps in `RELEASING.md`.
+- ~~**Create the protected `release` environment**~~ — done. `release` carries a required reviewer
+  and a `main`-only deployment-branch policy; see `RELEASING.md`.
 
 ## 2026-06-30
 
