@@ -22,6 +22,19 @@ no package, so entries here are **dated** rather than versioned.
 
 ### Added
 
+- **PHI-GATE-SUITE — `phi-scan` is now an enforced baseline script + a scaffold default.** Added
+  `"phi-scan"` to `drift-manifest.json`'s `requiredScripts`, so `drift-check` fails any `@cosyte/*`
+  parser that loses its commit-time PHI scanner (all six targets already carry one — `drift-check`
+  stays green). To keep a **newly** scaffolded parser born-compliant, the parser template
+  (`scripts/parser-template/`) now ships a **STARTER** `scripts/phi-scan.ts`: the proven shared
+  machinery (`--staged` pre-commit + full-tree CI modes, synthetic allow-list, `--allow-fixture`
+  override-log gate, exit codes 0/1/2, `git`-only-via-`execFileSync`) plus a cross-cutting SSN/email
+  detection **floor** and a prominent, fenced TODO obligating the author to add structured,
+  field-level PHI detection for their standard before relying on it. Also adds
+  `scripts/phi-allow-list.txt`, `phi-scan-overrides.md`, `test/scripts/phi-scan.test.ts`, the
+  `phi-scan` script + `simple-git-hooks` `pre-commit` wiring (`tsx` + `simple-git-hooks` devDeps),
+  `run-phi-scan: true` on the template's CI caller, and `scripts/**/*.ts` to the template's
+  tsconfig/lint/format scope.
 - **REL-PIPE** — proved the publish pipeline without burning a version. New **`release-dry-run` CI
   job** exercises the publish path (`pnpm -r publish --dry-run`) + asserts every publishable tarball
   assembles (`npm pack --dry-run`) on each push/PR — auth-free, no upload, no version consumed; a red
