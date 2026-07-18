@@ -44,5 +44,5 @@
     "@cosyte/tsup-config",
     "@cosyte/vitest-config"
   ],
-  "requiredWorkflows": ["ci.yml", "release.yml"]
+  "requiredWorkflows": ["ci.yml", "release.yml", "codeql.yml", "scorecard.yml"]
 }
