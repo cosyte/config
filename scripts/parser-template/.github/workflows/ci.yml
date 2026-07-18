@@ -17,5 +17,11 @@ jobs:
   # Universal gates from the shared pipeline (typecheck, lint, format, test, coverage, build, attw,
   # dual ESM/CJS smoke, actionlint) on the standard Node matrix. Repo-specific extra jobs (e.g. an
   # examples smoke, a starter-kit build) are added on top of this caller, never instead of it.
+  # The template ships a PHI scanner (scripts/phi-scan.ts), so the shared pipeline's optional
+  # PHI-scan step is switched on. NOTE: the scaffolded scanner is a STARTER — it detects only
+  # cross-cutting SSN/email shapes until you add structured, field-level detection for this
+  # standard's PHI (see the STARTER banner in scripts/phi-scan.ts).
   ci:
     uses: cosyte/.github/.github/workflows/ci.yml@main
+    with:
+      run-phi-scan: true
