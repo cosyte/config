@@ -18,13 +18,14 @@ permissions:
 # the ⚠️ at the job below + RELEASING.md), it becomes the human approval gate — every run waits for a
 # required reviewer before it can create the version PR or publish, so nothing reaches npm unattended.
 #
-# AUTH TODAY: NPM_TOKEN (this repo is private). npm provenance + OIDC trusted publishing both require a
-# PUBLIC repo, so they light up at launch (PUB-FLIP), not now:
-#   - `NPM_CONFIG_PROVENANCE` already auto-enables the moment this repo goes public (see below).
-#   - The tokenless OIDC migration (remove NPM_TOKEN; add the npm-side Trusted Publisher pointing at
-#     org `cosyte` / repo `config` / workflow `release.yml` / environment `release`) is a PUB-FLIP step
-#     and needs the runner toolchain floor bumped first (npm ≥ 11.5.1, pnpm ≥ 10.16). RELEASING.md has
-#     the exact turnkey steps. The pipeline itself is proven every push by the `release-dry-run` CI job.
+# AUTH TODAY: NPM_TOKEN. This repo is PUBLIC, so npm provenance is already live — `NPM_CONFIG_PROVENANCE`
+# auto-enables below on the public visibility check. The runner toolchain floor is now bumped for OIDC
+# (packageManager `pnpm@10.34.5` ≥ 10.16, Node `22.14`; publish runs via `pnpm run release`, so pnpm —
+# not npm — carries trusted publishing). What remains for tokenless OIDC is a FOUNDER step, not a build:
+#   - Register the npm-side Trusted Publisher (org `cosyte` / repo `config` / workflow `release.yml` /
+#     environment `release`), then remove NPM_TOKEN / NODE_AUTH_TOKEN here. RELEASING.md §"OIDC" has the
+#     exact turnkey steps. Until then, NPM_TOKEN must stay an npm *Automation* token.
+# The pipeline itself is proven every push by the `release-dry-run` CI job.
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -42,7 +43,7 @@ jobs:
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
         with:
-          node-version: "22"
+          node-version: "22.14"
           registry-url: https://registry.npmjs.org
           cache: pnpm
       - run: pnpm install --frozen-lockfile
