@@ -21,7 +21,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ["22.14", "24"]
+        # Low end stays "22" (the required-status-check context is `verify (22)`); setup-node
+        # resolves it to the latest 22.x, which is >= the declared 22.14 floor. The floor is declared
+        # in engines.node and pinned explicitly on the publish path (release.yml + release-dry-run).
+        node: ["22", "24"]
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
