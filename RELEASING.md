@@ -93,9 +93,12 @@ publish, no version consumed.
 **Provenance is live** (the repo is public). **OIDC trusted publishing** — publishing with no token
 at all — is the remaining step, and it needs a toolchain bump first. A turnkey sequence:
 
-1. **Bump the runner toolchain floor** — OIDC trusted publishing needs **npm ≥ 11.5.1**, **Node ≥
-   22.14**, and (since we publish via pnpm) **pnpm ≥ 10.16** (this repo pins `pnpm@10.0.0` today).
-   Bump `packageManager` + the `setup-node`/`action-setup` versions accordingly.
+1. ~~**Bump the runner toolchain floor**~~ — **DONE.** `packageManager` is now `pnpm@10.34.5`
+   (≥ 10.16) and the `setup-node` pins are `22.14` (≥ 22.14) across `ci.yml` (`release-dry-run`) and
+   `release.yml`; `engines.node` is `>=22.14`. Since publish runs via `pnpm run release`, **pnpm**
+   carries OIDC trusted publishing, so the npm-CLI floor (npm ≥ 11.5.1) is not on the publish path and
+   no `npm i -g npm@…` step is needed. `pnpm/action-setup@v6` reads `packageManager`, so the dry-run
+   and release jobs install 10.34.5. Proven green by `release-dry-run`.
 2. **Configure the Trusted Publisher on npm** — for each `@cosyte/*` package: Settings → Trusted
    Publisher → GitHub org `cosyte`, repository `config`, workflow filename `release.yml`, environment
    name `release`, allowed action `npm publish`.
