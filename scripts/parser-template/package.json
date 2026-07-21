@@ -1,7 +1,7 @@
 {
   "name": "{{PKG}}",
   "version": "0.0.0",
-  "description": "{{TITLE}} parser, serializer, and builder for Node.js and TypeScript — lenient on parse, spec-clean on emit.",
+  "description": "{{TITLE}} parser, serializer, and builder for Node.js and TypeScript \u2014 lenient on parse, spec-clean on emit.",
   "keywords": [
     "{{NAME}}",
     "parser",
@@ -100,7 +100,7 @@
   "pnpm": {
     "overrides": {
       "esbuild@>=0.27.3 <0.28.1": "0.28.1",
-      "js-yaml@>=4.0.0 <4.2.0": "4.2.0"
+      "js-yaml@>=4.0.0 <4.3.0": "4.3.0"
     }
   }
 }

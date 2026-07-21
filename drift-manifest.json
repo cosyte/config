@@ -47,10 +47,10 @@
     "@arethetypeswrong/cli": ""
   },
   "caretAllowed": ["@types/node"],
-  "pnpmOverridesComment": "Canonical pnpm.overrides every parser must carry — Dependabot dev/build-time advisory remediation. esbuild: GHSA dev-server path-traversal (not reachable; repos build via tsup/vitest, never `esbuild serve`). js-yaml@4: GHSA-h67p-54hq-rp68 quadratic merge-key DoS. KNOWN RESIDUAL (not pinnable): js-yaml@3.14.2 reached via read-yaml-file@1.1.0 (@manypkg/get-packages → @changesets/cli) calls yaml.safeLoad, which throws in js-yaml 4 — cannot force-upgrade without breaking release tooling; it only parses trusted local repo YAML at release time.",
+  "pnpmOverridesComment": "Canonical pnpm.overrides every parser must carry — Dependabot dev/build-time advisory remediation. esbuild: GHSA dev-server path-traversal (not reachable; repos build via tsup/vitest, never `esbuild serve`). js-yaml@4: GHSA-h67p-54hq-rp68 quadratic merge-key DoS — advisory range extended to <4.3.0, so the pin is 4.3.0 (bumped 2026-07-21). KNOWN RESIDUAL (not pinnable): js-yaml@3.14.2 reached via read-yaml-file@1.1.0 (@manypkg/get-packages → @changesets/cli) calls yaml.safeLoad, which throws in js-yaml 4 — cannot force-upgrade without breaking release tooling; it only parses trusted local repo YAML at release time.",
   "pnpmOverrides": {
     "esbuild@>=0.27.3 <0.28.1": "0.28.1",
-    "js-yaml@>=4.0.0 <4.2.0": "4.2.0"
+    "js-yaml@>=4.0.0 <4.3.0": "4.3.0"
   },
   "requiredCosyteConfigDeps": [
     "@cosyte/tsconfig",
