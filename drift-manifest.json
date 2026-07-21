@@ -1,6 +1,20 @@
 {
   "$comment": "Canonical engineering baseline for the @cosyte/* parser repos. scripts/drift-check.js fails when a repo diverges. The authoritative prose is the meta-repo documentation/conventions.md; this is its machine-checkable shadow. Until Phases D/E migrate each parser, drift here is EXPECTED — it is the worklist.",
-  "targets": ["hl7", "mllp", "dicom", "x12", "ccda", "ncpdp"],
+  "targets": [
+    "hl7",
+    "mllp",
+    "dicom",
+    "x12",
+    "ccda",
+    "ncpdp",
+    "fhir",
+    "astm",
+    "terminology",
+    "transform",
+    "cli",
+    "deid",
+    "synth"
+  ],
   "packageManagerPrefix": "pnpm@10",
   "nodeEngineMinMajor": 22,
   "tsconfigExtends": "@cosyte/tsconfig/base.json",
