@@ -38,16 +38,16 @@
     "drift": "node scripts/drift-check.js"
   },
   "devDependencies": {
-    "@changesets/cli": "2.31.0",
+    "@changesets/cli": "2.31.1",
     "@cosyte/eslint-config": "workspace:*",
     "@cosyte/prettier-config": "workspace:*",
     "@cosyte/tsconfig": "workspace:*",
     "@cosyte/tsup-config": "workspace:*",
     "@cosyte/vitest-config": "workspace:*",
-    "@vitest/coverage-v8": "4.1.4",
-    "prettier": "3.8.3",
+    "@vitest/coverage-v8": "4.1.10",
+    "prettier": "3.9.6",
     "tsup": "8.5.1",
-    "typescript": "5.9.3",
-    "vitest": "4.1.4"
+    "typescript": "7.0.2",
+    "vitest": "4.1.10"
   }
 }
