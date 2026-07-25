@@ -1,0 +1,83 @@
+name: PERF-P0 calibration
+
+# Manual only. This is not a gate and must never become one: it takes ~45 minutes, asserts nothing,
+# and its whole output is a dataset. It exists so the calibration numbers in
+# experiments/perf-calibration/ANALYSIS.md come from the runner class the gate will actually run on
+# (roadmap §8/P0 — "one GitHub-hosted runner"), not only from a developer container.
+#
+# Re-run it when the runner image generation changes. C4 in the roadmap is precisely that: a
+# statistically significant change point on GitHub Actions traced entirely to an image bump with no
+# code change, so these constants have a shelf life.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Sweep mode"
+        type: choice
+        default: full
+        options: [full, quick, bc-only]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  calibrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      # Node 22 specifically: §10/O7 — the source research measured only Node v24.18.0, and the
+      # published floor for every @cosyte/* package is 22. Calibrating on 24 would miss the point.
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Record the runner V8 build
+        run: node -p "'node ' + process.versions.node + ' / v8 ' + process.versions.v8"
+      - name: Sweep
+        env:
+          # `push` runs (and the default) take the cheap legs: Experiment A's dataset is expensive
+          # and is tied to a module whose bytecode must not change, so it is re-taken deliberately.
+          MODE: ${{ inputs.mode || 'bc-only' }}
+        run: |
+          case "$MODE" in
+            full) experiments/perf-calibration/run.sh ;;
+            quick) experiments/perf-calibration/run.sh --quick ;;
+            *) experiments/perf-calibration/run.sh --bc-only ;;
+          esac
+      # The repo ships committed datasets. Whatever this run did NOT measure must not ride along in
+      # the artifact — an artifact holding a stale file next to a fresh one is how a dataset gets
+      # mislabelled as coming from a runner it never ran on.
+      - name: Drop anything this run did not measure
+        env:
+          MODE: ${{ inputs.mode || 'bc-only' }}
+        run: |
+          rm -rf experiments/perf-calibration/data/github-hosted
+          [ "$MODE" = "bc-only" ] && rm -f experiments/perf-calibration/data/ratios.jsonl \
+            experiments/perf-calibration/data/tables-container.md
+          ls -la experiments/perf-calibration/data/
+
+      - name: Derive the tables
+        env:
+          MODE: ${{ inputs.mode || 'bc-only' }}
+        # analyze.mjs needs Experiment A's rows; in bc-only mode there are none, so just show B/C.
+        run: |
+          if [ "$MODE" = "bc-only" ]; then
+            node -e 'const r=require("./experiments/perf-calibration/data/gc-fixpoint.json");
+              for (const f of r.argumentForms) console.log(f.form.padEnd(30),
+                (f.reclaimedBytes.sort((a,b)=>a-b)[Math.floor(f.reclaimedBytes.length/2)]/1048576).toFixed(2), "MiB");
+            ' | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            node experiments/perf-calibration/analyze.mjs | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v5
+        with:
+          name: perf-calibration-data
+          path: experiments/perf-calibration/data/
+          if-no-files-found: error
