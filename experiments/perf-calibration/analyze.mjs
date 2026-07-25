@@ -18,11 +18,27 @@ const rows = readFileSync(join(dataDir, "ratios.jsonl"), "utf8")
   .filter(Boolean)
   .map((l) => JSON.parse(l));
 const gc = JSON.parse(readFileSync(join(dataDir, "gc-fixpoint.json"), "utf8"));
+/** Experiment C is optional: a `--bc-only` artifact has it, an older dataset may not. */
+let signal = [];
+try {
+  signal = readFileSync(join(dataDir, "signal.jsonl"), "utf8")
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((l) => JSON.parse(l));
+} catch {
+  signal = [];
+}
 const env = JSON.parse(readFileSync(join(dataDir, "environment.json"), "utf8"));
 
 const ESTIMATORS = ["min", "median", "trimmedMean", "mean"];
-/** The estimator every headline table uses. Chosen for reporting only — P1 owns the real choice. */
-const HEADLINE = "median";
+/**
+ * The estimator the per-cell tables are derived on. Overridable with `EST=` because the pre-registered
+ * decision rule reads "for the estimator P1 adopts", and ANALYSIS.md §1 ends up recommending `min` for
+ * the ratio assertion — so every conclusion has to be checkable on `min`, not only on the default.
+ */
+const HEADLINE = process.env["EST"] ?? "median";
+if (!ESTIMATORS.includes(HEADLINE)) throw new Error(`EST must be one of ${ESTIMATORS.join(", ")}`);
 
 const asc = (xs) => [...xs].sort((a, b) => a - b);
 /** Nearest-rank percentile. No interpolation: with n=200 the rank is unambiguous. */
@@ -208,31 +224,43 @@ const roundsHist = (trials) => {
  *     nothing to do with GC stability (the process's own baseline creeping as the harness allocates,
  *     a compilation cache being released), so it is reported separately and never as "noise".
  */
-const settledSpread = (trials) =>
-  med(
-    trials
-      .filter((t) => t.series.length > 1)
-      .map((t) => {
-        const tail = t.series.slice(1);
-        return (Math.max(...tail) - Math.min(...tail)) / med(tail);
-      }),
-  );
+const settledSpreads = (trials) =>
+  trials
+    .filter((t) => t.series.length > 1)
+    .map((t) => {
+      const tail = t.series.slice(1);
+      return {
+        rel: (Math.max(...tail) - Math.min(...tail)) / med(tail),
+        abs: Math.max(...tail) - Math.min(...tail),
+      };
+    });
 const driftSpread = (trials) => {
   const finals = trials.map((t) => t.final).filter((x) => x !== null);
   return (Math.max(...finals) - Math.min(...finals)) / med(finals);
 };
-say(`| leg | trials | rounds required (value→count) | settled spread, within trial | baseline drift, across trials |`);
-say(`|---|---:|---|---:|---:|`);
+say(
+  `| leg | trials | rounds required (value→count) | settled spread, median | settled spread, WORST | baseline drift |`,
+);
+say(`|---|---:|---|---:|---:|---:|`);
 for (const [label, trials] of [
   ["sync `gc()`", gc.fixpoint],
   ["async `gc({execution:'async'})`", gc.asyncFixpoint],
 ]) {
+  const sp = settledSpreads(trials);
+  const worst = sp.reduce((a, b) => (b.abs > a.abs ? b : a), { rel: 0, abs: 0 });
   say(
     `| ${label} | ${String(trials.length)} | ${roundsHist(trials)} ` +
-      `| ${f(settledSpread(trials) * 100, 3)}% | ${f(driftSpread(trials) * 100, 2)}% |`,
+      `| ${f(med(sp.map((x) => x.rel)) * 100, 3)}% | ${String(worst.abs)} B (${f(worst.rel * 100, 3)}%) ` +
+      `| ${f(driftSpread(trials) * 100, 2)}% |`,
   );
 }
-say(``);
+say(
+  ``,
+  `The **worst** column is the one P3 has to design against: the median settled reading is exactly ` +
+    `reproducible, but a minority of trials still move by ~1 KiB across settled rounds with no ` +
+    `workload running. That is the noise floor of a settled \`heapUsed\` figure, and it is not zero.`,
+  ``,
+);
 
 say(`## B2 — what each \`gc\` argument form actually reclaims (M2)`, ``);
 say(
@@ -254,29 +282,75 @@ for (const form of gc.argumentForms) {
 }
 say(``);
 
+if (signal.length > 0) {
+  say(`## D — the SIGNAL side: what an O(n²)-in-length regression actually scores`, ``);
+  say(
+    `Same harness, same \`min\` estimator, same 4× size step — only the parser is quadratic. This is ` +
+      `the number the ceiling is argued *against*, and it was inherited arithmetic ("≈16") until now.`,
+    ``,
+  );
+  say(`| base OBX → 4× | coverage | n | min | p50 | max |`);
+  say(`|---|---|---:|---:|---:|---:|`);
+  const sizes = [...new Set(signal.map((r) => r.baseObx))].sort((a, b) => a - b);
+  for (const sz of sizes)
+    for (const cov of [false, true]) {
+      const v = signal.filter((r) => r.baseObx === sz && r.coverage === cov).map((r) => r.ratioMin);
+      if (v.length === 0) continue;
+      say(
+        `| ${String(sz)} → ${String(sz * 4)} | ${cov ? "on" : "off"} | ${String(v.length)} ` +
+          `| ${f(Math.min(...v), 2)} | ${f(med(v), 2)} | ${f(Math.max(...v), 2)} |`,
+      );
+    }
+  const worstNoise = Math.max(...rows.map((r) => r.ratios["min"]));
+  const bySize = sizes.map((sz) => ({
+    sz,
+    lo: Math.min(...signal.filter((r) => r.baseObx === sz).map((r) => r.ratioMin)),
+  }));
+  say(``);
+  say(
+    `| base OBX → 4× | weakest signal seen | worst false alarm (\`min\`, all rows) | separated? |`,
+  );
+  say(`|---|---:|---:|---|`);
+  for (const { sz, lo } of bySize) {
+    say(
+      `| ${String(sz)} → ${String(sz * 4)} | ${f(lo, 2)} | ${f(worstNoise, 2)} ` +
+        `| ${lo > worstNoise ? `yes, by ${f(lo / worstNoise, 2)}×` : "**NO — overlaps the noise**"} |`,
+    );
+  }
+  say(
+    ``,
+    `The signal is **not a constant**. It climbs with fixture size as the quadratic term overtakes ` +
+      `the linear per-line work, so **the fixture size is part of the gate's calibration, not a free ` +
+      `choice**. A package that picks fixtures too small gets a gate whose signal sits inside its own ` +
+      `false-alarm tail — green while broken, which is roadmap §5's second-worst outcome.`,
+    ``,
+  );
+}
+
 say(`## C — candidate constants, derived`, ``);
 say(
   `Mechanical derivation only; the judgement about how much margin to buy is written up in ` +
     `ANALYSIS.md. \`cold\` is the population that matters — it is the only measurement a gate takes.`,
   ``,
 );
-say(`| estimator | cold n | cold min | cold max | cold p99 | ceiling @2× worst | floor @0.5× best |`);
-say(`|---|---:|---:|---:|---:|---:|---:|`);
+say(`| estimator | cold n | cold min…max | ALL n | ALL min…max | headroom of ceiling 10 (all) |`);
+say(`|---|---:|---|---:|---|---:|`);
 for (const est of ESTIMATORS) {
   const cold = rows.filter((r) => r.phase === "cold").map((r) => r.ratios[est]);
-  const lo = Math.min(...cold);
-  const hi = Math.max(...cold);
+  const all = rows.map((r) => r.ratios[est]);
   say(
-    `| \`${est}\` | ${String(cold.length)} | ${f(lo)} | ${f(hi)} | ${f(pct(cold, 99))} ` +
-      `| ${f(hi * 2, 1)} | ${f(lo * 0.5, 1)} |`,
+    `| \`${est}\` | ${String(cold.length)} | ${f(Math.min(...cold))} … ${f(Math.max(...cold))} ` +
+      `| ${String(all.length)} | ${f(Math.min(...all))} … ${f(Math.max(...all))} ` +
+      `| ${f(10 / Math.max(...all), 2)}× |`,
   );
 }
 say(
   ``,
-  `A genuine O(n²) regression on a 4× workload lands near **16**, so a ceiling has to sit below ` +
-    `that to be worth anything. The gap between the worst false alarm above and 16 is the entire ` +
-    `usable design space for the constant.`,
-  ``,
+  `Both populations are shown because the cold-only split, though pre-registered, was justified on ` +
+    `the premise that warm rows are a quieter steady state. On the noisy leg they are not uniformly ` +
+    `quieter, so a margin quoted from cold alone overstates the headroom. **The ALL column is the ` +
+    `honest one** and is what ANALYSIS.md quotes.`,
 );
+say(``);
 
 process.stdout.write(out.join("\n") + "\n");

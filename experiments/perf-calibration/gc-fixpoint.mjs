@@ -4,9 +4,11 @@
  * Produces the third constant the kit needs (the **GC round count**) plus the residual spread once
  * settled, and re-checks on Node 22 three findings that were only measured on Node v24.18.0 (§10/O7):
  *
- *   - **M2** — `gc(true)` silently performs a *scavenge*, not a major GC. V8's gc-extension treats a
- *     truthy non-options argument as `{type:'minor'}`. This is the single most-copied idiom in
- *     JS memory benchmarks and it silently invalidates the reading. Leg 2 reproduces it or refutes it.
+ *   - **M2** — `gc(true)` silently performs a *scavenge*, not a major GC. The research framed the rule
+ *     as "a truthy non-options argument"; leg 2 spans enough argument SHAPES to find out whether that
+ *     is the actual boundary. (It is not — see ANALYSIS.md §6: the boundary is whether V8 recognises
+ *     a key.) This is the single most-copied idiom in JS memory benchmarks and it silently
+ *     invalidates the reading.
  *   - **M3** — one GC is not a fixpoint. V8's maximal-reclamation path runs between
  *     `kMinNumberOfAttempts = 2` and `kMaxNumberOfAttempts = 7` rounds "until the root set is stable".
  *     Leg 1 measures how many rounds it actually takes here.

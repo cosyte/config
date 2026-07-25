@@ -98,10 +98,12 @@ Each phase records 5 reps. If a fixed-count warmup were sufficient, rep 1 and re
 
 ## B1 — `gc()` rounds to a `heapUsed` fixpoint (M3), Node 22.23.1 / V8 12.4.254.21-node.56
 
-| leg | trials | rounds required (value→count) | settled spread, within trial | baseline drift, across trials |
-|---|---:|---|---:|---:|
-| sync `gc()` | 50 | 1→50 | 0.000% | 0.56% |
-| async `gc({execution:'async'})` | 50 | 1→50 | 0.000% | 26.02% |
+| leg | trials | rounds required (value→count) | settled spread, median | settled spread, WORST | baseline drift |
+|---|---:|---|---:|---:|---:|
+| sync `gc()` | 50 | 1→50 | 0.000% | 1120 B (0.028%) | 0.56% |
+| async `gc({execution:'async'})` | 50 | 1→50 | 0.000% | 712 B (0.022%) | 0.49% |
+
+The **worst** column is the one P3 has to design against: the median settled reading is exactly reproducible, but a minority of trials still move by ~1 KiB across settled rounds with no workload running. That is the noise floor of a settled `heapUsed` figure, and it is not zero.
 
 ## B2 — what each `gc` argument form actually reclaims (M2)
 
@@ -113,20 +115,50 @@ Old-space garbage of ~22.9 MiB per trial.
 | `gc(true)` | 10 | -0.00 MiB | scavenge — reading is invalid |
 | `gc(false)` | 10 | -0.00 MiB | scavenge — reading is invalid |
 | `gc(1)` | 10 | -0.00 MiB | scavenge — reading is invalid |
+| `gc(null)` | 10 | -0.00 MiB | scavenge — reading is invalid |
+| `gc(undefined)` | 10 | -0.00 MiB | scavenge — reading is invalid |
 | `gc({})` | 10 | -0.00 MiB | scavenge — reading is invalid |
+| `gc({foo:1})` | 10 | -0.00 MiB | scavenge — reading is invalid |
 | `gc({type:'major'})` | 10 | 22.88 MiB | **major GC** |
 | `gc({type:'minor'})` | 10 | -0.00 MiB | scavenge — reading is invalid |
+| `gc({execution:'sync'})` | 10 | 22.88 MiB | **major GC** |
+| `await gc({execution:'async'})` | 10 | 22.88 MiB | **major GC** |
+| `gc({flavor:'last-resort'})` | 10 | 22.88 MiB | **major GC** |
+
+## D — the SIGNAL side: what an O(n²)-in-length regression actually scores
+
+Same harness, same `min` estimator, same 4× size step — only the parser is quadratic. This is the number the ceiling is argued *against*, and it was inherited arithmetic ("≈16") until now.
+
+| base OBX → 4× | coverage | n | min | p50 | max |
+|---|---|---:|---:|---:|---:|
+| 125 → 500 | off | 20 | 5.75 | 6.82 | 8.47 |
+| 125 → 500 | on | 20 | 4.69 | 9.58 | 10.66 |
+| 250 → 1000 | off | 20 | 8.09 | 10.56 | 11.35 |
+| 250 → 1000 | on | 20 | 9.11 | 11.71 | 18.75 |
+| 500 → 2000 | off | 20 | 8.84 | 11.75 | 16.02 |
+| 500 → 2000 | on | 20 | 10.07 | 12.34 | 15.08 |
+| 1000 → 4000 | off | 20 | 10.68 | 12.56 | 15.67 |
+| 1000 → 4000 | on | 20 | 10.81 | 14.56 | 16.10 |
+
+| base OBX → 4× | weakest signal seen | worst false alarm (`min`, all rows) | separated? |
+|---|---:|---:|---|
+| 125 → 500 | 4.69 | 6.65 | **NO — overlaps the noise** |
+| 250 → 1000 | 8.09 | 6.65 | yes, by 1.22× |
+| 500 → 2000 | 8.84 | 6.65 | yes, by 1.33× |
+| 1000 → 4000 | 10.68 | 6.65 | yes, by 1.61× |
+
+The signal is **not a constant**. It climbs with fixture size as the quadratic term overtakes the linear per-line work, so **the fixture size is part of the gate's calibration, not a free choice**. A package that picks fixtures too small gets a gate whose signal sits inside its own false-alarm tail — green while broken, which is roadmap §5's second-worst outcome.
 
 ## C — candidate constants, derived
 
 Mechanical derivation only; the judgement about how much margin to buy is written up in ANALYSIS.md. `cold` is the population that matters — it is the only measurement a gate takes.
 
-| estimator | cold n | cold min | cold max | cold p99 | ceiling @2× worst | floor @0.5× best |
-|---|---:|---:|---:|---:|---:|---:|
-| `min` | 400 | 1.753 | 5.587 | 5.386 | 11.2 | 0.9 |
-| `median` | 400 | 2.231 | 8.457 | 6.439 | 16.9 | 1.1 |
-| `trimmedMean` | 400 | 2.472 | 8.584 | 6.246 | 17.2 | 1.2 |
-| `mean` | 400 | 2.291 | 8.252 | 5.957 | 16.5 | 1.1 |
+| estimator | cold n | cold min…max | ALL n | ALL min…max | headroom of ceiling 10 (all) |
+|---|---:|---|---:|---|---:|
+| `min` | 400 | 1.753 … 5.587 | 1600 | 1.702 … 6.649 | 1.50× |
+| `median` | 400 | 2.231 … 8.457 | 1600 | 1.332 … 8.494 | 1.18× |
+| `trimmedMean` | 400 | 2.472 … 8.584 | 1600 | 1.416 … 8.584 | 1.16× |
+| `mean` | 400 | 2.291 … 8.252 | 1600 | 1.805 … 8.252 | 1.21× |
 
-A genuine O(n²) regression on a 4× workload lands near **16**, so a ceiling has to sit below that to be worth anything. The gap between the worst false alarm above and 16 is the entire usable design space for the constant.
+Both populations are shown because the cold-only split, though pre-registered, was justified on the premise that warm rows are a quieter steady state. On the noisy leg they are not uniformly quieter, so a margin quoted from cold alone overstates the headroom. **The ALL column is the honest one** and is what ANALYSIS.md quotes.
 

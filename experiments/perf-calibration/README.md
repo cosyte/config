@@ -16,14 +16,16 @@ kit's constants on judgement when they can be measured.
 | 2   | Does phase **ordering** move it? (C5 — the one confound a same-process ratio does not cancel) | Experiment A |
 | 3   | Does `--coverage` move it? (V1 — mechanism-only until now)                                    | Experiment A |
 | 4   | How many `gc()` rounds settle `heapUsed`, on a real **Node 22** binary? (M3, §10/O7)          | Experiment B |
-| 5   | Does `gc(true)` really scavenge on Node 22? (M2)                                              | Experiment B |
+| 5   | Does `gc(true)` really scavenge on Node 22, and is truthiness the real boundary? (M2)         | Experiment B |
 | 6   | Sync vs async `gc()` — does the async form settle in fewer rounds? (§10/O4)                   | Experiment B |
+| 7   | What does a REAL O(n²) regression score on the same ratio? (the ceiling's other side, §10/O1) | Experiment C |
 
 ## Experiment A — ratio distribution
 
 `ratio-calibration.test.ts`, hosted in **vitest** because the gate it calibrates will be. The workload
 (`workload.ts`) is a linear-by-construction HL7-shaped parser, so **every ratio recorded is a
-false alarm by definition** — the spread is the noise the ceiling has to clear, and nothing else.
+false alarm by definition** — the spread is the noise the ceiling has to clear. What the ceiling has
+to stay _below_ is Experiment C.
 
 Cells: `{count, size} axis` × `{NF, FN} ordering` × `{coverage on, off}` = 8.
 Each cell is swept with 50 **fresh vitest processes**, each contributing 1 `cold` ratio (the first
@@ -37,6 +39,18 @@ from "V8 had not settled yet", not to pad the sample.
 Every phase's **full sample vector** is recorded, never a reduced statistic, and four estimators
 (`min`, `median`, `trimmedMean`, `mean`) are computed from it — W2 says min-of-N is unbacked, and
 choosing the estimator is P1's call, not P0's.
+
+## Experiment C — the signal side
+
+`signal-check.test.ts` + `workload-quadratic.ts`. Identical harness and estimator to Experiment A,
+with a deliberately O(n²)-in-length parser that is asserted to produce byte-identical output before
+anything is timed. Swept over four fixture sizes, because the first run showed the signal is **not**
+a constant — it climbs as the quadratic term overtakes the linear per-line work.
+
+It lives in its own module and test file so `workload.ts` stays byte-identical: adding a function to
+it would change its bytecode length and coverage block count and silently invalidate Experiment A's
+3,200 committed measurements. `run.sh --bc-only` re-takes B and C without touching A for the same
+reason.
 
 ## Experiment B — GC fixpoint
 
@@ -65,14 +79,21 @@ on one outlier is not a rule. Nothing had been measured at full sample size when
 
 ```bash
 # Node 22 required — O7: pass 4 of the research ran only on Node v24.18.0.
-experiments/perf-calibration/run.sh              # full sweep, ~15 min, writes data/
+experiments/perf-calibration/run.sh              # full sweep, ~20 min, writes data/
 experiments/perf-calibration/run.sh --quick      # 3 runs per cell, for a smoke check
+experiments/perf-calibration/run.sh --bc-only    # B and C only; leaves A's dataset untouched
 node experiments/perf-calibration/analyze.mjs    # re-derive ANALYSIS.md's tables from data/
 ```
 
 The GitHub-hosted leg is `.github/workflows/perf-calibration.yml` (`workflow_dispatch` only). It runs
 the same `run.sh` on `ubuntu-latest` and uploads `data/` as an artifact — that is where the numbers in
-`ANALYSIS.md` marked _GitHub-hosted_ come from.
+`ANALYSIS.md` marked _GitHub-hosted_ come from. It defaults to `bc-only`; pick `full` to re-take
+Experiment A too. The workflow deletes from its artifact anything the run did not measure, so an
+artifact can never carry a stale file next to a fresh one.
+
+`data/github-hosted/` holds two runs: Experiment A from run `30169401396` (`environment.json`) and
+Experiments B and C from run `30170837520` (`environment-bc.json`). Same image
+(`ubuntu24 20260720.247.2`), same Node/V8, different runner instance.
 
 ## Known limitations
 

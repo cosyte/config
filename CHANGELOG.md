@@ -25,20 +25,35 @@ no package, so entries here are **dated** rather than versioned.
 - **PERF-P0 — the perf gate is now calibrated, before it is built.** New
   `experiments/perf-calibration/` (a committed experiment, not a published API — nothing imports it
   and it does not run in `pnpm test`) measures the three constants `@cosyte/test-utils/perf` needs
-  rather than guessing them: 3,200 4N-vs-N ratio measurements across `{count,size}` axis ×
-  `{N→4N, 4N→N}` ordering × `{coverage on, off}`, on two runner classes, plus 200 GC-fixpoint
-  trials — all on a real **Node 22.23.1 / V8 12.4** binary, discharging roadmap §10/O7. Findings, in
-  `experiments/perf-calibration/ANALYSIS.md`: (a) **the ratio estimator decides whether the gate has
-  usable headroom at all** — on a contended runner `min` caps the false-alarm tail at 5.59 while the
-  central estimators reach 8.25–8.58, against a fixed ≈16 signal; (b) **ceiling 10 / floor 1.5 / 2 GC
-  rounds**, each with a measured basis; (c) **V1 measured** — coverage costs 1.17–1.43× and _mostly_
-  cancels in the ratio, at a residual of a few percent, so `hl7`'s "coverage cancels" comment is
-  wrong as written; (d) **W1 confirmed** — after `hl7`'s fixed-count warmup the first measured rep is
-  still 9–23% slower than the fifth; (e) **M2 confirmed on Node 22 and broadened** — not just truthy
-  arguments, _every_ argument other than an explicit `{type:'major'}` silently downgrades `gc()` to a
-  scavenge. New `perf-calibration.yml` (`workflow_dispatch` only, never a gate) takes the
-  GitHub-hosted leg. The pre-registered coverage decision rule **tripped**, so P1's ADR inherits a
-  recommendation to exclude `test/perf/**` from the coverage run.
+  rather than guessing them: 3,200 4N-vs-N measurements on a linear workload across `{count,size}`
+  axis × `{N→4N, 4N→N}` ordering × `{coverage on, off}` on two runner classes, 320 on a deliberately
+  O(n²) one, and 200 GC-fixpoint trials — all on a real **Node 22.23.1 / V8 12.4** binary,
+  discharging roadmap §10/O7. Constants: **ceiling 8, floor 1.5, 3 GC calls.** Findings, in
+  `experiments/perf-calibration/ANALYSIS.md`:
+  - **The gate's discriminating power is much thinner than the roadmap assumes.** The "≈16 signal"
+    a quadratic regression was assumed to produce is neither 16 nor a constant — it climbs with
+    fixture size, and near the crossover it lands _inside_ the false-alarm tail. On the noisier
+    runner the usable window between worst false alarm (6.649) and weakest real regression at
+    `hl7`'s own fixture size (8.84) is a factor of **1.33**. So fixture size is a calibration
+    parameter, and P2's injected-O(n²) self-check only proves anything when run at the sizes the
+    package's real gate uses.
+  - **`hl7`'s shipped ceiling of 10 is too high** — the weakest real regression at its own fixture
+    size scored 8.84, so the shipped gate would have passed it. P4 must lower it, not just re-comment
+    it.
+  - **The estimator is load-bearing**: `min` caps the false-alarm tail at 6.649 where the central
+    estimators reach 8.25–8.58, which would leave no window at all.
+  - **V1 measured** — coverage costs 1.17–1.43× and _mostly_ cancels in the ratio, residual a few
+    percent, so `hl7`'s "coverage cancels" comment is wrong as written.
+  - **W1 confirmed** — after `hl7`'s fixed-count warmup the first measured rep is still up to 23%
+    slower than the fifth.
+  - **M2 confirmed on Node 22, with the rule corrected**: the boundary is not truthiness but whether
+    V8 recognises a key — `gc({execution:'sync'})` and `gc({flavor:'last-resort'})` are major GCs,
+    while `gc({})` and `gc({foo:1})` silently scavenge.
+
+  New `perf-calibration.yml` (`workflow_dispatch` only, never a gate) takes the GitHub-hosted legs.
+  The pre-registered coverage decision rule **tripped**, so P1's ADR inherits a recommendation to
+  exclude the perf tests from the coverage run.
+
 - **PHI-GATE-SUITE — `phi-scan` is now an enforced baseline script + a scaffold default.** Added
   `"phi-scan"` to `drift-manifest.json`'s `requiredScripts`, so `drift-check` fails any `@cosyte/*`
   parser that loses its commit-time PHI scanner (all six targets already carry one — `drift-check`

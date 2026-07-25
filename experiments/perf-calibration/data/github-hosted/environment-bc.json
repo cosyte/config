@@ -1,0 +1,22 @@
+{
+  "capturedBy": "experiments/perf-calibration/run.sh",
+  "node": "22.23.1",
+  "v8": "12.4.254.21-node.56",
+  "platform": "linux-x64",
+  "cpuModel": "AMD EPYC 7763 64-Core Processor",
+  "cpuCount": 4,
+  "totalMemBytes": 16766423040,
+  "loadAvg": [
+    0.38,
+    0.09,
+    0.03
+  ],
+  "nodeOptions": null,
+  "cgroupMemoryMax": null,
+  "github": {
+    "runner": "GitHub Actions 1000000631",
+    "image": "ubuntu24",
+    "imageVersion": "20260720.247.2",
+    "runId": "30170837520"
+  }
+}

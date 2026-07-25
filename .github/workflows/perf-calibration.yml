@@ -9,11 +9,6 @@ name: PERF-P0 calibration
 # statistically significant change point on GitHub Actions traced entirely to an image bump with no
 # code change, so these constants have a shelf life.
 on:
-  # TEMPORARY (removed before merge): workflow_dispatch cannot be triggered for a workflow that is
-  # not yet on the default branch, so the GitHub-hosted legs have to be push-triggered until this
-  # lands on main.
-  push:
-    branches: [perf-p0-calibration]
   workflow_dispatch:
     inputs:
       mode:
