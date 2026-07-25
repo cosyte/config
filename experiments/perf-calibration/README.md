@@ -76,7 +76,11 @@ the same `run.sh` on `ubuntu-latest` and uploads `data/` as an artifact — that
 
 ## Known limitations
 
-One runner class, one point in time, one workload shape. C4 says the runner image _will_ drift and
-fake a regression; re-run this when the image generation changes, and treat the constants as due for
-review, not as settled forever. The container leg has 56 cores and no cgroup memory limit, so it is a
-generous machine — it is reported alongside the GitHub-hosted leg, never instead of it.
+One point in time, one workload shape. C4 says the runner image _will_ drift and fake a regression;
+re-run this when the image generation changes, and treat the constants as due for review, not as
+settled forever. See `ANALYSIS.md` §7 for the full list.
+
+Two runner classes were swept and they are **not** interchangeable — the GitHub-hosted runner was
+quiet enough that calibrating only there would have hidden the finding the constants turn on. Both
+datasets are committed (`data/` is the container leg, `data/github-hosted/` the `ubuntu-latest` one);
+neither is reported instead of the other.

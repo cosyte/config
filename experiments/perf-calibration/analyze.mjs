@@ -199,19 +199,39 @@ const roundsHist = (trials) => {
     .map(([k, v]) => `${String(k)}→${String(v)}`)
     .join(", ");
 };
-const finals = gc.fixpoint.map((t) => t.final);
-const spread = (Math.max(...finals) - Math.min(...finals)) / med(finals);
-say(`| leg | trials | rounds required (value→count) | residual spread (max−min)/median |`);
-say(`|---|---:|---|---:|`);
-say(
-  `| sync \`gc()\` | ${String(gc.fixpoint.length)} | ${roundsHist(gc.fixpoint)} | ${f(spread * 100, 2)}% |`,
-);
-const afinals = gc.asyncFixpoint.map((t) => t.final).filter((x) => x !== null);
-const aspread = (Math.max(...afinals) - Math.min(...afinals)) / med(afinals);
-say(
-  `| async \`gc({execution:'async'})\` | ${String(gc.asyncFixpoint.length)} | ${roundsHist(gc.asyncFixpoint)} ` +
-    `| ${f(aspread * 100, 2)}% |`,
-);
+/**
+ * Two different things get called "spread" here and conflating them misreads the data.
+ *   - `settled` — WITHIN a trial, across rounds 2..N once the fixpoint is reached. This is the one
+ *     that answers "how stable is a settled `heapUsed` reading", i.e. how much of a measured delta
+ *     is real. Reported as the median across trials.
+ *   - `drift` — ACROSS trials, comparing each trial's final reading. This moves for reasons that have
+ *     nothing to do with GC stability (the process's own baseline creeping as the harness allocates,
+ *     a compilation cache being released), so it is reported separately and never as "noise".
+ */
+const settledSpread = (trials) =>
+  med(
+    trials
+      .filter((t) => t.series.length > 1)
+      .map((t) => {
+        const tail = t.series.slice(1);
+        return (Math.max(...tail) - Math.min(...tail)) / med(tail);
+      }),
+  );
+const driftSpread = (trials) => {
+  const finals = trials.map((t) => t.final).filter((x) => x !== null);
+  return (Math.max(...finals) - Math.min(...finals)) / med(finals);
+};
+say(`| leg | trials | rounds required (value→count) | settled spread, within trial | baseline drift, across trials |`);
+say(`|---|---:|---|---:|---:|`);
+for (const [label, trials] of [
+  ["sync `gc()`", gc.fixpoint],
+  ["async `gc({execution:'async'})`", gc.asyncFixpoint],
+]) {
+  say(
+    `| ${label} | ${String(trials.length)} | ${roundsHist(trials)} ` +
+      `| ${f(settledSpread(trials) * 100, 3)}% | ${f(driftSpread(trials) * 100, 2)}% |`,
+  );
+}
 say(``);
 
 say(`## B2 — what each \`gc\` argument form actually reclaims (M2)`, ``);
@@ -233,5 +253,30 @@ for (const form of gc.argumentForms) {
   );
 }
 say(``);
+
+say(`## C — candidate constants, derived`, ``);
+say(
+  `Mechanical derivation only; the judgement about how much margin to buy is written up in ` +
+    `ANALYSIS.md. \`cold\` is the population that matters — it is the only measurement a gate takes.`,
+  ``,
+);
+say(`| estimator | cold n | cold min | cold max | cold p99 | ceiling @2× worst | floor @0.5× best |`);
+say(`|---|---:|---:|---:|---:|---:|---:|`);
+for (const est of ESTIMATORS) {
+  const cold = rows.filter((r) => r.phase === "cold").map((r) => r.ratios[est]);
+  const lo = Math.min(...cold);
+  const hi = Math.max(...cold);
+  say(
+    `| \`${est}\` | ${String(cold.length)} | ${f(lo)} | ${f(hi)} | ${f(pct(cold, 99))} ` +
+      `| ${f(hi * 2, 1)} | ${f(lo * 0.5, 1)} |`,
+  );
+}
+say(
+  ``,
+  `A genuine O(n²) regression on a 4× workload lands near **16**, so a ceiling has to sit below ` +
+    `that to be worth anything. The gap between the worst false alarm above and 16 is the entire ` +
+    `usable design space for the constant.`,
+  ``,
+);
 
 process.stdout.write(out.join("\n") + "\n");
