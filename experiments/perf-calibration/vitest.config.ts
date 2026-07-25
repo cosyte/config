@@ -15,11 +15,11 @@ export default defineConfig({
   // globs or the coverage target silently resolving against the caller's cwd.
   root: import.meta.dirname,
   test: {
-    include: ["ratio-calibration.test.ts"],
+    include: ["ratio-calibration.test.ts", "signal-check.test.ts"],
     fileParallelism: false,
     coverage: {
       provider: "v8",
-      include: ["workload.ts"],
+      include: ["workload.ts", "workload-quadratic.ts"],
       reporter: ["text-summary"],
       reportsDirectory: "./coverage",
       thresholds: undefined,

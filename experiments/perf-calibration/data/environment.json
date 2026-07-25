@@ -7,9 +7,9 @@
   "cpuCount": 56,
   "totalMemBytes": 168886382592,
   "loadAvg": [
-    3.21,
-    4.2,
-    4.65
+    4.38,
+    4.05,
+    4.69
   ],
   "nodeOptions": null,
   "cgroupMemoryMax": "17179869184",

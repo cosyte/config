@@ -103,16 +103,34 @@ function legFixpoint() {
 /**
  * Leg 2 — M2 reproduction. For each argument form, build fresh old-space garbage and record what a
  * SINGLE call of that form reclaims. A form that reclaims ~0 is performing a scavenge.
+ *
+ * The form list has to span the *shape* space, not just the truthiness space, or the leg cannot
+ * support a general claim about which arguments work. V8's gc-extension parses the argument as an
+ * options bag only when it recognises a key (`type`, `execution`, `flavor`); anything else — a
+ * primitive, an empty object, an object whose keys it does not know — falls through to the legacy
+ * path. So the list below deliberately includes an EMPTY options object and one with an
+ * unrecognised key, which are the two cases that separate "is an object" from "is parsed as
+ * options". An earlier version of this leg tested only 7 forms, none of them an options object with
+ * a non-`type` key, and the write-up generalised past what those 7 could support.
+ *
+ * `await`ing is per-form: `{execution:'async'}` returns a promise and reclaims nothing until it
+ * settles, so measuring it synchronously would score a working form as broken.
  */
-function legArgumentForms() {
+async function legArgumentForms() {
   const forms = [
     { label: "gc()", call: () => gc() },
     { label: "gc(true)", call: () => gc(true) },
     { label: "gc(false)", call: () => gc(false) },
     { label: "gc(1)", call: () => gc(1) },
+    { label: "gc(null)", call: () => gc(null) },
+    { label: "gc(undefined)", call: () => gc(undefined) },
     { label: "gc({})", call: () => gc({}) },
+    { label: "gc({foo:1})", call: () => gc({ foo: 1 }) },
     { label: "gc({type:'major'})", call: () => gc({ type: "major" }) },
     { label: "gc({type:'minor'})", call: () => gc({ type: "minor" }) },
+    { label: "gc({execution:'sync'})", call: () => gc({ execution: "sync" }) },
+    { label: "await gc({execution:'async'})", call: () => gc({ execution: "async" }), async: true },
+    { label: "gc({flavor:'last-resort'})", call: () => gc({ flavor: "last-resort" }) },
   ];
   const results = [];
   for (const form of forms) {
@@ -121,7 +139,8 @@ function legArgumentForms() {
     for (let t = 0; t < 10; t++) {
       const { live } = makeOldSpaceGarbage();
       try {
-        form.call();
+        if (form.async) await form.call();
+        else form.call();
       } catch (e) {
         error = String(e);
         break;
@@ -177,7 +196,7 @@ const report = {
   nodeOptions: process.env.NODE_OPTIONS ?? null,
   config: { TRIALS, MAX_ROUNDS, GRAPH_SIZE, SETTLED_BYTES },
   fixpoint: legFixpoint(),
-  argumentForms: legArgumentForms(),
+  argumentForms: await legArgumentForms(),
   asyncFixpoint: await legAsync(),
 };
 

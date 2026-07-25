@@ -9,12 +9,18 @@ name: PERF-P0 calibration
 # statistically significant change point on GitHub Actions traced entirely to an image bump with no
 # code change, so these constants have a shelf life.
 on:
+  # TEMPORARY (removed before merge): workflow_dispatch cannot be triggered for a workflow that is
+  # not yet on the default branch, so the GitHub-hosted legs have to be push-triggered until this
+  # lands on main.
+  push:
+    branches: [perf-p0-calibration]
   workflow_dispatch:
     inputs:
-      quick:
-        description: "Smoke run (3 processes per cell instead of 50)"
-        type: boolean
-        default: false
+      mode:
+        description: "Sweep mode"
+        type: choice
+        default: full
+        options: [full, quick, bc-only]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -40,9 +46,41 @@ jobs:
       - name: Record the runner V8 build
         run: node -p "'node ' + process.versions.node + ' / v8 ' + process.versions.v8"
       - name: Sweep
-        run: experiments/perf-calibration/run.sh ${{ inputs.quick && '--quick' || '' }}
+        env:
+          # `push` runs (and the default) take the cheap legs: Experiment A's dataset is expensive
+          # and is tied to a module whose bytecode must not change, so it is re-taken deliberately.
+          MODE: ${{ inputs.mode || 'bc-only' }}
+        run: |
+          case "$MODE" in
+            full) experiments/perf-calibration/run.sh ;;
+            quick) experiments/perf-calibration/run.sh --quick ;;
+            *) experiments/perf-calibration/run.sh --bc-only ;;
+          esac
+      # The repo ships committed datasets. Whatever this run did NOT measure must not ride along in
+      # the artifact — an artifact holding a stale file next to a fresh one is how a dataset gets
+      # mislabelled as coming from a runner it never ran on.
+      - name: Drop anything this run did not measure
+        env:
+          MODE: ${{ inputs.mode || 'bc-only' }}
+        run: |
+          rm -rf experiments/perf-calibration/data/github-hosted
+          [ "$MODE" = "bc-only" ] && rm -f experiments/perf-calibration/data/ratios.jsonl \
+            experiments/perf-calibration/data/tables-container.md
+          ls -la experiments/perf-calibration/data/
+
       - name: Derive the tables
-        run: node experiments/perf-calibration/analyze.mjs | tee "$GITHUB_STEP_SUMMARY"
+        env:
+          MODE: ${{ inputs.mode || 'bc-only' }}
+        # analyze.mjs needs Experiment A's rows; in bc-only mode there are none, so just show B/C.
+        run: |
+          if [ "$MODE" = "bc-only" ]; then
+            node -e 'const r=require("./experiments/perf-calibration/data/gc-fixpoint.json");
+              for (const f of r.argumentForms) console.log(f.form.padEnd(30),
+                (f.reclaimedBytes.sort((a,b)=>a-b)[Math.floor(f.reclaimedBytes.length/2)]/1048576).toFixed(2), "MiB");
+            ' | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            node experiments/perf-calibration/analyze.mjs | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
       - uses: actions/upload-artifact@v5
         with:
           name: perf-calibration-data
