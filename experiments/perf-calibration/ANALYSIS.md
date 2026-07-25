@@ -187,9 +187,10 @@ gate takes its only measurement.
 
 This is the basis for P1's "time-budgeted warmup, samples discarded until stable". Note the
 interaction with §1: `min` over 5 reps partially launders an unfinished warmup, because the last
-reps are the fast ones. Estimator and warmup rule have to be decided together — and because the
-constants here were calibrated at the cold operating point, **changing the warmup rule moves the
-operating point and the ceiling needs re-checking**, cheaply, via the §2 self-check.
+reps are the fast ones. Estimator and warmup rule have to be decided together — and since the
+ceiling is set from the worst false alarm in the whole population, which is in fact a **warm** row
+(`size/NF`, coverage on, container), **changing the warmup rule moves the operating point and the
+ceiling needs re-checking**, cheaply, via the §2 self-check.
 
 ---
 

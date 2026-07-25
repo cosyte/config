@@ -91,6 +91,10 @@ the same `run.sh` on `ubuntu-latest` and uploads `data/` as an artifact — that
 Experiment A too. The workflow deletes from its artifact anything the run did not measure, so an
 artifact can never carry a stale file next to a fresh one.
 
+Each leg records its provenance per sweep: `environment.json` describes the Experiment A sweep and
+`environment-bc.json` the later B/C sweep, because `--bc-only` must not leave a provenance file
+describing a different run than the data sitting beside it.
+
 `data/github-hosted/` holds two runs: Experiment A from run `30169401396` (`environment.json`) and
 Experiments B and C from run `30170837520` (`environment-bc.json`). Same image
 (`ubuntu24 20260720.247.2`), same Node/V8, different runner instance.

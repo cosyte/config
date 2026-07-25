@@ -89,7 +89,9 @@ say(
 
 say(`## A1 — ratio distribution, by cell (estimator: \`${HEADLINE}\`)`, ``);
 say(
-  `Ideal is exactly **4.0**. The workload is linear, so every deviation is measurement noise.`,
+  `Ideal is exactly **4.0**. The workload is linear, so no deviation here is a real regression — ` +
+    `but do not read the spread as pure noise either: A3 shows a **reproducible** ordering and axis ` +
+    `bias of a few percent sitting inside it. The tail is noise; the offset of the centre is not.`,
   ``,
 );
 say(`| axis | order | coverage | phase | n | min | p50 | p95 | p99 | max |`);
@@ -330,10 +332,14 @@ if (signal.length > 0) {
 say(`## C — candidate constants, derived`, ``);
 say(
   `Mechanical derivation only; the judgement about how much margin to buy is written up in ` +
-    `ANALYSIS.md. \`cold\` is the population that matters — it is the only measurement a gate takes.`,
+    `ANALYSIS.md. Both populations are shown; the ALL column is the one ANALYSIS.md quotes, because ` +
+    `the binding worst case turns out not to be a cold row.`,
   ``,
 );
-say(`| estimator | cold n | cold min…max | ALL n | ALL min…max | headroom of ceiling 10 (all) |`);
+const CEILING = 8;
+say(
+  `| estimator | cold n | cold min…max | ALL n | ALL min…max | headroom of ceiling ${String(CEILING)} (all) |`,
+);
 say(`|---|---:|---|---:|---|---:|`);
 for (const est of ESTIMATORS) {
   const cold = rows.filter((r) => r.phase === "cold").map((r) => r.ratios[est]);
@@ -341,7 +347,7 @@ for (const est of ESTIMATORS) {
   say(
     `| \`${est}\` | ${String(cold.length)} | ${f(Math.min(...cold))} … ${f(Math.max(...cold))} ` +
       `| ${String(all.length)} | ${f(Math.min(...all))} … ${f(Math.max(...all))} ` +
-      `| ${f(10 / Math.max(...all), 2)}× |`,
+      `| ${f(CEILING / Math.max(...all), 2)}× |`,
   );
 }
 say(

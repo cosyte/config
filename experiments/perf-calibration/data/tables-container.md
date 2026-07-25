@@ -6,7 +6,7 @@ Ratio rows: **1600** across 16 cell/phase groups.
 
 ## A1 — ratio distribution, by cell (estimator: `median`)
 
-Ideal is exactly **4.0**. The workload is linear, so every deviation is measurement noise.
+Ideal is exactly **4.0**. The workload is linear, so no deviation here is a real regression — but do not read the spread as pure noise either: A3 shows a **reproducible** ordering and axis bias of a few percent sitting inside it. The tail is noise; the offset of the centre is not.
 
 | axis | order | coverage | phase | n | min | p50 | p95 | p99 | max |
 |---|---|---|---|---:|---:|---:|---:|---:|---:|
@@ -151,14 +151,14 @@ The signal is **not a constant**. It climbs with fixture size as the quadratic t
 
 ## C — candidate constants, derived
 
-Mechanical derivation only; the judgement about how much margin to buy is written up in ANALYSIS.md. `cold` is the population that matters — it is the only measurement a gate takes.
+Mechanical derivation only; the judgement about how much margin to buy is written up in ANALYSIS.md. Both populations are shown; the ALL column is the one ANALYSIS.md quotes, because the binding worst case turns out not to be a cold row.
 
-| estimator | cold n | cold min…max | ALL n | ALL min…max | headroom of ceiling 10 (all) |
+| estimator | cold n | cold min…max | ALL n | ALL min…max | headroom of ceiling 8 (all) |
 |---|---:|---|---:|---|---:|
-| `min` | 400 | 1.753 … 5.587 | 1600 | 1.702 … 6.649 | 1.50× |
-| `median` | 400 | 2.231 … 8.457 | 1600 | 1.332 … 8.494 | 1.18× |
-| `trimmedMean` | 400 | 2.472 … 8.584 | 1600 | 1.416 … 8.584 | 1.16× |
-| `mean` | 400 | 2.291 … 8.252 | 1600 | 1.805 … 8.252 | 1.21× |
+| `min` | 400 | 1.753 … 5.587 | 1600 | 1.702 … 6.649 | 1.20× |
+| `median` | 400 | 2.231 … 8.457 | 1600 | 1.332 … 8.494 | 0.94× |
+| `trimmedMean` | 400 | 2.472 … 8.584 | 1600 | 1.416 … 8.584 | 0.93× |
+| `mean` | 400 | 2.291 … 8.252 | 1600 | 1.805 … 8.252 | 0.97× |
 
 Both populations are shown because the cold-only split, though pre-registered, was justified on the premise that warm rows are a quieter steady state. On the noisy leg they are not uniformly quieter, so a margin quoted from cold alone overstates the headroom. **The ALL column is the honest one** and is what ANALYSIS.md quotes.
 

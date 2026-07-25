@@ -40,6 +40,11 @@ SIGNAL="$DATA/signal.jsonl"
 : > "$SIGNAL"
 
 # Environment provenance. A perf number without its machine is not a claim (roadmap §7).
+# In --bc-only mode this must NOT overwrite the record describing the Experiment A sweep sitting in
+# the same directory — a provenance file that describes a different run than the data beside it is
+# worse than none.
+ENVFILE="$DATA/environment.json"
+[ "$MODE" = "--bc-only" ] && ENVFILE="$DATA/environment-bc.json"
 # shellcheck disable=SC2016  # the ${...} below are JS template literals, expanded by node not bash
 node -e '
 const os = require("node:os");
@@ -63,7 +68,7 @@ process.stdout.write(JSON.stringify({
         imageVersion: process.env.ImageVersion ?? null, runId: process.env.GITHUB_RUN_ID ?? null }
     : null,
 }, null, 2) + "\n");
-' > "$DATA/environment.json"
+' > "$ENVFILE"
 
 if [ "$MODE" = "--bc-only" ]; then
   echo "== Skipping Experiment A (--bc-only): $(wc -l < "$RATIOS") existing rows left as-is =="
@@ -74,7 +79,9 @@ for cov in 0 1; do
     for ordering in NF FN; do
       printf '  cell %s:%s coverage=%s ' "$axis" "$ordering" "$cov"
       for ((r = 0; r < RUNS; r++)); do
-        args=(run --config "$HERE/vitest.config.ts")
+        # The test-name filter is load-bearing: vitest.config.ts includes Experiment C too, and
+        # without it C's quadratic rows land in Experiment A's dataset file.
+        args=(run --config "$HERE/vitest.config.ts" ratio-calibration)
         [ "$cov" = 1 ] && args+=(--coverage)
         CELL="$axis:$ordering" WARM_TRIALS=3 RUN_INDEX="$r" COV="$cov" OUT="$RATIOS" \
           "$VITEST" "${args[@]}" >/dev/null 2>&1 || { echo "FAILED at run $r" >&2; exit 1; }
