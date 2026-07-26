@@ -22,6 +22,41 @@ no package, so entries here are **dated** rather than versioned.
 
 ### Added
 
+- **PERF-P1 — the measurement contract is now written down.** New
+  `documentation/decisions/0001-perf-measurement-contract.md` (the repo's first ADR; a
+  `documentation/decisions/` folder now exists here, matching `fhir`/`transform`/`cli`). It freezes,
+  with PERF-P0's measured data, everything `@cosyte/test-utils/perf` will hard-code — so P2/P3
+  implement a decided contract instead of re-deriving it, and **no constant in the kit lacks a
+  recorded justification**. Every entry in its table is tagged _measured_ (re-derived from the
+  committed datasets under `experiments/perf-calibration/data/`) or _judgement_ (P0 could not settle
+  it, so the reasoning is written down instead). What it fixes:
+  - **Estimator split.** `min` for the ratio _assertion_ — the only estimator leaving a usable window
+    (6.65…8.84 rather than 8.58…8.84) — with the full sample vector retained and emitted; a **median**
+    headline with the distribution beside it for the _benchmark_, since median-vs-trimmed-mean
+    divergence reaches 25.6% at the tail. W2's criticism of min-of-N as a reported statistic stands.
+  - **Warmup is time-budgeted, never fixed-count** (W1): ≥500 ms, stop on 3 consecutive 50 ms batches
+    within ±5%, cap 5 s, and **skip loudly** if it never stabilises. The batch length is itself a
+    constant with a measured motivation — at the granularity of a single ~4–9 ms pass the ±5% rule is
+    unsatisfiable in 8–99% of _already warm_ phases, worst on the size axis, so the fix is coarser batches, not a looser
+    tolerance. And the interaction that has to be remembered: changing the warmup rule moves the
+    operating point the ceiling was set from, on both the signal and the false-alarm side.
+  - **Ratio ceiling 8, floor 1.5**, both hard failures, plus a `MIN_PHASE_MS` of 4 ms below which the
+    gate skips rather than answers (the fastest base phase in 3,200 samples was 4.14 ms).
+  - **The perf tests come out of the coverage run** (`test/perf`) — P0's pre-registered rule tripped.
+  - **`src`-vs-`dist` (V4) settled both ways:** the gate keeps importing `src` through the test host
+    (the calibrated regime), the reporting benchmark imports built `dist` from a plain Node process.
+    Verified directly in this repo's Vitest 4.1.4 host that the SSR getter lands on _call sites in the
+    test file_ and not on a same-module or hoisted-local call — so the kit's function-value API keeps
+    it out of the measured loop, and it is `hl7`'s current shape that is the outlier.
+  - **The GC rules for P3**, including M2 restated correctly: the boundary is whether V8 **recognises a
+    key** (`type`/`execution`/`flavor`), not truthiness — `gc({})` and `gc({foo:1})` scavenge exactly
+    like `gc(true)`.
+  - **Two corrections carried into the roadmap's own framing rather than dropped:** the floor **cannot**
+    catch dead-code elimination on the count axis (the sink does that, structurally), and "catches
+    complexity-shaped regressions" now carries "**provided the fixture is large enough — and each
+    package must prove that**", enforced by a per-package injected-O(n²) self-check at the sizes that
+    package's real gate uses.
+
 - **PERF-P0 — the perf gate is now calibrated, before it is built.** New
   `experiments/perf-calibration/` (a committed experiment, not a published API — nothing imports it
   and it does not run in `pnpm test`) measures the three constants `@cosyte/test-utils/perf` needs
