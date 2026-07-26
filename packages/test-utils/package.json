@@ -41,7 +41,24 @@
         "default": "./dist/index.cjs"
       }
     },
+    "./perf": {
+      "import": {
+        "types": "./dist/perf/index.d.ts",
+        "default": "./dist/perf/index.mjs"
+      },
+      "require": {
+        "types": "./dist/perf/index.d.cts",
+        "default": "./dist/perf/index.cjs"
+      }
+    },
     "./package.json": "./package.json"
+  },
+  "typesVersions": {
+    "*": {
+      "perf": [
+        "./dist/perf/index.d.ts"
+      ]
+    }
   },
   "files": [
     "dist",
@@ -61,6 +78,7 @@
     "format": "prettier --write \"src/**/*.{ts,md}\" \"test/**/*.ts\" \"*.{json,md,yml}\"",
     "format:check": "prettier --check \"src/**/*.{ts,md}\" \"test/**/*.ts\" \"*.{json,md,yml}\"",
     "test": "vitest run",
+    "test:perf": "vitest run --config vitest.perf.config.ts",
     "test:watch": "vitest",
     "attw": "node scripts/attw.mjs",
     "clean": "rm -rf dist coverage",
