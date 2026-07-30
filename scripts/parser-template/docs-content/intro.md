@@ -6,7 +6,7 @@ sidebar_position: 1
 
 # {{PKG}}
 
-Parse real-world, vendor-quirky {{TITLE}} and pull fields out in one line — without reading the spec.
+Parse real-world, vendor-quirky {{TITLE}} and pull fields out in one line, without reading the spec.
 `{{PKG}}` is a zero-dependency TypeScript toolkit following the cosyte parser archetype: a lenient
 parser, an immutable model, a spec-clean serializer, and a profile system for vendor quirks. It
 mirrors the API shape of the reference parser, `@cosyte/hl7`.
@@ -30,7 +30,7 @@ const result = parse{{Pascal}}(raw);
 result.warnings; // stable, positional tolerance warnings
 ```
 
-The parser is **lenient by default** — vendor quirks become warnings, not failures — while the
+The parser is **lenient by default** (vendor quirks become warnings, not failures) while the
 serializer always emits spec-clean output (Postel's Law). A `{ strict: true }` mode (to be added)
 escalates every tolerated deviation to a thrown error.
 

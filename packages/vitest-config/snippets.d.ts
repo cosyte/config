@@ -1,5 +1,5 @@
 /**
- * The doc/code-agreement harness — the documentation analog of the parser conformance runners.
+ * The doc/code-agreement harness: the documentation analog of the parser conformance runners.
  *
  * Every fenced block a `docs-content` page opts in (```` ```ts runnable ````) is extracted, its
  * inline `// => value` assertions compiled to real `expect(...)` checks, and the whole block executed

@@ -8,7 +8,7 @@ import { cosyteTsup } from "@cosyte/tsup-config";
 import { cosyteVitest } from "@cosyte/vitest-config";
 
 // Smoke tests: every exported config loads and encodes the ratified cosyte standard.
-// This is the config repo "dogfooding" itself — if a config fails to import or drifts off the
+// This is the config repo "dogfooding" itself: if a config fails to import or drifts off the
 // standard, CI fails here.
 
 describe("@cosyte/eslint-config", () => {

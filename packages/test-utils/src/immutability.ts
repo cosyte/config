@@ -1,5 +1,5 @@
 /**
- * The immutability invariant runner — generalized.
+ * The immutability invariant runner: generalized.
  *
  * The parsed model of every `@cosyte/*` parser is immutable by default: the only
  * sanctioned way to change it is an explicit mutation method, and any such method
@@ -9,7 +9,7 @@
  * **The contract a parser opts into by using this runner:**
  *
  * - `getSnapshot(parsed)` returns a *value snapshot* of the part of the model
- *   under scrutiny — something deep-equal will compare structurally (a string,
+ *   under scrutiny: something deep-equal will compare structurally (a string,
  *   a plain object, an array of leaves). It must capture the state by value, not
  *   hand back a live reference into the model.
  * - `mutate(parsed)` attempts to change the model. A correct immutable model
@@ -43,7 +43,7 @@ export interface ImmutabilityOptions<T> {
   readonly parse: (raw: string) => T;
   /**
    * Attempt to mutate the parsed model. A correct immutable model either throws
-   * here or returns a new instance without touching the original — both are
+   * here or returns a new instance without touching the original: both are
    * accepted. The return value is ignored; only the effect on the original
    * (via `getSnapshot`) is asserted.
    */
@@ -62,7 +62,7 @@ export interface ImmutabilityOptions<T> {
  * Assert the immutability invariant over generated models.
  *
  * For every generated input the runner parses a model, snapshots it via
- * `getSnapshot`, attempts `mutate` (tolerating a throw — that is a valid frozen
+ * `getSnapshot`, attempts `mutate` (tolerating a throw, which is a valid frozen
  * response), then snapshots again and asserts the two snapshots are deep-equal.
  * A model whose original state changed as a side effect of `mutate` fails.
  *
@@ -80,7 +80,7 @@ export interface ImmutabilityOptions<T> {
  * immutabilityProperty({
  *   arbitrary: specCleanMessage(), // the parser's own generator of valid inputs
  *   parse: (raw: string) => parseHL7(raw),
- *   // The frozen warnings array must reject a push (throws) — a valid response.
+ *   // The frozen warnings array must reject a push (throws): a valid response.
  *   mutate: (m) => (m.warnings as unknown[]).push({ code: "X" }),
  *   getSnapshot: (m) => m.warnings.map((w) => w.code),
  * });
@@ -94,7 +94,7 @@ export function immutabilityProperty<T>(options: ImmutabilityOptions<T>): void {
       const parsed = parse(raw);
       const before = getSnapshot(parsed);
 
-      // A frozen/read-only model may throw on a mutation attempt — that is a
+      // A frozen/read-only model may throw on a mutation attempt. That is a
       // sanctioned response, not a failure. We only care that the original is
       // unchanged afterward, so swallow the throw and fall through to compare.
       try {
@@ -107,7 +107,7 @@ export function immutabilityProperty<T>(options: ImmutabilityOptions<T>): void {
       assert.deepStrictEqual(
         after,
         before,
-        "immutability: the original model's snapshot changed after a mutation attempt — mutation must throw or return a new instance, never edit in place",
+        "immutability: the original model's snapshot changed after a mutation attempt. Mutation must throw or return a new instance, never edit in place",
       );
     }),
     { numRuns },

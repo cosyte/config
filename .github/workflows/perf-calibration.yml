@@ -3,7 +3,7 @@ name: PERF-P0 calibration
 # Manual only. This is not a gate and must never become one: it takes ~45 minutes, asserts nothing,
 # and its whole output is a dataset. It exists so the calibration numbers in
 # experiments/perf-calibration/ANALYSIS.md come from the runner class the gate will actually run on
-# (roadmap §8/P0 — "one GitHub-hosted runner"), not only from a developer container.
+# (roadmap §8/P0, "one GitHub-hosted runner"), not only from a developer container.
 #
 # Re-run it when the runner image generation changes. C4 in the roadmap is precisely that: a
 # statistically significant change point on GitHub Actions traced entirely to an image bump with no
@@ -31,7 +31,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
-      # Node 22 specifically: §10/O7 — the source research measured only Node v24.18.0, and the
+      # Node 22 specifically (§10/O7): the source research measured only Node v24.18.0, and the
       # published floor for every @cosyte/* package is 22. Calibrating on 24 would miss the point.
       - uses: actions/setup-node@v6
         with:
@@ -52,7 +52,7 @@ jobs:
             *) experiments/perf-calibration/run.sh --bc-only ;;
           esac
       # The repo ships committed datasets. Whatever this run did NOT measure must not ride along in
-      # the artifact — an artifact holding a stale file next to a fresh one is how a dataset gets
+      # the artifact: an artifact holding a stale file next to a fresh one is how a dataset gets
       # mislabelled as coming from a runner it never ran on.
       - name: Drop anything this run did not measure
         env:

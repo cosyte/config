@@ -6,12 +6,12 @@ import { afterAll, describe, expect, it } from "vitest";
 import { extractRunnableSnippets, runSnippet } from "@cosyte/vitest-config/snippets";
 
 /**
- * Guards `scripts/parser-template/docs-content` — the full-spine scaffold every new parser copies.
+ * Guards `scripts/parser-template/docs-content`: the full-spine scaffold every new parser copies.
  * It proves two things a broken template would otherwise ship to every future parser at once:
  *
  *  1. The sidebar is the canonical Diátaxis spine (canonical labels, canonical order, no authored
- *     API Reference — the shape `docs`' IA lint enforces).
- *  2. The runnable snippets the template ships actually execute green against the scaffold source —
+ *     API Reference: the shape `docs`' IA lint enforces).
+ *  2. The runnable snippets the template ships actually execute green against the scaffold source,
  *     i.e. a freshly-scaffolded parser's doc/code-agreement gate passes on day one.
  *
  * Tokens are substituted here exactly as `scripts/scaffold-parser.mjs` does (name `demo`), so this
@@ -74,7 +74,7 @@ describe("parser-template docs-content spine", () => {
 
 describe("parser-template runnable snippets pass against the scaffold source", () => {
   // Materialize the substituted scaffold source so a snippet's `import ... from "@cosyte/demo"` can be
-  // remapped to it — the same fast source-resolution the template's own docs-content.test.ts uses.
+  // remapped to it: the same fast source-resolution the template's own docs-content.test.ts uses.
   mkdirSync(TMP, { recursive: true });
   const srcPath = join(TMP, "index.ts");
   writeFileSync(

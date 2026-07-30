@@ -1,11 +1,11 @@
-// Drift check — fails when an @cosyte/* parser repo diverges from the canonical baseline.
+// Drift check: fails when an @cosyte/* parser repo diverges from the canonical baseline.
 //
 // Zero-dep (Node stdlib only). Run from the meta-repo root:
 //   node config/scripts/drift-check.js        (or: pnpm --dir config drift)
 // It resolves the meta-repo as config's parent, reads drift-manifest.json, and checks each target
 // repo's package.json / tsconfig.json / .github/workflows. Exits non-zero on any drift.
 //
-// NOTE: until Phases D/E migrate each parser onto the standard, this is EXPECTED to report drift —
+// NOTE: until Phases D/E migrate each parser onto the standard, this is EXPECTED to report drift:
 // that output IS the per-repo migration worklist. Greenfield repos with no package.json are skipped.
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
@@ -106,11 +106,11 @@ function checkRepo(name) {
     .map(([depName]) => depName);
   if (caretPinned.length > 0) {
     violations.push(
-      `exact-pin: ${caretPinned.length} devDep(s) use ^/~ — ${caretPinned.join(", ")}`,
+      `exact-pin: ${caretPinned.length} devDep(s) use ^/~, ${caretPinned.join(", ")}`,
     );
   }
 
-  // canonical pnpm.overrides (Dependabot dev-dep advisory remediation — suite-wide, no per-repo drift)
+  // canonical pnpm.overrides (Dependabot dev-dep advisory remediation, suite-wide, no per-repo drift)
   const overrides = pkg.pnpm?.overrides ?? {};
   for (const [key, want] of Object.entries(manifest.pnpmOverrides ?? {})) {
     if (overrides[key] !== want) {
@@ -161,6 +161,6 @@ for (const result of results) {
   for (const violation of result.violations) console.log(`    - ${violation}`);
 }
 
-console.log(`\n${"—".repeat(60)}`);
+console.log(`\n${"-".repeat(60)}`);
 console.log(`checked ${checked} repo(s), ${drifted} with drift, ${skipped} skipped (greenfield)`);
 process.exit(drifted > 0 ? 1 : 0);

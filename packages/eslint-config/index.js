@@ -11,24 +11,24 @@ import tseslint from "typescript-eslint";
  * in library code. Tests and build scripts relax the JSDoc/console rules.
  *
  * The type-safety guardrails (no `any`, no unjustified casts, exhaustiveness, strict imports) apply
- * to **every** consumer. The documentation-surface guardrails — the JSDoc + `@example` gate and
- * `no-console` — are *library* defaults: a published `@cosyte/*` package owes its callers documented,
+ * to **every** consumer. The documentation-surface guardrails, the JSDoc + `@example` gate and
+ * `no-console`, are *library* defaults: a published `@cosyte/*` package owes its callers documented,
  * `console`-free public exports. Applications (e.g. the `pathways` engine) are first-class consumers
  * too, but they have no published API surface to document and legitimately log, so they opt out with
- * `{ library: false }`. Everything else — strictness, type-checking, Prettier interop — is identical.
+ * `{ library: false }`. Everything else (strictness, type-checking, Prettier interop) is identical.
  *
  * @param {string} tsconfigRootDir - The consumer's package root; pass `import.meta.dirname`.
  * @param {{ ignores?: string[], files?: string[], library?: boolean }} [opts] - Optional extra
  *   `ignores`; a `files` override for which globs the type-checked rules apply to (defaults to
- *   src/test/scripts/configs); and `library` (default `true`) — set `false` for an application to
+ *   src/test/scripts/configs); and `library` (default `true`): set `false` for an application to
  *   drop the JSDoc/`@example` gate and `no-console`, keeping every type-safety rule.
  * @returns {import("typescript-eslint").ConfigArray} The flat config array.
  * @example
- * // eslint.config.js — a published @cosyte/* library (the default)
+ * // eslint.config.js: a published @cosyte/* library (the default)
  * import cosyte from "@cosyte/eslint-config";
  * export default cosyte(import.meta.dirname);
  * @example
- * // eslint.config.js — an application (no public API to document, may log)
+ * // eslint.config.js: an application (no public API to document, may log)
  * import cosyte from "@cosyte/eslint-config";
  * export default cosyte(import.meta.dirname, { library: false });
  */
@@ -167,7 +167,7 @@ export default function cosyteConfig(tsconfigRootDir, opts = {}) {
         ]
       : []),
 
-    // eslint-config-prettier MUST be last — turns off formatting-conflicting rules.
+    // eslint-config-prettier MUST be last: turns off formatting-conflicting rules.
     prettierConfig,
   );
 }

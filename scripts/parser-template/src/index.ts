@@ -25,14 +25,14 @@ export const VERSION = "0.0.0";
  * The result of parsing a {{TITLE}} payload.
  *
  * Mirrors the cosyte parser archetype: a parsed value plus the **warnings** the lenient parser
- * recovered from (Tier-2 deviations). The real model — an immutable document with dot-path access,
- * named helpers, and a spec-clean serializer — lands in subsequent phases; for now this captures the
+ * recovered from (Tier-2 deviations). The real model (an immutable document with dot-path access,
+ * named helpers, and a spec-clean serializer) lands in subsequent phases; for now this captures the
  * minimal lenient-parse contract.
  */
 export interface Parsed{{Pascal}} {
   /** The parsed in-memory representation. A structural stub until the real model lands. */
   readonly value: Record<string, unknown>;
-  /** Tier-2 deviations recovered during a lenient parse — stable code + position, never thrown. */
+  /** Tier-2 deviations recovered during a lenient parse: stable code + position, never thrown. */
   readonly warnings: readonly {{Pascal}}Warning[];
 }
 
@@ -40,7 +40,7 @@ export interface Parsed{{Pascal}} {
  * A single Tier-2 tolerance warning.
  *
  * Warnings carry a **stable** {@link WarningCode} plus positional context so consumers can branch on
- * `w.code === WARNING_CODES.SOME_CODE` without the code churning — renaming a code is a breaking
+ * `w.code === WARNING_CODES.SOME_CODE` without the code churning: renaming a code is a breaking
  * change. The serializer never emits these; they describe what the lenient parser tolerated.
  */
 export interface {{Pascal}}Warning {
@@ -48,7 +48,7 @@ export interface {{Pascal}}Warning {
   readonly code: WarningCode;
   /** Human-readable detail for logs (never contains PHI). */
   readonly message: string;
-  /** Positional context (offset/segment/element — refined as the parser grows). */
+  /** Positional context (offset/segment/element, refined as the parser grows). */
   readonly position?: { readonly offset: number };
 }
 
@@ -66,7 +66,7 @@ export interface Parse{{Pascal}}Options {
 /**
  * Parse a {{TITLE}} payload into a {@link Parsed{{Pascal}}}.
  *
- * **Lenient by default** — real-world, vendor-quirky input parses rather than throws, emitting
+ * **Lenient by default**: real-world, vendor-quirky input parses rather than throws, emitting
  * {@link {{Pascal}}Warning}s instead (Postel's Law). The complementary serializer (added in a later
  * phase) always emits spec-clean output. Only unrecoverable structural corruption throws (a Tier-3
  * {@link FatalCode}).
@@ -75,8 +75,8 @@ export interface Parse{{Pascal}}Options {
  *   alongside the real parser).
  * @param options - Parse options; see {@link Parse{{Pascal}}Options}. Lenient unless `strict` is set.
  * @returns The parsed value plus any recovered Tier-2 warnings.
- * @throws Only on a Tier-3 {@link FatalCode} (unrecoverable structural corruption), or — once
- *   implemented — on any Tier-2 deviation when `options.strict` is `true`.
+ * @throws Only on a Tier-3 {@link FatalCode} (unrecoverable structural corruption), or, once
+ *   implemented, on any Tier-2 deviation when `options.strict` is `true`.
  * @example
  * ```ts
  * import { parse{{Pascal}} } from "{{PKG}}";
@@ -94,7 +94,7 @@ export function parse{{Pascal}}(raw: string, options: Parse{{Pascal}}Options = {
 }
 
 /**
- * Stable **Tier-2 warning code** registry — the lenient parser's recoverable deviations.
+ * Stable **Tier-2 warning code** registry: the lenient parser's recoverable deviations.
  *
  * Each code is its own value (`key === value`) so the set survives `Object.values(...)` into a
  * snapshot tripwire (see `@cosyte/test-utils`' `sortedCodeSet`). These codes are part of the public
@@ -111,17 +111,17 @@ export function parse{{Pascal}}(raw: string, options: Parse{{Pascal}}Options = {
  * ```
  */
 export const WARNING_CODES = {
-  /** Placeholder Tier-2 code — replace with the parser's real recoverable-deviation codes. */
+  /** Placeholder Tier-2 code: replace with the parser's real recoverable-deviation codes. */
   EXAMPLE_TOLERATED_DEVIATION: "EXAMPLE_TOLERATED_DEVIATION",
 } as const;
 
 /**
- * A value from {@link WARNING_CODES} — the type consumers narrow `warning.code` against.
+ * A value from {@link WARNING_CODES}: the type consumers narrow `warning.code` against.
  */
 export type WarningCode = (typeof WARNING_CODES)[keyof typeof WARNING_CODES];
 
 /**
- * Stable **Tier-3 fatal code** registry — unrecoverable structural corruption.
+ * Stable **Tier-3 fatal code** registry: unrecoverable structural corruption.
  *
  * Tier-3 codes are **always thrown**, even in lenient mode: they mark input the parser cannot
  * recover into a structured result. Like {@link WARNING_CODES} these are `key === value` and part of
@@ -141,11 +141,11 @@ export type WarningCode = (typeof WARNING_CODES)[keyof typeof WARNING_CODES];
  * ```
  */
 export const FATAL_CODES = {
-  /** Placeholder Tier-3 code — replace with the parser's real unrecoverable-corruption codes. */
+  /** Placeholder Tier-3 code: replace with the parser's real unrecoverable-corruption codes. */
   EXAMPLE_UNRECOVERABLE: "EXAMPLE_UNRECOVERABLE",
 } as const;
 
 /**
- * A value from {@link FATAL_CODES} — the type carried by a thrown fatal error.
+ * A value from {@link FATAL_CODES}: the type carried by a thrown fatal error.
  */
 export type FatalCode = (typeof FATAL_CODES)[keyof typeof FATAL_CODES];

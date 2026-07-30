@@ -1,7 +1,7 @@
 {
   "name": "{{PKG}}",
   "version": "0.0.0",
-  "description": "{{TITLE}} parser, serializer, and builder for Node.js and TypeScript \u2014 lenient on parse, spec-clean on emit.",
+  "description": "{{TITLE}} parser, serializer, and builder for Node.js and TypeScript: lenient on parse, spec-clean on emit.",
   "keywords": [
     "{{NAME}}",
     "parser",

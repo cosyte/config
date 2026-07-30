@@ -1,27 +1,27 @@
 /**
- * PERF-P0 · Experiment A — the empirical distribution of the 4N-vs-N ratio.
+ * PERF-P0 · Experiment A: the empirical distribution of the 4N-vs-N ratio.
  *
  * Produces the two constants the kit cannot get from any published source (roadmap §10/O1): the
  * **ratio ceiling** and the **ratio floor**. It does that by running a workload that is linear by
- * construction (`workload.ts`) many times and recording where the ratio actually lands — so the
+ * construction (`workload.ts`) many times and recording where the ratio actually lands, so the
  * ceiling is set from a measured false-alarm distribution rather than from judgement.
  *
  * ## Why this file is a vitest test and not a script
  *
  * The gate it calibrates will live in vitest, so the calibration has to be hosted the same way or it
  * measures the wrong thing. Two of the confirmed hazards only exist inside this host:
- *   - **V1** — `@vitest/coverage-v8` turns on V8's `kBlockCount` precise coverage, which compiles an
+ *   - **V1**: `@vitest/coverage-v8` turns on V8's `kBlockCount` precise coverage, which compiles an
  *     effectful counter increment into the measured function body in every tier. Its cost scales with
  *     executed-block count and density, so it is *not* guaranteed to cancel in a ratio. Magnitude
  *     unmeasured; the `--coverage` leg of this experiment is what settles it.
- *   - **V4** — Vite's SSR transform rewrites cross-module imports into namespace property accesses,
+ *   - **V4**: Vite's SSR transform rewrites cross-module imports into namespace property accesses,
  *     which Vitest's own guide warns can dominate a hot loop. `hl7`'s gate imports `../../src/index.js`
  *     and so measures transformed code; importing `./workload.js` here reproduces that faithfully.
  *
  * ## What one process contributes
  *
  * A real gate runs **once**, in a fresh fork, right after a bounded warmup. So the distribution that
- * matters is the distribution of *first* ratios in fresh processes — not the steady-state noise of a
+ * matters is the distribution of *first* ratios in fresh processes, not the steady-state noise of a
  * long-running loop. Each invocation of this file therefore contributes:
  *   - one **cold** ratio: the first trial after an `hl7`-shaped fixed-count warmup, which is exactly
  *     what CI sees; and
@@ -37,7 +37,7 @@
  * here; if it does, the kit has to randomize or interleave.
  *
  * Env inputs: `CELL` (`count:NF` | `count:FN` | `size:NF` | `size:FN`), `WARM_TRIALS`, `RUN_INDEX`,
- * `OUT` (JSONL file appended to). No assertions beyond liveness — this is an experiment, not a gate.
+ * `OUT` (JSONL file appended to). No assertions beyond liveness. This is an experiment, not a gate.
  */
 
 import { appendFileSync } from "node:fs";
@@ -75,7 +75,7 @@ function median(xs: readonly number[]): number {
   return s.length % 2 === 0 ? ((s[mid - 1] ?? 0) + (s[mid] ?? 0)) / 2 : (s[mid] ?? 0);
 }
 
-/** Mean after discarding one sample from each tail — criterion.rs/pyperf's shape, not min-of-N. */
+/** Mean after discarding one sample from each tail: criterion.rs/pyperf's shape, not min-of-N. */
 function trimmedMean(xs: readonly number[]): number {
   const s = [...xs].sort((a, b) => a - b);
   const kept = s.length > 2 ? s.slice(1, -1) : s;
@@ -105,7 +105,7 @@ function buildCorpus(axis: Axis): { base: string[]; quad: string[] } {
 /**
  * `hl7`'s beforeAll warmup, reproduced exactly: a fixed ~2,100 invocations. W1 says a fixed count
  * cannot reach steady state (the effective TurboFan budget is 16,000 interrupt units scaled by
- * bytecode length), so this is deliberately the *inadequate* warmup the shipped gate uses — the
+ * bytecode length), so this is deliberately the *inadequate* warmup the shipped gate uses: the
  * cold-vs-warm gap this experiment records is the size of that inadequacy.
  */
 function hl7ShapedWarmup(): void {

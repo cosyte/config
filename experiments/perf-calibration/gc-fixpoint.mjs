@@ -1,25 +1,25 @@
 /**
- * PERF-P0 · Experiment B — how many `gc()` rounds settle `heapUsed`, on a real Node 22 binary.
+ * PERF-P0 · Experiment B: how many `gc()` rounds settle `heapUsed`, on a real Node 22 binary.
  *
  * Produces the third constant the kit needs (the **GC round count**) plus the residual spread once
  * settled, and re-checks on Node 22 three findings that were only measured on Node v24.18.0 (§10/O7):
  *
- *   - **M2** — `gc(true)` silently performs a *scavenge*, not a major GC. The research framed the rule
+ *   - **M2**: `gc(true)` silently performs a *scavenge*, not a major GC. The research framed the rule
  *     as "a truthy non-options argument"; leg 2 spans enough argument SHAPES to find out whether that
- *     is the actual boundary. (It is not — see ANALYSIS.md §6: the boundary is whether V8 recognises
+ *     is the actual boundary. (It is not; see ANALYSIS.md §6: the boundary is whether V8 recognises
  *     a key.) This is the single most-copied idiom in JS memory benchmarks and it silently
  *     invalidates the reading.
- *   - **M3** — one GC is not a fixpoint. V8's maximal-reclamation path runs between
+ *   - **M3**: one GC is not a fixpoint. V8's maximal-reclamation path runs between
  *     `kMinNumberOfAttempts = 2` and `kMaxNumberOfAttempts = 7` rounds "until the root set is stable".
  *     Leg 1 measures how many rounds it actually takes here.
- *   - **O4** — sync vs async `gc()`. V8's docs recommend the async form for "test that certain objects
+ *   - **O4**: sync vs async `gc()`. V8's docs recommend the async form for "test that certain objects
  *     indeed are reclaimed", but the stack-scanning explanation for why was refuted. Leg 3 measures
  *     whether the async form reaches the fixpoint in fewer rounds, which decides which incantation
  *     the kit standardizes on.
  *
  * Run: `node --expose-gc gc-fixpoint.mjs`. Writes JSON to `$OUT` (default stdout).
  *
- * Method note. The garbage has to be in **old space** for any of this to be meaningful — a scavenge
+ * Method note. The garbage has to be in **old space** for any of this to be meaningful: a scavenge
  * reclaims young-generation garbage, so young garbage would make `gc(true)` look fine. So each trial
  * builds a graph, forces two major GCs to promote it, drops the reference, and only then measures.
  * PHI: the graph is filler strings and numbers.
@@ -75,7 +75,7 @@ function makeOldSpaceGarbage() {
   return { live, witness };
 }
 
-/** Leg 1 — rounds of zero-arg `gc()` to reach a fixpoint, and the residual spread once settled. */
+/** Leg 1: rounds of zero-arg `gc()` to reach a fixpoint, and the residual spread once settled. */
 function legFixpoint() {
   const trials = [];
   for (let t = 0; t < TRIALS; t++) {
@@ -103,13 +103,13 @@ function legFixpoint() {
 }
 
 /**
- * Leg 2 — M2 reproduction. For each argument form, build fresh old-space garbage and record what a
+ * Leg 2: M2 reproduction. For each argument form, build fresh old-space garbage and record what a
  * SINGLE call of that form reclaims. A form that reclaims ~0 is performing a scavenge.
  *
  * The form list has to span the *shape* space, not just the truthiness space, or the leg cannot
  * support a general claim about which arguments work. V8's gc-extension parses the argument as an
- * options bag only when it recognises a key (`type`, `execution`, `flavor`); anything else — a
- * primitive, an empty object, an object whose keys it does not know — falls through to the legacy
+ * options bag only when it recognises a key (`type`, `execution`, `flavor`); anything else (a
+ * primitive, an empty object, an object whose keys it does not know) falls through to the legacy
  * path. So the list below deliberately includes an EMPTY options object and one with an
  * unrecognised key, which are the two cases that separate "is an object" from "is parsed as
  * options". An earlier version of this leg tested only 7 forms, none of them an options object with
@@ -157,7 +157,7 @@ async function legArgumentForms() {
   return results;
 }
 
-/** Leg 3 — O4. Rounds to fixpoint using the async form instead of the sync one. */
+/** Leg 3: O4. Rounds to fixpoint using the async form instead of the sync one. */
 async function legAsync() {
   const trials = [];
   for (let t = 0; t < TRIALS; t++) {

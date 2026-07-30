@@ -33,6 +33,14 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # The em-dash brand gate's FILE half also runs in no-emdash.yml, which additionally
+      # covers the PR title, body and commit messages and carries the `edited` trigger those
+      # need. It is repeated here for one reason worth stating plainly: `verify` is a REQUIRED
+      # status check in this repo's `config-ci-required-checks` ruleset and `no-emdash` is not,
+      # so without this line the gate would run, be visible, and still not block a merge. Making
+      # it required is a ruleset change; this is the half that can be made blocking from inside
+      # the repo. Cheap enough to run twice (a checkout and one grep).
+      - run: pnpm check:no-emdash
       - run: pnpm format:check
       - run: pnpm typecheck
       - run: pnpm lint
@@ -50,10 +58,11 @@ jobs:
 
   # Prove the publish pipeline on every push/PR WITHOUT burning a version (REL-PIPE). No registry
   # auth, no upload: `publish --dry-run` exercises the publish command path (the release itself
-  # publishes via `changeset publish`; this is a faithful proxy for the pack/manifest/access path) —
-  # green as "no new packages" until a changeset bumps a version, at which point it packs+validates
-  # that version — and `npm pack --dry-run` asserts each publishable tarball actually assembles with the
-  # right file set + built dist — independent of what's already on npm. A red here means a real
+  # publishes via `changeset publish`; this is a faithful proxy for the pack/manifest/access path).
+  # It is green as "no new packages" until a changeset bumps a version, at which point it
+  # packs+validates that version. Separately, and on every push/PR rather than only when a version
+  # moves, `npm pack --dry-run` asserts each publishable tarball actually assembles with the right
+  # file set + built dist, independent of what's already on npm. A red here means a real
   # release would fail. Real provenance publish stays gated on the public flip (PUB-FLIP).
   release-dry-run:
     runs-on: ubuntu-latest
@@ -70,6 +79,6 @@ jobs:
       - name: Publish dry-run
         run: pnpm -r publish --dry-run --no-git-checks
       # Assert every publishable tarball assembles (catches missing files/dist/exports) even when
-      # the current version is already on npm — which `publish --dry-run` skips.
+      # the current version is already on npm, which `publish --dry-run` skips.
       - name: Pack integrity
         run: pnpm -r --filter "./packages/*" exec npm pack --dry-run

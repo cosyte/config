@@ -5,20 +5,20 @@ import { pathToFileURL } from "node:url";
 import { afterAll, describe, expect, test } from "vitest";
 
 /**
- * The doc/code-agreement harness — the documentation analog of the parser conformance runners.
+ * The doc/code-agreement harness: the documentation analog of the parser conformance runners.
  *
  * A `docs-content` example a developer can copy into a production integration is only safe if it
  * still does what the prose claims *against the built package*. A snippet that silently mis-reads a
  * dose, an allergy, a code system, or a patient identifier is the clinical-harm failure mode wearing
- * a documentation costume — so a green docs build carrying a wrong snippet is the exact thing this
+ * a documentation costume, so a green docs build carrying a wrong snippet is the exact thing this
  * catches. Every fenced block a package opts in (```` ```ts runnable ````) is extracted, its inline
  * `// => value` assertions are compiled to real `expect(...)` checks, and the whole block is executed
- * as an ES module in the running Vitest process. If it throws — or an assertion fails — the docs
+ * as an ES module in the running Vitest process. If it throws, or an assertion fails, the docs
  * build fails, loudly, next to the file and line.
  *
  * Lives in `@cosyte/vitest-config` (not the framework-agnostic `@cosyte/test-utils`) on purpose:
  * {@link docSnippetSuite} registers Vitest `describe`/`test` blocks, so it belongs with the Vitest
- * config every parser already depends on — zero new devDep, one versioned implementation on the
+ * config every parser already depends on: zero new devDep, one versioned implementation on the
  * Changesets train, devDep-only.
  *
  * @packageDocumentation
@@ -34,8 +34,8 @@ let moduleCounter = 0;
  * Extract the opt-in runnable snippets from a markdown string.
  *
  * A block is runnable when its fence info string names a TypeScript language *and* carries the
- * opt-in tag, e.g. ```` ```ts runnable ````. Everything else — prose, shell, un-tagged `ts` blocks
- * — is ignored: opt-in, never opt-out, so documenting non-executable pseudocode stays possible.
+ * opt-in tag, e.g. ```` ```ts runnable ````. Everything else (prose, shell, un-tagged `ts` blocks)
+ * is ignored: opt-in, never opt-out, so documenting non-executable pseudocode stays possible.
  * The `throws` meta tag marks a block expected to throw rather than run clean.
  *
  * @param {string} markdown - The markdown source.
@@ -95,7 +95,7 @@ export function extractRunnableSnippets(markdown, opts = {}) {
  * Rewrite inline doctest assertions into real `expect(...)` calls.
  *
  * A line of the form `<expression>; // => <value>` becomes `expect(<expression>).toStrictEqual(<value>)`.
- * The right-hand side is any JavaScript expression (a literal, `[]`, an object, another call) — it is
+ * The right-hand side is any JavaScript expression (a literal, `[]`, an object, another call). It is
  * evaluated in the snippet's own scope, so it can reference values the snippet defined. Lines without
  * the `// =>` marker are left untouched and simply execute for their side effects (and must not throw).
  *
@@ -142,7 +142,7 @@ export function remapImports(code, resolveFn) {
  *
  * The snippet is remapped, its assertions rewritten, an `expect` import prepended, and the result
  * written to a unique temp `.ts` file under `tmpDir` (which MUST live inside the project root so
- * Vitest transforms it — files under `node_modules` are treated as external and would reach Node as
+ * Vitest transforms it: files under `node_modules` are treated as external and would reach Node as
  * raw TypeScript). It is then dynamically imported: Vitest's module runner transforms the TypeScript
  * and runs it. A block tagged `throws` must throw; any other block must run clean. The temp file is
  * always removed afterwards.
@@ -170,7 +170,7 @@ export async function runSnippet(snippet, opts = {}) {
   writeFileSync(file, moduleSource, "utf8");
   try {
     if (throwsExpected) {
-      // Weaker guarantee, by design: a `throws` block is green if the import rejects for ANY reason —
+      // Weaker guarantee, by design: a `throws` block is green if the import rejects for ANY reason:
       // the documented error, but also a compile error or a bad specifier. It proves "this does not
       // run clean," not "this fails the specific way the prose claims." Assert the precise failure
       // inside the snippet (a try/catch with an `// =>` on the caught code/message) when that matters.
@@ -198,7 +198,7 @@ export async function runSnippet(snippet, opts = {}) {
  *
  * Point it at a `docsDir` (or an explicit `files` list); it walks the markdown, turns each opt-in
  * runnable block into a `test` labelled by file and line, and executes it against the built package.
- * A package with no `docs-content` (or no runnable blocks) yields an empty, passing suite — the docs
+ * A package with no `docs-content` (or no runnable blocks) yields an empty, passing suite: the docs
  * site's build-on-missing-content invariant has a testing analog here: absence degrades quietly, a
  * *wrong* snippet fails loudly. Set `requireSnippet` when a repo wants to assert its docs carry at
  * least one executed example.
@@ -255,7 +255,7 @@ export function docSnippetSuite(options = {}) {
       });
     } else if (total === 0) {
       // A package with docs but no runnable examples yet (the common scaffold state) would otherwise
-      // leave this an empty suite — which Vitest reports as a "no test found in file" failure. A
+      // leave this an empty suite, which Vitest reports as a "no test found in file" failure. A
       // passing no-op keeps the wired suite green until the first snippet is tagged `runnable`.
       test("no runnable snippets to check", () => {});
     }
@@ -268,7 +268,7 @@ function defaultTmpDir() {
 }
 
 /**
- * Recursively collect markdown files under a directory. A missing directory yields `[]` — a package
+ * Recursively collect markdown files under a directory. A missing directory yields `[]`: a package
  * without `docs-content` produces an empty suite rather than a crash.
  *
  * @param {string} dir - Root directory.

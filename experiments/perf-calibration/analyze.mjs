@@ -1,8 +1,8 @@
 /**
- * PERF-P0 — turns `data/` into the tables in `ANALYSIS.md`. Pure derivation: no measurement happens
+ * PERF-P0: turns `data/` into the tables in `ANALYSIS.md`. Pure derivation: no measurement happens
  * here, so re-running it on a committed dataset always reproduces the same numbers.
  *
- * Usage: `node experiments/perf-calibration/analyze.mjs [dataDir]` — writes markdown to stdout.
+ * Usage: `node experiments/perf-calibration/analyze.mjs [dataDir]`, writes markdown to stdout.
  */
 
 import { readFileSync } from "node:fs";
@@ -35,7 +35,7 @@ const ESTIMATORS = ["min", "median", "trimmedMean", "mean"];
 /**
  * The estimator the per-cell tables are derived on. Overridable with `EST=` because the pre-registered
  * decision rule reads "for the estimator P1 adopts", and ANALYSIS.md §1 ends up recommending `min` for
- * the ratio assertion — so every conclusion has to be checkable on `min`, not only on the default.
+ * the ratio assertion, so every conclusion has to be checkable on `min`, not only on the default.
  */
 const HEADLINE = process.env["EST"] ?? "median";
 if (!ESTIMATORS.includes(HEADLINE)) throw new Error(`EST must be one of ${ESTIMATORS.join(", ")}`);
@@ -47,7 +47,7 @@ const pct = (xs, p) => {
   return s[Math.min(s.length - 1, Math.max(0, Math.ceil((p / 100) * s.length) - 1))];
 };
 const med = (xs) => pct(xs, 50);
-const f = (n, d = 3) => (n === undefined || n === null ? "—" : n.toFixed(d));
+const f = (n, d = 3) => (n === undefined || n === null ? "n/a" : n.toFixed(d));
 const pctDiff = (a, b) => ((a - b) / b) * 100;
 
 const key = (r) => `${r.axis}:${r.ordering}:${r.coverage ? "cov" : "raw"}:${r.phase}`;
@@ -87,9 +87,9 @@ say(
   ``,
 );
 
-say(`## A1 — ratio distribution, by cell (estimator: \`${HEADLINE}\`)`, ``);
+say(`## A1: ratio distribution, by cell (estimator: \`${HEADLINE}\`)`, ``);
 say(
-  `Ideal is exactly **4.0**. The workload is linear, so no deviation here is a real regression — ` +
+  `Ideal is exactly **4.0**. The workload is linear, so no deviation here is a real regression, ` +
     `but do not read the spread as pure noise either: A3 shows a **reproducible** ordering and axis ` +
     `bias of a few percent sitting inside it. The tail is noise; the offset of the centre is not.`,
   ``,
@@ -110,7 +110,7 @@ for (const axis of AXES)
       }
 say(``);
 
-say(`## A2 — estimator comparison (worst observed ratio, all cells pooled)`, ``);
+say(`## A2: estimator comparison (worst observed ratio, all cells pooled)`, ``);
 say(`| estimator | p50 | p95 | p99 | max | max (cold only) |`);
 say(`|---|---:|---:|---:|---:|---:|`);
 for (const est of ESTIMATORS) {
@@ -123,7 +123,7 @@ for (const est of ESTIMATORS) {
 }
 say(``);
 
-say(`## A3 — ordering effect (C5: the confound a same-process ratio does NOT cancel)`, ``);
+say(`## A3: ordering effect (C5: the confound a same-process ratio does NOT cancel)`, ``);
 say(`| axis | coverage | phase | p50 N→4N | p50 4N→N | Δ p50 | max N→4N | max 4N→N |`);
 say(`|---|---|---|---:|---:|---:|---:|---:|`);
 for (const axis of AXES)
@@ -139,7 +139,7 @@ for (const axis of AXES)
     }
 say(``);
 
-say(`## A4 — coverage effect (V1), against the pre-registered decision rule`, ``);
+say(`## A4: coverage effect (V1), against the pre-registered decision rule`, ``);
 say(
   `Rule, recorded before the sweep: exclude perf tests from coverage iff |Δ p50| > 5% or Δ p95 > 15%.`,
   ``,
@@ -164,7 +164,7 @@ for (const axis of AXES)
     }
 say(``, `**Decision rule verdict: ${tripped ? "TRIPPED" : "not tripped"}.**`, ``);
 
-say(`## A5 — coverage overhead is NOT uniform across the two compared phases`, ``);
+say(`## A5: coverage overhead is NOT uniform across the two compared phases`, ``);
 say(
   `V1's mechanism predicts the instrumentation cost scales with executed-block count and density, ` +
     `which differ between the phases. If the two multipliers below were equal, coverage would cancel ` +
@@ -188,7 +188,7 @@ for (const axis of AXES)
     }
 say(``);
 
-say(`## A6 — warmup: is the sample vector still descending? (W1)`, ``);
+say(`## A6: warmup: is the sample vector still descending? (W1)`, ``);
 say(
   `Each phase records 5 reps. If a fixed-count warmup were sufficient, rep 1 and rep 5 would be ` +
     `interchangeable. Ratio of the FIRST rep to the LAST, median across trials.`,
@@ -208,7 +208,7 @@ for (const axis of AXES)
     }
 say(``);
 
-say(`## B1 — \`gc()\` rounds to a \`heapUsed\` fixpoint (M3), Node ${gc.node} / V8 ${gc.v8}`, ``);
+say(`## B1: \`gc()\` rounds to a \`heapUsed\` fixpoint (M3), Node ${gc.node} / V8 ${gc.v8}`, ``);
 const roundsHist = (trials) => {
   const h = new Map();
   for (const t of trials) h.set(t.roundsRequired, (h.get(t.roundsRequired) ?? 0) + 1);
@@ -219,10 +219,10 @@ const roundsHist = (trials) => {
 };
 /**
  * Two different things get called "spread" here and conflating them misreads the data.
- *   - `settled` — WITHIN a trial, across rounds 2..N once the fixpoint is reached. This is the one
+ *   - `settled`: WITHIN a trial, across rounds 2..N once the fixpoint is reached. This is the one
  *     that answers "how stable is a settled `heapUsed` reading", i.e. how much of a measured delta
  *     is real. Reported as the median across trials.
- *   - `drift` — ACROSS trials, comparing each trial's final reading. This moves for reasons that have
+ *   - `drift`: ACROSS trials, comparing each trial's final reading. This moves for reasons that have
  *     nothing to do with GC stability (the process's own baseline creeping as the harness allocates,
  *     a compilation cache being released), so it is reported separately and never as "noise".
  */
@@ -264,7 +264,7 @@ say(
   ``,
 );
 
-say(`## B2 — what each \`gc\` argument form actually reclaims (M2)`, ``);
+say(`## B2: what each \`gc\` argument form actually reclaims (M2)`, ``);
 say(
   `Old-space garbage of ~${f(med(gc.fixpoint.map((t) => t.live - t.final)) / 1024 ** 2, 1)} MiB per trial.`,
   ``,
@@ -273,21 +273,21 @@ say(`| form | trials | median reclaimed | verdict |`);
 say(`|---|---:|---:|---|`);
 for (const form of gc.argumentForms) {
   if (form.error) {
-    say(`| \`${form.form}\` | 0 | — | threw: \`${form.error}\` |`);
+    say(`| \`${form.form}\` | 0 | n/a | threw: \`${form.error}\` |`);
     continue;
   }
   const m = med(form.reclaimedBytes);
   say(
     `| \`${form.form}\` | ${String(form.reclaimedBytes.length)} | ${f(m / 1024 ** 2, 2)} MiB ` +
-      `| ${m > 1024 ** 2 ? "**major GC**" : "scavenge — reading is invalid"} |`,
+      `| ${m > 1024 ** 2 ? "**major GC**" : "scavenge: reading is invalid"} |`,
   );
 }
 say(``);
 
 if (signal.length > 0) {
-  say(`## D — the SIGNAL side: what an O(n²)-in-length regression actually scores`, ``);
+  say(`## D: the SIGNAL side: what an O(n²)-in-length regression actually scores`, ``);
   say(
-    `Same harness, same \`min\` estimator, same 4× size step — only the parser is quadratic. This is ` +
+    `Same harness, same \`min\` estimator, same 4× size step: only the parser is quadratic. This is ` +
       `the number the ceiling is argued *against*, and it was inherited arithmetic ("≈16") until now.`,
     ``,
   );
@@ -316,7 +316,7 @@ if (signal.length > 0) {
   for (const { sz, lo } of bySize) {
     say(
       `| ${String(sz)} → ${String(sz * 4)} | ${f(lo, 2)} | ${f(worstNoise, 2)} ` +
-        `| ${lo > worstNoise ? `yes, by ${f(lo / worstNoise, 2)}×` : "**NO — overlaps the noise**"} |`,
+        `| ${lo > worstNoise ? `yes, by ${f(lo / worstNoise, 2)}×` : "**NO: overlaps the noise**"} |`,
     );
   }
   say(
@@ -324,12 +324,12 @@ if (signal.length > 0) {
     `The signal is **not a constant**. It climbs with fixture size as the quadratic term overtakes ` +
       `the linear per-line work, so **the fixture size is part of the gate's calibration, not a free ` +
       `choice**. A package that picks fixtures too small gets a gate whose signal sits inside its own ` +
-      `false-alarm tail — green while broken, which is roadmap §5's second-worst outcome.`,
+      `false-alarm tail: green while broken, which is roadmap §5's second-worst outcome.`,
     ``,
   );
 }
 
-say(`## C — candidate constants, derived`, ``);
+say(`## C: candidate constants, derived`, ``);
 say(
   `Mechanical derivation only; the judgement about how much margin to buy is written up in ` +
     `ANALYSIS.md. Both populations are shown; the ALL column is the one ANALYSIS.md quotes, because ` +

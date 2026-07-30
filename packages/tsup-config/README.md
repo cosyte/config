@@ -25,5 +25,5 @@ export default cosyteTsup({ entry: ["src/index.ts"] });
 Pass any tsup `Options` to override the baseline (e.g. multiple `entry` points). Everything else is the
 enforced standard.
 
-Part of [cosyte/config](https://github.com/cosyte/config) — one enforced toolchain for the `@cosyte/*`
+Part of [cosyte/config](https://github.com/cosyte/config), one enforced toolchain for the `@cosyte/*`
 suite.

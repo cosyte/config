@@ -15,7 +15,7 @@ per-condition type declarations, so it works from either module system without c
 ## Prerequisites
 
 - **Node.js >= 22** (the whole `@cosyte/*` suite targets ES2023 / Node 22+).
-- A package manager — `pnpm`, `npm`, or `yarn`.
+- A package manager: `pnpm`, `npm`, or `yarn`.
 
 ## Install
 
@@ -33,4 +33,4 @@ import { VERSION } from "{{PKG}}";
 console.log(VERSION);
 ```
 
-If that prints a version string, the install is good — head to the [Quickstart](./quickstart).
+If that prints a version string, the install is good: head to the [Quickstart](./quickstart).

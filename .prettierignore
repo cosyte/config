@@ -4,7 +4,7 @@ coverage
 **/dist
 **/coverage
 pnpm-lock.yaml
-# Scaffold templates contain {{PLACEHOLDER}} tokens — not valid TS/JSON until generated.
+# Scaffold templates contain {{PLACEHOLDER}} tokens, not valid TS/JSON until generated.
 scripts/parser-template
 # PERF-P0 calibration datasets: machine-written evidence, formatted by the experiment not by us.
 experiments/perf-calibration/data

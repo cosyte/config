@@ -1,6 +1,6 @@
 /**
  * Internal shared constants for the conformance runners. Not part of the public
- * API surface (no JSDoc `@example` gate applies — these are `@internal`).
+ * API surface (no JSDoc `@example` gate applies: these are `@internal`).
  *
  * @internal
  * @packageDocumentation
