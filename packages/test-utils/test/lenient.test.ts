@@ -30,7 +30,7 @@ describe("lenientNeverThrowsProperty", () => {
   });
 
   it("FAILS loudly when the fake leaks an unknown warning code", () => {
-    // Wrap the fake so one input injects an unregistered code — the runner must
+    // Wrap the fake so one input injects an unregistered code: the runner must
     // catch the leak (isKnownCode returns false for it).
     const leakyParse = (raw: string): FakeMessage => {
       const m = fakeParse(raw);
@@ -55,7 +55,7 @@ describe("lenientNeverThrowsProperty", () => {
     // A parser that throws a plain Error on some input violates the contract:
     // non-fatal deviations must be recovered into warnings, never thrown.
     const throwyParse = (raw: string): FakeMessage => {
-      if (raw === "") throw new Error("boom — should have been a warning");
+      if (raw === "") throw new Error("boom: should have been a warning");
       return fakeParse(raw);
     };
     expect(() =>

@@ -1,9 +1,9 @@
 /**
- * PERF-P0 · the SIGNAL side — a deliberately O(n²)-in-length parser.
+ * PERF-P0 · the SIGNAL side: a deliberately O(n²)-in-length parser.
  *
  * The ceiling constant is an argument with two sides: the false-alarm tail a linear workload
  * produces (`workload.ts`, measured over 3,200 trials) and the value a genuine complexity regression
- * produces. The second number was inherited as "≈16" from `hl7`'s gate comment — arithmetic, not
+ * produces. The second number was inherited as "≈16" from `hl7`'s gate comment: arithmetic, not
  * measurement. A ceiling justified by half a measurement is exactly the kind of constant P0 exists
  * to stop P1 from freezing, so this module supplies the other half.
  *
@@ -14,7 +14,7 @@
  *
  * The quadratic is honest rather than pathological: `parseMessageQuadratic` produces exactly the
  * same output as `parseMessage`, and gets there by re-scanning from the start of the message to find
- * each segment — the shape a real "just use indexOf" refactor regression takes. It does not rely on
+ * each segment: the shape a real "just use indexOf" refactor regression takes. It does not rely on
  * `slice` being a copy (V8 returns an O(1) SlicedString for long strings, which would have quietly
  * made the obvious implementation linear).
  */

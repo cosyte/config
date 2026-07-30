@@ -2,18 +2,18 @@
  * The PHI-leak assertion matrix.
  *
  * A `Secret<T>`-style wrapper (the `pathways` pattern) must resist **every**
- * channel through which a value can become a string — because any one of them
+ * channel through which a value can become a string, because any one of them
  * can spill PHI into a log line, an error message, or a serialized payload. The
  * four channels a wrapper must survive:
  *
- * 1. `JSON.stringify(value)` — structured logging / serialization (`toJSON`);
- * 2. `String(value)` — explicit coercion (`toString` / `Symbol.toPrimitive`);
- * 3. `` `${value}` `` — template-literal interpolation (the log-statement trap);
- * 4. `util.inspect(value, { depth: null })` — `console.log` / Node REPL
+ * 1. `JSON.stringify(value)`: structured logging / serialization (`toJSON`);
+ * 2. `String(value)`: explicit coercion (`toString` / `Symbol.toPrimitive`);
+ * 3. `` `${value}` ``: template-literal interpolation (the log-statement trap);
+ * 4. `util.inspect(value, { depth: null })`: `console.log` / Node REPL
  *    (`Symbol.for("nodejs.util.inspect.custom")`).
  *
  * {@link assertNoSecretLeak} drives a value through all four and asserts the raw
- * secret never appears while the redaction marker does — naming the exact leaking
+ * secret never appears while the redaction marker does: naming the exact leaking
  * channel when one fails. This is format-agnostic: it works on any wrapper, not
  * just healthcare ones.
  *
@@ -96,7 +96,7 @@ export function assertNoSecretLeak(value: unknown, options: SecretLeakOptions): 
 
   assert.ok(
     secret.length > 0,
-    "assertNoSecretLeak: `secret` must be non-empty — an empty needle matches everything",
+    "assertNoSecretLeak: `secret` must be non-empty, an empty needle matches everything",
   );
   assert.ok(redactedMarker.length > 0, "assertNoSecretLeak: `redactedMarker` must be non-empty");
 
@@ -105,11 +105,11 @@ export function assertNoSecretLeak(value: unknown, options: SecretLeakOptions): 
 
     assert.ok(
       !rendered.includes(secret),
-      `assertNoSecretLeak: secret leaked through ${channel.name} — its output contained the raw secret. Channel output: ${JSON.stringify(rendered)}`,
+      `assertNoSecretLeak: secret leaked through ${channel.name}, its output contained the raw secret. Channel output: ${JSON.stringify(rendered)}`,
     );
     assert.ok(
       rendered.includes(redactedMarker),
-      `assertNoSecretLeak: ${channel.name} did not redact — its output is missing the marker ${JSON.stringify(redactedMarker)}. Channel output: ${JSON.stringify(rendered)}`,
+      `assertNoSecretLeak: ${channel.name} did not redact, its output is missing the marker ${JSON.stringify(redactedMarker)}. Channel output: ${JSON.stringify(rendered)}`,
     );
   }
 }

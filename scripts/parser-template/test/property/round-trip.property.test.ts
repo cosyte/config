@@ -7,7 +7,7 @@
  * `test/property/`). While `{{PKG}}` is still a scaffold:
  *
  *   - the **lenient-mode** invariant runs today against the stub parser (it must never throw on
- *     arbitrary input and must only emit registered warning codes) — a real, passing guard; and
+ *     arbitrary input and must only emit registered warning codes): a real, passing guard; and
  *   - the **round-trip** invariant is `it.todo` until the serializer (`serialize{{Pascal}}` /
  *     `result.toString()`) lands. The body is written against the real runner so it typechecks and
  *     lints now, and flips on by changing `it.todo` to `it` once a serializer exists.
@@ -31,7 +31,7 @@ const fatalCodes = new Set<string>(Object.values(FATAL_CODES));
 const knownWarningCodes = new Set<string>(Object.values(WARNING_CODES));
 
 /**
- * Placeholder arbitrary for **hostile / quirky** input — the lenient-mode generator. Today this is
+ * Placeholder arbitrary for **hostile / quirky** input: the lenient-mode generator. Today this is
  * just arbitrary strings; replace it with a generator that emits real {{TITLE}} quirks (truncated
  * segments, unknown elements, encoding oddities) the lenient parser must recover into warnings.
  */
@@ -40,7 +40,7 @@ function hostileInput(): fc.Arbitrary<string> {
 }
 
 /**
- * Placeholder arbitrary for **spec-clean** values — the round-trip generator. Today it produces the
+ * Placeholder arbitrary for **spec-clean** values: the round-trip generator. Today it produces the
  * stub's parsed shape; replace it with a generator of spec-valid messages the builder/serializer can
  * emit, so `parse(serialize(x))` can be asserted structurally equal to `x`.
  */
@@ -49,7 +49,7 @@ function specClean{{Pascal}}(): fc.Arbitrary<Parsed{{Pascal}}> {
 }
 
 describe("{{NAME}} conformance (archetype invariants)", () => {
-  it("is lenient — arbitrary input never throws a non-fatal, and every warning has a known code", () => {
+  it("is lenient: arbitrary input never throws a non-fatal, and every warning has a known code", () => {
     lenientNeverThrowsProperty({
       arbitrary: hostileInput(),
       parse: (raw: string) => parse{{Pascal}}(raw),
@@ -68,7 +68,7 @@ describe("{{NAME}} conformance (archetype invariants)", () => {
 
   // TODO: flip `it.todo` -> `it` once a serializer (`serialize{{Pascal}}` / `result.toString()`)
   // exists. The body already typechecks and lints against the real runner.
-  it.todo("round-trips — parse(serialize(x)) is structurally equal to x", () => {
+  it.todo("round-trips: parse(serialize(x)) is structurally equal to x", () => {
     roundTripProperty({
       arbitrary: specClean{{Pascal}}(),
       // Replace with the real serializer once it lands.

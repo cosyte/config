@@ -2,7 +2,7 @@
 # PERF-P0 sweep driver. Runs Experiment A (ratio distribution, 8 cells) and Experiment B (GC
 # fixpoint), writing raw data under experiments/perf-calibration/data/.
 #
-#   run.sh            full sweep — 50 fresh processes per cell, ~20 min
+#   run.sh            full sweep: 50 fresh processes per cell, ~20 min
 #   run.sh --quick    3 per cell, for a smoke check that the harness still works
 #   run.sh --bc-only  Experiments B and C only, leaving A's dataset untouched (~4 min)
 #
@@ -31,7 +31,7 @@ if [ "$major" != "22" ]; then
   echo "run.sh: needs Node 22, found $(node -v). O7 is exactly this: don't calibrate on 24." >&2
   exit 66
 fi
-[ -x "$VITEST" ] || { echo "run.sh: $VITEST missing — run 'pnpm install' first" >&2; exit 66; }
+[ -x "$VITEST" ] || { echo "run.sh: $VITEST missing, run 'pnpm install' first" >&2; exit 66; }
 
 mkdir -p "$DATA"
 RATIOS="$DATA/ratios.jsonl"
@@ -41,7 +41,7 @@ SIGNAL="$DATA/signal.jsonl"
 
 # Environment provenance. A perf number without its machine is not a claim (roadmap §7).
 # In --bc-only mode this must NOT overwrite the record describing the Experiment A sweep sitting in
-# the same directory — a provenance file that describes a different run than the data beside it is
+# the same directory: a provenance file that describes a different run than the data beside it is
 # worse than none.
 ENVFILE="$DATA/environment.json"
 [ "$MODE" = "--bc-only" ] && ENVFILE="$DATA/environment-bc.json"

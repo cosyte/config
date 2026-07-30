@@ -15,13 +15,13 @@ permissions:
 
 # Changesets flow: a push to main with pending changesets opens a "Version Packages" PR. Merging that
 # PR bumps versions and triggers publish. Once the `release` environment is created as PROTECTED (see
-# the ⚠️ at the job below + RELEASING.md), it becomes the human approval gate — every run waits for a
+# the ⚠️ at the job below + RELEASING.md), it becomes the human approval gate: every run waits for a
 # required reviewer before it can create the version PR or publish, so nothing reaches npm unattended.
 #
-# AUTH TODAY: NPM_TOKEN. This repo is PUBLIC, so npm provenance is already live — `NPM_CONFIG_PROVENANCE`
+# AUTH TODAY: NPM_TOKEN. This repo is PUBLIC, so npm provenance is already live; `NPM_CONFIG_PROVENANCE`
 # auto-enables below on the public visibility check. The runner toolchain floor is now bumped for OIDC
-# (packageManager `pnpm@10.34.5` ≥ 10.16, Node `22.14`; publish runs via `pnpm run release`, so pnpm —
-# not npm — carries trusted publishing). What remains for tokenless OIDC is a FOUNDER step, not a build:
+# (packageManager `pnpm@10.34.5` ≥ 10.16, Node `22.14`; publish runs via `pnpm run release`, so pnpm,
+# not npm, carries trusted publishing). What remains for tokenless OIDC is a FOUNDER step, not a build:
 #   - Register the npm-side Trusted Publisher (org `cosyte` / repo `config` / workflow `release.yml` /
 #     environment `release`), then remove NPM_TOKEN / NODE_AUTH_TOKEN here. RELEASING.md §"OIDC" has the
 #     exact turnkey steps. Until then, NPM_TOKEN must stay an npm *Automation* token.
@@ -31,8 +31,8 @@ jobs:
     runs-on: ubuntu-latest
     # Release approval gate. ⚠️ ONE-TIME SETUP REQUIRED: create a PROTECTED `release` environment
     # (Settings → Environments → release: add a Required reviewer + a `main`-only deployment-branch
-    # policy) — see RELEASING.md for the exact steps. Until it exists, GitHub auto-creates an
-    # UNPROTECTED environment of this name on first run (same as no gate — no regression), so this
+    # policy): see RELEASING.md for the exact steps. Until it exists, GitHub auto-creates an
+    # UNPROTECTED environment of this name on first run (same as no gate, no regression), so this
     # reference is safe to ship; the gate activates automatically once the protected env is added.
     # This is also the OIDC subject the npm Trusted Publisher binds to at PUB-FLIP.
     environment: release
@@ -58,7 +58,7 @@ jobs:
       - name: Create release PR or publish
         uses: changesets/action@v1
         with:
-          # `pnpm run version` — NOT `pnpm version`, which is pnpm's built-in and shadows the script.
+          # `pnpm run version`, NOT `pnpm version`, which is pnpm's built-in and shadows the script.
           version: pnpm run version
           publish: pnpm run release
         env:

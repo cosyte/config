@@ -1,13 +1,13 @@
 /**
  * Warning-code stability helper.
  *
- * The set of codes a parser can emit is part of its **public contract** —
+ * The set of codes a parser can emit is part of its **public contract**:
  * consumers narrow on `warning.code`, so renaming or removing a code is a
  * breaking change. The convention is to snapshot the full sorted code set so any
  * such change shows up as a reviewable diff in a single test. This helper
  * produces the stable, sorted list that snapshot asserts against.
  *
- * The kit deliberately stops at producing the sorted array — the actual snapshot
+ * The kit deliberately stops at producing the sorted array: the actual snapshot
  * (`toMatchSnapshot` / `toMatchInlineSnapshot`) belongs in the consumer's test,
  * because snapshots are a test-framework feature and this kit takes no
  * test-framework dependency.
@@ -33,7 +33,7 @@
  * import { WARNING_CODES } from "@cosyte/hl7";
  *
  * it("warning-code surface is stable", () => {
- *   // A rename/removal turns into a failing snapshot diff — a deliberate tripwire.
+ *   // A rename/removal turns into a failing snapshot diff: a deliberate tripwire.
  *   expect(sortedCodeSet(WARNING_CODES)).toMatchSnapshot();
  * });
  * ```

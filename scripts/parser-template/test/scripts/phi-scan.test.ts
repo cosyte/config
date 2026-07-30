@@ -1,12 +1,12 @@
 /**
- * Unit tests for scripts/phi-scan.ts — the STARTER PHI commit-gate.
+ * Unit tests for scripts/phi-scan.ts: the STARTER PHI commit-gate.
  *
  * These exercise the SHARED MACHINERY and the cross-cutting SSN/email FLOOR that
  * ships with the template. They deliberately do NOT test structured, field-level
- * PHI detection — that is format-specific and is the author's obligation to add
+ * PHI detection. That is format-specific and is the author's obligation to add
  * (see the STARTER banner in scripts/phi-scan.ts). When you add structured
  * detectors, add positive tests here proving they CATCH real-looking names /
- * DOBs / ids for this standard — a weak scanner is worse than none.
+ * DOBs / ids for this standard: a weak scanner is worse than none.
  *
  * The scanner is invoked via spawnSync (array args, no shell) so the full CLI
  * path (argv parse, exit code, stderr) is exercised. Violator/clean files are
@@ -43,7 +43,7 @@ function runScanner(args: string[]): RunResult {
   return { code: r.status ?? -1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
 }
 
-/** Write a file to the temp dir and scan it by path (paths mode — no git needed). */
+/** Write a file to the temp dir and scan it by path (paths mode, no git needed). */
 function scan(name: string, content: string): RunResult {
   const path = join(dir, name);
   writeFileSync(path, content);
@@ -78,7 +78,7 @@ describe("phi-scan starter: clean + allow-listed content passes", () => {
   it("a clean file with no PHI shapes exits 0", () => {
     const r = scan("clean.txt", "just some ordinary text, no identifiers here\n");
     expect(r.code, `stderr: ${r.stderr}`).toBe(0);
-    expect(r.stdout).toMatch(/OK — no hits/);
+    expect(r.stdout).toMatch(/OK: no hits/);
   });
 
   it("honors the allow-list: an email at a reserved test domain passes (exit 0)", () => {

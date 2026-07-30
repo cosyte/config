@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { assertNoSecretLeak } from "../src/index.js";
 
-const SECRET = "123-45-6789"; // a fake SSN — the needle
+const SECRET = "123-45-6789"; // a fake SSN: the needle
 const MARKER = "[REDACTED]";
 const INSPECT = Symbol.for("nodejs.util.inspect.custom");
 
@@ -71,7 +71,7 @@ describe("assertNoSecretLeak", () => {
   });
 
   it("FAILS when a channel omits the secret but also omits the marker (no redaction proof)", () => {
-    // toString returns "" — the secret is absent, but so is the marker, so the
+    // toString returns "": the secret is absent, but so is the marker, so the
     // matrix rejects it: redaction must be affirmatively shown, not just absence.
     const blank = {
       toJSON: () => MARKER,

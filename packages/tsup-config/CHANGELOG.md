@@ -6,9 +6,14 @@ this file is hand-maintained. The package stays on the **`0.0.x`-until-first-alp
 
 ## [Unreleased]
 
+### Changed
+
+- Documentation no longer uses em dashes, in line with the cosyte brand voice. No build-option
+  change.
+
 ## [0.0.1] - 2026-06-25
 
 ### Added
 
-- Initial release: `cosyteTsup(overrides)` — the standard dual ESM + CJS, ES2023, Node-platform tsup
+- Initial release of `cosyteTsup(overrides)`: the standard dual ESM + CJS, ES2023, Node-platform tsup
   build config for `@cosyte/*` libraries.

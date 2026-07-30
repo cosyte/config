@@ -1,10 +1,10 @@
 # @cosyte/test-utils
 
-The shared conformance test kit for the `@cosyte/*` parsers — so every parser proves the **same**
+The shared conformance test kit for the `@cosyte/*` parsers, so every parser proves the **same**
 archetype invariants against one contract instead of reinventing them.
 
 It ships **generic, parameterized invariant runners**. The **format-specific arbitraries stay in
-each parser** — this kit contains no HL7/DICOM/X12 generators. The runners are framework-agnostic:
+each parser**. This kit contains no HL7/DICOM/X12 generators. The runners are framework-agnostic:
 they use [`fast-check`](https://fast-check.dev/) (a peer dependency, `^3`) and `node:assert/strict`,
 and **throw** on failure, so any test runner (Vitest, `node:test`, Mocha) catches them. The kit takes
 no runtime dependency on a test framework.
@@ -19,7 +19,7 @@ pnpm add -D @cosyte/test-utils fast-check
 | ---------------------------- | ------------------------------------------------------------------------------------------------------------- |
 | `roundTripProperty`          | `parse(serialize(x))` equals `x`, and serialization is idempotent.                                            |
 | `lenientNeverThrowsProperty` | `parse` throws only on sanctioned fatals; every recovered warning has a registered code (+ position).         |
-| `immutabilityProperty`       | a mutation attempt throws or returns a new instance — it never edits the original in place.                   |
+| `immutabilityProperty`       | a mutation attempt throws or returns a new instance. It never edits the original in place.                    |
 | `sortedCodeSet`              | the sorted warning/fatal code values, ready for a `toMatchSnapshot` stability tripwire.                       |
 | `assertNoSecretLeak`         | a `Secret<T>`-style wrapper never leaks through `JSON.stringify` / `String()` / `` `${}` `` / `util.inspect`. |
 

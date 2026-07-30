@@ -7,6 +7,11 @@ the **`0.0.x`-until-first-alpha** ladder.
 
 ## [Unreleased]
 
+### Changed
+
+- Documentation no longer uses em dashes, in line with the cosyte brand voice. No
+  compiler-option change.
+
 ## [0.0.2] - 2026-06-25
 
 ### Changed

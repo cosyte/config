@@ -6,9 +6,9 @@ GitHub-hosted: image `ubuntu24` version `20260720.247.2`, run `30169401396`.
 
 Ratio rows: **1600** across 16 cell/phase groups.
 
-## A1 — ratio distribution, by cell (estimator: `median`)
+## A1: ratio distribution, by cell (estimator: `median`)
 
-Ideal is exactly **4.0**. The workload is linear, so no deviation here is a real regression — but do not read the spread as pure noise either: A3 shows a **reproducible** ordering and axis bias of a few percent sitting inside it. The tail is noise; the offset of the centre is not.
+Ideal is exactly **4.0**. The workload is linear, so no deviation here is a real regression, but do not read the spread as pure noise either: A3 shows a **reproducible** ordering and axis bias of a few percent sitting inside it. The tail is noise; the offset of the centre is not.
 
 | axis | order | coverage | phase | n | min | p50 | p95 | p99 | max |
 |---|---|---|---|---:|---:|---:|---:|---:|---:|
@@ -29,7 +29,7 @@ Ideal is exactly **4.0**. The workload is linear, so no deviation here is a real
 | size | FN | on | cold | 50 | 4.090 | 4.198 | 4.265 | 4.420 | 4.420 |
 | size | FN | on | warm | 150 | 4.060 | 4.288 | 4.340 | 4.363 | 4.373 |
 
-## A2 — estimator comparison (worst observed ratio, all cells pooled)
+## A2: estimator comparison (worst observed ratio, all cells pooled)
 
 | estimator | p50 | p95 | p99 | max | max (cold only) |
 |---|---:|---:|---:|---:|---:|
@@ -38,7 +38,7 @@ Ideal is exactly **4.0**. The workload is linear, so no deviation here is a real
 | `trimmedMean` | 4.161 | 4.500 | 4.643 | 4.711 | 4.707 |
 | `mean` | 4.140 | 4.604 | 4.764 | 4.820 | 4.820 |
 
-## A3 — ordering effect (C5: the confound a same-process ratio does NOT cancel)
+## A3: ordering effect (C5: the confound a same-process ratio does NOT cancel)
 
 | axis | coverage | phase | p50 N→4N | p50 4N→N | Δ p50 | max N→4N | max 4N→N |
 |---|---|---|---:|---:|---:|---:|---:|
@@ -51,7 +51,7 @@ Ideal is exactly **4.0**. The workload is linear, so no deviation here is a real
 | size | on | cold | 4.181 | 4.198 | 0.4% | 4.414 | 4.420 |
 | size | on | warm | 4.277 | 4.288 | 0.2% | 4.356 | 4.373 |
 
-## A4 — coverage effect (V1), against the pre-registered decision rule
+## A4: coverage effect (V1), against the pre-registered decision rule
 
 Rule, recorded before the sweep: exclude perf tests from coverage iff |Δ p50| > 5% or Δ p95 > 15%.
 
@@ -68,7 +68,7 @@ Rule, recorded before the sweep: exclude perf tests from coverage iff |Δ p50| >
 
 **Decision rule verdict: not tripped.**
 
-## A5 — coverage overhead is NOT uniform across the two compared phases
+## A5: coverage overhead is NOT uniform across the two compared phases
 
 V1's mechanism predicts the instrumentation cost scales with executed-block count and density, which differ between the phases. If the two multipliers below were equal, coverage would cancel exactly in the ratio; the gap between them is the non-cancellation, in the units that matter.
 
@@ -83,7 +83,7 @@ V1's mechanism predicts the instrumentation cost scales with executed-block coun
 | size | FN | cold | 1.38× | 1.35× | -1.7% |
 | size | FN | warm | 1.40× | 1.36× | -3.1% |
 
-## A6 — warmup: is the sample vector still descending? (W1)
+## A6: warmup: is the sample vector still descending? (W1)
 
 Each phase records 5 reps. If a fixed-count warmup were sufficient, rep 1 and rep 5 would be interchangeable. Ratio of the FIRST rep to the LAST, median across trials.
 
@@ -98,7 +98,7 @@ Each phase records 5 reps. If a fixed-count warmup were sufficient, rep 1 and re
 | size | on | cold | 1.03× | 1.17× |
 | size | on | warm | 1.01× | 0.97× |
 
-## B1 — `gc()` rounds to a `heapUsed` fixpoint (M3), Node 22.23.1 / V8 12.4.254.21-node.56
+## B1: `gc()` rounds to a `heapUsed` fixpoint (M3), Node 22.23.1 / V8 12.4.254.21-node.56
 
 | leg | trials | rounds required (value→count) | settled spread, median | settled spread, WORST | baseline drift |
 |---|---:|---|---:|---:|---:|
@@ -107,29 +107,29 @@ Each phase records 5 reps. If a fixed-count warmup were sufficient, rep 1 and re
 
 The **worst** column is the one P3 has to design against: the median settled reading is exactly reproducible, but a minority of trials still move by ~1 KiB across settled rounds with no workload running. That is the noise floor of a settled `heapUsed` figure, and it is not zero.
 
-## B2 — what each `gc` argument form actually reclaims (M2)
+## B2: what each `gc` argument form actually reclaims (M2)
 
 Old-space garbage of ~22.9 MiB per trial.
 
 | form | trials | median reclaimed | verdict |
 |---|---:|---:|---|
 | `gc()` | 10 | 22.88 MiB | **major GC** |
-| `gc(true)` | 10 | -0.00 MiB | scavenge — reading is invalid |
-| `gc(false)` | 10 | -0.00 MiB | scavenge — reading is invalid |
-| `gc(1)` | 10 | -0.00 MiB | scavenge — reading is invalid |
-| `gc(null)` | 10 | -0.00 MiB | scavenge — reading is invalid |
-| `gc(undefined)` | 10 | -0.00 MiB | scavenge — reading is invalid |
-| `gc({})` | 10 | -0.00 MiB | scavenge — reading is invalid |
-| `gc({foo:1})` | 10 | -0.00 MiB | scavenge — reading is invalid |
+| `gc(true)` | 10 | -0.00 MiB | scavenge: reading is invalid |
+| `gc(false)` | 10 | -0.00 MiB | scavenge: reading is invalid |
+| `gc(1)` | 10 | -0.00 MiB | scavenge: reading is invalid |
+| `gc(null)` | 10 | -0.00 MiB | scavenge: reading is invalid |
+| `gc(undefined)` | 10 | -0.00 MiB | scavenge: reading is invalid |
+| `gc({})` | 10 | -0.00 MiB | scavenge: reading is invalid |
+| `gc({foo:1})` | 10 | -0.00 MiB | scavenge: reading is invalid |
 | `gc({type:'major'})` | 10 | 22.88 MiB | **major GC** |
-| `gc({type:'minor'})` | 10 | -0.00 MiB | scavenge — reading is invalid |
+| `gc({type:'minor'})` | 10 | -0.00 MiB | scavenge: reading is invalid |
 | `gc({execution:'sync'})` | 10 | 22.88 MiB | **major GC** |
 | `await gc({execution:'async'})` | 10 | 22.88 MiB | **major GC** |
 | `gc({flavor:'last-resort'})` | 10 | 22.88 MiB | **major GC** |
 
-## D — the SIGNAL side: what an O(n²)-in-length regression actually scores
+## D: the SIGNAL side: what an O(n²)-in-length regression actually scores
 
-Same harness, same `min` estimator, same 4× size step — only the parser is quadratic. This is the number the ceiling is argued *against*, and it was inherited arithmetic ("≈16") until now.
+Same harness, same `min` estimator, same 4× size step: only the parser is quadratic. This is the number the ceiling is argued *against*, and it was inherited arithmetic ("≈16") until now.
 
 | base OBX → 4× | coverage | n | min | p50 | max |
 |---|---|---:|---:|---:|---:|
@@ -149,9 +149,9 @@ Same harness, same `min` estimator, same 4× size step — only the parser is qu
 | 500 → 2000 | 11.43 | 4.50 | yes, by 2.54× |
 | 1000 → 4000 | 14.47 | 4.50 | yes, by 3.21× |
 
-The signal is **not a constant**. It climbs with fixture size as the quadratic term overtakes the linear per-line work, so **the fixture size is part of the gate's calibration, not a free choice**. A package that picks fixtures too small gets a gate whose signal sits inside its own false-alarm tail — green while broken, which is roadmap §5's second-worst outcome.
+The signal is **not a constant**. It climbs with fixture size as the quadratic term overtakes the linear per-line work, so **the fixture size is part of the gate's calibration, not a free choice**. A package that picks fixtures too small gets a gate whose signal sits inside its own false-alarm tail: green while broken, which is roadmap §5's second-worst outcome.
 
-## C — candidate constants, derived
+## C: candidate constants, derived
 
 Mechanical derivation only; the judgement about how much margin to buy is written up in ANALYSIS.md. Both populations are shown; the ALL column is the one ANALYSIS.md quotes, because the binding worst case turns out not to be a cold row.
 

@@ -1,5 +1,5 @@
 /**
- * PERF-P0 · Experiment C — what a real O(n²) regression actually scores.
+ * PERF-P0 · Experiment C: what a real O(n²) regression actually scores.
  *
  * Experiment A measures where the ratio lands when nothing is wrong. This measures where it lands
  * when something is. Without it the ceiling constant is half-derived: you know the noise floor and
@@ -10,7 +10,7 @@
  * (message length is the axis an O(n²) tokenizer blows up on; the count axis at fixed size cannot
  * see it at all). The only change is which parser runs. Sizes are smaller than Experiment A's
  * because the quadratic parser is several times slower at these sizes (~1.4× at S=125, ~3.5× at
- * S=500, and widening) — the ratio is what transfers, not the absolute time.
+ * S=500, and widening): the ratio is what transfers, not the absolute time.
  *
  * Correctness first: a "regression" that computes something different is not a regression, it is a
  * different program, and its timing would mean nothing. The test asserts the two parsers agree

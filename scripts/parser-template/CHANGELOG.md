@@ -20,7 +20,7 @@ its public history at `0.0.x`, per the cosyte version ladder (`0.0.x` until firs
   `@cosyte/vitest-config`, dual ESM + CJS build via `tsup` + `@cosyte/tsup-config`, `attw` publish
   gate), thin callers of the reusable `cosyte/.github` CI/release workflows, Changesets on the
   `0.0.x` ladder, and the property-based conformance harness from `@cosyte/test-utils`.
-- `VERSION` export plus the archetype stubs (`parse{{Pascal}}`, `WARNING_CODES`, `FATAL_CODES`) — to
+- `VERSION` export plus the archetype stubs (`parse{{Pascal}}`, `WARNING_CODES`, `FATAL_CODES`): to
   be filled in by subsequent phases.
 
 ### Changed

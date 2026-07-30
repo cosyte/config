@@ -1,6 +1,6 @@
 /**
  * A deliberately tiny, self-contained "parser" used only to exercise the kit's
- * generic runners. It is NOT a real cosyte parser — it stands in for one so the
+ * generic runners. It is NOT a real cosyte parser. It stands in for one so the
  * runner tests can prove the invariants fire (and fail) correctly, and it doubles
  * as runnable documentation of the contract each runner expects.
  *
@@ -16,7 +16,7 @@ export interface FakeMessage {
   readonly warnings: FakeWarning[];
 }
 
-/** A recovered warning — mirrors the minimal shape the lenient runner reads. */
+/** A recovered warning: mirrors the minimal shape the lenient runner reads. */
 export interface FakeWarning {
   readonly code: string;
   readonly position?: { readonly pairIndex: number };

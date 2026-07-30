@@ -1,13 +1,13 @@
 # @cosyte/tsconfig
 
-Shared TypeScript configuration for the `@cosyte/*` packages — strict, `ES2023`, `NodeNext`, with the
+Shared TypeScript configuration for the `@cosyte/*` packages: strict, `ES2023`, `NodeNext`, with the
 full rigor set (`noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`,
 `noPropertyAccessFromIndexSignature`, and more).
 
 Two configs:
 
-- **`base.json`** — the type-check baseline (no emit). Extend this for `tsc --noEmit`.
-- **`library.json`** — `base.json` plus declaration/sourcemap emit, for building a publishable library.
+- **`base.json`**: the type-check baseline (no emit). Extend this for `tsc --noEmit`.
+- **`library.json`**: `base.json` plus declaration/sourcemap emit, for building a publishable library.
 
 ## Install
 
@@ -17,7 +17,7 @@ pnpm add -D @cosyte/tsconfig typescript
 
 ## Use
 
-`tsconfig.json` (type-check — set your own `outDir` / `noEmit` / `include`):
+`tsconfig.json` (type-check, set your own `outDir` / `noEmit` / `include`):
 
 ```jsonc
 {
@@ -37,5 +37,5 @@ pnpm add -D @cosyte/tsconfig typescript
 }
 ```
 
-Part of [cosyte/config](https://github.com/cosyte/config) — one enforced toolchain for the `@cosyte/*`
+Part of [cosyte/config](https://github.com/cosyte/config), one enforced toolchain for the `@cosyte/*`
 suite.

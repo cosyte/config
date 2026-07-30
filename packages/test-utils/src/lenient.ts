@@ -1,14 +1,14 @@
 /**
- * The lenient-mode invariant runner — the Postel's-Law *parse* side, generalized.
+ * The lenient-mode invariant runner: the Postel's-Law *parse* side, generalized.
  *
  * Every `@cosyte/*` parser is liberal in what it accepts: hostile, truncated, or
- * vendor-quirky input must be *recovered into warnings*, never thrown — except
+ * vendor-quirky input must be *recovered into warnings*, never thrown: except
  * for a small, fixed set of unrecoverable structural failures (the "fatal"
  * codes). This module turns that contract into a parametric property:
  *
  * - `parse` throws **only** when {@link LenientOptions.isFatal | isFatal} says so;
  * - every recovered warning carries a **registered** `code`
- *   ({@link LenientOptions.isKnownCode | isKnownCode}) — no ad-hoc codes leak;
+ *   ({@link LenientOptions.isKnownCode | isKnownCode}): no ad-hoc codes leak;
  * - and, optionally, every warning carries **positional context**
  *   ({@link LenientOptions.hasPositionalContext | hasPositionalContext}).
  *
@@ -34,7 +34,7 @@ import { DEFAULT_NUM_RUNS } from "./internal/config.js";
 export interface LenientWarning {
   /** The stable, registered warning code (e.g. `"UNKNOWN_SEGMENT"`). */
   readonly code: string;
-  /** Optional positional context (segment/offset/line — parser-defined). */
+  /** Optional positional context (segment/offset/line, parser-defined). */
   readonly position?: unknown;
 }
 
@@ -71,10 +71,10 @@ export interface LenientOptions<TArb> {
  * Assert the lenient-mode robustness invariant over generated hostile input.
  *
  * For every generated input the runner calls `parse`. If `parse` **throws**, the
- * thrown value must satisfy `isFatal` — otherwise the property fails (a non-fatal
+ * thrown value must satisfy `isFatal`; otherwise the property fails (a non-fatal
  * deviation escaped as an exception instead of becoming a warning). If `parse`
  * **returns**, every warning it produced must have a `code` accepted by
- * `isKnownCode`, and — when `hasPositionalContext` is supplied — must satisfy it.
+ * `isKnownCode`, and, when `hasPositionalContext` is supplied, must satisfy it.
  *
  * Throws an `AssertionError` (via `node:assert/strict`) on the first failure, so
  * any test runner reports it. No test-framework dependency.
@@ -120,7 +120,7 @@ export function lenientNeverThrowsProperty<TArb>(options: LenientOptions<TArb>):
         // The ONLY sanctioned escape hatch is an allowed fatal.
         assert.ok(
           isFatal(err),
-          `lenient: parse threw a non-fatal error — only sanctioned fatals may throw, got ${describeThrown(err)}`,
+          `lenient: parse threw a non-fatal error. Only sanctioned fatals may throw, got ${describeThrown(err)}`,
         );
         return;
       }
@@ -128,7 +128,7 @@ export function lenientNeverThrowsProperty<TArb>(options: LenientOptions<TArb>):
       for (const warning of getWarnings(parsed)) {
         assert.ok(
           isKnownCode(warning.code),
-          `lenient: warning carries an unregistered code ${JSON.stringify(warning.code)} — every emitted code must be in the public warning-code set`,
+          `lenient: warning carries an unregistered code ${JSON.stringify(warning.code)}. Every emitted code must be in the public warning-code set`,
         );
         if (hasPositionalContext !== undefined) {
           assert.ok(

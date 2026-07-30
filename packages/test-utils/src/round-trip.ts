@@ -1,5 +1,5 @@
 /**
- * The round-trip invariant runner — the Postel's-Law *serialize* side, generalized.
+ * The round-trip invariant runner: the Postel's-Law *serialize* side, generalized.
  *
  * Every `@cosyte/*` parser makes the same promise: a value its builder/serializer
  * can emit must survive `serialize → parse` unchanged, and serialization must be
@@ -48,14 +48,14 @@ export interface RoundTripOptions<T> {
  *
  * For every generated `x` this checks two things:
  *
- * 1. **Round-trip equality** — `parse(serialize(x))` equals `x` (deep-equal by
+ * 1. **Round-trip equality**: `parse(serialize(x))` equals `x` (deep-equal by
  *    default, or via the supplied `equals`).
- * 2. **Serialize idempotency** — `serialize(parse(serialize(x))) === serialize(x)`,
+ * 2. **Serialize idempotency**: `serialize(parse(serialize(x))) === serialize(x)`,
  *    i.e. once a value is in canonical serialized form, re-parsing and
  *    re-serializing it is a no-op at the byte level.
  *
  * Throws an `AssertionError` (via `node:assert/strict`) on the first failure, so
- * any test runner — Vitest, `node:test`, Mocha — reports it. This runner does
+ * any test runner (Vitest, `node:test`, Mocha) reports it. This runner does
  * not depend on a test framework.
  *
  * @template T - The in-memory value type.
@@ -102,7 +102,7 @@ export function roundTripProperty<T>(options: RoundTripOptions<T>): void {
       assert.strictEqual(
         twice,
         once,
-        "round-trip: serialization is not idempotent — serialize(parse(serialize(x))) !== serialize(x)",
+        "round-trip: serialization is not idempotent, serialize(parse(serialize(x))) !== serialize(x)",
       );
     }),
     { numRuns },

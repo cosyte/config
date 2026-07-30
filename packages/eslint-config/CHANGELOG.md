@@ -7,14 +7,19 @@ the **`0.0.x`-until-first-alpha** ladder.
 
 ## [Unreleased]
 
+### Changed
+
+- Documentation and source comments no longer use em dashes, in line with the cosyte brand
+  voice. No rule, option, or behaviour change.
+
 ## [0.0.4] - 2026-06-26
 
 ### Added
 
 - **Application mode:** `cosyte(rootDir, { library: false })` drops the JSDoc + `@example` gate and
   `no-console` while keeping every type-safety rule (no `any`, no unjustified casts, exhaustiveness,
-  strict imports). Libraries (the default, `library: true`) are unchanged. This makes applications —
-  like the `pathways` engine — first-class consumers of the one shared config instead of forking it:
+  strict imports). Libraries (the default, `library: true`) are unchanged. This makes applications,
+  like the `pathways` engine, first-class consumers of the one shared config instead of forking it:
   an app has no published API surface to document and legitimately logs.
 
 ## [0.0.3] - 2026-06-25
@@ -33,7 +38,7 @@ the **`0.0.x`-until-first-alpha** ladder.
 
 ### Added
 
-- Initial release: ESLint 9 flat config — `recommendedTypeChecked` + the cosyte guardrails (no `any`,
+- Initial release of the ESLint 9 flat config: `recommendedTypeChecked` + the cosyte guardrails (no `any`,
   no unjustified casts, JSDoc + `@example` gate on public exports, `no-console` in library code).
 
   (`0.0.1` was never published.)

@@ -1,10 +1,10 @@
 /**
- * PERF-P0 calibration workload — a deliberately ordinary, deliberately LINEAR parser.
+ * PERF-P0 calibration workload: a deliberately ordinary, deliberately LINEAR parser.
  *
  * The calibration measures the *measurement technique*, not a parser. So the workload has to be
  * a stand-in for "a `@cosyte/*` parser doing its normal job": string scanning, delimiter splitting,
- * small object construction, one array per segment. It is O(total input bytes) by construction —
- * every ratio this experiment records is therefore a measurement of harness noise, JIT state and
+ * small object construction, one array per segment. It is O(total input bytes) by construction.
+ * Every ratio this experiment records is therefore a measurement of harness noise, JIT state and
  * coverage instrumentation, never of a real algorithmic regression. Any spread we see is the
  * false-alarm distribution the gate's ceiling has to clear.
  *
@@ -13,7 +13,7 @@
  * property accesses (V4) and which `@vitest/coverage-v8` instruments (V1). A workload defined inside
  * the test file would dodge both effects and calibrate the wrong thing.
  *
- * PHI: every value below is fabricated. No fixture files, no corpus — the generators are the only
+ * PHI: every value below is fabricated. No fixture files, no corpus; the generators are the only
  * input source, which is the shape §6 of the roadmap requires of the eventual kit.
  */
 
@@ -57,7 +57,7 @@ export function adtMessage(i: number): string {
   );
 }
 
-/** Synthetic ORU^R01 with `obxCount` result lines — the size axis's knob. */
+/** Synthetic ORU^R01 with `obxCount` result lines: the size axis's knob. */
 export function oruMessage(i: number, obxCount = 8): string {
   const id = String(i).padStart(6, "0");
   const obx = Array.from(
@@ -80,7 +80,7 @@ export function oruMessage(i: number, obxCount = 8): string {
 export const sink = { value: 0 };
 
 /**
- * Parse `msgs` `reps` times, returning the FULL sample vector in milliseconds — never a reduced
+ * Parse `msgs` `reps` times, returning the FULL sample vector in milliseconds: never a reduced
  * statistic. Which estimator to headline is exactly what P1 has to decide (W2 says min-of-N is
  * unbacked), so P0 must not pre-reduce the data.
  */

@@ -18,5 +18,5 @@ In `package.json`:
 { "prettier": "@cosyte/prettier-config" }
 ```
 
-Part of [cosyte/config](https://github.com/cosyte/config) — one enforced toolchain for the `@cosyte/*`
+Part of [cosyte/config](https://github.com/cosyte/config), one enforced toolchain for the `@cosyte/*`
 suite.

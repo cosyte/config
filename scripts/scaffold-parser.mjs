@@ -97,7 +97,7 @@ function isEmptyDir(dir) {
 }
 
 /** Replace every placeholder token in a string. Order: longest/compound keys first is not needed
- *  because the tokens are disjoint, but {{NAME_UPPER}} must not be shadowed by {{NAME}} — `replaceAll`
+ *  because the tokens are disjoint, but {{NAME_UPPER}} must not be shadowed by {{NAME}}: `replaceAll`
  *  on the exact `{{NAME}}` token never matches inside `{{NAME_UPPER}}`, so plain replacement is safe. */
 function substitute(text, tokens) {
   let out = text;
@@ -139,7 +139,7 @@ function main() {
 
   const name = positionals[0];
   if (!/^[a-z][a-z0-9-]*$/.test(name)) {
-    fail(`invalid name "${name}" — must match [a-z][a-z0-9-]* (e.g. x12, ccda, ncpdp, fhir)`);
+    fail(`invalid name "${name}": must match [a-z][a-z0-9-]* (e.g. x12, ccda, ncpdp, fhir)`);
   }
 
   if (!existsSync(TEMPLATE_DIR) || !statSync(TEMPLATE_DIR).isDirectory()) {
@@ -161,7 +161,7 @@ function main() {
     "{{PKG}}": `@cosyte/${name}`, // @cosyte/x12
     "{{NAME}}": name, // x12 (package segment / repo name)
     "{{TITLE}}": title, // human-readable, e.g. "X12"
-    "{{Pascal}}": toPascal(name), // PascalCase identifier, e.g. X12 / Ccda — for type & fn names
+    "{{Pascal}}": toPascal(name), // PascalCase identifier, e.g. X12 / Ccda, for type & fn names
   };
 
   copyTree(TEMPLATE_DIR, destDir, tokens);
