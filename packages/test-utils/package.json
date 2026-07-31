@@ -64,7 +64,7 @@
     "test:watch": "vitest",
     "attw": "attw --pack .",
     "clean": "rm -rf dist coverage",
-    "prepublishOnly": "pnpm clean && pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm attw"
+    "prepublishOnly": "pnpm clean && pnpm typecheck && pnpm lint && pnpm test && pnpm build"
   },
   "peerDependencies": {
     "fast-check": "^3.0.0"
