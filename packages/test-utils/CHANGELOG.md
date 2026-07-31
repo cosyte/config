@@ -6,6 +6,33 @@ this file is hand-maintained. The package stays on the **`0.0.x`-until-first-alp
 
 ## [Unreleased]
 
+### Added
+
+- `assertNoDiagnosticPhiLeak`, a runner proving that consumer-controlled input does not echo into a
+  diagnostic surface. For every slot the caller declares it sweeps each diagnostic `message`, the
+  whole diagnostic rendered as JSON, as `util.inspect`, and by a walk of the object graph,
+  `err.message`, `err.stack`, the thrown value itself, and every structural identifier the caller
+  enumerates on the model. The walk is what reaches a nested `toString`, raw bytes attached as
+  context, and entries past `inspect`'s truncation ceilings, none of which either summary rendering
+  shows. Matching is case-insensitive, so a value upper-cased on conformance grounds still fails.
+  What it proves, stated narrowly: **no verbatim echo of four or more bytes of a planted value, on
+  a slot that provably reached the diagnostic it names.** It does not prove the absence of a
+  re-encoded echo, an echo shorter than four bytes, or a leak through an undeclared slot.
+- Each slot must name the diagnostic code it expects, and the runner asserts that code appeared in
+  lenient mode. Counting diagnostics is not enough: an unrelated warning can otherwise stand in for
+  the one the slot exists to trigger, leaving the leaking branch unentered and the suite green. The
+  assertion is lenient-only because a strict mode throws on the first deviation, so only one slot
+  could ever satisfy its own code there. Strict mode keeps its sweep.
+- `getDiagnostics`, `getModelIdentifiers` and `parseStrict` are required rather than defaulted.
+  `() => []` and `null` are legitimate answers; silence is not, and a silent default reading only
+  `.warnings` would report green on a model it had half-read.
+- Opt-in `checkLengthInvariance` catches a re-encoded echo by comparing diagnostic sizes across a
+  short and a long planted value. Off by default because a diagnostic carrying an input-derived
+  number, such as a position column gaining digits or a byte count, grows the same way and is
+  correct.
+- Exercised by constructed positive controls, each isolating the one surface it names, and by
+  controls asserting the runner stays green where a correct parser would otherwise be failed.
+
 ### Changed
 
 - Documentation, source comments, the npm package description, and seven assertion-failure

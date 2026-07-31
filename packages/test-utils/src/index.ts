@@ -9,6 +9,16 @@
  * **generic, parameterized runners**; the **format-specific arbitraries stay in
  * each parser** (the kit contains no HL7/DICOM/X12 generators).
  *
+ * **There are two PHI runners and they answer different questions.** Importing
+ * one is not coverage for the other:
+ *
+ * - {@link assertNoSecretLeak} asks whether a `Secret<T>`-style **wrapper**
+ *   resists the four stringification channels. It says nothing about a parser.
+ * - {@link assertNoDiagnosticPhiLeak} asks whether **consumer-controlled input
+ *   reaches a diagnostic surface**: a warning `message`, a position object,
+ *   `err.stack`, or a structural identifier on the model. This is the one a
+ *   parser needs.
+ *
  * Design constraints:
  *
  * - **Framework-agnostic.** Runners use {@link https://fast-check.dev/ | fast-check}
@@ -38,3 +48,9 @@ export { lenientNeverThrowsProperty, type LenientOptions, type LenientWarning } 
 export { immutabilityProperty, type ImmutabilityOptions } from "./immutability.js";
 export { sortedCodeSet } from "./warning-codes.js";
 export { assertNoSecretLeak, type SecretLeakOptions } from "./phi.js";
+export {
+  assertNoDiagnosticPhiLeak,
+  PHI_MARKER_UNIT,
+  type DiagnosticSlot,
+  type DiagnosticSurfaceOptions,
+} from "./diagnostic-phi.js";
