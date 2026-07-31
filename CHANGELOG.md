@@ -14,6 +14,24 @@ no package, so entries here are **dated** rather than versioned.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`prepublishOnly` no longer runs a tool that packs, which had broken every version bump.**
+  `@cosyte/test-utils`'s `prepublishOnly` ended in `pnpm attw`, and `attw --pack .` packs a
+  tarball of its own; run from inside `pnpm publish`'s staging context that pack lands where
+  `attw` cannot find it, and the step dies with `ENOENT` on its own tgz. It stayed hidden because
+  **`publish --dry-run` skips a version already on npm**, so the chain only ever ran on a bump. It
+  first fired on the `0.0.2` Version PR (2026-07-31) and would have failed the real publish
+  identically, since `changeset publish` runs `prepublishOnly` too. `attw` still runs twice, as
+  its own CI step and in `Pack integrity`, so coverage is unchanged. Rule recorded in
+  `RELEASING.md`: never put a tool that packs, publishes or installs into a lifecycle script that
+  publishing itself invokes.
+- **An empty changeset left in `.changeset/` silently withholds a release.**
+  `changesets/action` publishes only when there are **zero** changeset files. With one present that
+  bumps nothing it logs `All changesets are empty; not creating PR`, opens no Version PR, publishes
+  nothing, and **exits green**. A repo-level note therefore belongs in this file, not in a
+  package-less changeset that outlives the Version PR that would have consumed it.
+
 ### Changed
 
 - **Published with npm provenance.** The repo is public, so every `@cosyte/*` config package now
