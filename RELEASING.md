@@ -88,6 +88,21 @@ The `release-dry-run` job in `.github/workflows/ci.yml` runs on every push/PR:
 A red here means a real release would fail. This is the "prove the pipe, burn nothing" gate: no real
 publish, no version consumed.
 
+### Keep packing tools out of `prepublishOnly`
+
+`@cosyte/test-utils`'s `prepublishOnly` used to end in `pnpm attw`, and `attw --pack .` packs a
+tarball of its own. Run from inside `pnpm publish`'s staging context that pack lands somewhere `attw`
+then cannot find, and the step dies with `ENOENT: cosyte-test-utils-0.0.2.tgz`.
+
+**It stayed hidden because `publish --dry-run` skips a version already on npm**, so the whole
+`prepublishOnly` chain only ran on a version bump. It first fired on the `0.0.2` Version PR
+(2026-07-31) and would have failed the real publish the same way, since `changeset publish` runs
+`prepublishOnly` too.
+
+`attw` still runs, twice, where it belongs: `pnpm attw` as its own CI step, and the `Pack integrity`
+job. Coverage is unchanged. **Do not put a tool that packs, publishes, or installs back into a
+lifecycle script that publishing itself invokes.**
+
 ## Still deferred: OIDC trusted publishing
 
 **Provenance is live** (the repo is public). **OIDC trusted publishing**, publishing with no token
