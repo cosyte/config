@@ -16,6 +16,68 @@ no package, so entries here are **dated** rather than versioned.
 
 ### Fixed
 
+- **The three residuals `TEMPLATE-REMINTS-BOTH-GATES` left in the parser template, closed at the
+  source** (`TEMPLATE-SCAFFOLD-RESIDUALS`). `scripts/scaffold-parser.mjs` mints every new
+  `@cosyte/*` parser from `scripts/parser-template/`, so each of these was not a defect in one repo
+  but the shape every future repo would be born with. All three are measured on this tree; the new
+  and changed cases red on the unfixed template (4 of the 16 `phi-scan` cases, and the forwarding
+  pin below reds on a wrapper that drops the flag).
+  - **A missing allow-list took exit 1, the code the contract reserves for HITS FOUND.**
+    `loadAllowList()` sat outside `main`'s `InvocationError` handler, so a run that cannot find
+    `scripts/phi-allow-list.txt` threw uncaught and got node's own 1. A caller that branches on the
+    code, and CI is one, read "this corpus contains PHI" off a run that never opened a file. The load
+    now sits inside the handler and refuses with 2. The previous suite asserted this as MEASURED
+    (`not.toBe(0)`, with the defect written into the comment); the assertion is now the exact code,
+    plus a counterfactual that rebuilds the old placement out of the emitted scanner and shows exit 1
+    returning. **The live trigger is NOT a fresh scaffold**, which a draft of this entry and of the
+    scanner's own docblock both claimed: the template ships `scripts/phi-allow-list.txt` and the
+    scaffolder copies it, verified against a real `scaffold-parser.mjs` run. It is the scanner
+    invoked from the wrong working directory, since `REPO_ROOT` is `process.cwd()`. The narrower
+    claim is the one the suite actually exercises, and this file gets minted into every new parser,
+    so the wrong one would have been copied with it.
+    **What this does NOT claim:** an allow-list that exists but cannot be READ (a directory at that
+    path, or mode 000) makes `readFileSync` throw a plain `Error`, which the handler wrapping it
+    rethrows, and the run still takes exit 1. That is `PRE-EXISTING`, unchanged, and not answered by
+    widening the catch or by enumerating `EACCES`/`EISDIR`: that is the deny-list shape the `attw`
+    guard next door just retired. Its own slice if it is worth closing.
+  - **The staged enumerator's status filter is now `--diff-filter=d` (an EXCLUSION) rather than
+    `AMT` (an allow-list).** `synth#37` and `ncpdp#54` both ended on the exclusion form with "do not
+    narrow this back to an allow-list" written down, and an allow-list is the wrong polarity for a
+    safety gate: every letter it does not name is dropped in silence, which is exactly how sibling
+    scanners missed `R` and then `T`, one refuter pass apart. With `--no-renames` already preventing
+    `R` and `C` the practical delta is `U`, `X` and `B`. **This diff's base is `AMT`, not `AM`**, so
+    what it closes is narrow: `AM` was this template's base one slice back, and `702fd2a` is what
+    moved it to `AMT`, so repeating the backlog line's "strictly better than base's `AM`" here would
+    have described a wider hole than the one this diff actually found. **It is still the right
+    change, because this
+    template is what every future parser inherits and it should not be the copy carrying the older
+    shape.**
+    Measured on git 2.39.5: a conflicted path lists as `:100644 000000 <sha> 0000000 U` plus its
+    path, ONE record and two fields, destination mode `000000`, so the two-field stride is unaffected
+    and the mode reaches the non-regular refusal (exit 2) instead of being dropped unlisted. A new
+    case builds a real merge conflict in the emitted repo and pins both directions: `AMT` lists
+    nothing, `d` lists it, the scan refuses, and restoring `AMT` makes the same tree report clean.
+  - **`--no-definitely-typed`'s FORWARDING is now pinned on its own.** Every other case in the attw
+    suite passes it so the gate stays off the network, and that is precisely why none of them pinned
+    it: the flag rode along on every run, so a wrapper that ACCEPTED it and then dropped it kept the
+    whole suite green. The acceptance half was covered incidentally by the allow-list; the
+    forwarding half was not covered at all. The real CLI cannot answer the question (it reports on a
+    tarball, not on its own argv, and the flag only suppresses a network lookup), so the pin runs the
+    EMITTED wrapper against an `attw` shim that records what it was handed. **With a negative
+    control**: without the flag the shim must see `--pack .` and nothing else, which is what stops a
+    wrapper that hardcodes the flag from satisfying the pin. `--profile` is pinned the same way in
+    both spellings, and `--quiet` is asserted to be refused before attw is reached, so "forwards it"
+    cannot be satisfied by forwarding everything. **The same gap is open upstream in
+    `terminology#40` and is not touched here.**
+  - **Deliberately NOT done, carried forward from `TEMPLATE-REMINTS-BOTH-GATES` unchanged: the
+    template's own starter suite gains no symlink cases.** Nothing in this repo can execute
+    `scripts/parser-template/test/`, and shipping unexecuted tests into every new parser is worse
+    than shipping none. The coverage lives in this repo's `test/phi-scan-scaffold.test.ts`, which
+    runs the real scaffolder and exercises the EMITTED scanner.
+  - **Also deliberately not done: the fix is not ported into the existing parser repos.** Those
+    carry their own copies and their own history; this item is about what gets MINTED. Porting is a
+    separate item with a separate owner.
+
 - **The parser template was still re-minting both gate holes into every new parser, and it was the
   last source of either** (TEMPLATE-REMINTS-BOTH-GATES). `scripts/scaffold-parser.mjs` mints every
   new `@cosyte/*` parser from `scripts/parser-template/`, so a hole left there is not one repo's

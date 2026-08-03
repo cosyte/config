@@ -165,7 +165,7 @@ describe("controls: the suite is exercising the emitted scanner, and it can stil
     for (const line of [
       "function isUnderScanRoot",
       "isUnderScanRoot(s.path) && !REGULAR_BLOB_MODES.has(s.mode)",
-      '["diff", "--cached", "--raw", "-z", "--no-renames", "--diff-filter=AMT"]',
+      '["diff", "--cached", "--raw", "-z", "--no-renames", "--diff-filter=d"]',
       "unscannable.push({ path: normalizePath(full), kind: direntKind(e) });",
     ]) {
       expect(source).toContain(line);
@@ -178,14 +178,32 @@ describe("controls: the suite is exercising the emitted scanner, and it can stil
     // its own allow-list. Run the same scanner against this repo's root, which is
     // not that package, and it must refuse rather than sweep nothing and say so.
     //
-    // The code is 1 and not 2, and that is PRE-EXISTING and not this slice's:
-    // `loadAllowList()` is called outside `main`'s InvocationError handler, so a
-    // missing allow-list escapes as an uncaught throw and takes node's exit 1,
-    // which this contract reserves for "hits found". Asserted as measured rather
-    // than as it ought to be; changing it is a separate decision.
+    // The code is 2, the invocation-error code, and the exact value is the
+    // assertion rather than "not 0". `loadAllowList()` used to sit OUTSIDE
+    // `main`'s InvocationError handler, so this route escaped as an uncaught
+    // throw and took node's exit 1: the code this contract reserves for HITS
+    // FOUND. A caller that branches on the code, and CI is one, read "this
+    // corpus contains PHI" off a run that never opened a file.
     const wrong = scan("scripts/phi-scan.ts", [], REPO_ROOT);
-    expect(wrong.code).not.toBe(0);
+    expect(wrong.code).toBe(2);
     expect(wrong.out).toMatch(/allow-list not found/);
+    // ...and it is a REFUSAL, not a report: no hit line, so the 2 cannot be
+    // confused for a scan that ran.
+    expect(wrong.out).not.toMatch(/OK: no hits/);
+
+    // COUNTERFACTUAL: the old placement, rebuilt out of the emitted scanner, so
+    // the fix above is measured against the defect rather than asserted from a
+    // changelog. Loading at the DECLARATION puts the call back outside the
+    // handler (the assignment inside it never runs, because the throw comes
+    // first), and the uncaught InvocationError takes node's exit 1 again.
+    const unhandled = weakened(
+      "allow-list-unhandled.ts",
+      "  let allow: AllowList;\n",
+      "  let allow: AllowList = loadAllowList();\n",
+    );
+    const before = scan(unhandled, [], REPO_ROOT);
+    expect(before.code).toBe(1);
+    expect(before.out).toMatch(/allow-list not found/);
   });
 
   it("an ordinary clean tree passes both routes", () => {
@@ -288,10 +306,12 @@ describe("--staged refuses a non-regular entry, and keys on the ROOT half of sco
     expect(git(["commit", "-qm", "add link", "--no-verify"]).code).toBe(0);
     git(["mv", "toplink.txt", "test/fixtures/moved.txt"]);
 
-    // The git premise first: with detection ON the status filter deletes the
-    // record outright, so there is nothing left to read a mode off.
-    expect(git(["diff", "--cached", "--raw", "--diff-filter=AMT"]).out.trim()).toBe("");
-    expect(git(["diff", "--cached", "--raw", "--no-renames", "--diff-filter=AMT"]).out).toContain(
+    // The git premise first: with detection ON the rename arrives as ONE record
+    // carrying TWO paths, which the two-field stride cannot read. `--no-renames`
+    // decomposes it into a `D` the filter drops and a single-path `A` whose
+    // destination mode is the link's.
+    expect(git(["diff", "--cached", "--raw", "--diff-filter=d"]).out).toMatch(/\sR\d*\s/);
+    expect(git(["diff", "--cached", "--raw", "--no-renames", "--diff-filter=d"]).out).toContain(
       "120000",
     );
 
@@ -299,12 +319,29 @@ describe("--staged refuses a non-regular entry, and keys on the ROOT half of sco
     expect(r.code).toBe(2);
     expect(r.out).toContain("test/fixtures/moved.txt");
 
-    const renamesOn = weakened(
-      "renames-on.ts",
-      '"-z", "--no-renames", "--diff-filter=AMT"',
+    // The defect, reproduced. Under the `AMT` allow-list this template used to
+    // ship, dropping `--no-renames` deleted the record outright and the route
+    // reported clean (exit 0) over a mode-120000 entry in the corpus. The
+    // exclusion filter no longer drops it, so the same weakening now desyncs the
+    // stride and REFUSES instead. Both codes are asserted, in the same case, so
+    // the flag's load-bearing half is still pinned and the polarity change is
+    // shown to have moved a silent miss to a loud refusal rather than to have
+    // made `--no-renames` redundant.
+    const renamesOnOldFilter = weakened(
+      "renames-on-old-filter.ts",
+      '"-z", "--no-renames", "--diff-filter=d"',
       '"-z", "--diff-filter=AMT"',
     );
-    expect(scan(renamesOn, ["--staged"]).code).toBe(0); // the defect, reproduced
+    expect(scan(renamesOnOldFilter, ["--staged"]).code).toBe(0);
+
+    const renamesOn = weakened(
+      "renames-on.ts",
+      '"-z", "--no-renames", "--diff-filter=d"',
+      '"-z", "--diff-filter=d"',
+    );
+    const desynced = scan(renamesOn, ["--staged"]);
+    expect(desynced.code).toBe(2);
+    expect(desynced.out).toMatch(/unrecognized record/);
   });
 
   it("admits typechange, so replacing a TRACKED fixture with a link is not invisible", () => {
@@ -316,17 +353,64 @@ describe("--staged refuses a non-regular entry, and keys on the ROOT half of sco
     symlinkSync(payload, join(scaffold, "test", "fixtures", "tracked.txt"));
     git(["add", "test/fixtures/tracked.txt"]);
 
-    // The git premise: under AM the record does not exist at all.
+    // The git premise: under the `AM` allow-list the record does not exist at
+    // all, which is the shape an allow-list keeps producing. The exclusion filter
+    // this template now ships lists it.
     expect(git(["diff", "--cached", "--raw", "--no-renames", "--diff-filter=AM"]).out.trim()).toBe(
       "",
     );
-    expect(git(["diff", "--cached", "--raw", "--no-renames", "--diff-filter=AMT"]).out).toContain(
+    expect(git(["diff", "--cached", "--raw", "--no-renames", "--diff-filter=d"]).out).toContain(
       "120000",
     );
 
     const r = scan("scripts/phi-scan.ts", ["--staged"]);
     expect(r.code).toBe(2);
     expect(r.out).toContain("test/fixtures/tracked.txt");
+  });
+
+  it("the status filter is an EXCLUSION: an unmerged path is listed and refused, not dropped", () => {
+    // The concrete delta this template's move from `--diff-filter=AMT` to
+    // `--diff-filter=d` buys. `U` is a letter the allow-list did not name, so it
+    // was dropped in silence: the index holds no single blob for a conflicted
+    // path, and "no record" is indistinguishable from "nothing staged here".
+    // Under an exclusion filter the record arrives, its destination mode is not a
+    // regular blob, and the scan refuses. An allow-list can only ever drop the
+    // letters nobody thought of; this is what that costs, made concrete.
+    resetToBaseline();
+    const conflicted = join(scaffold, "test", "fixtures", "conflicted.txt");
+    writeFileSync(conflicted, "one\n", "utf8");
+    git(["add", "test/fixtures/conflicted.txt"]);
+    expect(git(["commit", "-qm", "seed conflict", "--no-verify"]).code).toBe(0);
+    expect(git(["checkout", "-q", "-b", "side-a"]).code).toBe(0);
+    writeFileSync(conflicted, "side a\n", "utf8");
+    expect(git(["commit", "-qam", "side a", "--no-verify"]).code).toBe(0);
+    expect(git(["checkout", "-q", "-b", "side-b", "HEAD~1"]).code).toBe(0);
+    writeFileSync(conflicted, "side b\n", "utf8");
+    expect(git(["commit", "-qam", "side b", "--no-verify"]).code).toBe(0);
+    // The merge is EXPECTED to fail; the conflict is the fixture.
+    git(["merge", "--no-verify", "side-a"]);
+    expect(git(["status", "--short"]).out).toContain("UU test/fixtures/conflicted.txt");
+
+    // The git premise, both directions, so neither half is assumed.
+    expect(git(["diff", "--cached", "--raw", "--no-renames", "--diff-filter=AMT"]).out.trim()).toBe(
+      "",
+    );
+    const listed = git(["diff", "--cached", "--raw", "--no-renames", "--diff-filter=d"]).out;
+    expect(listed).toContain("test/fixtures/conflicted.txt");
+    expect(listed).toMatch(/\sU\s/);
+
+    const r = scan("scripts/phi-scan.ts", ["--staged"]);
+    expect(r.code).toBe(2);
+    expect(r.out).toContain("test/fixtures/conflicted.txt");
+
+    // And the counterfactual: restore the allow-list and the same tree reports
+    // clean, which is the silence the polarity change removes.
+    const oldFilter = weakened(
+      "old-status-allow-list.ts",
+      '"--no-renames", "--diff-filter=d"',
+      '"--no-renames", "--diff-filter=AMT"',
+    );
+    expect(scan(oldFilter, ["--staged"]).code).toBe(0);
   });
 
   it("refuses the corpus root itself when it is staged as a link", () => {

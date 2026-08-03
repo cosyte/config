@@ -55,6 +55,30 @@
  *
  * Exit codes: 0 (clean), 1 (hits found), 2 (invocation error).
  *
+ * EVERY `InvocationError` TAKES 2, INCLUDING THE ONE RAISED BEFORE THE SCAN
+ * BEGINS. `loadAllowList()` used to be called OUTSIDE `main`'s handler, so a run
+ * that cannot find `scripts/phi-allow-list.txt` threw an uncaught
+ * `InvocationError` and took node's own exit 1. That is the code this contract
+ * reserves for HITS FOUND, so a caller that branches on the code, and CI is one,
+ * read "this corpus contains PHI" from a run that never opened a file. The
+ * template ships an allow-list and the scaffolder copies it, so the live trigger
+ * is not a fresh scaffold: it is the scanner invoked from the wrong working
+ * directory, since `REPO_ROOT` is `process.cwd()`. Every error this file RAISES
+ * is an `InvocationError`, and every site that raises one now sits inside a
+ * handler in `main`. (The three `throw err` statements are RETHROWS, not raises:
+ * each fires only for a value the `instanceof` check above it has already
+ * declined.)
+ *
+ * THAT IS NOT THE SAME AS "NOTHING REACHES NODE'S DEFAULT", AND THE WIDER CLAIM
+ * IS NOT MADE. An allow-list that EXISTS but cannot be read (a directory at that
+ * path, or mode 000) makes `readFileSync` throw a plain `Error`, which the
+ * handler wrapping it rethrows, and the run still takes exit 1. That is unchanged from before
+ * this file's handler moved and it is deliberately not "fixed" by widening the
+ * catch to swallow any error, or by enumerating `EACCES`/`EISDIR`: this file
+ * retired exactly that shape on the argument side of the `attw` gate, where a
+ * deny-list of spellings bought one more evasion per round. If it is worth
+ * closing it wants a structural answer, and it wants its own slice.
+ *
  * ===========================================================================
  * AN IN-SCOPE ENTRY THAT IS NOT A REGULAR FILE REFUSES THE SCAN (exit 2). It is
  * never silently skipped, because BOTH enumerating routes are blind to it in a
@@ -479,22 +503,46 @@ function buildTargetsForStaged(): Target[] {
     // it hands back the target path as if it were content, and it is the mode,
     // not the answer, that says so.
     //
-    // `T` (TYPECHANGE) IS IN THE FILTER, AND LEAVING IT OUT MAKES THE MODE CHECK
+    // `--diff-filter=d` IS AN EXCLUSION ("everything EXCEPT deletions"), NOT AN
+    // ALLOW-LIST OF STATUS LETTERS, AND THE POLARITY IS THE WHOLE POINT. This
+    // template shipped `AMT`, and an allow-list drops every letter it does not
+    // name, silently. That polarity is what made sibling scanners miss `R`
+    // (rename) and then `T` (typechange), each found by a separate refuter pass
+    // one round apart, and `synth` and `ncpdp` both ended on the exclusion form
+    // with "do not narrow this back to an allow-list" written down. THIS FILE IS
+    // WHAT EVERY FUTURE PARSER INHERITS, so it must not be the copy still
+    // carrying the older shape. An unfamiliar or future status letter can now
+    // only ever cost a wasted scan or a loud refusal, never a missed file.
+    // Deletions stay out because there is no staged blob left to read.
+    //
+    // THE DELTA AGAINST `AMT` IS SMALL AND IS STATED RATHER THAN IMPLIED, since
+    // `--no-renames` below already prevents `R` and `C`: what `d` newly
+    // enumerates is `U` (unmerged), `X` (unknown) and `B` (broken pairing).
+    // Measured on git 2.39.5, a conflicted path lists as
+    // `:100644 000000 <sha> 0000000 U` plus its path: ONE record, two fields,
+    // destination mode `000000`, so the stride below is unaffected and the mode
+    // is not a regular blob, which puts it through the refusal below (exit 2)
+    // instead of past it. Under `AMT` that same record was not listed at all.
+    // Refusing is right: an unmerged path has no single staged blob, so there is
+    // nothing this scan could honestly report clean over.
+    //
+    // `T` (TYPECHANGE) IS ENUMERATED, AND LEAVING IT OUT MAKES THE MODE CHECK
     // BELOW UNREACHABLE WHENEVER THE FILE IS ALREADY TRACKED. Replacing a TRACKED
     // regular file with a link is not an add and not a modify: git raises it as
-    // `T` (`:100644 120000 <sha> <sha> T`), so `--diff-filter=AM` deletes the
+    // `T` (`:100644 120000 <sha> <sha> T`), so an `AM` allow-list deletes the
     // record before any mode can be read and the pre-commit hook passes the link
-    // green. Typechange carries a single path, exactly like `A` and `M`, so
-    // admitting it costs the two-field stride below nothing, and the reverse
-    // typechange (a link replaced by a real file) is scanned as the file it
-    // became.
+    // green. The reverse typechange (a link replaced by a real file) is scanned
+    // as the file it became.
     //
-    // `--no-renames` FOR THE SAME REASON, AND THE FILTER ALONE IS NOT ENOUGH.
-    // Rename detection is on by default (and `diff.renames` can turn copy
-    // detection on too), so `git mv <link> test/fixtures/<name>` stages as
-    // `:120000 120000 <sha> <sha> R100` with TWO paths, which `--diff-filter=AMT`
-    // then deletes outright: an ordinary `git mv`, no crafted input, puts a
-    // mode-120000 entry under the scan root and this route prints "OK: no hits".
+    // `--no-renames` IS SEPARATELY LOAD-BEARING, AND THE STATUS FILTER DOES NOT
+    // STAND IN FOR IT. Rename detection is on by default (and `diff.renames` can
+    // turn copy detection on too), so `git mv <link> test/fixtures/<name>` stages
+    // as `:120000 120000 <sha> <sha> R100`: ONE record carrying TWO paths. Under
+    // the old `AMT` allow-list that record was dropped outright, so an ordinary
+    // `git mv`, no crafted input, put a mode-120000 entry under a scan root and
+    // this route printed "OK: no hits". Under `d` it would no longer be dropped,
+    // but it would desync the two-field stride below instead, which refuses
+    // rather than reporting clean and is still not an answer worth having.
     // Turning detection off makes the destination arrive as an ordinary
     // single-path `A` (`:000000 120000 0000000 <sha> A`) and the source a `D` the
     // filter drops, which costs the stride nothing and needs no two-path record
@@ -503,7 +551,7 @@ function buildTargetsForStaged(): Target[] {
     // whatever the caller's `diff.renames` setting is.
     listBuf = execFileSync(
       "git",
-      ["diff", "--cached", "--raw", "-z", "--no-renames", "--diff-filter=AMT"],
+      ["diff", "--cached", "--raw", "-z", "--no-renames", "--diff-filter=d"],
       {
         encoding: "buffer",
         stdio: ["ignore", "pipe", "pipe"],
@@ -525,9 +573,10 @@ function buildTargetsForStaged(): Target[] {
   // shape this scan must never report clean over.
   //
   // What this route still does NOT enumerate, stated because the boundary is
-  // narrower than the path prefix alone: `--diff-filter=AMT` also drops `D` (a
-  // deletion has no staged blob to scan) and `U` (an unmerged path has no single
-  // one). Both are pre-existing and unchanged here.
+  // narrower than the path prefix alone: `--diff-filter=d` drops `D` only (a
+  // deletion has no staged blob to scan). `U` used to be dropped here too and is
+  // now listed and REFUSED rather than skipped, which is the change the filter
+  // polarity bought.
   const fields = listBuf.toString("utf8").split("\0");
   const staged: { path: string; mode: string }[] = [];
   let i = 0;
@@ -689,11 +738,16 @@ function main(): number {
     throw err;
   }
 
-  const allow = loadAllowList();
   const allowed = new Set<string>(args.allowFixtures.map(normalizePath));
 
+  let allow: AllowList;
   let targets: Target[];
   try {
+    // `loadAllowList()` IS INSIDE THIS HANDLER, AND THAT PLACEMENT IS THE POINT.
+    // Outside it, a missing allow-list escaped as an uncaught throw and took
+    // node's exit 1, which this contract reserves for "hits found". See the
+    // EXIT CODES paragraph in the header.
+    allow = loadAllowList();
     if (args.mode === "staged") targets = buildTargetsForStaged();
     else if (args.mode === "paths") targets = buildTargetsForPaths(args.paths);
     else targets = buildTargetsForAll();

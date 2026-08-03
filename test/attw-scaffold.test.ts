@@ -63,6 +63,10 @@ let scaffold: string;
 let typesNotPacked: string;
 /** The real attw CLI entry point, resolved through test-utils' dependency tree. */
 let attwEntry: string;
+/** A package whose `attw` binary is a shim that records the argv it was handed. */
+let argvProbe: string;
+/** Where that shim writes the arguments of its most recent invocation. */
+let argvLog: string;
 
 beforeAll(() => {
   root = mkdtempSync(join(tmpdir(), "attw-scaffold-"));
@@ -107,7 +111,51 @@ beforeAll(() => {
   );
   writeFileSync(join(typesNotPacked, "index.js"), "module.exports = {};\n");
   writeFileSync(join(typesNotPacked, "index.d.ts"), "export declare const a: number;\n");
+
+  // A second fixture package whose `attw` is a SHIM that records its argv. The
+  // real CLI cannot answer "what did the gate forward?": it reports on a tarball,
+  // not on its own arguments, and `--no-definitely-typed` only suppresses a
+  // network lookup, so dropping it changes nothing this suite could otherwise
+  // observe. The manifest declares no artifacts, so the wrapper's preflight has
+  // nothing to find missing and the run reaches the spawn.
+  argvProbe = join(root, "argv-probe");
+  argvLog = join(root, "argv-probe.log");
+  mkdirSync(join(argvProbe, "scripts"), { recursive: true });
+  writeFileSync(
+    join(argvProbe, "package.json"),
+    JSON.stringify({ name: "attw-argv-probe", version: "1.0.0", private: true }, null, 2),
+  );
+  // The EMITTED wrapper, so this pins what a scaffolded parser would really run.
+  writeFileSync(
+    join(argvProbe, "scripts", "attw.mjs"),
+    readFileSync(join(scaffold, "scripts", "attw.mjs")),
+  );
+  const probeBin = join(argvProbe, "node_modules", ".bin");
+  mkdirSync(probeBin, { recursive: true });
+  const probeShim = join(probeBin, "attw");
+  // Newline-separated so an argument containing a space cannot be read as two.
+  // The shim must also print SOMETHING: the wrapper's net-2 treats an empty
+  // transcript as a failure, deliberately.
+  writeFileSync(
+    probeShim,
+    `#!/bin/sh\n: > "${argvLog}"\nfor a in "$@"; do printf '%s\\n' "$a" >> "${argvLog}"; done\n` +
+      `echo "argv probe: no untyped sentence here"\n`,
+  );
+  chmodSync(probeShim, 0o755);
 });
+
+/** Run the emitted wrapper against the argv probe and return what attw was handed. */
+function forwardedArgv(args: string[]): { code: number; out: string; argv: string[] } {
+  rmSync(argvLog, { force: true });
+  const r = run(process.execPath, [join(argvProbe, "scripts", "attw.mjs"), ...args], argvProbe);
+  let argv: string[] = [];
+  try {
+    argv = readFileSync(argvLog, "utf8").split("\n").filter(Boolean);
+  } catch {
+    argv = [];
+  }
+  return { ...r, argv };
+}
 
 afterAll(() => {
   rmSync(root, { recursive: true, force: true });
@@ -170,6 +218,53 @@ describe("a freshly scaffolded parser inherits the fixed gate", () => {
     const emitted = readFileSync(join(scaffold, "scripts", "attw.mjs"));
     const source = readFileSync(join(TEMPLATE, "scripts", "attw.mjs"));
     expect(emitted.equals(source)).toBe(true);
+  });
+
+  describe("the allow-listed arguments are FORWARDED, each pinned on its own", () => {
+    // WHY THIS EXISTS. Every other case in this file passes `--no-definitely-typed`
+    // so the gate stays off the network, and that is exactly why none of them
+    // pins it: the flag rode along on every run, so a wrapper that ACCEPTED it
+    // and then dropped it on the floor would keep the whole suite green. The
+    // acceptance half is covered incidentally (removing it from the allow-list
+    // makes every other case die at the argument guard); the FORWARDING half was
+    // not covered at all. The same gap is open upstream in `terminology`.
+
+    it("hands attw exactly `--pack . --no-definitely-typed`", () => {
+      const r = forwardedArgv(OFFLINE);
+      expect(r.code, r.out).toBe(0);
+      expect(r.argv).toEqual(["--pack", ".", "--no-definitely-typed"]);
+    });
+
+    it("NEGATIVE CONTROL: without the flag, attw is handed `--pack .` and nothing else", () => {
+      // Without this, the assertion above would pass just as well against a
+      // wrapper that hard-coded the flag, which pins nothing about forwarding.
+      const r = forwardedArgv([]);
+      expect(r.code, r.out).toBe(0);
+      expect(r.argv).toEqual(["--pack", "."]);
+    });
+
+    it("forwards `--profile` with its value, in both spellings", () => {
+      // The other allow-listed argument. Sibling manifests pass
+      // `--profile node16`, and a separated value has to be claimed explicitly or
+      // it would be read as an option on the next turn and refused.
+      expect(forwardedArgv(["--profile", "node16"]).argv).toEqual([
+        "--pack",
+        ".",
+        "--profile",
+        "node16",
+      ]);
+      expect(forwardedArgv(["--profile=node16"]).argv).toEqual(["--pack", ".", "--profile=node16"]);
+    });
+
+    it("refuses everything else, so `forwards it` cannot be satisfied by forwarding all", () => {
+      // The allow-list is what makes the two cases above a PIN rather than a
+      // description: a wrapper that simply passed its argv through would satisfy
+      // them and reopen every blinding route in the wrapper's own BLINDING note.
+      const r = forwardedArgv(["--quiet"]);
+      expect(r.code).not.toBe(0);
+      expect(r.out).toContain("not an argument this gate accepts");
+      expect(r.argv).toEqual([]); // attw was never reached
+    });
   });
 
   it(
