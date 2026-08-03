@@ -16,6 +16,73 @@ no package, so entries here are **dated** rather than versioned.
 
 ### Fixed
 
+- **`attw --pack .` exits 0 on a package whose tarball carries no types, so both `attw` scripts
+  this repo owns are now a wrapper that catches it** (ATTW-FALSE-GREEN-PORT; the remedy shipped in
+  `@cosyte/terminology` and is ported here). `getExitCode.js` in `@arethetypeswrong/cli@0.18.4`
+  opens with `if (!analysis.types) return 0`, returning **before** the problem list is read, so for
+  a package that ships types a broken publish is reported as a pass. No `--profile`,
+  `--ignore-rules` or config setting reaches that early return. A false red costs an hour; a false
+  green merges.
+  - **Reproduced on this repo's own package, with zero concurrency.** Against `@cosyte/test-utils`
+    at `0.0.2`, both `rm -f dist/index.d.ts dist/index.d.cts && attw --pack .` and
+    `rm -rf dist && attw --pack .` print the untyped sentence and exit **0**.
+  - **Concurrency supplies the condition and is not the defect, which is why the answer is not a
+    lock, a lease or a build queue.** `tsup` writes JS in one pass and declarations in a later one,
+    so **every** build has a window in which `dist/` holds `.mjs`/`.cjs` and no `.d.ts`. Polling
+    clean `tsup` runs on this package, the JS landed first in **every run measured, 12 of 12 across
+    two independent sets**. **No width is quoted, not even a range**: the two sets disagreed about
+    the spread on the same idle box, and a draft of this entry quoted a range the next set did not
+    reproduce. The load-bearing fact is the order (JS, then declarations); the width is whatever the
+    box was doing. The gate has to be able to say its own inputs were missing, whatever removed them.
+  - `scripts/attw.mjs` carries **two nets that catch different things**: a preflight that every
+    relative path `package.json` promises (`main`, `module`, `types`, `typings`, every string leaf
+    of `exports`) exists and is non-empty, which catches the window above and **names the missing
+    file**; and a post-check on the untyped sentence, which catches what the preflight structurally
+    cannot, declarations present on disk but excluded from the tarball by `files`/`.npmignore`.
+  - The post-check reads a string, so what would hide that string is **refused, by option and
+    wholesale rather than by value**. Each blinding route was re-measured here rather than carried
+    over as prose, and each exits 0 with the sentence gone: `--quiet`, `--format json`, its attached
+    short form `-fjson`, and a `.attw.json` setting either (`readConfig()` calls
+    `setOptionValueWithSource(..., "config")` inside the command action, **after** argv, so the file
+    beats the flag). `--format table-flipped` still prints the sentence and is refused anyway: that
+    over-strictness is the deliberate trade against value-parsing the guard.
+  - **Short options are matched per character, not per token**, and that is load-bearing rather than
+    tidy. Commander accepts an attached value (`-fjson`) and a cluster (`-Pq`), so a guard holding
+    the exact tokens `-f` and `-q` lets **both straight through**: `-fjson` was measured handing back
+    exit 0 over an untyped pack through exactly such a draft of this guard. attw's short options are
+    `-P/--pack`, `-f/--format`, `-p/--from-npm`, `-q/--quiet`, so refusing any cluster containing `f`
+    or `q` refuses nothing legitimate, and a test pins that `-P` still passes and stays green.
+  - **`--config-path` is refused for a weaker and different reason, and the distinction is not
+    pedantry.** On its own it blinds nothing: pointed at a file that does not exist, the untyped
+    sentence still prints (measured). What it does is choose **which** file `readConfig()` applies,
+    so pointed at one that sets `quiet` it blinds exactly like `.attw.json` (also measured). Upstream
+    recorded this refusal as inferred rather than measured; both halves are measured here, and a
+    draft of this entry wrongly upgraded that into "the flag blinds", which the tree contradicts.
+    Both halves are now pinned by a test.
+  - **THE ONE THAT MATTERS MOST IS THE TEMPLATE.** `scripts/parser-template/` is what
+    `scripts/scaffold-parser.mjs` mints every NEW `@cosyte/*` parser from, so porting only
+    `packages/test-utils/` would have left the defect being **re-minted into every future parser**.
+    The two copies of the wrapper are kept byte-identical by an assertion, and
+    `test/attw-scaffold.test.ts` runs the real scaffolder and shows the emitted gate reddening on a
+    pack that bare `attw` passes. **All six of its cases red on the pre-port tree**, and the
+    `test-utils` suite reds **15 of 18** there. Two of the three survivors are pure attw-behaviour
+    controls, which are supposed to hold on both sides because they assert what the CLI does rather
+    than what the wrapper does. **The third is not**: "still fails when attw itself fails, with
+    attw's own status" is a wrapper assertion, and it survives on base only because the wrapper is
+    absent there and Node's `MODULE_NOT_FOUND` exit is also `1`, which happens to equal the status it
+    compares against. Do not read that one as a control.
+  - `packages/test-utils/test/attw-gate.test.ts` pins both nets against the real binary, including
+    **attw's own exit 0**, a negative control on a well-formed package, and that a real `attw`
+    failure still fails: so an upgrade that reworks the wording or fixes the exit code reds the
+    suite instead of letting the net go quietly slack.
+  - No changeset accompanies this, deliberately, per the entry below and the `prepublishOnly`
+    precedent: nothing in any published tarball changes, and an unnecessary changeset withholds a
+    release.
+  - **Known and deliberately not fixed here:** `scripts/parser-template/package.json` still ends
+    `prepublishOnly` with `&& pnpm attw`, which is exactly the shape the entry below removed from
+    `@cosyte/test-utils`, so the template is still re-minting it into every new parser. It is
+    release-pipeline work and wants its own slice. `test/attw-scaffold.test.ts` deliberately asserts
+    **nothing** about `prepublishOnly` so that fixing it will not red this suite.
 - **`prepublishOnly` no longer runs a tool that packs, which had broken every version bump.**
   `@cosyte/test-utils`'s `prepublishOnly` ended in `pnpm attw`, and `attw --pack .` packs a
   tarball of its own; run from inside `pnpm publish`'s staging context that pack lands where
