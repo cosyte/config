@@ -69,7 +69,7 @@
     "pack:docs": "bash scripts/build-docs-artifacts.sh",
     "attw": "node scripts/attw.mjs",
     "release": "changeset publish",
-    "prepublishOnly": "pnpm clean && pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm attw",
+    "prepublishOnly": "pnpm clean && pnpm typecheck && pnpm lint && pnpm test && pnpm build",
     "prepare": "command -v simple-git-hooks >/dev/null 2>&1 && simple-git-hooks || true"
   },
   "simple-git-hooks": {

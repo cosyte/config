@@ -150,14 +150,20 @@ describe("a freshly scaffolded parser inherits the fixed gate", () => {
     expect(pkg.name).toBe("@cosyte/demo"); // the scaffolder really ran
     expect(pkg.scripts.attw).toBe("node scripts/attw.mjs");
     expect(pkg.scripts.attw).not.toMatch(BARE_INVOCATION);
-    // NOTHING IS ASSERTED ABOUT `prepublishOnly` HERE, DELIBERATELY. The template
-    // still ends it with `&& pnpm attw`, which is the shape #40 (`f32e7dd`)
-    // removed from `@cosyte/test-utils`: `attw --pack .` packs a tarball of its
-    // own, and inside `pnpm publish`'s staging context that pack lands where attw
-    // cannot find it, so the step dies with ENOENT on its own tgz. That is a
-    // separate, pre-existing defect and a separate slice. Pinning the current
-    // string here would red the day someone fixes it, which is the wrong way
-    // round for a test to behave.
+    // `prepublishOnly` MUST NOT END IN A TOOL THAT PACKS. `attw --pack .` packs a
+    // tarball of its own, and inside `pnpm publish`'s staging context that pack
+    // lands where attw cannot find it, so the step dies with ENOENT on its own
+    // tgz. It stayed hidden because `publish --dry-run` SKIPS a version already on
+    // npm, so the chain only ever runs on a version bump: it blocked every release
+    // of `@cosyte/test-utils` until #40 (`f32e7dd`) removed it there. The template
+    // re-minted the same shape into every new parser until this slice. attw still
+    // runs where it belongs, as its own CI step.
+    expect(pkg.scripts.prepublishOnly).not.toMatch(/\battw\b/);
+    // ...and the rest of the chain is still there, so this cannot be satisfied by
+    // deleting the script.
+    for (const step of ["pnpm clean", "pnpm typecheck", "pnpm lint", "pnpm test", "pnpm build"]) {
+      expect(pkg.scripts.prepublishOnly).toContain(step);
+    }
 
     // The emitted wrapper survived token substitution unchanged. It carries no
     // {{...}} tokens, so byte-identity through the scaffolder is the expectation.
