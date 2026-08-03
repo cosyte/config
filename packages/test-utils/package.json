@@ -62,7 +62,7 @@
     "format:check": "prettier --check \"src/**/*.{ts,md}\" \"test/**/*.ts\" \"*.{json,md,yml}\"",
     "test": "vitest run",
     "test:watch": "vitest",
-    "attw": "attw --pack .",
+    "attw": "node scripts/attw.mjs",
     "clean": "rm -rf dist coverage",
     "prepublishOnly": "pnpm clean && pnpm typecheck && pnpm lint && pnpm test && pnpm build"
   },

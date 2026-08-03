@@ -29,7 +29,8 @@ a summary.
 - **Language:** TypeScript (strict, full rigor set incl. `noUncheckedIndexedAccess`) via
   `@cosyte/tsconfig`. **Target ES2023**, `NodeNext`. TypeScript 5.9.x, exact-pinned.
 - **Build:** dual ESM + CJS + `.d.ts` via `tsup` (`@cosyte/tsup-config`); `attw` is a publish gate
-  (per-condition types: `.d.ts` for `import`, `.d.cts` for `require`).
+  (per-condition types: `.d.ts` for `import`, `.d.cts` for `require`). The `attw` script is
+  **`scripts/attw.mjs`, not the bare CLI**: see the guardrail below.
 - **Node:** **>= 22** (CI matrix 22 + 24).
 - **Package manager:** `pnpm@10`.
 - **Lint/format:** **ESLint 10** + unified `typescript-eslint` (type-checked) via
@@ -55,6 +56,39 @@ a summary.
   warning with a stable code + positional context.
 - Coverage: per-directory >= 90% (lines/branches/functions/statements), enforced by
   `pnpm test:coverage`.
+- **`attw` SAYS "does not contain types" AND EXITS 0, SO THE `attw` SCRIPT IS A WRAPPER, NOT THE
+  BARE CLI.** `getExitCode.js` in `@arethetypeswrong/cli` opens with `if (!analysis.types) return 0`,
+  so the problem list is never consulted and no `--profile`, `--ignore-rules` or config setting
+  reaches that early return. An untyped package is a legitimate npm package, so the CLI treats "no
+  types at all" as a description rather than a problem. For a package that ships types it means the
+  declarations were **not in the tarball**, which is a broken publish reported as a pass. A false red
+  costs an hour; a false green merges.
+  **The race only supplies the condition, so the answer is not a lock, a lease or a build queue.**
+  `tsup` emits JS in one pass and declarations in a later one, so **every** build has a window where
+  `dist/` holds `.mjs`/`.cjs` and no `.d.ts`; a concurrent build or `clean` in the same working tree
+  lands `attw` in it. The gate must be able to say its own inputs were missing, whatever removed them.
+  `scripts/attw.mjs` carries **two nets that catch different things**: a preflight that every relative
+  path `package.json` promises (`main`, `module`, `types`, `typings`, every string leaf of `exports`)
+  exists and is non-empty, which catches that window and names the missing file; and a post-check on
+  attw's untyped sentence, which catches what the preflight structurally cannot, declarations present
+  on disk but excluded from the tarball by `files`/`.npmignore`.
+  **The post-check reads a string, so what would hide that string is refused, by option and
+  wholesale rather than by value**: `--quiet`, `--format`, `--config-path`, and a `.attw.json` setting
+  `quiet` or `format` (`readConfig()` applies the file after argv, so it beats the flag). A harmless
+  `--format` value blinds nothing and is refused anyway. That is the deliberate trade against
+  value-parsing the guard. Other arguments are forwarded, so `--profile node16` still works.
+  **SHORT OPTIONS ARE MATCHED PER CHARACTER, NOT PER TOKEN, AND AN EXACT-TOKEN GUARD IS A LIVE HOLE.**
+  Commander accepts an attached value (`-fjson`) and a cluster (`-Pq`), so a guard holding the exact
+  tokens `-f` and `-q` lets both through: `-fjson` was measured handing back exit 0 over an untyped
+  pack through exactly that shape. attw's short options are `-P/--pack`, `-f/--format`,
+  `-p/--from-npm`, `-q/--quiet`, so refusing any cluster containing `f` or `q` refuses nothing
+  legitimate.
+  **`--config-path` is refused for a weaker reason, and do not restate it as a stronger one.** Alone
+  it blinds nothing (pointed at a missing file the sentence still prints). It selects **which** file
+  `readConfig()` applies, so pointed at one setting `quiet` it blinds like `.attw.json` does. It is
+  refused because the gate cannot check a file whose path it is told to ignore.
+  **This file arrives from `cosyte/config`'s `scripts/parser-template/`.** Fix the gate there, never
+  only here, or the next scaffolded parser is born with the defect again.
 
 ## Standing disciplines (every change)
 
