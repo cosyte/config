@@ -21,9 +21,12 @@
  *  5. THE GATE'S MOST BASIC OBLIGATION, that a real `attw` failure still fails.
  *     Without this, every other test here would pass on a wrapper that swallowed
  *     attw's own exit status, because net 2 reds the untyped fixture regardless.
- *  6. The refusals that keep net 2 readable. Each of these argument and config
- *     routes was measured on this repo to make the untyped sentence unreadable and
- *     hand back exit 0, which is the exact false green this file exists to close.
+ *  6. THE ARGUMENT ALLOW-LIST that keeps net 2 readable, and the `.attw.json`
+ *     refusal beside it. Each spelling in that table was measured on this repo
+ *     either to make the untyped sentence unreadable while attw exits 0, or to be
+ *     indistinguishable from a pass. The guard is an allow-list because a
+ *     deny-list bought exactly one more evasion per round: the table is kept as
+ *     evidence, not as the definition of what is refused.
  *
  * The fixtures are minimal throwaway packages in a temp dir, nothing to do with
  * this package's own build, so the test does not need one and cannot race one.
@@ -206,11 +209,15 @@ describe("scripts/attw.mjs", () => {
   );
 
   it(
-    "does not claim attw would have said 'untyped' when only JS is missing",
+    "makes NO claim about attw's exit code from the preflight, in either direction",
     () => {
-      // Measured: with the declarations intact, bare attw reports no problems and
-      // exits 0 on this fixture. The preflight still reds it, but must not tell the
-      // reader something about attw's behaviour that is false for this case.
+      // The preflight reads the MANIFEST and never the TARBALL, and the tarball is
+      // what `containsTypes()` keys on, so any "attw would have..." sentence here
+      // is a guess. It used to carry two of them, switched on whether a
+      // declaration was among the casualties; both are deleted rather than
+      // reworded. This fixture is the case that made the old wording defensible
+      // (declarations intact, only JS missing: bare attw reports no problems and
+      // exits 0) and it is pinned so the sentence cannot come back on this branch.
       const bare = runAttw(jsMissing);
       expect(bare.out).toContain("No problems found");
       expect(bare.code).toBe(0);
@@ -218,6 +225,70 @@ describe("scripts/attw.mjs", () => {
       expect(r.code).not.toBe(0);
       expect(r.out).toContain("./dist/index.js");
       expect(r.out).not.toContain(UNTYPED);
+      // The two sentences that were deleted, verbatim.
+      expect(r.out).not.toContain("attw does not gate these");
+      expect(r.out).not.toContain("EXITED 0");
+      expect(r.out).toContain("attw was not run");
+
+      // ...and on the other branch too, where the old wording asserted exit 0.
+      const declarationsHit = runWrapper(noBuild);
+      expect(declarationsHit.out).not.toContain("attw does not gate these");
+      expect(declarationsHit.out).not.toContain("EXITED 0");
+      expect(declarationsHit.out).toContain("attw was not run");
+    },
+    SPAWN_TIMEOUT,
+  );
+
+  it(
+    "reads `bin`, which attw never looks at at all",
+    () => {
+      // A manifest can promise a command that is not in the tarball, and nothing
+      // else here would say so. This package declares no `bin`; the half is in
+      // the gate because it is the shape every scaffolded parser inherits.
+      const dir = join(root, "bin-missing");
+      writePkg(
+        dir,
+        {
+          name: "attw-gate-fixture-bin",
+          version: "1.0.0",
+          type: "module",
+          bin: { demo: "./dist/cli.js" },
+          exports: { ".": { types: "./index.d.ts", default: "./index.js" } },
+          files: ["index.js", "index.d.ts"],
+        },
+        { "index.js": "export const a = 1;\n", "index.d.ts": "export declare const a: number;\n" },
+      );
+      const r = runWrapper(dir);
+      expect(r.code).not.toBe(0);
+      expect(r.out).toContain("./dist/cli.js");
+      expect(r.out).toContain("missing");
+    },
+    SPAWN_TIMEOUT,
+  );
+
+  it(
+    "checks a path declared WITHOUT a leading ./, which is legal and used to be skipped",
+    () => {
+      // `"types": "dist/index.d.ts"` is the spelling npm's own documentation
+      // uses. The preflight used to drop it silently while still reporting it had
+      // checked. `exports` leaves are deliberately not normalized: Node requires
+      // `./` there, so a leaf without one is not a path of ours.
+      const dir = join(root, "no-dot-slash");
+      writePkg(
+        dir,
+        {
+          name: "attw-gate-fixture-nodotslash",
+          version: "1.0.0",
+          type: "module",
+          types: "dist/index.d.ts",
+          exports: { ".": { types: "./index.d.ts", default: "./index.js" } },
+          files: ["index.js", "index.d.ts"],
+        },
+        { "index.js": "export const a = 1;\n", "index.d.ts": "export declare const a: number;\n" },
+      );
+      const r = runWrapper(dir);
+      expect(r.code).not.toBe(0);
+      expect(r.out).toContain("./dist/index.d.ts");
     },
     SPAWN_TIMEOUT,
   );
@@ -247,17 +318,24 @@ describe("scripts/attw.mjs", () => {
   );
 });
 
-describe("the refusals that keep the post-check readable", () => {
-  // The long forms and the separated short forms. Each was measured on this repo
-  // to make bare attw exit 0 with the untyped sentence unreadable, on the very
-  // fixture whose tarball carries no types.
+describe("the argument allow-list that keeps the post-check readable", () => {
+  // THE GUARD IS AN ALLOW-LIST, SO THIS TABLE IS NOT THE SET IT REFUSES: it is a
+  // set of spellings that would each have to be enumerated by a deny-list, kept
+  // here because each one was MEASURED to restore the exact false green or to be
+  // indistinguishable from a pass.
   //
-  // THE ATTACHED AND CLUSTERED SHORT FORMS ARE THE ONES THAT MATTER, because an
-  // exact-token guard containing `-f` and `-q` lets them straight through, and
-  // `-fjson` was measured handing back exit 0 through exactly such a guard. attw
-  // accepts `-P/--pack`, `-f/--format`, `-p/--from-npm`, `-q/--quiet`, so the
-  // per-character rule refuses nothing legitimate. The negative control below
-  // pins that half.
+  // The first group blinds by hiding or reformatting attw's output, and a
+  // deny-list caught them only after two rounds of enumeration (`-fjson` walked
+  // through a set holding the exact token `-f`; `-qP` walked through until the
+  // guard started matching short clusters per character).
+  //
+  // THE SECOND GROUP IS WHAT THE ALLOW-LIST BUYS, and it is the reason for the
+  // change. `--help`, `-h`, `--version` and `-V` were each measured exiting 0
+  // through the per-character deny-list, with the untyped sentence absent and a
+  // NON-EMPTY transcript, so the empty-output net could not backstop them
+  // either: the gate could not tell any of them from a pass. `--definitely-typed`
+  // and `--ignore-rules` are the ones nobody had enumerated yet. None of them
+  // needed a line of their own here; they fall out of allow-listing.
   it.each([
     ["--quiet", ["--quiet"]],
     ["-q", ["-q"]],
@@ -268,24 +346,74 @@ describe("the refusals that keep the post-check readable", () => {
     ["-qP (cluster, blinding first)", ["-qP"]],
     ["-Pq (cluster, blinding second)", ["-Pq"]],
     ["--config-path", ["--config-path", "other.json"]],
+    ["--help", ["--help"]],
+    ["-h", ["-h"]],
+    ["--version", ["--version"]],
+    ["-V", ["-V"]],
+    ["--definitely-typed", ["--definitely-typed", "types.tgz"]],
+    ["--ignore-rules", ["--ignore-rules", "no-resolution"]],
+    ["-P (--pack, harmless, refused anyway)", ["-P"]],
   ])("refuses %s", (_name, extra) => {
     const r = runWrapper(typesNotPacked, [...OFFLINE, ...extra]);
     expect(r.code).not.toBe(0);
-    expect(r.out).toContain("refused wholesale");
+    expect(r.out).toContain("is not an argument this gate accepts");
     expect(r.out).not.toContain(UNTYPED);
   });
 
   it(
-    "does not refuse attw's non-blinding short options, and stays green with them",
+    "the counterfactual: --help and friends exit 0 through attw itself, sentence absent",
     () => {
-      // A guard that refuses everything is not a guard, it is a broken script.
-      // `-P` is `--pack`, `-p` is `--from-npm`; neither can hide the sentence.
-      const r = runWrapper(wellFormed, [...OFFLINE, "-P"]);
-      expect(r.out).not.toContain("refused wholesale");
-      expect(r.code).toBe(0);
+      // The gate's refusal above is only worth having if these really are
+      // indistinguishable from a pass underneath it. Measured, not assumed.
+      for (const flag of ["--help", "-h", "--version", "-V"]) {
+        const bare = run(ATTW_BIN, ["--pack", ".", ...OFFLINE, flag], typesNotPacked);
+        expect(bare.code, flag).toBe(0);
+        expect(bare.out, flag).not.toContain(UNTYPED);
+        expect(bare.out.trim(), flag).not.toBe(""); // so the empty-output net cannot help
+      }
     },
     SPAWN_TIMEOUT,
   );
+
+  it(
+    "forwards the allow-listed arguments, and does not drop or default --profile's value",
+    () => {
+      // A guard that refuses everything is not a guard, it is a broken script.
+      //
+      // THE FIXTURE HAS TO BE ONE attw JUDGES DIFFERENTLY PER PROFILE, or every
+      // assertion below is `0 === 0`. `attwFails` is ESM-only with no `require`
+      // condition, so the default (`strict`) reds it and `esm-only` does not.
+      // The premise is asserted FIRST, on the bare CLI, so the case cannot go
+      // vacuous if attw's profile behaviour ever changes.
+      const noProfile = run(ATTW_BIN, ["--pack", ".", ...OFFLINE], attwFails);
+      const esmOnly = run(
+        ATTW_BIN,
+        ["--pack", ".", ...OFFLINE, "--profile", "esm-only"],
+        attwFails,
+      );
+      expect(noProfile.code).not.toBe(0);
+      expect(esmOnly.code).toBe(0);
+
+      // Now the wrapper, separated and fused. Each must reach attw with THIS
+      // value: a dropped value or a hardcoded default reds these, because the
+      // package reds under any other profile.
+      const separated = runWrapper(attwFails, [...OFFLINE, "--profile", "esm-only"]);
+      expect(separated.out).not.toContain("is not an argument this gate accepts");
+      expect(separated.code).toBe(0);
+      expect(runWrapper(attwFails, [...OFFLINE, "--profile=esm-only"]).code).toBe(0);
+
+      // ...and the same wrapper on the same package WITHOUT a profile still reds,
+      // so the greens above are the value's doing and not the fixture's.
+      expect(runWrapper(attwFails, OFFLINE).code).not.toBe(0);
+    },
+    SPAWN_TIMEOUT,
+  );
+
+  it("refuses --profile with no value rather than forwarding a bare flag", () => {
+    const r = runWrapper(typesNotPacked, [...OFFLINE, "--profile"]);
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain("--profile was given with no value");
+  });
 
   it(
     "--config-path blinds only through the file it selects, which is why it is refused",

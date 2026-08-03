@@ -16,6 +16,98 @@ no package, so entries here are **dated** rather than versioned.
 
 ### Fixed
 
+- **The parser template was still re-minting both gate holes into every new parser, and it was the
+  last source of either** (TEMPLATE-REMINTS-BOTH-GATES). `scripts/scaffold-parser.mjs` mints every
+  new `@cosyte/*` parser from `scripts/parser-template/`, so a hole left there is not one repo's
+  defect: it is every future repo's. The two 2026-08-03 class ports had landed across the fleet and
+  this template had received neither. Three halves, all measured on this tree rather than carried
+  over as prose.
+  - **The `attw` argument guard is now an ALLOW-LIST** (`--profile`, `--no-definitely-typed`,
+    everything else refused), ported from `terminology#40`. **A deny-list bought exactly one more
+    evasion per round, and this repo had already paid for two of them.** The first shape matched
+    tokens, so `-fjson` was neither `-f` nor `--format` and walked through; the second matched short
+    clusters per character, which closed `-fjson`/`-Pfjson`/`-Pf json` and **closed nothing else**.
+    Measured here against `@arethetypeswrong/cli@0.18.4` on a pack whose tarball carries no types,
+    through that per-character guard: **`--help`, `-h`, `--version` and `-V` each exited 0 with the
+    untyped sentence absent and a NON-EMPTY transcript**, so the empty-output net could not backstop
+    them either and the gate could not tell any of the four from a pass. The allow-list retires all
+    four at once, and `--config-path`, `--definitely-typed`, `--ignore-rules` and every future
+    spelling fall out for free. `--profile`'s value is still forwarded, separated or fused, pinned
+    on the **ESM-only** fixture, which is the only one here attw judges differently per profile
+    (measured: default reds it, `esm-only` does not, `node16` reds it). The bare-CLI premise is
+    asserted **first** and the same wrapper without a profile is asserted to still red, so a dropped
+    value **or a hardcoded default** reds the case. **A draft of this pinned it on the well-formed
+    dual package instead, where attw returns 0 with or without a profile, so the assertion was
+    `0 === 0` and a gate hardcoding `--profile strict` kept all 29 cases green.** The gate's own
+    docblock says every drift between copies of a claim is a claim edited in some of them and not
+    the others; this one was caught by the gate's refuter, in this diff, and is recorded rather than
+    quietly corrected.
+    - **The six cluster rules were deliberately NOT extended, and the per-character machinery is
+      gone rather than kept beside the allow-list.** Enumerating spellings is a ceiling, not a fix.
+    - **What this does NOT close, stated because the gate's own prose must not imply otherwise:**
+      `readConfig()` applies a committed `.attw.json` after argv and calls `setOptionValueWithSource`
+      for nearly every key, **so the config route wins regardless of the allow-list.** The
+      name-scoped `.attw.json` refusal covers `quiet` and `format` only. `terminology#40`'s gate
+      insisted that be **its own item** rather than a fourth round here, and it still is.
+  - **The preflight's exit-code counterfactual is deleted rather than reworded**, and both branches
+    of it are pinned absent. It read the MANIFEST and never the TARBALL, and the tarball is what
+    `containsTypes()` keys on (`listFiles(directory).some(ts.hasTSFileExtension)`, computed before
+    any entrypoint resolves), so a package whose `files` packs a whole `dist/` can lose every
+    declared declaration and still hand attw an undeclared chunk declaration to find. A gate that
+    reds correctly and then explains itself with a falsehood teaches the next reader the wider,
+    wrong story, and this file gets copied.
+  - **The preflight now reads `bin` and normalizes a path declared without a leading `./`.** Both
+    measured leaving the old gate at exit 0: a manifest promising `bin: {demo: "./dist/cli.js"}` with
+    no such file (attw never looks at `bin` at all), and `"types": "dist/index.d.ts"`, which is legal
+    and is the spelling npm's own documentation uses. The second dropped a real promise while the
+    gate still reported it had checked. `exports` leaves are left alone: Node requires `./` there.
+  - **`scripts/phi-scan.ts` refuses (exit 2) an in-scope entry that is not a regular file, on BOTH
+    enumerating routes**, ported from `terminology#37` plus `dicom#60`'s `--no-renames`. Measured on
+    the emitted scaffold with a synthetic name-bearing payload outside the walk roots: all-mode
+    exited **0** `OK: no hits`, `--staged` exited **0** after `git add`, and naming the target
+    explicitly exited **1** with the hit. **The payload was detectable the whole time; the two routes
+    never looked at it.** `walk()` enumerates `Dirent.isFile()`, an lstat answer, so a link is
+    neither a file nor a directory and fell out silently; `--staged` reads content with
+    `git show :<path>`, and git stores a link as its TARGET PATH under mode 120000, so that route was
+    handed the path text. Neither route is made to follow a link, and **a refusal never prints the
+    target**, which is working-tree text that can itself carry PHI.
+  - **THE SCOPE PREDICATE IS SPLIT, AND THAT HALF IS THE ONE TWO SIBLINGS EACH FOUND THE HARD WAY.**
+    `synth#37` and `ncpdp#54` independently shipped a single shared predicate and both had the two
+    routes disagree about a `.md`-named link, because root scope and the read filter were one test.
+    Here `isUnderScanRoot` decides whether an entry is the scan's business (every non-regular check
+    keys on it) and the read filters decide whether a regular file's bytes are read. Pinned with a
+    counterfactual: a scanner built by collapsing the two exits **0** under `--staged` on a
+    `src/notes.md` link that all-mode refuses.
+  - **`--no-renames` and `--diff-filter=AMT` are both load-bearing, each pinned with its git premise
+    asserted first.** With rename detection on (the default), `git mv <link> test/fixtures/<name>` is
+    an ordinary developer action that stages as `:120000 120000 ... R100` with two paths, which the
+    status filter then deletes outright: measured, the record set was **empty** and a scanner with
+    detection left on printed `OK: no hits` and exited 0 over a mode-120000 entry under the corpus
+    root. Replacing an already-TRACKED fixture with a link raises `T`, which `--diff-filter=AM`
+    deleted before any mode could be read. An index entry at exactly `test/fixtures` (git records
+    none for a directory, so the corpus root itself replaced) is in scope too.
+  - **`prepublishOnly` no longer ends in `&& pnpm attw`**, the shape `f32e7dd` removed from
+    `@cosyte/test-utils` and which the template kept re-minting. `test/attw-scaffold.test.ts`
+    previously asserted nothing about it on purpose; it now asserts the packing tool is absent **and
+    that the rest of the chain is still there**, so the case cannot be satisfied by deleting the
+    script.
+  - **`test/phi-scan-scaffold.test.ts` is new, and it exists because the template's own suite never
+    runs in this repo.** It travels into a scaffolded repo and runs against that repo's
+    `node_modules`, so a defect in the template's scanner was invisible to this repo's CI. The new
+    suite runs the REAL scaffolder and exercises the EMITTED scanner (through Node's type stripping,
+    since `tsx` is not installed by a test). **9 of its 15 cases red on the pre-port template**; the
+    6 that stay green are the ones that should, including the negative control and the `.md` READ
+    exemption. The `attw` suite reds **20 of 29** on the pre-port gate.
+  - **Deliberately NOT done here:** the template's own starter suite gains no symlink cases. Nothing
+    in this repo can execute it, so shipping unexecuted tests into every new parser is worse than
+    shipping none; the executed pin lives in this repo's root suite instead. Also unfixed and
+    unrelated to this slice: `loadAllowList()` is called outside `main`'s `InvocationError` handler,
+    so a missing allow-list escapes as an uncaught throw and takes exit **1**, the code this
+    contract reserves for "hits found". Pre-existing, asserted as measured rather than as it ought
+    to be.
+  - No changeset, deliberately, per the two entries below: `packages/test-utils` publishes only
+    `dist`, `README.md` and `CHANGELOG.md`, so nothing in any published tarball changes, and an
+    unnecessary changeset silently withholds a release.
 - **`attw --pack .` exits 0 on a package whose tarball carries no types, so both `attw` scripts
   this repo owns are now a wrapper that catches it** (ATTW-FALSE-GREEN-PORT; the remedy shipped in
   `@cosyte/terminology` and is ported here). `getExitCode.js` in `@arethetypeswrong/cli@0.18.4`
@@ -51,7 +143,13 @@ no package, so entries here are **dated** rather than versioned.
     the exact tokens `-f` and `-q` lets **both straight through**: `-fjson` was measured handing back
     exit 0 over an untyped pack through exactly such a draft of this guard. attw's short options are
     `-P/--pack`, `-f/--format`, `-p/--from-npm`, `-q/--quiet`, so refusing any cluster containing `f`
-    or `q` refuses nothing legitimate, and a test pins that `-P` still passes and stays green.
+    or `q` refuses nothing legitimate.
+    **SUPERSEDED by the allow-list entry above, and the two halves fail differently.** The
+    measurement stands and is why those spellings are still in the evidence table. The claim that the
+    per-character rule "refuses nothing legitimate" does **not** stand as a description of the tree:
+    `-P` is now refused like everything outside the allow-list, and the test that pinned it staying
+    green is gone. Being over-strict about an argument nobody passes to a repo's own publish gate is
+    the deliberate trade.
   - **`--config-path` is refused for a weaker and different reason, and the distinction is not
     pedantry.** On its own it blinds nothing: pointed at a file that does not exist, the untyped
     sentence still prints (measured). What it does is choose **which** file `readConfig()` applies,
@@ -78,11 +176,12 @@ no package, so entries here are **dated** rather than versioned.
   - No changeset accompanies this, deliberately, per the entry below and the `prepublishOnly`
     precedent: nothing in any published tarball changes, and an unnecessary changeset withholds a
     release.
-  - **Known and deliberately not fixed here:** `scripts/parser-template/package.json` still ends
-    `prepublishOnly` with `&& pnpm attw`, which is exactly the shape the entry below removed from
-    `@cosyte/test-utils`, so the template is still re-minting it into every new parser. It is
-    release-pipeline work and wants its own slice. `test/attw-scaffold.test.ts` deliberately asserts
-    **nothing** about `prepublishOnly` so that fixing it will not red this suite.
+  - **Known and deliberately not fixed here** (CLOSED by TEMPLATE-REMINTS-BOTH-GATES above):
+    `scripts/parser-template/package.json` still ended `prepublishOnly` with `&& pnpm attw`, which is
+    exactly the shape the entry below removed from `@cosyte/test-utils`, so the template was still
+    re-minting it into every new parser. It was release-pipeline work and got its own slice, as
+    intended. `test/attw-scaffold.test.ts` deliberately asserted **nothing** about `prepublishOnly`
+    so that fixing it would not red this suite; it now asserts the fixed shape.
 - **`prepublishOnly` no longer runs a tool that packs, which had broken every version bump.**
   `@cosyte/test-utils`'s `prepublishOnly` ended in `pnpm attw`, and `attw --pack .` packs a
   tarball of its own; run from inside `pnpm publish`'s staging context that pack lands where

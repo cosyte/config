@@ -67,28 +67,37 @@ a summary.
   `tsup` emits JS in one pass and declarations in a later one, so **every** build has a window where
   `dist/` holds `.mjs`/`.cjs` and no `.d.ts`; a concurrent build or `clean` in the same working tree
   lands `attw` in it. The gate must be able to say its own inputs were missing, whatever removed them.
-  `scripts/attw.mjs` carries **two nets that catch different things**: a preflight that every relative
-  path `package.json` promises (`main`, `module`, `types`, `typings`, every string leaf of `exports`)
-  exists and is non-empty, which catches that window and names the missing file; and a post-check on
-  attw's untyped sentence, which catches what the preflight structurally cannot, declarations present
-  on disk but excluded from the tarball by `files`/`.npmignore`.
-  **The post-check reads a string, so what would hide that string is refused, by option and
-  wholesale rather than by value**: `--quiet`, `--format`, `--config-path`, and a `.attw.json` setting
-  `quiet` or `format` (`readConfig()` applies the file after argv, so it beats the flag). A harmless
-  `--format` value blinds nothing and is refused anyway. That is the deliberate trade against
-  value-parsing the guard. Other arguments are forwarded, so `--profile node16` still works.
-  **SHORT OPTIONS ARE MATCHED PER CHARACTER, NOT PER TOKEN, AND AN EXACT-TOKEN GUARD IS A LIVE HOLE.**
-  Commander accepts an attached value (`-fjson`) and a cluster (`-Pq`), so a guard holding the exact
-  tokens `-f` and `-q` lets both through: `-fjson` was measured handing back exit 0 over an untyped
-  pack through exactly that shape. attw's short options are `-P/--pack`, `-f/--format`,
-  `-p/--from-npm`, `-q/--quiet`, so refusing any cluster containing `f` or `q` refuses nothing
-  legitimate.
-  **`--config-path` is refused for a weaker reason, and do not restate it as a stronger one.** Alone
-  it blinds nothing (pointed at a missing file the sentence still prints). It selects **which** file
-  `readConfig()` applies, so pointed at one setting `quiet` it blinds like `.attw.json` does. It is
-  refused because the gate cannot check a file whose path it is told to ignore.
-  **This file arrives from `cosyte/config`'s `scripts/parser-template/`.** Fix the gate there, never
-  only here, or the next scaffolded parser is born with the defect again.
+  `scripts/attw.mjs` carries **two nets that catch different things** (a structural preflight over
+  what `package.json` promises, and a post-check on attw's untyped sentence), plus an **argument
+  ALLOW-LIST**, because the post-check reads a string and a deny-list of the spellings that hide that
+  string bought exactly one more evasion per round.
+  **THE RULES ARE STATED ONCE, IN `scripts/attw.mjs`'s OWN DOCBLOCK, AND THIS BULLET IS A POINTER.**
+  Read them there. The previous shape of that guard was described in several committed files at once
+  and every drift between the copies was a claim edited in some of them and not the others, so do not
+  restate the argument set, the measurements, or the reasons here.
+  **What the allow-list does NOT close, and no prose here should imply otherwise:** `readConfig()`
+  applies a committed `.attw.json` after argv and calls `setOptionValueWithSource` for nearly every
+  key, so **the config route wins regardless of the allow-list.** The name-scoped `.attw.json`
+  refusal in the gate covers `quiet` and `format` only. That is tracked as its own item.
+  **Do not put a tool that packs, publishes, or installs into `prepublishOnly`.** `attw --pack .`
+  packs a tarball of its own, and inside `pnpm publish`'s staging context that pack lands where attw
+  cannot find it, so the step dies with `ENOENT` on its own tgz. It hides because
+  `publish --dry-run` skips a version already on npm, so the chain only ever runs on a real version
+  bump: it blocked every release of `@cosyte/test-utils` until it was removed there. `attw` belongs
+  in CI as its own step, which is where it runs.
+- **`scripts/phi-scan.ts` REFUSES (exit 2) an in-scope entry that is not a regular file, on BOTH
+  enumerating routes.** A symbolic link under a scan root read clean on both, so a link pointing at a
+  PHI-bearing file passed the commit gate twice over: `walk()` enumerates `Dirent.isFile()` (an lstat
+  answer, so a link is neither file nor directory) and `--staged` reads content with
+  `git show :<path>`, which for a link hands back its TARGET PATH under mode 120000. Neither route
+  follows a link, and a refusal never prints the target, which is working-tree text that can itself
+  carry PHI. **There are two scope predicates and collapsing them reopens the hole:**
+  `isUnderScanRoot` decides whether an entry is the scan's business (every non-regular check keys on
+  it), and the read filters decide whether a regular file's bytes are read. The full statement is in
+  that file's docblock; this bullet is a pointer.
+- **This file, `scripts/attw.mjs` and `scripts/phi-scan.ts` all arrive from `cosyte/config`'s
+  `scripts/parser-template/`.** Fix a gate there, never only here, or the next scaffolded parser is
+  born with the defect again.
 
 ## Standing disciplines (every change)
 
