@@ -92,9 +92,14 @@ jobs:
       # it is not recoverable afterwards either: `steps.changesets.outputs.published` is `false`,
       # which is also what an ordinary push reports.
       #
-      # It runs FIRST, before install and before the verify ladder, because it needs nothing but node
-      # and because the whole point is to fail before an approver has been asked for anything.
+      # It runs FIRST, before install and before the verify ladder, because it needs nothing but node.
       # scripts/changeset-guard.mjs is zero-dependency for that reason.
+      #
+      # BE PRECISE ABOUT WHAT THIS DOES NOT BUY, because an earlier draft of this comment claimed it
+      # and it is false: `environment: release` is declared at JOB level, so GitHub holds the whole
+      # job in `Waiting` before step one. This guard therefore runs AFTER the approval, not before
+      # it. What actually spares the approver is the copy in `ci.yml`, which runs on the pull request
+      # with no environment gate in front of it. This copy is the one that blocks the publish.
       - name: Changesets must be able to bump something
         run: node scripts/changeset-guard.mjs
 
@@ -153,7 +158,13 @@ jobs:
 
       - name: Create release PR or publish
         id: changesets
-        uses: changesets/action@v1
+        # PINNED TO A SHA, and this one is load-bearing rather than routine hygiene. The whole
+        # tag-creation design below rests on a property of the action's INTERNALS: `git.pushTag`
+        # sits inside `if (createGithubReleases)` in its run.ts, so turning that flag off makes the
+        # step below the only thing that creates a tag. That property was measured at THIS sha,
+        # which is also the one cosyte/.github pins for every parser, so a floating `@v1` could move
+        # the behaviour this file depends on without any diff here.
+        uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1
         with:
           # `pnpm run version`, NOT `pnpm version`, which is pnpm's built-in and shadows the script.
           version: pnpm run version
@@ -196,58 +207,101 @@ jobs:
           # npm provenance requires a PUBLIC source repo; auto-enables when this repo is public.
           NPM_CONFIG_PROVENANCE: ${{ github.event.repository.visibility == 'public' }}
 
-      # One GitHub release per published package, each carrying the body derived BEFORE the publish.
+      # EVERY PACKAGE THIS COMMIT BUMPED MUST END UP ON npm, TAGGED, AND RELEASED. THIS STEP IS
+      # DRIVEN BY WHAT THE VERSION COMMIT BUMPED, NOT BY WHAT THIS PARTICULAR RUN PUBLISHED, AND THE
+      # DIFFERENCE IS THE WHOLE POINT.
       #
-      # Driven by the action's own `publishedPackages` output rather than by the notes gate's
-      # classification, deliberately: that output is what actually reached npm, so a disagreement
-      # between it and the gate is a defect this step must REPORT rather than paper over. It is the
-      # assertion that the gate above is load-bearing rather than merely present.
-      - name: Publish the GitHub releases
-        if: ${{ steps.changesets.outputs.published == 'true' }}
+      # THE HOLE THIS CLOSES, found by the gate-refuter against the first draft of this file, which
+      # keyed off `steps.changesets.outputs.published == 'true'` and looped over `publishedPackages`.
+      # Turning `createGithubReleases` off means `git.pushTag` is never reached (it sits inside
+      # `if (createGithubReleases)` in the action's own run.ts), so this step is the ONLY thing that
+      # creates a tag. Combine that with a partial failure and a green re-run appears:
+      #
+      #   Six packages publish. `gh release create` succeeds for two and fails on the third (a
+      #   transient 5xx, a timeout, a cancelled job). The step reds, so the run reds, so an operator
+      #   re-runs it. On the re-run `changeset publish` finds all six already on the registry,
+      #   publishes nothing and exits 0, so `published` is `false`, so the old `if:` SKIPPED this
+      #   step, so the run went GREEN with four packages on npm carrying no tag and no release,
+      #   permanently, and nothing anywhere saying so.
+      #
+      # A second route reaches the same place: a partially successful `changeset publish` sets
+      # `published=true` and then exits non-zero, so the action's step fails and the implicit
+      # `success()` on a bare `if:` skipped this step. Note that this half is NOT a base regression:
+      # before this slice `createGithubReleases` was at its default of true, so the action pushed the
+      # tag and cut the release inside its own call. Base lost the release BODY. Losing the TAG is
+      # new, and this repo's changelog headings are now derived from tags, so it matters more here
+      # than it looks.
+      #
+      # SO THE STEP IS IDEMPOTENT AND SELF-HEALING INSTEAD. It runs on `!cancelled()` so a partial
+      # publish still tags whatever reached npm, and it asks the REGISTRY whether each bumped package
+      # is actually published rather than trusting a per-run output. A re-run therefore completes the
+      # job instead of skipping it, and a package that genuinely failed to publish is reported by
+      # name rather than counted as done. `npm view` is the right question because it is the one that
+      # survives a re-run; `publishedPackages` answers "what did THIS run upload", which is a
+      # different question and not the one that decides whether a tag is owed.
+      - name: Every bumped package must be published, tagged and released
+        if: ${{ !cancelled() && steps.notes.outputs.is-release == 'true' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PUBLISHED_PACKAGES: ${{ steps.changesets.outputs.publishedPackages }}
-          IS_RELEASE_COMMIT: ${{ steps.notes.outputs.is-release }}
+          BUMPED_PACKAGES: ${{ steps.notes.outputs.packages }}
           NOTES_DIR: ${{ runner.temp }}/release-notes
         shell: bash
         run: |
           set -euo pipefail
 
-          # Unreachable unless the wiring broke, and kept for that reason. npm has already published
-          # by this point, so this cannot withhold anything; what it does is refuse to invent a
-          # public release body for a commit the gate never derived one for.
-          if [ "$IS_RELEASE_COMMIT" != "true" ]; then
-            echo "::error title=Published without a derived release body::npm published, but the" \
-                 "release-notes gate did not recognise this commit as a version commit, so no body" \
-                 "was derived for it. Refusing to create release bodies this pipeline never checked."
-            exit 1
-          fi
+          # Build the work list as its own command rather than as the head of a pipeline, so a
+          # producer that dies takes the step with it instead of yielding an empty loop. Process
+          # substitution would swallow its exit status.
+          worklist="$RUNNER_TEMP/bumped.tsv"
+          # shellcheck disable=SC2016  # single quotes are deliberate: this is JS reading process.env,
+          # not shell expansion. Interpolating the JSON into the script would break on any quote in it.
+          node -e '
+            const packages = JSON.parse(process.env.BUMPED_PACKAGES ?? "[]");
+            if (!Array.isArray(packages) || packages.length === 0) {
+              throw new Error("the notes gate reported a release but named no packages");
+            }
+            for (const entry of packages) process.stdout.write(`${entry.name}\t${entry.version}\n`);
+          ' > "$worklist"
 
-          # `-r` on read so a name containing a backslash is not mangled, and a while-read loop
-          # rather than a bash array so an empty output cannot silently become a zero-iteration
-          # success: the count is asserted afterwards.
-          published=0
+          expected=$(wc -l < "$worklist")
+          accounted=0
+          missing=()
+
           while IFS=$'\t' read -r name version; do
             [ -n "$name" ] || continue
-            published=$((published + 1))
+
+            # IS IT ACTUALLY ON THE REGISTRY. Retried, because a publish that has just succeeded can
+            # 404 for a few seconds while the registry propagates, and treating that as "failed to
+            # publish" would red a correct release.
+            onnpm=false
+            for attempt in 1 2 3; do
+              if npm view "${name}@${version}" version >/dev/null 2>&1; then
+                onnpm=true
+                break
+              fi
+              [ "$attempt" -eq 3 ] || sleep 5
+            done
+
+            if [ "$onnpm" != "true" ]; then
+              missing+=("${name}@${version}")
+              continue
+            fi
 
             # The same transform scripts/release-notes.mjs uses for its output filenames.
             slug=$(printf '%s' "$name" | sed 's|^@||; s|[@/]|-|g')
             notes="$NOTES_DIR/$slug.md"
 
             if [ ! -f "$notes" ]; then
-              echo "::error title=No release body for $name@$version::npm published $name@$version," \
+              echo "::error title=No release body for $name@$version::${name}@${version} is on npm," \
                    "but the notes gate derived no body for it. That is a disagreement between what" \
-                   "Changesets published and what this pipeline checked, and it needs a human."
+                   "was published and what this pipeline checked, and it needs a human."
               exit 1
             fi
 
             # THE RECONCILIATION, and the only check that legitimately follows the publish: it
-            # compares the body against the version CHANGESETS REPORTED PUBLISHING, which does not
-            # exist until the publish has happened. The body's own fitness was already proved before
-            # npm was touched, by the identical `assert` call the prepare step makes internally. The
-            # notes come from git, the version comes from Changesets, and a disagreement between them
-            # means the body describes a different release than the one being tagged.
+            # re-reads the finished bytes against the version that actually reached the registry,
+            # which is the one fact not available before npm was touched. The body's own fitness was
+            # already proved beforehand by the identical `assert` the prepare step runs.
             node scripts/release-notes.mjs assert \
               --file "$notes" --expect-package "$name" --expect-version "$version"
 
@@ -256,29 +310,50 @@ jobs:
             # publishing in one run would collide on a single tag.
             tag="${name}@${version}"
 
-            echo "Release body for $tag:"
-            cat "$notes"
-
             if gh release view "$tag" >/dev/null 2>&1; then
               gh release edit "$tag" --title "$tag" --notes-file "$notes"
+              echo "Updated the existing release for $tag."
             else
               # `--target` is REQUIRED. `changeset publish` creates the tag only in the runner's
               # local clone, and with `createGithubReleases: false` the action never pushes it, so
               # `gh release create` would otherwise refuse with "tag exists locally but has not been
               # pushed". Pointing --target at this commit makes gh create the tag itself.
               gh release create "$tag" --target "$GITHUB_SHA" --title "$tag" --notes-file "$notes"
+              echo "Created $tag."
             fi
-          done < <(node -e '
-            const packages = JSON.parse(process.env.PUBLISHED_PACKAGES ?? "[]");
-            for (const entry of packages) process.stdout.write(`${entry.name}\t${entry.version}\n`);
-          ')
+            accounted=$((accounted + 1))
+          done < "$worklist"
 
-          if [ "$published" -eq 0 ]; then
-            echo "::error title=Published nothing to release::changesets/action reported published=true" \
-                 "but named no packages. Refusing to report success for a release with no artifact."
+          # REFUSE TO REPORT SUCCESS ON A PARTIAL RELEASE. This is the assertion the first draft did
+          # not have: it compares what the version commit BUMPED against what is now on the registry
+          # and tagged, so "the gate derived six bodies and only three were used" cannot pass.
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error title=Bumped but never published::${#missing[@]} of $expected package(s)" \
+                 "were bumped by this version commit but are not on the registry:" \
+                 "${missing[*]}. The ones that did publish have been tagged and released."
             exit 1
           fi
-          echo "Created or updated $published GitHub release(s)."
+          if [ "$accounted" -ne "$expected" ]; then
+            echo "::error title=Release accounting does not balance::expected $expected package(s)," \
+                 "accounted for $accounted. Refusing to report success."
+            exit 1
+          fi
+          echo "All $expected bumped package(s) are published, tagged and released."
+
+      # THE OTHER DIRECTION: npm published on a commit the notes gate never recognised as a version
+      # commit, so no body was derived and the step above did not run. Unreachable unless the wiring
+      # broke, and kept for exactly that reason: it is what makes the classifier's correctness
+      # observable instead of assumed. It cannot withhold anything (npm has already published), and
+      # it deliberately does not invent a release body it never checked.
+      - name: Refuse a publish the notes gate never saw
+        if: ${{ !cancelled() && steps.changesets.outputs.published == 'true' && steps.notes.outputs.is-release != 'true' }}
+        shell: bash
+        run: |
+          echo "::error title=Published without a derived release body::npm published, but the" \
+               "release-notes gate did not recognise this commit as a version commit, so no body was" \
+               "derived and no tag or GitHub release was created. This needs a human: check what" \
+               "reached the registry, then tag and release it by hand."
+          exit 1
 
       # When a publish fails, npm writes the only useful diagnostic to
       # ~/.npm/_logs/<timestamp>-debug-0.log on an ephemeral runner and nothing preserves it. Every

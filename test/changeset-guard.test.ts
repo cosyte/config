@@ -172,6 +172,30 @@ describe("changeset-guard: the other ways to bump nothing", () => {
     expect(output).toContain("not a publishable package");
   });
 
+  it("ACCEPTS a trailing YAML comment next to a real bump", () => {
+    // Raised by the gate-refuter: `"@cosyte/tsconfig": patch # bump it` is valid YAML and a human
+    // plausibly writes it, and the first draft exited 2 on it. Exit 2 was directionally safe (never
+    // green on an inert file) but it is still a gate refusing correct work.
+    const { code } = runGuard(
+      workspaceWith({
+        "commented.md": `---\n"@cosyte/tsconfig": patch # the compiler target moved\n---\n\nRaise the target.\n`,
+      }),
+    );
+
+    expect(code).toBe(0);
+  });
+
+  it("still REFUSES an inert changeset that carries a trailing comment", () => {
+    // The control for the line above: stripping comments must not become a way to smuggle an inert
+    // file past the guard.
+    const { code, output } = runGuard(
+      workspaceWith({ "inert.md": `---\n# nothing here yet\n---\n\nA summary.\n` }),
+    );
+
+    expect(code).toBe(1);
+    expect(output).toContain("declares no packages");
+  });
+
   it("REFUSES a changeset with an empty summary", () => {
     const { code, output } = runGuard(
       workspaceWith({ "mute.md": `---\n"@cosyte/tsconfig": patch\n---\n` }),

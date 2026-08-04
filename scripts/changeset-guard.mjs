@@ -100,7 +100,14 @@ function splitChangeset(contents) {
  * same rule the drift check follows. That is a real limitation and it is bounded in the right
  * direction: a frontmatter shape this cannot read is reported as unparseable (exit 2), never as
  * empty (exit 1) and never as fine (exit 0). The only shapes changesets itself writes, and the only
- * ones any cosyte repo has ever committed, are `"name": type` and `name: type`, one per line.
+ * ones any cosyte repo has ever committed, are `"name": type` and `name: type`, one per line,
+ * optionally with a trailing `# comment`.
+ *
+ * KNOWN AND ACCEPTED: a YAML flow map (`{ "@cosyte/tsconfig": patch }`) or a block scalar splitting
+ * the pair across two lines is valid to `@changesets/parse` and takes exit 2 here. Raised by the
+ * gate-refuter and left as it is, because the failure is loud and in the safe direction, and the
+ * message names the form this accepts. Closing it means taking a YAML dependency for a file shape
+ * nothing in this org writes.
  *
  * @param {string} frontmatter The text between the `---` delimiters.
  * @returns {{ name: string, type: string }[]} One entry per declared release.
@@ -108,8 +115,11 @@ function splitChangeset(contents) {
 function parseFrontmatter(frontmatter) {
   const releases = [];
   for (const rawLine of frontmatter.split("\n")) {
-    const line = rawLine.trim();
-    if (line === "" || line.startsWith("#")) continue;
+    // A trailing `# comment` is valid YAML and a human plausibly writes one next to a bump. Stripped
+    // only when the name is quoted or the `#` follows whitespace, so a `#` inside an unquoted value
+    // is left alone rather than silently truncated.
+    const line = rawLine.replace(/(^|\s)#.*$/, "$1").trim();
+    if (line === "") continue;
     const match = /^(?:"([^"]+)"|'([^']+)'|([^:]+?))\s*:\s*(\S+)\s*$/.exec(line);
     if (match === null) {
       throw new InvocationError(

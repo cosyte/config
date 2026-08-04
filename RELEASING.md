@@ -37,9 +37,35 @@ action calls empty:
   (`none` **alongside** a real bump is fine, and is what `none` is for.)
 - **a misspelled package name.**
 
+> **This bans an idiom this repo used deliberately three times.** `changeset add --empty` writes
+> exactly that empty-frontmatter file, and `perf-measurement-contract-adr.md`,
+> `phi-scan-scaffold-and-drift.md` and `prepublish-attw.md` each used it to record a repo-level
+> change that bumped no package. Two were consumed harmlessly next to real changesets; the third was
+> alone, and it is the one that cost a six-package publish. **There is no longer a changeset-shaped
+> home for a repo-level note. Put it in the root `CHANGELOG.md`**, which is where this repo already
+> says repo-level entries belong, and add no changeset at all. That is what `cf07086` concluded, and
+> the guard now enforces it.
+
 **`pnpm release:notes prepare`** refuses a release that cannot say what it shipped, deriving one body
 per bumped package from the changesets the version commit consumed. See the next section for why
 that is the source rather than the changelog.
+
+### After the publish: tags and releases
+
+`createGithubReleases: false` means the action no longer pushes the tags `changeset publish` creates
+in the runner's local clone, so `release.yml` creates them itself. That step is driven by **what the
+version commit bumped**, not by what a given run published, and it asks the **registry** whether each
+package is actually there. Both choices exist to close the same hole:
+
+> With the step keyed on `published == 'true'`, a `gh release create` that failed on the third of six
+> packages would red the run; the re-run would then find all six already on npm, publish nothing,
+> **skip the step**, and go **green**, leaving four packages on npm with no tag and no GitHub release,
+> permanently. Losing the tag is specific to `createGithubReleases: false` and matters more here than
+> it looks, because this repo's changelog headings are dated from tags.
+
+So the step is **idempotent**: a re-run completes whatever is missing rather than skipping it, and a
+package that was bumped but never reached the registry is named and reds the run. If you ever see it
+fail, re-running the job is the correct first move.
 
 ### Release bodies: why `createGithubReleases` is off
 

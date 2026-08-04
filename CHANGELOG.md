@@ -23,8 +23,10 @@ no package, so entries here are **dated** rather than versioned.
   through the protected `release` environment as a real publish, reported success, and shipped none
   of the six packages whose manifests were already a patch ahead of the registry. `cf07086` (#41)
   deleted the offending file and wrote the finding down, which fixed the instance and left the
-  class. The guard runs first in both `ci.yml` and `release.yml`, before install and before an
-  approver is asked for anything, and refuses per file rather than per repo.
+  class. The guard runs first in both `ci.yml` and `release.yml`, before install, and refuses per
+  file rather than per repo. The copy that spares an approver is the **`ci.yml`** one: `release.yml`
+  declares `environment: release` at job level, so that whole job waits for approval before its first
+  step runs.
   - **Three shapes bump nothing, and only the first is what the action calls empty.** Frontmatter
     that declares no packages (`yaml.load` of an empty block returns falsy and
     `@changesets/parse@0.4.3` sets `releases = []` **without throwing**, so the file parses cleanly
@@ -34,7 +36,7 @@ no package, so entries here are **dated** rather than versioned.
     misspelled package name. All three are read off the vendored parser source, not inferred from
     the log line.
   - **`none` alongside a real bump is still accepted**, because that is what `none` is for.
-  - **The negative control is committed, not run once by hand** (`test/changeset-guard.test.ts`, 12
+  - **The negative control is committed, not run once by hand** (`test/changeset-guard.test.ts`, 14
     cases). It drives the shipped CLI with `execFileSync` and asserts the **process exit code**,
     because what the workflow depends on is the exit code and an exported function returning
     `{ ok: false }` proves nothing about it. This repo has already been bitten by that exact gap
@@ -75,9 +77,39 @@ no package, so entries here are **dated** rather than versioned.
   - **The publish command is NOT gated on the classifier**, and that is deliberate. The shared
     workflow withholds `publish:` when its notes step says "not a release"; here, a classifier that
     was wrong in that direction would **withhold a publish on a green run**, which is precisely the
-    failure item 2 exists to close. So the publish stays unconditional and the post-publish step
-    keys off `changesets/action`'s own `published` output. A misclassification reddens loudly; it
-    never withholds silently.
+    failure item 2 exists to close. So the publish stays unconditional, and a second step refuses
+    loudly if a publish happens on a commit the gate never recognised. A misclassification reddens;
+    it never withholds silently.
+
+- **🩺 WHAT THE GATE CAUGHT, AND IT WAS THE SAME DEFECT CLASS THIS SLICE EXISTS TO CLOSE.** The
+  first draft keyed the post-publish step on `steps.changesets.outputs.published == 'true'` and
+  looped over `publishedPackages`. `gate-refuter` **REFUTED** it by measuring the action's own
+  `run.ts`: `git.pushTag` sits inside `if (createGithubReleases)`, so turning that flag off makes
+  this step the **only** thing that creates a tag. Then:
+
+  > Six packages publish. `gh release create` succeeds for two and fails on the third. The step reds,
+  > so an operator re-runs it. On the re-run `changeset publish` finds all six already on the
+  > registry, publishes nothing and exits 0, so `published` is `false`, so the step is **skipped**,
+  > so the run goes **GREEN** with four packages on npm carrying no tag and no release, permanently.
+
+  A green run that did nothing, arrived at through the very fix for green runs that did nothing.
+  **The step is now driven by what the version commit BUMPED, runs on `!cancelled()`, and asks the
+  REGISTRY whether each package is actually there**, so a re-run completes the job instead of
+  skipping it and a bumped package that never published is named rather than counted as done. Note
+  this half is **not a base regression**: with `createGithubReleases` at its default of true the
+  action pushed the tag inside its own call, so base lost a release _body_. Losing the _tag_ is new,
+  and it matters more here than it looks because this repo's changelog headings are dated from tags.
+  - `changesets/action` is now **pinned to `a45c4d5`**, the sha `cosyte/.github` pins and the sha the
+    `pushTag` behaviour above was measured at. A floating `@v1` could move the internals this file
+    now depends on with no diff here.
+  - Three smaller findings, all applied: a comment claiming the guards run "before an approver is
+    asked for anything", **false in `release.yml`** because `environment:` is declared at job level
+    so the whole job waits first (the `ci.yml` copy is the one that genuinely spares the approver);
+    the guard exiting 2 on `"@cosyte/x": patch # comment`, valid YAML a human plausibly writes, now
+    accepted with a committed control proving an inert file carrying a comment is still refused; and
+    the fact that this guard **bans an idiom this repo used deliberately three times**
+    (`changeset add --empty` for a repo-level note), now written down in `RELEASING.md` with the
+    root `CHANGELOG.md` named as the only home for such an entry.
 
 ### Changed
 
