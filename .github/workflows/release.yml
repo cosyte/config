@@ -9,61 +9,410 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write # create the version PR / tags
+  contents: write # create the version PR / tags / releases
   id-token: write # npm provenance
   pull-requests: write # open the "Version Packages" PR
 
 # Changesets flow: a push to main with pending changesets opens a "Version Packages" PR. Merging that
-# PR bumps versions and triggers publish. Once the `release` environment is created as PROTECTED (see
-# the ⚠️ at the job below + RELEASING.md), it becomes the human approval gate: every run waits for a
-# required reviewer before it can create the version PR or publish, so nothing reaches npm unattended.
+# PR bumps versions and triggers publish. The protected `release` environment is the human approval
+# gate: every run waits for a required reviewer before it can create the version PR or publish, so
+# nothing reaches npm unattended.
 #
 # AUTH TODAY: NPM_TOKEN. This repo is PUBLIC, so npm provenance is already live; `NPM_CONFIG_PROVENANCE`
-# auto-enables below on the public visibility check. The runner toolchain floor is now bumped for OIDC
-# (packageManager `pnpm@10.34.5` ≥ 10.16, Node `22.14`; publish runs via `pnpm run release`, so pnpm,
+# auto-enables below on the public visibility check. The runner toolchain floor is bumped for OIDC
+# (packageManager `pnpm@10.34.5` >= 10.16, Node `22.14`; publish runs via `pnpm run release`, so pnpm,
 # not npm, carries trusted publishing). What remains for tokenless OIDC is a FOUNDER step, not a build:
-#   - Register the npm-side Trusted Publisher (org `cosyte` / repo `config` / workflow `release.yml` /
-#     environment `release`), then remove NPM_TOKEN / NODE_AUTH_TOKEN here. RELEASING.md §"OIDC" has the
-#     exact turnkey steps. Until then, NPM_TOKEN must stay an npm *Automation* token.
-# The pipeline itself is proven every push by the `release-dry-run` CI job.
+# register the npm-side Trusted Publisher, then remove NPM_TOKEN / NODE_AUTH_TOKEN here. RELEASING.md
+# has the turnkey steps. Until then, NPM_TOKEN must stay an npm *Automation* token.
+#
+# ---------------------------------------------------------------------------
+# WHY THIS IS STILL A STANDALONE WORKFLOW AND NOT A THIN CALLER OF
+# `cosyte/.github/.github/workflows/release.yml@main`, MEASURED 2026-08-04.
+#
+# Every parser calls the shared reusable workflow and inherits its RELEASE_PR_TOKEN wiring and its
+# release-notes gate. This repo cannot, and the reason is structural rather than a matter of effort:
+#
+#   1. THE SHARED GATE WOULD WITHHOLD EVERY CONFIG PUBLISH, PERMANENTLY, ON A GREEN RUN. Its
+#      `release-notes.mjs` answers "is a release pending" from the ROOT package.json's version
+#      (`packageVersionAt` reads `<rev>:package.json`). This repo's root manifest is `cosyte-config`,
+#      `private: true`, pinned at `0.0.0`; Changesets does not version a private root package, so that
+#      value has never changed in this repo's history and never will. Running the shared `prepare`
+#      against this repo returns `is-release=false` with code `never-versioned`. The shared workflow
+#      supplies `publish:` ONLY when `is-release == 'true'`, so adopting it would silently withhold
+#      every release here. That is a strictly worse instance of the exact silent-withholding class
+#      this file exists to close, so it was not adopted.
+#
+#   2. IT TAGS `v<version>`, WHICH IS THE WRONG TAG FOR THIS REPO. Its own comment states the
+#      assumption: "Every caller of this workflow is a single-package repo, for which Changesets tags
+#      `v<version>`; it uses `<pkg>@<version>` only in a multi-package repo." This repo publishes six
+#      packages and its fourteen existing tags are all `<pkg>@<version>`.
+#
+# Both are properties of the six-package shape, not of this file, so the fix was to port the two
+# things that ARE portable (the RELEASE_PR_TOKEN wiring below, and a release-notes gate rebuilt for
+# six packages in scripts/release-notes.mjs) rather than to bend the shared workflow around one
+# caller. If the shared workflow ever grows a multi-package mode, revisit this and delete the
+# duplication: the comment blocks below are deliberately written to make that diff readable.
+# ---------------------------------------------------------------------------
 jobs:
   release:
     runs-on: ubuntu-latest
-    # Release approval gate. ⚠️ ONE-TIME SETUP REQUIRED: create a PROTECTED `release` environment
-    # (Settings → Environments → release: add a Required reviewer + a `main`-only deployment-branch
-    # policy): see RELEASING.md for the exact steps. Until it exists, GitHub auto-creates an
-    # UNPROTECTED environment of this name on first run (same as no gate, no regression), so this
-    # reference is safe to ship; the gate activates automatically once the protected env is added.
-    # This is also the OIDC subject the npm Trusted Publisher binds to at PUB-FLIP.
+    # Release approval gate: the `release` environment carries a required reviewer (`NSchatz`) and a
+    # `main`-only deployment-branch policy, so both the version-PR step and the publish step wait for
+    # an explicit approval. This is also the OIDC subject an npm Trusted Publisher would bind to.
     environment: release
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          # HALF OF THE VERSION-PR FIX, and the half that keeps working after the second changeset.
+          # Left at its default, the GITHUB_TOKEN that `actions/checkout` persists as an
+          # `http.<host>.extraheader` outranks the `~/.netrc` that `changesets/action` writes, and git
+          # sends it preemptively. The version commit is pushed by `git push` out of this checkout,
+          # not through the API, so without this the push stays GITHUB_TOKEN-authored no matter which
+          # token the action was given, and every `synchronize` on the Version PR returns it to zero
+          # applicable checks. Clearing it lets the netrc authenticate that push.
+          #
+          # Nothing else in this job pushes over git: `gh` uses the API, and the tags are created by
+          # `gh release create --target` below.
+          persist-credentials: false
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
         with:
           node-version: "22.14"
           registry-url: https://registry.npmjs.org
           cache: pnpm
+
+      # GATE 1: REFUSE A CHANGESET THAT BUMPS NOTHING.
+      #
+      # `changesets/action` given only inert changesets logs "All changesets are empty; not creating
+      # PR", publishes nothing, and EXITS 0. Run 30640138565 (2026-07-31) did exactly that: approved
+      # through this environment as a real publish, reported success, and shipped none of the six
+      # packages whose manifests were already a patch ahead of the registry. A green run that did
+      # nothing is worse than a red one, because the conclusion is the only thing anyone reads, and
+      # it is not recoverable afterwards either: `steps.changesets.outputs.published` is `false`,
+      # which is also what an ordinary push reports.
+      #
+      # It runs FIRST, before install and before the verify ladder, because it needs nothing but node.
+      # scripts/changeset-guard.mjs is zero-dependency for that reason.
+      #
+      # BE PRECISE ABOUT WHAT THIS DOES NOT BUY, because an earlier draft of this comment claimed it
+      # and it is false: `environment: release` is declared at JOB level, so GitHub holds the whole
+      # job in `Waiting` before step one. This guard therefore runs AFTER the approval, not before
+      # it. What actually spares the approver is the copy in `ci.yml`, which runs on the pull request
+      # with no environment gate in front of it. This copy is the one that blocks the publish.
+      - name: Changesets must be able to bump something
+        run: node scripts/changeset-guard.mjs
+
+      # GATE 2: EVERY RELEASE BODY MUST BE DERIVABLE, BEFORE NPM IS TOUCHED.
+      #
+      # `createGithubReleases` is turned OFF below, so this is what supplies the bodies instead. The
+      # derivation reads the changesets the version commit consumed, which are in the tree at HEAD^,
+      # so the whole check can run here with the registry untouched. A published version is permanent
+      # (ADR 0001), so a check that runs after the publish is a complaint rather than a gate.
+      #
+      # On an ordinary push this writes nothing and reports "No release pending". Note what is NOT
+      # done with that answer: it does not gate the `publish:` input below. The shared workflow does
+      # that, and it can, because its classifier and the action's arm agree in a single-package repo.
+      # Here, a classifier that wrongly said "not a release" would WITHHOLD A PUBLISH ON A GREEN RUN,
+      # which is the precise failure Gate 1 exists to close. So the publish command stays
+      # unconditional, and a separate step below refuses loudly if a publish happens on a commit this
+      # gate never recognised. A misclassification here reddens a run; it never withholds one
+      # silently.
+      - name: Release notes must be derivable
+        id: notes
+        run: |
+          node scripts/release-notes.mjs prepare --repo . --out "$RUNNER_TEMP/release-notes"
+
+      # Say plainly, in the log of the run that is about to open the PR, whether that PR will be
+      # mergeable. GitHub does not start workflow runs for events produced by GITHUB_TOKEN, so a
+      # Version PR opened with it arrives with ZERO checks, and a required check that never reports
+      # is PENDING rather than failing: with `bypass_actors: []` on the rulesets nobody can merge
+      # past it, an admin included. Without RELEASE_PR_TOKEN this is not a degraded fix, it is no
+      # fix, and the symptom reads like a slow queue rather than a permanent block.
+      #
+      # The token branch is in bash rather than a step-level `if` because the `secrets` context is
+      # not available to `jobs.<id>.steps.<id>.if`; actionlint catches that and the way to satisfy it
+      # is `env`, which can read it.
+      - name: Report whether a version PR would be able to run its checks
+        if: ${{ steps.notes.outputs.is-release != 'true' }}
+        env:
+          HAS_RELEASE_PR_TOKEN: ${{ secrets.RELEASE_PR_TOKEN != '' }}
+        shell: bash
+        run: |
+          if [ "$HAS_RELEASE_PR_TOKEN" = "true" ]; then
+            echo "RELEASE_PR_TOKEN is set. If this run opens a Version Packages PR, that PR will be"
+            echo "authored by the token's owner, so its required checks will actually run."
+          else
+            echo "::warning title=Version PR will land with zero checks::RELEASE_PR_TOKEN is not set, so if this run opens a Version Packages PR it will be authored by GITHUB_TOKEN. GitHub does not start workflow runs for that token's events, required checks that never report count as PENDING rather than failing, and with bypass_actors empty the PR cannot be merged by anyone, an admin included. Set RELEASE_PR_TOKEN to fix it."
+          fi
+
       - run: pnpm install --frozen-lockfile
       - name: Verify
         run: |
+          pnpm check:no-emdash
           pnpm format:check
           pnpm typecheck
           pnpm lint
           pnpm test
           pnpm build
           pnpm attw
+
       - name: Create release PR or publish
-        uses: changesets/action@v1
+        id: changesets
+        # PINNED TO A SHA, and this one is load-bearing rather than routine hygiene. The whole
+        # tag-creation design below rests on a property of the action's INTERNALS: `git.pushTag`
+        # sits inside `if (createGithubReleases)` in its run.ts, so turning that flag off makes the
+        # step below the only thing that creates a tag. That property was measured at THIS sha,
+        # which is also the one cosyte/.github pins for every parser, so a floating `@v1` could move
+        # the behaviour this file depends on without any diff here.
+        uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1
         with:
           # `pnpm run version`, NOT `pnpm version`, which is pnpm's built-in and shadows the script.
           version: pnpm run version
           publish: pnpm run release
+          # DEFAULTS TO TRUE, AND THAT DEFAULT SHIPPED THE DEFECT. With it on, the action cuts one
+          # GitHub release per package and builds each body by finding a `## <version>` heading in
+          # that package's CHANGELOG.md. Every package here sets `"changelog": false` and
+          # hand-maintains its CHANGELOG, so `changeset version` writes no such heading, the action
+          # finds none, and its fallback is to use the WHOLE FILE. On 2026-07-31 all six bodies
+          # published as the raw CHANGELOG, `# Changelog` preamble and `## [Unreleased]` included.
+          # They were corrected by hand afterwards, which is not a gate.
+          #
+          # Turning it off removes the dumping behaviour outright. The replacement bodies come from
+          # the notes gate above, and the step below creates the releases.
+          #
+          # CONSEQUENCE WORTH KNOWING: with this false the action also stops PUSHING the tags that
+          # `changeset publish` creates in the runner's local clone. That is why the step below uses
+          # `gh release create --target`, which creates the tag itself. One tag, one release, both
+          # created there.
+          createGithubReleases: false
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The other half of the version-PR fix: this is the token the action opens the PR with. It
+          # MUST be set here rather than through the `github-token` input, which this env var takes
+          # precedence over in the action's own source (`process.env.GITHUB_TOKEN ||
+          # core.getInput("github-token")`), so adding the input while leaving the env in place would
+          # be a silent no-op.
+          #
+          # ABSENT, IT FALLS BACK AND WARNS. RELEASE_PR_TOKEN is optional: without it this is exactly
+          # today's behaviour, trap included, and the step above says so loudly. Failing closed
+          # instead would take this repo's release path down to protect against a state it is already
+          # in.
+          #
+          # SCOPE IT NARROWLY when creating it: a fine-grained PAT with `Contents: read+write`,
+          # `Pull requests: read+write`, `Metadata: read` on this repo and nothing else. It does NOT
+          # need `Workflows: write`: `pnpm run version` changes `packages/*/package.json`,
+          # `packages/*/CHANGELOG.md` and `.changeset/`, none of which is under `.github/workflows/`.
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PR_TOKEN || secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          # npm provenance requires a PUBLIC source repo; auto-enables when this repo goes public.
+          # npm provenance requires a PUBLIC source repo; auto-enables when this repo is public.
           NPM_CONFIG_PROVENANCE: ${{ github.event.repository.visibility == 'public' }}
+
+      # EVERY PACKAGE THIS COMMIT BUMPED MUST END UP ON npm, TAGGED, AND RELEASED. THIS STEP IS
+      # DRIVEN BY WHAT THE VERSION COMMIT BUMPED, NOT BY WHAT THIS PARTICULAR RUN PUBLISHED, AND THE
+      # DIFFERENCE IS THE WHOLE POINT.
+      #
+      # THE HOLE THIS CLOSES, found by the gate-refuter against the first draft of this file, which
+      # keyed off `steps.changesets.outputs.published == 'true'` and looped over `publishedPackages`.
+      # Turning `createGithubReleases` off means `git.pushTag` is never reached (it sits inside
+      # `if (createGithubReleases)` in the action's own run.ts), so this step is the ONLY thing that
+      # creates a tag. Combine that with a partial failure and a green re-run appears:
+      #
+      #   Six packages publish. `gh release create` succeeds for two and fails on the third (a
+      #   transient 5xx, a timeout, a rate limit). The step reds, so the run reds, so an operator
+      #   re-runs it. On the re-run `changeset publish` finds all six already on the registry,
+      #   publishes nothing and exits 0, so `published` is `false`, so the old `if:` SKIPPED this
+      #   step, so the run went GREEN with four packages on npm carrying no tag and no release,
+      #   permanently, and nothing anywhere saying so.
+      #
+      # A second route reaches the same place: a partially successful `changeset publish` sets
+      # `published=true` and then exits non-zero, so the action's step fails and the implicit
+      # `success()` on a bare `if:` skipped this step. Note that this half is NOT a base regression:
+      # before this slice `createGithubReleases` was at its default of true, so the action pushed the
+      # tag and cut the release inside its own call. Base lost the release BODY. Losing the TAG is
+      # new, and this repo's changelog headings are now dated from tags BY HAND, so it matters more here
+      # than it looks.
+      #
+      # SO THE STEP IS IDEMPOTENT AND SELF-HEALING INSTEAD. It runs on `!cancelled()` so a partial
+      # publish still tags whatever reached npm, and it asks the REGISTRY whether each bumped package
+      # is actually published rather than trusting a per-run output. A re-run therefore completes the
+      # job instead of skipping it, and a package that genuinely failed to publish is reported by
+      # name rather than counted as done. `npm view` is the right question because it is the one that
+      # survives a re-run; `publishedPackages` answers "what did THIS run upload", which is a
+      # different question and not the one that decides whether a tag is owed.
+      - name: Every bumped package must be published, tagged and released
+        if: ${{ !cancelled() && steps.notes.outputs.is-release == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BUMPED_PACKAGES: ${{ steps.notes.outputs.packages }}
+          NOTES_DIR: ${{ runner.temp }}/release-notes
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Build the work list as its own command rather than as the head of a pipeline, so a
+          # producer that dies takes the step with it instead of yielding an empty loop. Process
+          # substitution would swallow its exit status.
+          worklist="$RUNNER_TEMP/bumped.tsv"
+          # shellcheck disable=SC2016  # single quotes are deliberate: this is JS reading process.env,
+          # not shell expansion. Interpolating the JSON into the script would break on any quote in it.
+          node -e '
+            const packages = JSON.parse(process.env.BUMPED_PACKAGES ?? "[]");
+            if (!Array.isArray(packages) || packages.length === 0) {
+              throw new Error("the notes gate reported a release but named no packages");
+            }
+            for (const entry of packages) process.stdout.write(`${entry.name}\t${entry.version}\n`);
+          ' > "$worklist"
+
+          expected=$(wc -l < "$worklist")
+          accounted=0
+          missing=()
+
+          while IFS=$'\t' read -r name version; do
+            [ -n "$name" ] || continue
+
+            # IS IT ACTUALLY ON THE REGISTRY. Retried, because a publish that has just succeeded can
+            # 404 for a few seconds while the registry propagates, and treating that as "failed to
+            # publish" would red a correct release.
+            onnpm=false
+            for attempt in 1 2 3; do
+              if npm view "${name}@${version}" version >/dev/null 2>&1; then
+                onnpm=true
+                break
+              fi
+              [ "$attempt" -eq 3 ] || sleep 5
+            done
+
+            if [ "$onnpm" != "true" ]; then
+              missing+=("${name}@${version}")
+              continue
+            fi
+
+            # The same transform scripts/release-notes.mjs uses for its output filenames.
+            slug=$(printf '%s' "$name" | sed 's|^@||; s|[@/]|-|g')
+            notes="$NOTES_DIR/$slug.md"
+
+            if [ ! -f "$notes" ]; then
+              echo "::error title=No release body for $name@$version::${name}@${version} is on npm," \
+                   "but the notes gate derived no body for it. That is a disagreement between what" \
+                   "was published and what this pipeline checked, and it needs a human."
+              exit 1
+            fi
+
+            # THE RECONCILIATION, and the only check that legitimately follows the publish: it
+            # re-reads the finished bytes against the version that actually reached the registry,
+            # which is the one fact not available before npm was touched. The body's own fitness was
+            # already proved beforehand by the identical `assert` the prepare step runs.
+            node scripts/release-notes.mjs assert \
+              --file "$notes" --expect-package "$name" --expect-version "$version"
+
+            # Changesets tags `<pkg>@<version>` in a multi-package repo, which is what this repo's
+            # fourteen existing tags are. Do NOT "simplify" this to `v<version>`: six packages
+            # publishing in one run would collide on a single tag.
+            tag="${name}@${version}"
+
+            if gh release view "$tag" >/dev/null 2>&1; then
+              gh release edit "$tag" --title "$tag" --notes-file "$notes"
+              echo "Updated the existing release for $tag."
+            else
+              # `--target` is REQUIRED. `changeset publish` creates the tag only in the runner's
+              # local clone, and with `createGithubReleases: false` the action never pushes it, so
+              # `gh release create` would otherwise refuse with "tag exists locally but has not been
+              # pushed". Pointing --target at this commit makes gh create the tag itself.
+              gh release create "$tag" --target "$GITHUB_SHA" --title "$tag" --notes-file "$notes"
+              echo "Created $tag."
+            fi
+            accounted=$((accounted + 1))
+          done < "$worklist"
+
+          # REFUSE TO REPORT SUCCESS ON A PARTIAL RELEASE. This is the assertion the first draft did
+          # not have: it compares what the version commit BUMPED against what is now on the registry
+          # and tagged, so "the gate derived six bodies and only three were used" cannot pass.
+          if [ ${#missing[@]} -gt 0 ]; then
+            # Say what is true rather than assuming a publish was attempted. Because this step runs
+            # on `!cancelled()`, it also fires when an EARLIER step failed (install, or the Verify
+            # ladder) on a version commit, in which case nothing was ever published and every
+            # package is "missing" for a reason that has nothing to do with the registry. Naming
+            # both readings costs one line and stops the annotation sending a reader to npm.
+            echo "::error title=Bumped but never published::${#missing[@]} of $expected package(s)" \
+                 "were bumped by this version commit but are not on the registry:" \
+                 "${missing[*]}. Either the publish failed for them, or an earlier step in this job" \
+                 "failed and the publish never ran. Check the steps above before the registry."
+            if [ "$accounted" -gt 0 ]; then
+              echo "The other $accounted package(s) DID publish, and have been tagged and released."
+            fi
+            exit 1
+          fi
+          if [ "$accounted" -ne "$expected" ]; then
+            echo "::error title=Release accounting does not balance::expected $expected package(s)," \
+                 "accounted for $accounted. Refusing to report success."
+            exit 1
+          fi
+          echo "All $expected bumped package(s) are published, tagged and released."
+
+      # THE OTHER DIRECTION: npm published on a commit the notes gate never recognised as a version
+      # commit, so no body was derived and the step above did not run. Unreachable unless the wiring
+      # broke, and kept for exactly that reason: it is what makes the classifier's correctness
+      # observable instead of assumed. It cannot withhold anything (npm has already published), and
+      # it deliberately does not invent a release body it never checked.
+      - name: Refuse a publish the notes gate never saw
+        if: ${{ !cancelled() && steps.changesets.outputs.published == 'true' && steps.notes.outputs.is-release != 'true' }}
+        shell: bash
+        run: |
+          echo "::error title=Published without a derived release body::npm published, but the" \
+               "release-notes gate did not recognise this commit as a version commit, so no body was" \
+               "derived and no tag or GitHub release was created. This needs a human: check what" \
+               "reached the registry, then tag and release it by hand."
+          exit 1
+
+      # When a publish fails, npm writes the only useful diagnostic to
+      # ~/.npm/_logs/<timestamp>-debug-0.log on an ephemeral runner and nothing preserves it. Every
+      # failed publish this org has had discarded exactly the file the registry then asks for:
+      # @cosyte/fhir's E403 ticket needed it and could not be given it.
+      #
+      # REDACTION is defensive rather than evidence-driven: measured on 2026-07-27 against npm 10.9.8,
+      # the log records config FILE PATHS and never their contents, so today's log is clean. The npm
+      # version moves under us and this repo is public, so the rules stay. If anything
+      # credential-shaped survives redaction the upload is SKIPPED: a support diagnostic is not worth
+      # a leaked token.
+      - name: Collect the npm debug log
+        if: failure()
+        id: npm-log
+        shell: bash
+        run: |
+          shopt -s nullglob
+          logs=(~/.npm/_logs/*.log)
+          if [ ${#logs[@]} -eq 0 ]; then
+            echo "No npm debug log under ~/.npm/_logs, so this failure was not a publish. Nothing to collect."
+            exit 0
+          fi
+          dest="$RUNNER_TEMP/npm-debug-logs"
+          mkdir -p "$dest"
+          for log in "${logs[@]}"; do
+            sed -E \
+              -e 's/(_authToken|_auth|_password|authToken)([[:space:]]*[=:][[:space:]]*)[^[:space:]]+/\1\2REDACTED/gI' \
+              -e 's/([Aa]uthorization[^[:alnum:]]{0,4})(([Bb]earer|[Bb]asic)[[:space:]]+)[A-Za-z0-9._~+=\/-]+/\1\2REDACTED/g' \
+              -e 's/npm_[A-Za-z0-9]{36}/npm_REDACTED/g' \
+              -e 's/gh[pousr]_[A-Za-z0-9]{36,}/gh_REDACTED/g' \
+              -e 's/github_pat_[A-Za-z0-9_]{22,}/github_pat_REDACTED/g' \
+              "$log" > "$dest/$(basename "$log")"
+          done
+          # Assert on the bytes that would be uploaded, not on the fact that sed ran.
+          if grep -rqiE 'npm_[A-Za-z0-9]{36}|gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{22,}|(_auth|_authToken|_password)[[:space:]]*[=:][[:space:]]*[^R[:space:]]|(bearer|basic)[[:space:]]+[A-Za-z0-9._~+=/-]{16,}' "$dest"; then
+            echo "::error::Credential-shaped text survived redaction in the npm debug log, so it will NOT be uploaded. Fix the redaction here before relying on this artifact."
+            rm -rf "$dest"
+            exit 1
+          fi
+          {
+            echo "collected=true"
+            echo "artifact-name=npm-debug-log-config-run${GITHUB_RUN_ID}-attempt${GITHUB_RUN_ATTEMPT}"
+          } >> "$GITHUB_OUTPUT"
+          echo "Collected ${#logs[@]} npm debug log(s)."
+      - name: Upload the npm debug log
+        if: ${{ failure() && steps.npm-log.outputs.collected == 'true' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.npm-log.outputs.artifact-name }}
+          path: ${{ runner.temp }}/npm-debug-logs/*.log
+          if-no-files-found: warn
+          retention-days: 30

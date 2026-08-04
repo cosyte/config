@@ -17,6 +17,133 @@ Releases run on [Changesets](https://github.com/changesets/changesets). The flow
 Both steps run inside the **`release` environment**, which is **protected**. It is the approval gate,
 so nothing reaches npm without a deliberate human ack.
 
+### The two gates that run before any of it
+
+Both are zero-dependency node, both run in `ci.yml`'s required `verify` job **and** first in
+`release.yml`, before install and before an approver is asked for anything.
+
+**`pnpm changeset:guard`** refuses a changeset that cannot bump anything. This is not hygiene: given
+only inert changesets, `changesets/action` logs `All changesets are empty; not creating PR`,
+publishes nothing, and **exits 0**. Run 30640138565 (2026-07-31) was approved through this
+environment as a real publish, reported success, and shipped **none** of the six packages that were
+already a patch ahead of the registry. Three shapes bump nothing and only the first is what the
+action calls empty:
+
+- **frontmatter declaring no packages.** `@changesets/parse` does not throw on this; `yaml.load` of
+  an empty block returns falsy and it sets `releases = []`. The file parses cleanly and carries a
+  human summary, so it looks entirely normal in a diff.
+- **every entry typed `none`.** `none` is a _valid_ type, so the releases list is non-empty and the
+  action's own emptiness check does not fire. It opens a Version PR that changes no version.
+  (`none` **alongside** a real bump is fine, and is what `none` is for.)
+- **a misspelled package name.**
+
+> **This bans an idiom this repo used deliberately three times.** `changeset add --empty` writes
+> exactly that empty-frontmatter file, and `perf-measurement-contract-adr.md`,
+> `phi-scan-scaffold-and-drift.md` and `prepublish-attw.md` each used it to record a repo-level
+> change that bumped no package. Two were consumed harmlessly next to real changesets; the third was
+> alone, and it is the one that cost a six-package publish. **There is no longer a changeset-shaped
+> home for a repo-level note. Put it in the root `CHANGELOG.md`**, which is where this repo already
+> says repo-level entries belong, and add no changeset at all. That is what `cf07086` concluded, and
+> the guard now enforces it.
+
+**`pnpm release:notes prepare`** refuses a release that cannot say what it shipped, deriving one body
+per bumped package from the changesets the version commit consumed. See the next section for why
+that is the source rather than the changelog.
+
+### After the publish: tags and releases
+
+`createGithubReleases: false` means the action no longer pushes the tags `changeset publish` creates
+in the runner's local clone, so `release.yml` creates them itself. That step is driven by **what the
+version commit bumped**, not by what a given run published, and it asks the **registry** whether each
+package is actually there. Both choices exist to close the same hole:
+
+> With the step keyed on `published == 'true'`, a `gh release create` that failed on the third of six
+> packages would red the run; the re-run would then find all six already on npm, publish nothing,
+> **skip the step**, and go **green**, leaving four packages on npm with no tag and no GitHub release,
+> permanently. Losing the tag is specific to `createGithubReleases: false` and matters more here than
+> it looks, because this repo's changelog headings are dated from tags by hand.
+
+So the step is **idempotent**: a re-run completes whatever is missing rather than skipping it, and a
+package that was bumped but never reached the registry is named and reds the run. If you ever see it
+fail, re-running the job is the correct first move.
+
+### Release bodies: why `createGithubReleases` is off
+
+`changesets/action` defaults `createGithubReleases` to **true**, and builds each body by finding a
+`## <version>` heading in that package's `CHANGELOG.md`. This repo sets `"changelog": false` and
+hand-maintains its changelogs, so `changeset version` writes no such heading, the action finds none,
+and **its fallback is to use the whole file**. On 2026-07-31 all six release bodies published as the
+raw `CHANGELOG.md`, `# Changelog` preamble and `## [Unreleased]` included. They were corrected by
+hand afterwards, which is not a gate.
+
+So the flag is **false**, which removes the dumping behaviour outright, and `scripts/release-notes.mjs`
+supplies the replacement. Two consequences worth knowing:
+
+- **The bodies come from the changesets, not from the changelog.** Deriving from the changelog would
+  need a `## [0.0.6]` heading for a version that does not exist yet when the changeset is written,
+  and with the generator disabled nothing writes it, so the gate would refuse every release until
+  someone predicted the next version by hand. A changeset is written per change and deleted by the
+  version commit, which is exactly what makes "what did this version consume" answerable from git.
+- **With the flag off, the action no longer pushes the tags** that `changeset publish` creates in the
+  runner's local clone. `release.yml` therefore creates them itself with `gh release create --target`:
+  one tag, one release, both created there. Tags are `<pkg>@<version>`, which is what Changesets uses
+  in a multi-package repo and what this repo's existing tags are. **Do not "simplify" that to
+  `v<version>`**: six packages publishing in one run would collide on a single tag.
+
+**`[Unreleased]` is promoted to a version heading BY HAND**, in the pull request that adds the
+changeset. Nothing does it automatically. Until 2026-08-04 nothing did it at all, so shipped content
+stayed under `[Unreleased]` in the file that shipped and each release republished the previous
+release's notes. The six changelogs were corrected by hand; whether to turn the Changesets changelog
+generator back on is a separate founder-owned call (`CHANGELOG-PREAMBLE-FUTURE-TENSE`), and the
+release path above does not depend on the answer, because it reads changesets either way.
+
+### Why this repo is not a thin caller of the shared workflow
+
+Every parser calls `cosyte/.github/.github/workflows/release.yml@main` and inherits its
+`RELEASE_PR_TOKEN` wiring and release-notes gate. This repo cannot, measured 2026-08-04:
+
+1. **The shared gate would withhold every config publish, permanently, on a green run.** It answers
+   "is a release pending" from the **root** `package.json`'s version. This repo's root manifest is
+   `cosyte-config`, `private: true`, pinned at `0.0.0`; Changesets does not version a private root
+   package, so that value has never changed and never will. Running the shared `prepare` against this
+   repo returns `is-release=false`, code `never-versioned`, and the shared workflow supplies
+   `publish:` only when that is `true`. That is a strictly worse instance of the silent-withholding
+   class the changeset guard exists to close.
+2. **It tags `v<version>`.** Its own comment states the assumption: "Every caller of this workflow is
+   a single-package repo."
+
+The two portable halves were ported instead: the `RELEASE_PR_TOKEN` wiring, and a notes gate rebuilt
+for the six-package shape. If the shared workflow ever grows a multi-package mode, revisit this.
+
+### `RELEASE_PR_TOKEN`, and why the Version PR needs it
+
+GitHub does not start workflow runs for events produced by `GITHUB_TOKEN`. That is deliberate
+anti-recursion and nothing surfaces it, so a "Version Packages" PR opened with that token arrives
+with **zero checks**, and a required status check that never reports is **pending**, not failing:
+with `bypass_actors: []` on the rulesets nobody can merge past it, an admin included.
+
+Two things are needed and the second is the one that is easy to miss:
+
+1. **`GITHUB_TOKEN` in the action's `env`**, which is what it opens the PR with. The action reads
+   `process.env.GITHUB_TOKEN || core.getInput("github-token")`, so **the env wins**: adding a
+   `github-token:` input while leaving the env in place would be a silent no-op.
+2. **`persist-credentials: false` on the checkout.** The version commit is pushed by `git push` out
+   of that checkout, not through the API. Left at its default, `actions/checkout` persists an
+   `http.<host>.extraheader` that git sends preemptively, so the `~/.netrc` the action writes with
+   our token is never consulted and the push stays `GITHUB_TOKEN`-authored.
+
+Fixing only (1) fixes the `opened` event and leaves `synchronize` broken. A Version PR is
+force-pushed every time another changeset lands, and required checks are evaluated against the PR's
+**current** head sha, so an update pushed by `GITHUB_TOKEN` returns it to zero applicable checks.
+
+**Scope it narrowly:** a fine-grained PAT with `Contents: read+write`, `Pull requests: read+write`,
+`Metadata: read` on this repo and nothing else. It does **not** need `Workflows: write`:
+`pnpm run version` changes `packages/*/package.json`, `packages/*/CHANGELOG.md` and `.changeset/`,
+none of which is under `.github/workflows/`.
+
+**Absent, it falls back to `GITHUB_TOKEN` and says so loudly** in the run log. Failing closed instead
+would take this repo's release path down to protect against a state it is already in.
+
 ### Authentication today
 
 This repo is **public**, so publishing authenticates with `NPM_TOKEN`, an org-level secret shared

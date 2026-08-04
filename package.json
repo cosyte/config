@@ -26,6 +26,8 @@
     "format": "prettier --write \"**/*.{js,ts,json,md,yml,yaml}\"",
     "format:check": "prettier --check \"**/*.{js,ts,json,md,yml,yaml}\"",
     "check:no-emdash": "bash scripts/check-no-emdash.sh",
+    "changeset:guard": "node scripts/changeset-guard.mjs",
+    "release:notes": "node scripts/release-notes.mjs",
     "test:root": "vitest run",
     "test:packages": "pnpm --filter \"./packages/*\" run test",
     "test": "pnpm run test:root && pnpm run test:packages",

@@ -27,11 +27,31 @@ jobs:
         node: ["22", "24"]
     steps:
       - uses: actions/checkout@v7
+        with:
+          # Needed by the release-notes gate below, which classifies HEAD against HEAD^ and reads the
+          # changesets a version commit consumed out of the parent tree. A shallow clone has no
+          # HEAD^, and the gate would report "no release pending" on every run: green, and blind.
+          fetch-depth: 0
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ matrix.node }}
           cache: pnpm
+      # THE TWO RELEASE GATES, RUN HERE RATHER THAN ONLY IN release.yml, and for the same reason the
+      # em-dash gate is duplicated below: `verify` is a REQUIRED status check in this repo's
+      # `config-ci-required-checks` ruleset, so this is the half that can be made blocking from
+      # inside the repo. Running them only on push-to-main would catch both defects after the merge
+      # that triggers the release, which for the notes gate means after an approver has already been
+      # asked to approve a run that cannot succeed.
+      #
+      # Both are zero-dependency node, so they run before install.
+      #
+      # On a "Version Packages" PR this is exactly the right check. `actions/checkout` builds a merge
+      # commit whose first parent is the base branch, so HEAD carries the bumped versions with the
+      # changesets deleted and HEAD^ carries the changesets: the same shape the push-to-main run will
+      # see, one merge earlier.
+      - run: node scripts/changeset-guard.mjs
+      - run: node scripts/release-notes.mjs prepare --repo . --out "$RUNNER_TEMP/release-notes"
       - run: pnpm install --frozen-lockfile
       # The em-dash brand gate's FILE half also runs in no-emdash.yml, which additionally
       # covers the PR title, body and commit messages and carries the `edited` trigger those
