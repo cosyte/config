@@ -77,7 +77,7 @@ const NOT_A_CHANGESET = new Set(["README.md", "config.json"]);
 
 /**
  * `validVersionTypes` from `@changesets/parse@0.4.3`, copied so an unknown type is refused HERE
- * rather than thrown inside `changesets/action` halfway through a release run.
+ * rather than thrown inside `changesets/action`.
  */
 const VALID_RELEASE_TYPES = new Set(["major", "minor", "patch", "none"]);
 

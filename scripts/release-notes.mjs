@@ -47,10 +47,10 @@
 // the CHANGELOG-dump fingerprint this script exists to prevent, and an em dash. Each of those is a
 // property of the bytes, not a judgement about the prose.
 //
-// WHY NOT USE cosyte/.github's REUSABLE release.yml INSTEAD OF ANY OF THIS. Re-measured three times
-// as that repo moved under this slice, most recently at `5896185`. Both facts below held every time,
-// and its inputs (`package-name`, `dispatch-docs`, `pack-docs-cmd`, `expect-unpublished-deps`) offer
-// no multi-package mode and no tag override. It cannot serve this repo:
+// WHY NOT USE cosyte/.github's REUSABLE release.yml INSTEAD OF ANY OF THIS. Both facts below were
+// measured on `cosyte/.github`'s `main` at `1e634f0`, which is the ref a caller would pin
+// (`release.yml@main`), and re-checked as that repo moved during this slice. Neither depends on an
+// input: it offers no multi-package mode and no tag override. It cannot serve this repo:
 //
 //   1. Its gate reads the ROOT package.json's version (`packageVersionAt(repo, rev)` reads
 //      `<rev>:package.json`). This repo's root manifest is `cosyte-config`, `private: true`, pinned at

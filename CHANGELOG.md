@@ -110,7 +110,7 @@ no package, so entries here are **dated** rather than versioned.
     all-`none` shape the guard exists to refuse. A green guard over a changeset that bumps nothing,
     introduced by the commit fixing green runs that did nothing. The type is now unquoted before the
     comparison and validated against `validVersionTypes`, so an unknown type takes **exit 2** here
-    rather than throwing inside the action mid-release. Three spellings are pinned by a control.
+    rather than throwing inside the action. Three spellings are pinned by a control.
   - Three smaller findings, all applied: a comment claiming the guards run "before an approver is
     asked for anything", **false in `release.yml`** because `environment:` is declared at job level
     so the whole job waits first (the `ci.yml` copy is the one that genuinely spares the approver);
