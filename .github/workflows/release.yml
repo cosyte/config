@@ -76,7 +76,7 @@ jobs:
           # `gh release create --target` below.
           persist-credentials: false
       - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: "22.14"
           registry-url: https://registry.npmjs.org
