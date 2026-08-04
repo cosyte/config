@@ -115,8 +115,9 @@ jobs:
       # that, and it can, because its classifier and the action's arm agree in a single-package repo.
       # Here, a classifier that wrongly said "not a release" would WITHHOLD A PUBLISH ON A GREEN RUN,
       # which is the precise failure Gate 1 exists to close. So the publish command stays
-      # unconditional, and the post-publish step keys off the action's OWN `published` output. A
-      # misclassification here reddens a run loudly; it never withholds one silently.
+      # unconditional, and a separate step below refuses loudly if a publish happens on a commit this
+      # gate never recognised. A misclassification here reddens a run; it never withholds one
+      # silently.
       - name: Release notes must be derivable
         id: notes
         run: |
@@ -218,7 +219,7 @@ jobs:
       # creates a tag. Combine that with a partial failure and a green re-run appears:
       #
       #   Six packages publish. `gh release create` succeeds for two and fails on the third (a
-      #   transient 5xx, a timeout, a cancelled job). The step reds, so the run reds, so an operator
+      #   transient 5xx, a timeout, a rate limit). The step reds, so the run reds, so an operator
       #   re-runs it. On the re-run `changeset publish` finds all six already on the registry,
       #   publishes nothing and exits 0, so `published` is `false`, so the old `if:` SKIPPED this
       #   step, so the run went GREEN with four packages on npm carrying no tag and no release,
@@ -229,7 +230,7 @@ jobs:
       # `success()` on a bare `if:` skipped this step. Note that this half is NOT a base regression:
       # before this slice `createGithubReleases` was at its default of true, so the action pushed the
       # tag and cut the release inside its own call. Base lost the release BODY. Losing the TAG is
-      # new, and this repo's changelog headings are now derived from tags, so it matters more here
+      # new, and this repo's changelog headings are now dated from tags BY HAND, so it matters more here
       # than it looks.
       #
       # SO THE STEP IS IDEMPOTENT AND SELF-HEALING INSTEAD. It runs on `!cancelled()` so a partial
@@ -328,9 +329,18 @@ jobs:
           # not have: it compares what the version commit BUMPED against what is now on the registry
           # and tagged, so "the gate derived six bodies and only three were used" cannot pass.
           if [ ${#missing[@]} -gt 0 ]; then
+            # Say what is true rather than assuming a publish was attempted. Because this step runs
+            # on `!cancelled()`, it also fires when an EARLIER step failed (install, or the Verify
+            # ladder) on a version commit, in which case nothing was ever published and every
+            # package is "missing" for a reason that has nothing to do with the registry. Naming
+            # both readings costs one line and stops the annotation sending a reader to npm.
             echo "::error title=Bumped but never published::${#missing[@]} of $expected package(s)" \
                  "were bumped by this version commit but are not on the registry:" \
-                 "${missing[*]}. The ones that did publish have been tagged and released."
+                 "${missing[*]}. Either the publish failed for them, or an earlier step in this job" \
+                 "failed and the publish never ran. Check the steps above before the registry."
+            if [ "$accounted" -gt 0 ]; then
+              echo "The other $accounted package(s) DID publish, and have been tagged and released."
+            fi
             exit 1
           fi
           if [ "$accounted" -ne "$expected" ]; then

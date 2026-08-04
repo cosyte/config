@@ -196,6 +196,34 @@ describe("changeset-guard: the other ways to bump nothing", () => {
     expect(output).toContain("declares no packages");
   });
 
+  it("REFUSES an all-`none` changeset whose type is QUOTED", () => {
+    // The gate-refuter found this on the commit that added the comment strip above: comparing the
+    // raw token meant `"none"` survived the all-`none` refusal and the guard exited 0 on an inert
+    // file. js-yaml strips the quotes, so `@changesets/parse` reads both spellings identically.
+    for (const spelling of [`"none"`, `'none'`, `none`]) {
+      const { code } = runGuard(
+        workspaceWith({
+          "quoted.md": `---\n"@cosyte/tsconfig": ${spelling} # keep pinned\n---\n\nA summary.\n`,
+        }),
+      );
+      expect(code, `type spelled ${spelling}`).toBe(1);
+    }
+  });
+
+  it("exits 2 on a release type @changesets/parse would throw on", () => {
+    // `patch#nospace` is not stripped by the comment rule (which needs whitespace before the `#`),
+    // and it is not a valid version type. The parser throws on it, so the run would otherwise die
+    // inside the action mid-release rather than at this guard.
+    const { code, output } = runGuard(
+      workspaceWith({
+        "bad-type.md": `---\n"@cosyte/tsconfig": patch#nospace\n---\n\nA summary.\n`,
+      }),
+    );
+
+    expect(code).toBe(2);
+    expect(output).toContain("not one of");
+  });
+
   it("REFUSES a changeset with an empty summary", () => {
     const { code, output } = runGuard(
       workspaceWith({ "mute.md": `---\n"@cosyte/tsconfig": patch\n---\n` }),

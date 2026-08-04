@@ -76,6 +76,12 @@ const EM_DASH = String.fromCharCode(0x2014);
 const NOT_A_CHANGESET = new Set(["README.md", "config.json"]);
 
 /**
+ * `validVersionTypes` from `@changesets/parse@0.4.3`, copied so an unknown type is refused HERE
+ * rather than thrown inside `changesets/action` halfway through a release run.
+ */
+const VALID_RELEASE_TYPES = new Set(["major", "minor", "patch", "none"]);
+
+/**
  * Split a changeset file into its frontmatter block and its summary.
  *
  * This is the SAME regex @changesets/parse 0.4.3 uses (`mdRegex` in its source). It is copied
@@ -128,10 +134,22 @@ function parseFrontmatter(frontmatter) {
           `frontmatter must not be reported as an empty one.`,
       );
     }
-    releases.push({
-      name: (match[1] ?? match[2] ?? match[3] ?? "").trim(),
-      type: (match[4] ?? "").trim(),
-    });
+    // UNQUOTE THE TYPE, and this line is load-bearing rather than tidiness. `@changesets/parse`
+    // hands the YAML to js-yaml, which strips quotes, so `"none"` and `none` are the SAME inert
+    // value to it. Comparing the raw token instead let `"@cosyte/x": "none"` slip through the
+    // all-`none` refusal below and exit 0: a green guard over a changeset that bumps nothing, which
+    // is the precise thing this file exists to refuse. Found by the gate-refuter, on the very commit
+    // that added the comment strip above.
+    const type = (match[4] ?? "").trim().replace(/^["'](.*)["']$/, "$1");
+    if (!VALID_RELEASE_TYPES.has(type)) {
+      throw new InvocationError(
+        `the frontmatter line ${JSON.stringify(line)} declares the release type ` +
+          `${JSON.stringify(type)}, which is not one of ${[...VALID_RELEASE_TYPES].join(", ")}. ` +
+          `@changesets/parse THROWS on this, so the release run would die inside the action rather ` +
+          `than here. Refusing to report it as fine.`,
+      );
+    }
+    releases.push({ name: (match[1] ?? match[2] ?? match[3] ?? "").trim(), type });
   }
   return releases;
 }

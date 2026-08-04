@@ -36,7 +36,7 @@ no package, so entries here are **dated** rather than versioned.
     misspelled package name. All three are read off the vendored parser source, not inferred from
     the log line.
   - **`none` alongside a real bump is still accepted**, because that is what `none` is for.
-  - **The negative control is committed, not run once by hand** (`test/changeset-guard.test.ts`, 14
+  - **The negative control is committed, not run once by hand** (`test/changeset-guard.test.ts`, 16
     cases). It drives the shipped CLI with `execFileSync` and asserts the **process exit code**,
     because what the workflow depends on is the exit code and an exported function returning
     `{ ok: false }` proves nothing about it. This repo has already been bitten by that exact gap
@@ -98,10 +98,19 @@ no package, so entries here are **dated** rather than versioned.
   skipping it and a bumped package that never published is named rather than counted as done. Note
   this half is **not a base regression**: with `createGithubReleases` at its default of true the
   action pushed the tag inside its own call, so base lost a release _body_. Losing the _tag_ is new,
-  and it matters more here than it looks because this repo's changelog headings are dated from tags.
+  and it matters more here than it looks because this repo's changelog headings are dated from tags
+  by hand.
   - `changesets/action` is now **pinned to `a45c4d5`**, the sha `cosyte/.github` pins and the sha the
     `pushTag` behaviour above was measured at. A floating `@v1` could move the internals this file
     now depends on with no diff here.
+  - **PASS 2 caught the CORRECTION overreaching, which is the symmetric failure.** The trailing
+    comment strip added for the finding below turned a safe exit 2 into an **exit 0 on an inert
+    file**: `"@cosyte/tsconfig": "none" # keep pinned` passed, because the release type was compared
+    as a raw token while `js-yaml` strips the quotes, so `@changesets/parse` reads it as the
+    all-`none` shape the guard exists to refuse. A green guard over a changeset that bumps nothing,
+    introduced by the commit fixing green runs that did nothing. The type is now unquoted before the
+    comparison and validated against `validVersionTypes`, so an unknown type takes **exit 2** here
+    rather than throwing inside the action mid-release. Three spellings are pinned by a control.
   - Three smaller findings, all applied: a comment claiming the guards run "before an approver is
     asked for anything", **false in `release.yml`** because `environment:` is declared at job level
     so the whole job waits first (the `ci.yml` copy is the one that genuinely spares the approver);

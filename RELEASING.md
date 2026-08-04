@@ -61,7 +61,7 @@ package is actually there. Both choices exist to close the same hole:
 > packages would red the run; the re-run would then find all six already on npm, publish nothing,
 > **skip the step**, and go **green**, leaving four packages on npm with no tag and no GitHub release,
 > permanently. Losing the tag is specific to `createGithubReleases: false` and matters more here than
-> it looks, because this repo's changelog headings are dated from tags.
+> it looks, because this repo's changelog headings are dated from tags by hand.
 
 So the step is **idempotent**: a re-run completes whatever is missing rather than skipping it, and a
 package that was bumped but never reached the registry is named and reds the run. If you ever see it
