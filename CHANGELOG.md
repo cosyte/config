@@ -14,7 +14,131 @@ no package, so entries here are **dated** rather than versioned.
 
 ## [Unreleased]
 
+### Added
+
+- **`scripts/changeset-guard.mjs`: an inert changeset can no longer withhold a publish on a green
+  run** (`DEPENDABOT-PR-QUEUE`, item 2). `changesets/action` given only changesets that resolve to
+  zero package bumps logs `All changesets are empty; not creating PR`, opens no Version PR,
+  publishes nothing, and **exits 0**. Run 30640138565 (2026-07-31) did exactly that: approved
+  through the protected `release` environment as a real publish, reported success, and shipped none
+  of the six packages whose manifests were already a patch ahead of the registry. `cf07086` (#41)
+  deleted the offending file and wrote the finding down, which fixed the instance and left the
+  class. The guard runs first in both `ci.yml` and `release.yml`, before install and before an
+  approver is asked for anything, and refuses per file rather than per repo.
+  - **Three shapes bump nothing, and only the first is what the action calls empty.** Frontmatter
+    that declares no packages (`yaml.load` of an empty block returns falsy and
+    `@changesets/parse@0.4.3` sets `releases = []` **without throwing**, so the file parses cleanly
+    and carries a human summary). A changeset whose every entry is type `none`, which is **valid**
+    in the parser's own `validVersionTypes`, so its releases list is non-empty, it does **not** trip
+    the action's emptiness check, and it instead opens a Version PR that changes no version. And a
+    misspelled package name. All three are read off the vendored parser source, not inferred from
+    the log line.
+  - **`none` alongside a real bump is still accepted**, because that is what `none` is for.
+  - **The negative control is committed, not run once by hand** (`test/changeset-guard.test.ts`, 12
+    cases). It drives the shipped CLI with `execFileSync` and asserts the **process exit code**,
+    because what the workflow depends on is the exit code and an exported function returning
+    `{ ok: false }` proves nothing about it. This repo has already been bitten by that exact gap
+    (#42, where `attw`'s wrapper exited 0 on an untyped pack). Both directions are pinned: an inert
+    changeset **must** exit non-zero, a real one **must** exit zero, and an empty `.changeset/`
+    directory must exit **zero** because that is the publish arm and refusing it would block every
+    release. A guard that refuses everything fails the first control; one that refuses nothing fails
+    the second.
+  - **A guard that cannot run exits 2, never 1.** 1 is reserved for "an inert changeset was found",
+    and collapsing the two would make a broken gate and a caught defect one signal.
+
+- **`scripts/release-notes.mjs`: release bodies are derived and checked before npm is touched**
+  (`DEPENDABOT-PR-QUEUE`, item 1). `changesets/action` defaults `createGithubReleases` to **true**,
+  and builds each body by finding a `## <version>` heading in that package's `CHANGELOG.md`. Every
+  package here sets `"changelog": false` and hand-maintains its changelog, so `changeset version`
+  writes no such heading, the action finds none, and **its fallback is the whole file**: on
+  2026-07-31 all six bodies published as the raw `CHANGELOG.md`, `# Changelog` preamble and
+  `## [Unreleased]` included. The bodies were corrected by hand, which is not a gate.
+  `createGithubReleases` is now **false**, which removes the dumping behaviour outright, and this
+  script supplies the replacement.
+  - **Derived from the changesets the version commit consumed, not from the CHANGELOG.** Deriving
+    from the changelog would require a `## [0.0.6]` heading for a version that does not exist when
+    the changeset is written, and with the generator disabled nothing writes it, so a gate asserting
+    it would refuse every release until a human predicted the next version by hand. That is a
+    deadlock of a shape this org has already met. A changeset is written per change, carries a
+    summary by construction, and is deleted by the version commit, which is what makes "what did
+    this version consume" answerable from git.
+  - **Ordering is the point.** The changesets are in the tree at `HEAD^`, so every refusal runs with
+    the registry untouched. A published version is permanent (ADR 0001), so a check after the
+    publish is a complaint, not a gate.
+  - **What it refuses:** a version bump that consumed no changesets; a consumed changeset with an
+    empty summary; a bumped package no changeset describes; and, asserted on the **finished bytes**
+    by a separate entry point that knows nothing about how they were produced, a body that is empty,
+    a stub, an em dash, one naming a different version than the one being tagged, or one carrying
+    any of the three fingerprints of the CHANGELOG dump. It deliberately does **not** port
+    `cosyte/.github`'s prose classifier: that is tuned against a single-package parser's changeset
+    corpus, and an uncalibrated classifier that refuses a good release is worse than none.
+  - **The publish command is NOT gated on the classifier**, and that is deliberate. The shared
+    workflow withholds `publish:` when its notes step says "not a release"; here, a classifier that
+    was wrong in that direction would **withhold a publish on a green run**, which is precisely the
+    failure item 2 exists to close. So the publish stays unconditional and the post-publish step
+    keys off `changesets/action`'s own `published` output. A misclassification reddens loudly; it
+    never withholds silently.
+
+### Changed
+
+- **`config` stays on its own `release.yml` rather than becoming a thin caller of
+  `cosyte/.github/.github/workflows/release.yml@main`, and the reason is measured, not preferential.**
+  Adopting the shared workflow was the intended remedy and it cannot serve this repo's six-package
+  shape:
+  - Its gate answers "is a release pending" from the **root** `package.json`'s version. This repo's
+    root manifest is `cosyte-config`, `private: true`, pinned at `0.0.0`, and Changesets does not
+    version a private root package, so that value has never changed and never will. Running the
+    shared `prepare` against this repo returns `is-release=false`, code `never-versioned`. The
+    shared workflow supplies `publish:` **only** when that is `true`, so adopting it would withhold
+    **every** config publish, permanently, on a green run: a strictly worse instance of the class
+    item 2 exists to close.
+  - It hardcodes `tag="v${version}"`, and its own comment states the assumption: "Every caller of
+    this workflow is a single-package repo". This repo's fourteen tags are all `<pkg>@<version>`,
+    and six packages publishing in one run would collide on a single tag.
+
+    So the two portable halves were ported instead (the token wiring, and a notes gate rebuilt for
+    six packages) and the workflow comment records what to delete if the shared one ever grows a
+    multi-package mode.
+
+- **Both gates run in `ci.yml`'s `verify` job, not only on push to `main`.** `verify` is a required
+  status check in the `config-ci-required-checks` ruleset and a separate job would not be, so this is
+  the half that can be made blocking from inside the repo, following the precedent the em-dash gate
+  already set in that file. `verify` now checks out with `fetch-depth: 0`, which the notes gate needs:
+  a shallow clone has no `HEAD^`, and the gate would report "no release pending" on every run, green
+  and blind. On a Version PR the merge commit's first parent is the base branch, so the check sees
+  the same shape the push-to-`main` run will, one merge earlier.
+
 ### Fixed
+
+- **The six `packages/*/CHANGELOG.md` no longer head shipped content `[Unreleased]`**
+  (`DEPENDABOT-PR-QUEUE`, item 3). Every one of them was **byte-identical to its own latest release
+  tag**, so every byte under `[Unreleased]` had already shipped and would have republished on the
+  next release. Each section now carries the version it shipped in, dated from that release's tag.
+  `@cosyte/vitest-config` needed a **two-way split**: its `[Unreleased]` block spanned two shipped
+  versions, and the boundary was read off the `@cosyte/vitest-config@0.0.2` tag rather than guessed
+  (the `### Added` block is `0.0.2`, 2026-07-15; the em-dash `### Changed` entry is `0.0.3`,
+  2026-07-31). One now-false future-tense clause went with it: "ships in the next release" had
+  shipped.
+  - **The generator flag was NOT flipped.** `"changelog": false` in `.changeset/config.json` is
+    untouched. Whether to turn Changesets' changelog generation on is the founder-owned call tracked
+    as `CHANGELOG-PREAMBLE-FUTURE-TENSE`, and it changes the shape of a shipped file in eight repos
+    at once. **These six were corrected by hand; the mechanism that produced them is unchanged and
+    that call stays open.** Each file now says so at the top: promotion of `[Unreleased]` to a
+    version heading is manual, in the PR that adds the changeset.
+
+- **`release.yml` carries the `RELEASE_PR_TOKEN` wiring, so a Version PR can run its checks.** GitHub
+  does not start workflow runs for events produced by `GITHUB_TOKEN`, so a Version PR opened with it
+  arrives with **zero checks**, and a required check that never reports is PENDING rather than
+  failing: with `bypass_actors: []` nobody can merge past it, an admin included. Both halves are
+  needed and the second is the one that is easy to miss. The token goes in the action's `env` (the
+  action reads `process.env.GITHUB_TOKEN || core.getInput("github-token")`, so the env wins and
+  adding the input alone would be a silent no-op), **and** the caller checkout sets
+  `persist-credentials: false`, because the version commit is pushed by `git push` out of that
+  checkout and the persisted `http.<host>.extraheader` otherwise outranks the `~/.netrc` the action
+  writes. Fixing only the first fixes `opened` and leaves `synchronize` broken, which means it works
+  until the second changeset. Absent, the secret **falls back to `GITHUB_TOKEN` and warns loudly**
+  rather than failing closed: failing closed would take this repo's release path down to protect
+  against a state it is already in.
 
 - **The three residuals `TEMPLATE-REMINTS-BOTH-GATES` left in the parser template, closed at the
   source** (`TEMPLATE-SCAFFOLD-RESIDUALS`). `scripts/scaffold-parser.mjs` mints every new
