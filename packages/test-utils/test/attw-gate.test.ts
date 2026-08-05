@@ -534,11 +534,14 @@ describe("the environment a nested npm pack must not inherit", () => {
   //
   // The plants below are the whole of that fault, reproduced without a publish.
 
-  /** Every spelling of the dry-run flag npm was measured to honour. */
+  /**
+   * The spellings that reach npm THROUGH THIS ROUTE. attw packs with
+   * `execSync("npm pack")`, so the variable has to survive a shell; see the case
+   * below for the one npm honours that does not.
+   */
   const DRY_RUN_SPELLINGS: [string, Record<string, string>][] = [
     ["npm_config_dry_run", { npm_config_dry_run: "true" }],
     ["NPM_CONFIG_DRY_RUN (npm lower-cases the key)", { NPM_CONFIG_DRY_RUN: "true" }],
-    ["npm_config_dry-run (hyphen separator)", { "npm_config_dry-run": "true" }],
   ];
 
   it(
@@ -563,6 +566,26 @@ describe("the environment a nested npm pack must not inherit", () => {
       expect(r.out).toContain(UNTYPED);
       expect(r.out).not.toContain("ENOENT");
       expect(r.code).not.toBe(0);
+    },
+    SPAWN_TIMEOUT,
+  );
+
+  it(
+    "the hyphen spelling npm honours cannot reach npm here, so it pins nothing",
+    () => {
+      // A LIMIT, NOT A PIN, and it is here because an earlier draft of this suite
+      // listed it beside the two above as though it were one. `npm_config_dry-run`
+      // does suppress a pack when npm is launched directly, but attw packs with
+      // `execSync("npm pack")` and a shell will not export a name that is not a
+      // valid shell identifier, so the variable never arrives. Measured on the BARE
+      // CLI, where nothing strips it: the pack succeeds and attw reports the untyped
+      // tarball normally. The wrapper's regex covers the spelling anyway, as a
+      // superset. If this ever reds, the shell hop is gone and the case above should
+      // grow the spelling rather than this one being deleted.
+      const r = runAttw(typesNotPacked, { "npm_config_dry-run": "true" });
+      expect(r.out).toContain(UNTYPED);
+      expect(r.out).not.toContain("ENOENT");
+      expect(r.code).toBe(0);
     },
     SPAWN_TIMEOUT,
   );
