@@ -162,6 +162,47 @@
  * deny-list this file just retired on the argument side. Tracked as its own
  * item, not as another round here.
  *
+ * THE NESTED `npm pack`, AND THE ONE THING IN THE ENVIRONMENT THAT BREAKS IT.
+ * `attw --pack .` shells out to a real `npm pack` and then opens the tarball at a
+ * path it COMPUTED from the manifest (`<dir>/<name>-<version>.tgz`, see
+ * `dist/index.js`). It never asks npm where the file went. So any inherited npm
+ * config that stops that file being written, or writes it somewhere else, turns
+ * this gate into `ENOENT: no such file or directory, open '<name>-<version>.tgz'`.
+ *
+ * MEASURED, NOT PREDICTED, and it is the whole of `CONFIG-PREPUBLISH-ATTW-ENOENT`:
+ * `pnpm publish --dry-run` exports `npm_config_dry_run=true` into every lifecycle
+ * script it runs, and `npm pack` under that variable prints its listing and writes
+ * NOTHING. That is why the failure only ever appears on a version bump, and it is
+ * the real mechanism behind the earlier `pnpm attw`-in-`prepublishOnly` incident
+ * (#40) that `RELEASING.md` records: `publish --dry-run` SKIPS a version already on
+ * npm, so the `prepublishOnly` chain runs on nothing else. A REAL publish does not
+ * set the variable (measured on a non-dry-run `pnpm publish`: the lifecycle
+ * environment carries `registry`, `cache`, `user_agent` and no `dry_run`), so this
+ * class has never broken a release, only the dry run that exists to prove one.
+ * `pack-destination` is the same mechanism through the other half: it moves the
+ * tarball away from the path attw computed.
+ *
+ * SO THE attw CHILD DOES NOT INHERIT THOSE TWO KEYS. Both of npm's spellings of
+ * each were measured to take effect (`npm_config_dry_run`, `NPM_CONFIG_DRY_RUN`,
+ * `npm_config_dry-run`, and the same three for `pack-destination`), so the match is
+ * case-insensitive over both separators.
+ *
+ * THIS IS NOT THE DENY-LIST THE ARGUMENT GUARD RETIRED, AND THE DIFFERENCE IS THAT
+ * THIS SET IS BOUNDED. Argv spellings were unbounded because the option parser
+ * accepts fused, clustered and `=`-joined forms, so each round of enumeration
+ * bought exactly one more evasion. Here the question is a schema-sized one with a
+ * two-key answer: which npm config decides WHETHER and WHERE `npm pack` writes its
+ * tarball? Every other npm setting changes what goes INSIDE the tarball, which is
+ * the thing this gate exists to read, so stripping more would change what attw
+ * analyses rather than fix where npm wrote. `npm_config_registry` in particular is
+ * left alone on purpose: dropping it would move where attw RESOLVES from.
+ *
+ * IT DOES NOT OVERRIDE AN OPERATOR'S `--dry-run`, and it cannot: the pack it
+ * un-suppresses is attw's own analysis input, in the directory being checked, and
+ * attw deletes it when it is done. Nothing about the outer dry run's "publishes
+ * nothing" guarantee is touched. What is restored is only that a gate asked to run
+ * gets to read a tarball instead of dying on a file npm was told not to write.
+ *
  * THIS FILE IS KEPT BYTE-IDENTICAL IN TWO PLACES, and a test asserts it:
  * `packages/test-utils/scripts/attw.mjs` (the gate this repo runs on its own
  * published package) and `scripts/parser-template/scripts/attw.mjs` (the copy
@@ -297,9 +338,19 @@ if (broken.length > 0) {
 }
 
 // ---- Run attw ---------------------------------------------------------------
+// The two npm settings that decide whether and where the nested `npm pack` writes
+// its tarball, in every spelling npm honours. attw opens a path it computed, so
+// either one leaves this gate dying on ENOENT instead of checking anything. See
+// "THE NESTED `npm pack`" above; `pnpm publish --dry-run` sets the first of them
+// in every lifecycle script it runs.
+const PACK_PLACEMENT_CONFIG = /^npm_config_(dry[_-]run|pack[_-]destination)$/i;
+const env = Object.fromEntries(
+  Object.entries(process.env).filter(([key]) => !PACK_PLACEMENT_CONFIG.test(key)),
+);
 const res = spawnSync(ATTW_BIN, ["--pack", ".", ...forwarded], {
   encoding: "utf8",
   stdio: ["inherit", "pipe", "pipe"],
+  env,
 });
 if (res.error) die(`could not run ${ATTW_BIN}: ${res.error.message}`);
 const output = `${res.stdout ?? ""}${res.stderr ?? ""}`;

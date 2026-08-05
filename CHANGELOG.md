@@ -14,6 +14,43 @@ no package, so entries here are **dated** rather than versioned.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The `attw` gate no longer breaks when it runs inside a `publish --dry-run`, which had made the
+  first version bump in months un-mergeable** (`CONFIG-PREPUBLISH-ATTW-ENOENT`).
+  `packages/test-utils/test/attw-gate.test.ts` shells out to a real `attw --pack`, `prepublishOnly`
+  runs `pnpm test`, and `pnpm -r publish --dry-run` runs `prepublishOnly`: seven cases red with
+  `ENOENT: ... attw-gate-fixture-unpacked-1.0.0.tgz` on the `0.0.3` Version PR (#46), on a tree whose
+  only change under `packages/test-utils/` was its `CHANGELOG.md`. It was invisible until then
+  because **`publish --dry-run` SKIPS a version already on npm**, so the chain runs on nothing but a
+  bump.
+  - **The mechanism, measured at both ends.** `pnpm publish --dry-run` exports
+    `npm_config_dry_run=true` into every lifecycle script it runs; `npm pack` honours it and writes
+    no tarball; `attw` opens the path it computed from the manifest (`<dir>/<name>-<version>.tgz`)
+    and never asks npm where the file went. `npm_config_pack_destination` is the same fault from the
+    other side. npm honours both keys upper-cased and hyphenated, so all six spellings count.
+  - **The fix is at the source, not in the caller**: `scripts/attw.mjs` strips those two keys, and
+    only those two, from the environment of the `attw` child. `npm_config_registry` and the rest are
+    deliberately left alone, because they change what attw RESOLVES rather than where npm writes.
+    Both copies of the wrapper move together (the byte-identity test), so every scaffolded parser
+    inherits it. Nothing about what the gate checks changed: same argument allow-list, same
+    preflight, same post-check.
+  - **Planted, not asserted.** The suite strips the same two keys from its own subprocesses (it is
+    itself run from `prepublishOnly`) and then plants them back: on the bare CLI, where they must
+    still produce ENOENT with attw's untyped sentence absent, and on the wrapper, where they must
+    not, in each spelling. A negative control pins that a package which reds on its own merits still
+    reds with the plant. Base measurement, on the failing condition: 7 of 29 red. With the fix: 35
+    of 35 green.
+  - **Two claims in the entry below are RETRACTED**, and the prose in `RELEASING.md`,
+    `scripts/parser-template/CLAUDE.md` and `test/attw-scaffold.test.ts` is corrected rather than
+    quietly reworded. The pack does not "land where attw cannot find it" in a staging context: it is
+    never written. And a real publish would **not** have failed identically, because a non-dry-run
+    `pnpm publish` sets no `dry_run` (measured: its lifecycle environment carries `registry`,
+    `cache`, `user_agent` and nothing else that moves a pack). This class has never broken a release;
+    it breaks the dry run that exists to prove one, which is what blocks a Version PR.
+  - **No changeset, deliberately.** `scripts/` is not in any package's `files`, so no published
+    tarball changes. A changeset here would burn a version on identical bytes.
+
 ### Added
 
 - **`scripts/changeset-guard.mjs`: an inert changeset can no longer withhold a publish on a green

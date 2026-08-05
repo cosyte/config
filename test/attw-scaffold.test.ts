@@ -51,8 +51,23 @@ interface RunResult {
   out: string;
 }
 
+/**
+ * The npm config that decides whether and where a nested `npm pack` writes its
+ * tarball, in every spelling npm honours. `attw --pack` opens a path it computed,
+ * so either one leaves it reading a file npm put somewhere else or never wrote.
+ * The emitted wrapper strips both from the child it spawns; this suite calls the
+ * BARE CLI for its counterfactuals, which has no such protection, so it strips
+ * them here too. The pins for the wrapper's own stripping live beside the wrapper,
+ * in `packages/test-utils/test/attw-gate.test.ts`, and this file's byte-identity
+ * case is what carries them into the scaffolded copy.
+ */
+const PACK_PLACEMENT_CONFIG = /^npm_config_(dry[_-]run|pack[_-]destination)$/i;
+
 function run(bin: string, args: string[], cwd: string): RunResult {
-  const r = spawnSync(bin, args, { cwd, encoding: "utf8", timeout: 100_000 });
+  const env = Object.fromEntries(
+    Object.entries(process.env).filter(([key]) => !PACK_PLACEMENT_CONFIG.test(key)),
+  );
+  const r = spawnSync(bin, args, { cwd, encoding: "utf8", timeout: 100_000, env });
   return { code: r.status ?? -1, out: `${r.stdout ?? ""}${r.stderr ?? ""}` };
 }
 
@@ -199,13 +214,18 @@ describe("a freshly scaffolded parser inherits the fixed gate", () => {
     expect(pkg.scripts.attw).toBe("node scripts/attw.mjs");
     expect(pkg.scripts.attw).not.toMatch(BARE_INVOCATION);
     // `prepublishOnly` MUST NOT END IN A TOOL THAT PACKS. `attw --pack .` packs a
-    // tarball of its own, and inside `pnpm publish`'s staging context that pack
-    // lands where attw cannot find it, so the step dies with ENOENT on its own
-    // tgz. It stayed hidden because `publish --dry-run` SKIPS a version already on
-    // npm, so the chain only ever runs on a version bump: it blocked every release
-    // of `@cosyte/test-utils` until #40 (`f32e7dd`) removed it there. The template
-    // re-minted the same shape into every new parser until this slice. attw still
-    // runs where it belongs, as its own CI step.
+    // tarball of its own INTO THE DIRECTORY BEING PUBLISHED, and under
+    // `pnpm publish --dry-run` it does not pack at all: that command exports
+    // `npm_config_dry_run=true` into every lifecycle script it runs, `npm pack`
+    // honours it and writes nothing, and attw then opens the path it computed and
+    // dies with ENOENT on its own tgz. (An earlier reading of this blamed a
+    // "staging context" and said a real publish would fail identically. Both are
+    // RETRACTED: the lifecycle environment of a non-dry-run publish carries no
+    // such variable, measured.) It stayed hidden because `publish --dry-run` SKIPS
+    // a version already on npm, so the chain only ever runs on a version bump: it
+    // blocked every release of `@cosyte/test-utils` until #40 (`f32e7dd`) removed
+    // it there. The template re-minted the same shape into every new parser until
+    // this slice. attw still runs where it belongs, as its own CI step.
     expect(pkg.scripts.prepublishOnly).not.toMatch(/\battw\b/);
     // ...and the rest of the chain is still there, so this cannot be satisfied by
     // deleting the script.
