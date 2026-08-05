@@ -24,5 +24,11 @@ the **`0.0.x`-until-first-alpha** ladder.
   not), and a symlinked invocation (Node resolves the main module to its real path). In each the
   gate exits 0 having checked nothing.
 
+  Those three forms also COMBINE, and the combination is the one that hides: an extension-less
+  `argv[1]` names no file, so it cannot be resolved directly, and any symlinked ancestor then puts
+  the two sides in different places. `isCliEntrypoint` resolves the deepest ancestor that does
+  exist and keeps the rest verbatim, so `tsx scripts/gate` answers correctly under a symlinked
+  checkout.
+
   The package carries no runtime dependencies and no build step, because the gates that import it
   run before `pnpm install` on purpose.

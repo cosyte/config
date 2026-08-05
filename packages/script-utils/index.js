@@ -9,7 +9,7 @@
 // present. Keep this package free of runtime dependencies and free of a build step.
 
 import { statSync, realpathSync } from "node:fs";
-import { extname, join, resolve } from "node:path";
+import { basename, dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /**
@@ -22,16 +22,29 @@ import { fileURLToPath } from "node:url";
 const SCRIPT_EXTENSIONS = new Set([".js", ".mjs", ".cjs", ".jsx", ".ts", ".mts", ".cts", ".tsx"]);
 
 /**
- * Resolve symlinks, falling back to the input when the path does not exist.
+ * Resolve symlinks, including for a path that does not exist.
+ *
+ * THE NAIVE FALLBACK HERE IS A SILENT-SKIP BUG, and it takes two conditions that look unrelated.
+ * An extension-less `argv[1]` names no file by construction, so `realpathSync` throws on it;
+ * returning the input raw then compares an UNRESOLVED path against a resolved one, because the
+ * module side always resolves. Add any symlinked ancestor (macOS reaches `tmpdir()` through
+ * `/var` to `/private/var`, and a symlinked checkout does the same) and the two disagree, so the
+ * gate reports "not the entry point" and exits 0 having checked nothing. That is the combination of
+ * `tsx scripts/prebuild` and a symlinked ancestor, which is an ordinary way to run a gate.
+ *
+ * So resolve the deepest ancestor that DOES exist and keep the rest verbatim.
  *
  * @param {string} path An absolute path.
- * @returns {string} The real path, or `path` unchanged when it cannot be resolved.
+ * @returns {string} The path with every resolvable ancestor resolved.
  */
 function canonical(path) {
   try {
     return realpathSync(path);
   } catch {
-    return path;
+    const parent = dirname(path);
+    // At the filesystem root `dirname` is a fixed point. Without this the recursion never ends.
+    if (parent === path) return path;
+    return join(canonical(parent), basename(path));
   }
 }
 

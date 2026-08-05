@@ -159,6 +159,19 @@ describe("isCliEntrypoint, across every invocation form", () => {
     });
   }
 
+  it("reports the entry point for an extension-less specifier reached through a symlinked ancestor", () => {
+    // THE TWO CONDITIONS TOGETHER, which is what makes this one easy to miss. Extension-less means
+    // `argv[1]` names no file, so it cannot be realpathed; a symlinked ancestor means the module
+    // side resolves to somewhere else. Either alone is fine. Both at once made the helper compare
+    // an unresolved path against a resolved one and answer `false`, which is a silently skipped
+    // gate. It is also an ordinary combination: `tsx scripts/prebuild` under a symlinked checkout,
+    // and it is the primary invocation form for the repos adopting this helper next.
+    const tree = fixtureTree(NEW_HELPER_FIXTURE);
+    const alias = join(tree.root, "..", "alias");
+    symlinkSync(tree.root, alias);
+    expect(verdict(join(alias, "gate"))).toBe("true");
+  });
+
   it("reports the entry point from a checkout whose path contains a space", () => {
     const tree = fixtureTree(NEW_HELPER_FIXTURE, "space dir");
     expect(tree.script).toContain(" ");
