@@ -27,6 +27,12 @@
  *     indistinguishable from a pass. The guard is an allow-list because a
  *     deny-list bought exactly one more evasion per round: the table is kept as
  *     evidence, not as the definition of what is refused.
+ *  7. THE INHERITED npm CONFIG THAT BREAKS THE NESTED `npm pack`. `attw --pack`
+ *     runs `npm pack` and opens a path it computed, so `npm_config_dry_run` (which
+ *     `pnpm publish --dry-run` sets in every lifecycle script, and `prepublishOnly`
+ *     runs this suite) or `npm_config_pack_destination` leaves it opening a file
+ *     that was never written there. Each is planted on the bare CLI, where it must
+ *     still break, and on the wrapper, where it must not.
  *
  * The fixtures are minimal throwaway packages in a temp dir, nothing to do with
  * this package's own build, so the test does not need one and cannot race one.
@@ -53,19 +59,48 @@ const OFFLINE = ["--no-definitely-typed"];
 // in one test comfortably exceeds this suite's default timeout.
 const SPAWN_TIMEOUT = 120_000;
 
+// The npm config that decides whether and where a nested `npm pack` writes its
+// tarball, in every spelling npm honours. See "the environment a nested npm pack
+// must not inherit" below for why this suite strips it, and what it plants back.
+const PACK_PLACEMENT_CONFIG = /^npm_config_(dry[_-]run|pack[_-]destination)$/i;
+
 interface RunResult {
   code: number;
   out: string;
 }
 
-function run(bin: string, args: string[], cwd: string): RunResult {
-  const r = spawnSync(bin, args, { cwd, encoding: "utf8", timeout: 100_000 });
+function run(
+  bin: string,
+  args: string[],
+  cwd: string,
+  extraEnv: Record<string, string> = {},
+): RunResult {
+  // THIS SUITE SHELLS OUT TO `attw --pack`, WHICH RUNS A REAL `npm pack`, AND IT IS
+  // ITSELF RUN FROM `prepublishOnly`. Under `pnpm publish --dry-run` that means the
+  // vitest process inherits `npm_config_dry_run=true`, which makes every one of
+  // those packs write nothing and every case here die on ENOENT. Stripping it here
+  // is not hiding the defect: the cases below plant it back deliberately, on both
+  // the bare CLI (where it still breaks, which is the counterfactual) and on the
+  // wrapper (where it must not, which is the pin).
+  const base = Object.fromEntries(
+    Object.entries(process.env).filter(([key]) => !PACK_PLACEMENT_CONFIG.test(key)),
+  );
+  const r = spawnSync(bin, args, {
+    cwd,
+    encoding: "utf8",
+    timeout: 100_000,
+    env: { ...base, ...extraEnv },
+  });
   return { code: r.status ?? -1, out: `${r.stdout ?? ""}${r.stderr ?? ""}` };
 }
 
-const runAttw = (cwd: string): RunResult => run(ATTW_BIN, ["--pack", ".", ...OFFLINE], cwd);
-const runWrapper = (cwd: string, args: string[] = OFFLINE): RunResult =>
-  run(process.execPath, [WRAPPER, ...args], cwd);
+const runAttw = (cwd: string, extraEnv: Record<string, string> = {}): RunResult =>
+  run(ATTW_BIN, ["--pack", ".", ...OFFLINE], cwd, extraEnv);
+const runWrapper = (
+  cwd: string,
+  args: string[] = OFFLINE,
+  extraEnv: Record<string, string> = {},
+): RunResult => run(process.execPath, [WRAPPER, ...args], cwd, extraEnv);
 
 let root: string;
 
@@ -482,6 +517,142 @@ describe("the argument allow-list that keeps the post-check readable", () => {
       const r = runWrapper(dir);
       expect(r.code).not.toBe(0);
       expect(r.out).toContain(".attw.json");
+    },
+    SPAWN_TIMEOUT,
+  );
+});
+
+describe("the environment a nested npm pack must not inherit", () => {
+  // WHAT THIS IS, AND WHY IT IS NOT AN INVENTED HAZARD. `pnpm publish --dry-run`
+  // exports `npm_config_dry_run=true` into every lifecycle script it runs, and
+  // `@cosyte/test-utils`'s `prepublishOnly` runs `pnpm test`, which runs this file.
+  // Under that variable `npm pack` prints its listing and writes no tarball, so
+  // every `attw --pack` here opened a file that was never written: seven cases red
+  // with `ENOENT`, on a Version PR, on a tree whose only change was a CHANGELOG.
+  // It hid until then because `publish --dry-run` SKIPS a version already on npm,
+  // so the chain runs on nothing but a version bump.
+  //
+  // The plants below are the whole of that fault, reproduced without a publish.
+
+  /**
+   * The spellings that reach npm THROUGH THIS ROUTE. attw packs with
+   * `execSync("npm pack")`, so the variable has to survive a shell; see the case
+   * below for the one npm honours that does not.
+   */
+  const DRY_RUN_SPELLINGS: [string, Record<string, string>][] = [
+    ["npm_config_dry_run", { npm_config_dry_run: "true" }],
+    ["NPM_CONFIG_DRY_RUN (npm lower-cases the key)", { NPM_CONFIG_DRY_RUN: "true" }],
+  ];
+
+  it(
+    "COUNTERFACTUAL: bare attw dies on ENOENT under an inherited npm dry run",
+    () => {
+      // Without this, every case below could pass on a wrapper that changed
+      // nothing, because a plant that does not break anything proves nothing.
+      const r = runAttw(typesNotPacked, { npm_config_dry_run: "true" });
+      expect(r.code).not.toBe(0);
+      expect(r.out).toContain("ENOENT");
+      // And the gate goes BLIND rather than merely noisy: the sentence net 2 reads
+      // is absent, because there was no tarball to analyse.
+      expect(r.out).not.toContain(UNTYPED);
+    },
+    SPAWN_TIMEOUT,
+  );
+
+  it.each(DRY_RUN_SPELLINGS)(
+    "the wrapper still gates an untyped pack with %s planted",
+    (_name, env) => {
+      const r = runWrapper(typesNotPacked, OFFLINE, env);
+      expect(r.out).toContain(UNTYPED);
+      expect(r.out).not.toContain("ENOENT");
+      expect(r.code).not.toBe(0);
+    },
+    SPAWN_TIMEOUT,
+  );
+
+  it(
+    "the hyphen spelling reaches npm only if /bin/sh forwards it, and the wrapper holds either way",
+    () => {
+      // WHY THIS CASE MEASURES THE SHELL INSTEAD OF ASSERTING ONE ANSWER. npm
+      // honours `npm_config_dry-run` too, but attw packs with
+      // `execSync("npm pack")`, so the variable has to cross `/bin/sh`, and that
+      // name is not a valid shell identifier. DASH, which Debian and Ubuntu ship as
+      // `/bin/sh` (so the CI runner too), drops it; BASH forwards it, including when
+      // it is invoked as `sh`. Two earlier drafts of this case got that wrong in opposite
+      // directions: the first planted the hyphen through the wrapper as though it
+      // pinned something (it passes against the unfixed wrapper, so it pinned
+      // nothing), the second asserted dash's answer as a property of shells, which
+      // would red on a box where `/bin/sh` is bash.
+      // `/bin/sh` LITERALLY, not `sh` from PATH: `execSync` takes the former, and a
+      // PATH holding a different `sh` would have this case measuring one shell and
+      // attw using another. Both mismatch directions fail red rather than green,
+      // but red for a reason that is not about this gate costs an hour.
+      const probe = spawnSync("/bin/sh", ["-c", "printenv npm_config_dry-run || true"], {
+        encoding: "utf8",
+        env: { ...process.env, "npm_config_dry-run": "true" },
+      });
+      const shellForwardsIt = (probe.stdout ?? "").trim() === "true";
+
+      // The bare CLI, where nothing strips anything: whichever answer this shell
+      // gives, attw's behaviour follows from it.
+      const bare = runAttw(typesNotPacked, { "npm_config_dry-run": "true" });
+      if (shellForwardsIt) {
+        expect(bare.out).toContain("ENOENT");
+        expect(bare.code).not.toBe(0);
+      } else {
+        expect(bare.out).toContain(UNTYPED);
+        expect(bare.out).not.toContain("ENOENT");
+        expect(bare.code).toBe(0);
+      }
+
+      // The wrapper's answer, which is the same sentence on both shells. ON DASH
+      // THIS PINS NOTHING and is not labelled as though it did: the hyphen never
+      // reaches npm there, so the UNFIXED wrapper satisfies these three assertions
+      // too. It is coverage that becomes a real pin on a bash-as-`sh` box, and the
+      // wrapper is pinned non-vacuously either way by the underscore cases above.
+      const gated = runWrapper(typesNotPacked, OFFLINE, { "npm_config_dry-run": "true" });
+      expect(gated.out).toContain(UNTYPED);
+      expect(gated.out).not.toContain("ENOENT");
+      expect(gated.code).not.toBe(0);
+    },
+    SPAWN_TIMEOUT,
+  );
+
+  it(
+    "the same, for a pack-destination that would move the tarball attw computed",
+    () => {
+      // attw builds `<dir>/<name>-<version>.tgz` from the manifest and never asks
+      // npm where the file went, so redirecting the write is the other half of the
+      // same fault. Counterfactual first, on the bare CLI.
+      const elsewhere = mkdtempSync(join(tmpdir(), "attw-gate-packdest-"));
+      try {
+        const bare = runAttw(typesNotPacked, { npm_config_pack_destination: elsewhere });
+        expect(bare.code).not.toBe(0);
+        expect(bare.out).toContain("ENOENT");
+        expect(bare.out).not.toContain(UNTYPED);
+
+        const gated = runWrapper(typesNotPacked, OFFLINE, {
+          npm_config_pack_destination: elsewhere,
+        });
+        expect(gated.out).toContain(UNTYPED);
+        expect(gated.out).not.toContain("ENOENT");
+        expect(gated.code).not.toBe(0);
+      } finally {
+        rmSync(elsewhere, { recursive: true, force: true });
+      }
+    },
+    SPAWN_TIMEOUT,
+  );
+
+  it(
+    "NEGATIVE CONTROL: the strip does not turn a real attw failure green",
+    () => {
+      // The wrapper hands attw a clean pack environment; it must not hand it a
+      // clean bill of health. `attwFails` reds on its own merits, planted or not.
+      const r = runWrapper(attwFails, OFFLINE, { npm_config_dry_run: "true" });
+      expect(r.code).not.toBe(0);
+      expect(r.out).not.toContain("ENOENT");
+      expect(r.code).toBe(runAttw(attwFails).code);
     },
     SPAWN_TIMEOUT,
   );

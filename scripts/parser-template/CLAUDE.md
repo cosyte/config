@@ -80,11 +80,15 @@ a summary.
   key, so **the config route wins regardless of the allow-list.** The name-scoped `.attw.json`
   refusal in the gate covers `quiet` and `format` only. That is tracked as its own item.
   **Do not put a tool that packs, publishes, or installs into `prepublishOnly`.** `attw --pack .`
-  packs a tarball of its own, and inside `pnpm publish`'s staging context that pack lands where attw
-  cannot find it, so the step dies with `ENOENT` on its own tgz. It hides because
-  `publish --dry-run` skips a version already on npm, so the chain only ever runs on a real version
-  bump: it blocked every release of `@cosyte/test-utils` until it was removed there. `attw` belongs
-  in CI as its own step, which is where it runs.
+  packs a tarball of its own into the directory being published, and under `pnpm publish --dry-run`
+  it does not pack at all: that command exports `npm_config_dry_run=true` into every lifecycle
+  script, `npm pack` writes nothing, and attw dies with `ENOENT` on the path it computed. It hides
+  because `publish --dry-run` skips a version already on npm, so the chain only ever runs on a real
+  version bump: it blocked every release of `@cosyte/test-utils` until it was removed there. `attw`
+  belongs in CI as its own step, which is where it runs.
+  **A test that shells out to `attw --pack` against a throwaway fixture in a temp directory is a
+  different act and is fine**, because `scripts/attw.mjs` strips `dry-run` and `pack-destination`
+  from the environment of the `attw` child. Read that file's docblock before touching it.
 - **`scripts/phi-scan.ts` REFUSES (exit 2) an in-scope entry that is not a regular file, on BOTH
   enumerating routes.** A symbolic link under a scan root read clean on both, so a link pointing at a
   PHI-bearing file passed the commit gate twice over: `walk()` enumerates `Dirent.isFile()` (an lstat

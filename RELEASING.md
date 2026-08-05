@@ -218,17 +218,51 @@ publish, no version consumed.
 ### Keep packing tools out of `prepublishOnly`
 
 `@cosyte/test-utils`'s `prepublishOnly` used to end in `pnpm attw`, and `attw --pack .` packs a
-tarball of its own. Run from inside `pnpm publish`'s staging context that pack lands somewhere `attw`
-then cannot find, and the step dies with `ENOENT: cosyte-test-utils-0.0.2.tgz`.
+tarball of its own into the directory being published. Run from a `pnpm publish --dry-run` it did not
+pack at all, and the step died with `ENOENT: cosyte-test-utils-0.0.2.tgz`.
 
 **It stayed hidden because `publish --dry-run` skips a version already on npm**, so the whole
 `prepublishOnly` chain only ran on a version bump. It first fired on the `0.0.2` Version PR
-(2026-07-31) and would have failed the real publish the same way, since `changeset publish` runs
-`prepublishOnly` too.
+(2026-07-31).
 
-`attw` still runs, twice, where it belongs: `pnpm attw` as its own CI step, and the `Pack integrity`
-job. Coverage is unchanged. **Do not put a tool that packs, publishes, or installs back into a
-lifecycle script that publishing itself invokes.**
+`attw` still runs where it belongs: `pnpm attw`, as its own step in `verify`. Coverage is unchanged.
+**Do not put a tool that packs, publishes, or installs back into a lifecycle script that publishing
+itself invokes.** (This paragraph used to say attw ran "twice", counting the `Pack integrity` job.
+That job runs `npm pack --dry-run` and never invokes attw. It is a second net on the tarball, not a
+second attw run.)
+
+#### The mechanism, measured, and two claims retracted
+
+The cause is not a staging directory. **`pnpm publish --dry-run` exports `npm_config_dry_run=true`
+into every lifecycle script it runs**, `npm pack` honours it and prints its listing while writing no
+file, and `attw` then opens the path it computed from the manifest
+(`<dir>/<name>-<version>.tgz`; it never asks npm where the file went). Reproduced here at both ends:
+with the variable set, `npm pack` leaves no tarball; on a non-dry-run `pnpm publish`, the lifecycle
+environment carries `npm_config_registry`, `npm_config_cache`, `npm_config_user_agent` and **no
+`dry_run` key at all**. `npm_config_pack_destination` breaks it the same way from the other side, by
+moving the tarball off the computed path. Both take effect upper-cased too. The hyphenated spelling
+npm also honours (`npm_config_dry-run`) may or may not arrive, and that is a shell question rather
+than an npm one: attw packs with `execSync("npm pack")`, and `/bin/sh` is dash on Debian and Ubuntu
+(so on the runner), which refuses to export a name that is not a valid shell identifier, while bash
+forwards it. The strip covers the hyphen either way.
+
+Two earlier claims about this are therefore **RETRACTED**:
+
+- that the pack "lands somewhere attw cannot find" in a staging context. It is not written.
+- that a real publish "would have failed identically". `changeset publish` does run `prepublishOnly`,
+  but it sets no `dry_run`, so the pack succeeds. **This class has never broken a release. It breaks
+  the dry run that exists to prove one**, which is bad enough: `release-dry-run` is the gate, and a
+  Version PR cannot merge through a red one.
+
+**A nested pack of a THROWAWAY FIXTURE is a different act from a nested pack of the package being
+published, and it is fine.** `packages/test-utils/test/attw-gate.test.ts` shells out to a real
+`attw --pack` against fixtures in `os.tmpdir()`, and `prepublishOnly` runs `pnpm test`, which is how
+`CONFIG-PREPUBLISH-ATTW-ENOENT` reached the `0.0.3` Version PR ([#46](https://github.com/cosyte/config/pull/46))
+with seven red cases on a tree whose only change was a `CHANGELOG.md`. The fix is at the source
+rather than in the caller: **`scripts/attw.mjs` strips those two keys from the environment of the
+`attw` child**, in both copies of the wrapper, so every scaffolded parser inherits it. The rule above
+is unchanged, and the reason to keep it is now the sharper one: a tool that packs THE PACKAGE BEING
+PUBLISHED, inside the publish, writes a tarball into the tree that is about to be packed.
 
 ## Still deferred: OIDC trusted publishing
 
