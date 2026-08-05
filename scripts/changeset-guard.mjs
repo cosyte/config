@@ -66,6 +66,12 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, resolve, basename } from "node:path";
 
+// Imported by RELATIVE PATH, not as `@cosyte/script-utils`, and that is deliberate. This gate runs
+// before `pnpm install` in both `ci.yml` and `release.yml`, so there is no `node_modules` for a bare
+// specifier to resolve through. The package is zero-dependency and has no build step precisely so
+// that this import costs nothing. Same file, same contents, published for the other repos to use.
+import { isCliEntrypoint } from "../packages/script-utils/index.js";
+
 /** Thrown for an invocation or environment problem: exit 2, never exit 1. */
 class InvocationError extends Error {}
 
@@ -346,11 +352,18 @@ function main(argv) {
   return result.ok ? 0 : 1;
 }
 
-// `import.meta.url` is only the entry module when run as a script, so importing this file for tests
-// never executes the CLI. The InvocationError handler is what keeps a broken invocation on exit 2:
-// left to node's default an uncaught throw exits 1, which is the code this contract reserves for
-// "an inert changeset was found", and the two must not be the same signal.
-if (process.argv[1] !== undefined && import.meta.url === `file://${resolve(process.argv[1])}`) {
+// `isCliEntrypoint` is what keeps importing this file for tests from executing the CLI. It used to
+// be spelled inline as ``import.meta.url === `file://${resolve(process.argv[1])}` ``, which compares
+// two STRINGS rather than two paths and answered `false` for three ordinary invocations of this very
+// script: `node scripts/changeset-guard` (Node resolves the extension, `argv[1]` does not), any
+// checkout under a directory whose name contains a space (`import.meta.url` percent-encodes), and a
+// symlinked invocation (Node resolves the main module to its real path). In each of those this gate
+// exited 0 having graded nothing, which is the exact failure mode the whole script exists to stop.
+//
+// The InvocationError handler is what keeps a broken invocation on exit 2: left to node's default an
+// uncaught throw exits 1, which is the code this contract reserves for "an inert changeset was
+// found", and the two must not be the same signal.
+if (isCliEntrypoint(import.meta.url)) {
   try {
     process.exit(main(process.argv.slice(2)));
   } catch (error) {

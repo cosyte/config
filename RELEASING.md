@@ -1,7 +1,8 @@
 # Releasing `@cosyte/*` config packages
 
-How the six published toolchain packages (`@cosyte/tsconfig`, `eslint-config`, `prettier-config`,
-`tsup-config`, `vitest-config`, `test-utils`) get to npm, and the gotchas worth not rediscovering.
+How the published toolchain packages (`@cosyte/tsconfig`, `eslint-config`, `prettier-config`,
+`tsup-config`, `vitest-config`, `test-utils`, `script-utils`) get to npm, and the gotchas worth not
+rediscovering.
 
 ## The pipeline
 

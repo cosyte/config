@@ -44,6 +44,7 @@
     "@changesets/cli": "2.31.0",
     "@cosyte/eslint-config": "workspace:*",
     "@cosyte/prettier-config": "workspace:*",
+    "@cosyte/script-utils": "workspace:*",
     "@cosyte/tsconfig": "workspace:*",
     "@cosyte/tsup-config": "workspace:*",
     "@cosyte/vitest-config": "workspace:*",
