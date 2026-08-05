@@ -30,8 +30,8 @@ no package, so entries here are **dated** rather than versioned.
     and never asks npm where the file went. `npm_config_pack_destination` is the same fault from the
     other side. **The underscore spellings always arrive; the hyphenated key npm also honours
     depends on a shell, not on npm**: attw packs with `execSync("npm pack")`, so the variable crosses
-    `/bin/sh`, and `npm_config_dry-run` is not a valid shell identifier, which dash (Debian, and the
-    `ubuntu-latest` runner) drops and bash forwards. The strip is a case-insensitive superset that
+    `/bin/sh`, and `npm_config_dry-run` is not a valid shell identifier, which dash (what Debian and
+    Ubuntu ship as `/bin/sh`) drops and bash forwards. The strip is a case-insensitive superset that
     covers the hyphen on either shell, and the suite MEASURES which shell it is rather than asserting
     one answer. Two earlier drafts of that case got it wrong in opposite directions, which is
     recorded beside it.
@@ -42,11 +42,13 @@ no package, so entries here are **dated** rather than versioned.
     inherits it. Nothing about what the gate checks changed: same argument allow-list, same
     preflight, same post-check.
   - **Planted, not asserted.** The suite strips the same two keys from its own subprocesses (it is
-    itself run from `prepublishOnly`) and then plants them back: on the bare CLI, where they must
-    still produce ENOENT with attw's untyped sentence absent, and on the wrapper, where they must
-    not, in each spelling. A negative control pins that a package which reds on its own merits still
-    reds with the plant. Base measurement, on the failing condition: 7 of 29 red. With the fix: 35
-    of 35 green.
+    itself run from `prepublishOnly`) and then plants them back: on the bare CLI, where the two
+    underscore spellings must still produce ENOENT with attw's untyped sentence absent, and on the
+    wrapper, where they must not. The hyphenated spelling's bare-CLI outcome is shell-dependent, so
+    that case probes `/bin/sh` and asserts whichever answer this box gives, and is explicit that on
+    dash its wrapper half is coverage rather than a pin. A negative control pins that a package which
+    reds on its own merits still reds with the plant. Base measurement, on the failing condition: 7
+    of 29 red. With the fix: 35 of 35 green.
   - **Two claims in the entry below are RETRACTED**, and the prose in `RELEASING.md`,
     `scripts/parser-template/CLAUDE.md` and `test/attw-scaffold.test.ts` is corrected rather than
     quietly reworded. The pack does not "land where attw cannot find it" in a staging context: it is

@@ -576,14 +576,18 @@ describe("the environment a nested npm pack must not inherit", () => {
       // WHY THIS CASE MEASURES THE SHELL INSTEAD OF ASSERTING ONE ANSWER. npm
       // honours `npm_config_dry-run` too, but attw packs with
       // `execSync("npm pack")`, so the variable has to cross `/bin/sh`, and that
-      // name is not a valid shell identifier. DASH (Debian's `/bin/sh`, and the
-      // `ubuntu-latest` runner) drops it; BASH, including bash invoked as `sh`,
-      // forwards it. Two earlier drafts of this case got that wrong in opposite
+      // name is not a valid shell identifier. DASH, which Debian and Ubuntu ship as
+      // `/bin/sh` (so the CI runner too), drops it; BASH forwards it, including when
+      // it is invoked as `sh`. Two earlier drafts of this case got that wrong in opposite
       // directions: the first planted the hyphen through the wrapper as though it
       // pinned something (it passes against the unfixed wrapper, so it pinned
       // nothing), the second asserted dash's answer as a property of shells, which
       // would red on a box where `/bin/sh` is bash.
-      const probe = spawnSync("sh", ["-c", "printenv npm_config_dry-run || true"], {
+      // `/bin/sh` LITERALLY, not `sh` from PATH: `execSync` takes the former, and a
+      // PATH holding a different `sh` would have this case measuring one shell and
+      // attw using another. Both mismatch directions fail red rather than green,
+      // but red for a reason that is not about this gate costs an hour.
+      const probe = spawnSync("/bin/sh", ["-c", "printenv npm_config_dry-run || true"], {
         encoding: "utf8",
         env: { ...process.env, "npm_config_dry-run": "true" },
       });
@@ -601,9 +605,11 @@ describe("the environment a nested npm pack must not inherit", () => {
         expect(bare.code).toBe(0);
       }
 
-      // THE PIN, and it is the same on both shells, which is the whole reason the
-      // wrapper matches the hyphen as a superset rather than the two spellings that
-      // were measured arriving.
+      // The wrapper's answer, which is the same sentence on both shells. ON DASH
+      // THIS PINS NOTHING and is not labelled as though it did: the hyphen never
+      // reaches npm there, so the UNFIXED wrapper satisfies these three assertions
+      // too. It is coverage that becomes a real pin on a bash-as-`sh` box, and the
+      // wrapper is pinned non-vacuously either way by the underscore cases above.
       const gated = runWrapper(typesNotPacked, OFFLINE, { "npm_config_dry-run": "true" });
       expect(gated.out).toContain(UNTYPED);
       expect(gated.out).not.toContain("ENOENT");

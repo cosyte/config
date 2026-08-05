@@ -188,8 +188,8 @@
  * hyphenated key, and whether that one can reach npm here depends on something
  * outside npm entirely. attw packs with `execSync("npm pack")`, which runs through
  * `/bin/sh`, and `npm_config_dry-run` is not a valid shell variable name: DASH
- * (Debian's `/bin/sh`, and the `ubuntu-latest` runner) refuses to export it, while
- * BASH, including bash invoked as `sh`, forwards it unchanged. Both measured, in
+ * (what Debian and Ubuntu ship as `/bin/sh`, so the runner too) refuses to export
+ * it, while BASH, including bash invoked as `sh`, forwards it unchanged. Measured in
  * both directions. So the hyphen is dead on CI and live on a bash-as-`sh` box, and
  * an earlier draft of this paragraph stated dash's answer as though it were a
  * property of shells.

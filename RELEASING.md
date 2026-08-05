@@ -242,9 +242,9 @@ environment carries `npm_config_registry`, `npm_config_cache`, `npm_config_user_
 `dry_run` key at all**. `npm_config_pack_destination` breaks it the same way from the other side, by
 moving the tarball off the computed path. Both take effect upper-cased too. The hyphenated spelling
 npm also honours (`npm_config_dry-run`) may or may not arrive, and that is a shell question rather
-than an npm one: attw packs with `execSync("npm pack")`, and `/bin/sh` is dash on Debian and on the
-`ubuntu-latest` runner, which refuses to export a name that is not a valid shell identifier, while
-bash forwards it. The strip covers the hyphen either way.
+than an npm one: attw packs with `execSync("npm pack")`, and `/bin/sh` is dash on Debian and Ubuntu
+(so on the runner), which refuses to export a name that is not a valid shell identifier, while bash
+forwards it. The strip covers the hyphen either way.
 
 Two earlier claims about this are therefore **RETRACTED**:
 
