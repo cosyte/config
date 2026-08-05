@@ -1,6 +1,6 @@
 {
   "name": "@cosyte/tsup-config",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Shared tsup build config (dual ESM + CJS, ES2023) for @cosyte/* libraries.",
   "keywords": [
     "tsup",

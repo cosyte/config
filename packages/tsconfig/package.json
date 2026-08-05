@@ -1,6 +1,6 @@
 {
   "name": "@cosyte/tsconfig",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "Shared TypeScript configuration for @cosyte/* packages.",
   "keywords": [
     "tsconfig",
