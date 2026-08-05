@@ -2,8 +2,8 @@
 
 Zero-dependency helpers for the repo-local gate scripts every cosyte repo keeps in `scripts/`.
 
-No runtime dependencies and no build step, and both are load-bearing: the gates that import this
-package run **before `pnpm install`**, on purpose, so that a broken or hostile install cannot decide
+No runtime dependencies and no build step. Both are load-bearing for the gates in `config` itself,
+which run **before `pnpm install`** on purpose, so that a broken or hostile install cannot decide
 whether a release gate runs.
 
 ## Install
@@ -11,6 +11,23 @@ whether a release gate runs.
 ```sh
 pnpm add -D @cosyte/script-utils
 ```
+
+### If your gate runs before `pnpm install`, do not use the bare specifier
+
+Read this before adopting the package, because it is the one thing that does not generalise.
+
+A bare `import ... from "@cosyte/script-utils"` resolves through `node_modules`, so it only works
+once the install has happened. `config`'s own two gates run before their install and therefore
+import this file by **relative path** instead, which needs nothing on disk but the checkout.
+
+So check when your gate runs, and pick accordingly:
+
+| When the gate runs               | How to import                                    |
+| -------------------------------- | ------------------------------------------------ |
+| After `pnpm install` (the usual) | `@cosyte/script-utils`, as a `devDependency`     |
+| Before `pnpm install`            | A relative path to a vendored or checked-in copy |
+
+Installing the package does not, on its own, give a pre-install gate the property described above.
 
 ## `isCliEntrypoint(import.meta.url)`
 

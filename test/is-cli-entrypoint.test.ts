@@ -1,5 +1,13 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -75,7 +83,11 @@ function fixtureTree(
   source: string,
   directoryName = "entrypoint-",
 ): { root: string; script: string; extensionless: string; indexDir: string; link: string } {
-  const parent = mkdtempSync(join(tmpdir(), "entrypoint-case-"));
+  // Realpathed because the OLD-spelling control below asserts an exact string match for the plain
+  // invocation. On macOS `tmpdir()` is `/var/folders/...`, a symlink to `/private/var/...`, which
+  // Node resolves for the main module: without this the control would answer `false` there and red
+  // a test that is about something else entirely.
+  const parent = realpathSync(mkdtempSync(join(tmpdir(), "entrypoint-case-")));
   temporaryDirs.push(parent);
   const root = join(parent, directoryName);
   mkdirSync(root, { recursive: true });
@@ -242,6 +254,35 @@ describe("the shipped changeset-guard, invoked through a symlink", () => {
       return { code: err.status ?? -1, output: `${err.stdout ?? ""}${err.stderr ?? ""}` };
     }
   }
+
+  it("still runs when there is no `node_modules` anywhere, which is how CI invokes it", () => {
+    // THE INVARIANT THIS DEFENDS, and it is the reason the helper is imported by relative path.
+    // `ci.yml` and `release.yml` both run this gate BEFORE `pnpm install`, deliberately, so that a
+    // broken or hostile install cannot decide whether a release gate runs. A future editor tidying
+    // `../packages/script-utils/index.js` into the bare specifier `@cosyte/script-utils` would look
+    // correct, pass every other test in this repo (the tree it runs in has `node_modules`), and
+    // break the gate only on CI. So the gate is copied somewhere with no `node_modules` above it
+    // and run there: a bare specifier cannot resolve, and this test reds.
+    const root = mkdtempSync(join(tmpdir(), "entrypoint-preinstall-"));
+    temporaryDirs.push(root);
+    mkdirSync(join(root, "scripts"), { recursive: true });
+    mkdirSync(join(root, "packages", "script-utils"), { recursive: true });
+    copyFileSync(GUARD, join(root, "scripts", "changeset-guard.mjs"));
+    for (const file of ["index.js", "package.json"]) {
+      copyFileSync(
+        join(import.meta.dirname, "..", "packages", "script-utils", file),
+        join(root, "packages", "script-utils", file),
+      );
+    }
+
+    const workspace = workspaceWithInertChangeset();
+    const copied = run(join(root, "scripts", "changeset-guard.mjs"), workspace);
+
+    // Asserted on the refusal, not on an exit code: a gate that failed to import would also be
+    // non-zero, and a gate that never ran would be 0.
+    expect(copied.output).toContain("declares no packages");
+    expect(copied.code).toBe(1);
+  });
 
   it("still refuses an inert changeset, rather than exiting 0 having graded nothing", () => {
     const root = workspaceWithInertChangeset();
