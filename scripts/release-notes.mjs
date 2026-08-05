@@ -80,6 +80,10 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync, appendFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
+// See the note on the same import in scripts/changeset-guard.mjs: relative, not a bare specifier,
+// because this gate runs before `pnpm install`.
+import { isCliEntrypoint } from "../packages/script-utils/index.js";
+
 /** Thrown for an invocation or environment problem: exit 2, never exit 1. */
 class InvocationError extends Error {}
 
@@ -549,8 +553,9 @@ function main(argv) {
 }
 
 // See the note on the same guard in scripts/changeset-guard.mjs: importing this file for tests must
-// not run the CLI, and an environment failure must not borrow exit 1 from a real refusal.
-if (process.argv[1] !== undefined && import.meta.url === `file://${resolve(process.argv[1])}`) {
+// not run the CLI, an environment failure must not borrow exit 1 from a real refusal, and the raw
+// string comparison this replaced took three ordinary invocations of this script to a silent exit 0.
+if (isCliEntrypoint(import.meta.url)) {
   try {
     process.exit(main(process.argv.slice(2)));
   } catch (error) {

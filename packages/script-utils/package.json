@@ -1,0 +1,41 @@
+{
+  "name": "@cosyte/script-utils",
+  "version": "0.0.0",
+  "description": "Zero-dependency helpers for the repo-local gate scripts in @cosyte/* repos.",
+  "keywords": [
+    "cli",
+    "entrypoint",
+    "import-meta",
+    "scripts",
+    "cosyte"
+  ],
+  "homepage": "https://github.com/cosyte/config/tree/main/packages/script-utils#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cosyte/config.git",
+    "directory": "packages/script-utils"
+  },
+  "license": "MIT",
+  "author": "Cosyte <hello@cosyte.com> (https://cosyte.com)",
+  "type": "module",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    }
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=22.14"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

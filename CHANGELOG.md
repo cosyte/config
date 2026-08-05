@@ -6,7 +6,7 @@ scaffold, release plumbing, and supply-chain / governance hygiene. Follows
 
 **Per-package changes live in each package's own `packages/*/CHANGELOG.md`**:
 `@cosyte/tsconfig`, `@cosyte/eslint-config`, `@cosyte/prettier-config`, `@cosyte/tsup-config`,
-`@cosyte/vitest-config`, `@cosyte/test-utils`, each hand-maintained on the
+`@cosyte/vitest-config`, `@cosyte/test-utils`, `@cosyte/script-utils`, each hand-maintained on the
 **`0.0.x`-until-first-alpha** ladder (Changesets' own changelog generation is disabled). This file
 tracks only what those don't own: the workspace root, the drift manifest/check, the scaffold
 generator, CI/release, and dependency/governance hygiene. The root workspace is `private` and ships
@@ -14,7 +14,38 @@ no package, so entries here are **dated** rather than versioned.
 
 ## [Unreleased]
 
+### Added
+
+- **`@cosyte/script-utils`**, a new zero-dependency, zero-build package, so that the entry-point
+  guard every cosyte gate script needs lands **once** rather than being respelled per repo
+  (`ENTRYPOINT-STRING-COMPARE`). It ships `isCliEntrypoint(import.meta.url)`. `website` (3 CLIs) and
+  `docs` (4 `.mjs` gates, one of them the real `test:build` gate) hold the same shape and are the
+  intended next consumers.
+  - **It is imported by RELATIVE PATH inside this repo**, not as `@cosyte/script-utils`. Both gates
+    here run before `pnpm install` in `ci.yml` and `release.yml` on purpose, so there is no
+    `node_modules` for a bare specifier to resolve through. That is also why the package carries no
+    dependencies and no build step.
+
 ### Fixed
+
+- **Both release gates went silent, exit 0, having graded nothing, for three ordinary invocations**
+  (`ENTRYPOINT-STRING-COMPARE`). `scripts/changeset-guard.mjs` and `scripts/release-notes.mjs` each
+  decided whether to run their CLI body with
+  `` import.meta.url === `file://${resolve(process.argv[1])}` ``, which compares two STRINGS rather
+  than two paths. Measured on Node 22.23.1, it answers `false` for:
+  - **a symlinked invocation**, because Node resolves the main module to its real path while
+    `argv[1]` keeps the link. This one reaches the gates in this repo today.
+  - **a checkout under a path containing a space**, because `import.meta.url` percent-encodes it
+    (`/space%20dir/`) and concatenating `file://` onto a raw path does not.
+  - **an extension-less specifier** that Node or `tsx` resolved (`node scripts/gate` running
+    `scripts/gate.js`). Not reachable for a `.mjs` file, since Node's extension-less main resolution
+    tries `.js`/`.json`/`.node` only, but it is the form that bit the first attempt at this fix
+    elsewhere and the helper covers it.
+  - **Why this was worth a slice.** A gate that never ran exits 0, and so does a gate that ran and
+    passed. The two are indistinguishable from the exit code, which is the only thing anyone reads.
+    `test/is-cli-entrypoint.test.ts` therefore asserts observed behaviour rather than a bare exit 0,
+    and carries the old spelling as a live control: 5 of its cases are red against it and green
+    against `isCliEntrypoint`.
 
 - **The `attw` gate no longer breaks when it runs inside a `publish --dry-run`, which had made the
   first version bump in months un-mergeable** (`CONFIG-PREPUBLISH-ATTW-ENOENT`).
