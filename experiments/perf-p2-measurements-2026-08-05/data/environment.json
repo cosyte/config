@@ -1,0 +1,15 @@
+{
+  "capturedBy": "experiments/perf-p2-false-alarm/run.sh",
+  "runs": 200,
+  "node": "22.23.1",
+  "v8": "12.4.254.21-node.56",
+  "platform": "linux-x64",
+  "cpuModel": "Intel(R) Xeon(R) CPU E5-2680 v4 @ 2.40GHz",
+  "cpuCount": 56,
+  "cgroupCpuMax": "1200000 100000",
+  "cgroupMemoryMax": "34359738368",
+  "totalMemBytes": 168886382592,
+  "loadAvg": [10.49, 8.98, 7.98],
+  "nodeOptions": null,
+  "github": null
+}
