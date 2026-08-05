@@ -182,18 +182,24 @@
  * `pack-destination` is the same mechanism through the other half: it moves the
  * tarball away from the path attw computed.
  *
- * SO THE attw CHILD DOES NOT INHERIT THOSE TWO KEYS. WHICH SPELLINGS CAN ACTUALLY
- * REACH npm THROUGH THIS ROUTE IS NARROWER THAN WHICH ONES npm HONOURS, and the
- * difference is a shell. attw packs with `execSync("npm pack")`, which runs the
- * command through `/bin/sh`, and `npm_config_dry-run` is not a valid shell variable
- * name, so the shell never exports it. Measured both ways round:
- * `env npm_config_dry-run=true npm pack` writes no tarball, and
- * `env npm_config_dry-run=true sh -c 'npm pack'` writes one. What takes effect here
- * is the underscore spelling in either case, `npm_config_dry_run` and
- * `NPM_CONFIG_DRY_RUN`, and the same two for `pack-destination`. The match below is
- * a case-insensitive SUPERSET that covers the hyphen anyway: it costs one character
- * and it stays right if anything ever spawns npm without a shell. It is not
- * evidence that the hyphen is a live route today, and the suite says so.
+ * SO THE attw CHILD DOES NOT INHERIT THOSE TWO KEYS. THE UNDERSCORE SPELLINGS ARE
+ * THE ONES THAT ALWAYS ARRIVE, in either case: `npm_config_dry_run`,
+ * `NPM_CONFIG_DRY_RUN`, and the same two for `pack-destination`. npm ALSO honours a
+ * hyphenated key, and whether that one can reach npm here depends on something
+ * outside npm entirely. attw packs with `execSync("npm pack")`, which runs through
+ * `/bin/sh`, and `npm_config_dry-run` is not a valid shell variable name: DASH
+ * (Debian's `/bin/sh`, and the `ubuntu-latest` runner) refuses to export it, while
+ * BASH, including bash invoked as `sh`, forwards it unchanged. Both measured, in
+ * both directions. So the hyphen is dead on CI and live on a bash-as-`sh` box, and
+ * an earlier draft of this paragraph stated dash's answer as though it were a
+ * property of shells.
+ *
+ * THAT IS EXACTLY WHY THE MATCH BELOW IS A SUPERSET rather than the pair that was
+ * measured arriving. It costs one character, it is right on either shell, and it
+ * stays right if anything ever spawns npm without one. What it must not be read as
+ * is evidence that the hyphen is a live route on any given box: the suite MEASURES
+ * the shell rather than assuming it, and asserts the counterfactual that shell
+ * actually produces.
  *
  * THIS IS NOT THE DENY-LIST THE ARGUMENT GUARD RETIRED, AND THE DIFFERENCE IS THAT
  * THIS SET IS BOUNDED. Argv spellings were unbounded because the option parser

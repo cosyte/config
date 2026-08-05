@@ -28,12 +28,13 @@ no package, so entries here are **dated** rather than versioned.
     `npm_config_dry_run=true` into every lifecycle script it runs; `npm pack` honours it and writes
     no tarball; `attw` opens the path it computed from the manifest (`<dir>/<name>-<version>.tgz`)
     and never asks npm where the file went. `npm_config_pack_destination` is the same fault from the
-    other side. **Which spellings can reach npm here is narrower than which ones npm honours**: attw
-    packs with `execSync("npm pack")`, so the variable crosses a shell, and `npm_config_dry-run` is
-    not a valid shell variable name and is dropped on the way (measured both ways round). The two
-    that take effect are the underscore spelling in either case. The strip is a case-insensitive
-    superset that covers the hyphen anyway, and the suite pins it as a **limit** rather than
-    listing it as a third spelling, which is what an earlier draft of this entry did.
+    other side. **The underscore spellings always arrive; the hyphenated key npm also honours
+    depends on a shell, not on npm**: attw packs with `execSync("npm pack")`, so the variable crosses
+    `/bin/sh`, and `npm_config_dry-run` is not a valid shell identifier, which dash (Debian, and the
+    `ubuntu-latest` runner) drops and bash forwards. The strip is a case-insensitive superset that
+    covers the hyphen on either shell, and the suite MEASURES which shell it is rather than asserting
+    one answer. Two earlier drafts of that case got it wrong in opposite directions, which is
+    recorded beside it.
   - **The fix is at the source, not in the caller**: `scripts/attw.mjs` strips those two keys, and
     only those two, from the environment of the `attw` child. `npm_config_registry` and the rest are
     deliberately left alone, because they change what attw RESOLVES rather than where npm writes.

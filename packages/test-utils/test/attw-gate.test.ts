@@ -571,21 +571,43 @@ describe("the environment a nested npm pack must not inherit", () => {
   );
 
   it(
-    "the hyphen spelling npm honours cannot reach npm here, so it pins nothing",
+    "the hyphen spelling reaches npm only if /bin/sh forwards it, and the wrapper holds either way",
     () => {
-      // A LIMIT, NOT A PIN, and it is here because an earlier draft of this suite
-      // listed it beside the two above as though it were one. `npm_config_dry-run`
-      // does suppress a pack when npm is launched directly, but attw packs with
-      // `execSync("npm pack")` and a shell will not export a name that is not a
-      // valid shell identifier, so the variable never arrives. Measured on the BARE
-      // CLI, where nothing strips it: the pack succeeds and attw reports the untyped
-      // tarball normally. The wrapper's regex covers the spelling anyway, as a
-      // superset. If this ever reds, the shell hop is gone and the case above should
-      // grow the spelling rather than this one being deleted.
-      const r = runAttw(typesNotPacked, { "npm_config_dry-run": "true" });
-      expect(r.out).toContain(UNTYPED);
-      expect(r.out).not.toContain("ENOENT");
-      expect(r.code).toBe(0);
+      // WHY THIS CASE MEASURES THE SHELL INSTEAD OF ASSERTING ONE ANSWER. npm
+      // honours `npm_config_dry-run` too, but attw packs with
+      // `execSync("npm pack")`, so the variable has to cross `/bin/sh`, and that
+      // name is not a valid shell identifier. DASH (Debian's `/bin/sh`, and the
+      // `ubuntu-latest` runner) drops it; BASH, including bash invoked as `sh`,
+      // forwards it. Two earlier drafts of this case got that wrong in opposite
+      // directions: the first planted the hyphen through the wrapper as though it
+      // pinned something (it passes against the unfixed wrapper, so it pinned
+      // nothing), the second asserted dash's answer as a property of shells, which
+      // would red on a box where `/bin/sh` is bash.
+      const probe = spawnSync("sh", ["-c", "printenv npm_config_dry-run || true"], {
+        encoding: "utf8",
+        env: { ...process.env, "npm_config_dry-run": "true" },
+      });
+      const shellForwardsIt = (probe.stdout ?? "").trim() === "true";
+
+      // The bare CLI, where nothing strips anything: whichever answer this shell
+      // gives, attw's behaviour follows from it.
+      const bare = runAttw(typesNotPacked, { "npm_config_dry-run": "true" });
+      if (shellForwardsIt) {
+        expect(bare.out).toContain("ENOENT");
+        expect(bare.code).not.toBe(0);
+      } else {
+        expect(bare.out).toContain(UNTYPED);
+        expect(bare.out).not.toContain("ENOENT");
+        expect(bare.code).toBe(0);
+      }
+
+      // THE PIN, and it is the same on both shells, which is the whole reason the
+      // wrapper matches the hyphen as a superset rather than the two spellings that
+      // were measured arriving.
+      const gated = runWrapper(typesNotPacked, OFFLINE, { "npm_config_dry-run": "true" });
+      expect(gated.out).toContain(UNTYPED);
+      expect(gated.out).not.toContain("ENOENT");
+      expect(gated.code).not.toBe(0);
     },
     SPAWN_TIMEOUT,
   );
