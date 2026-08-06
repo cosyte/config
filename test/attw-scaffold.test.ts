@@ -149,12 +149,22 @@ beforeAll(() => {
   mkdirSync(probeBin, { recursive: true });
   const probeShim = join(probeBin, "attw");
   // Newline-separated so an argument containing a space cannot be read as two.
-  // The shim must also print SOMETHING: the wrapper's net-2 treats an empty
-  // transcript as a failure, deliberately.
+  //
+  // The shim must also print a PASSING attw JSON DOCUMENT. The wrapper's net 2
+  // forces `--format json` and parses stdout, so a shim that printed prose (or
+  // nothing) would red on the parse and this suite would be measuring the parse
+  // rather than the forwarding. `kind: "included"` is the one shape that passes.
+  const probeReport = JSON.stringify({
+    analysis: {
+      packageName: "attw-argv-probe",
+      packageVersion: "1.0.0",
+      types: { kind: "included" },
+    },
+  });
   writeFileSync(
     probeShim,
     `#!/bin/sh\n: > "${argvLog}"\nfor a in "$@"; do printf '%s\\n' "$a" >> "${argvLog}"; done\n` +
-      `echo "argv probe: no untyped sentence here"\n`,
+      `cat <<'ATTWJSON'\n${probeReport}\nATTWJSON\n`,
   );
   chmodSync(probeShim, 0o755);
 });
@@ -249,18 +259,28 @@ describe("a freshly scaffolded parser inherits the fixed gate", () => {
     // makes every other case die at the argument guard); the FORWARDING half was
     // not covered at all. The same gap is open upstream in `terminology`.
 
-    it("hands attw exactly `--pack . --no-definitely-typed`", () => {
+    it("hands attw exactly `--pack . --no-definitely-typed --format json`", () => {
       const r = forwardedArgv(OFFLINE);
       expect(r.code, r.out).toBe(0);
-      expect(r.argv).toEqual(["--pack", ".", "--no-definitely-typed"]);
+      expect(r.argv).toEqual(["--pack", ".", "--no-definitely-typed", "--format", "json"]);
     });
 
-    it("NEGATIVE CONTROL: without the flag, attw is handed `--pack .` and nothing else", () => {
+    it("NEGATIVE CONTROL: without the flag, attw is handed `--pack .` and the format only", () => {
       // Without this, the assertion above would pass just as well against a
       // wrapper that hard-coded the flag, which pins nothing about forwarding.
       const r = forwardedArgv([]);
       expect(r.code, r.out).toBe(0);
-      expect(r.argv).toEqual(["--pack", "."]);
+      expect(r.argv).toEqual(["--pack", ".", "--format", "json"]);
+    });
+
+    it("APPENDS `--format json` itself, because net 2 reads structure", () => {
+      // The gate's own argument, not a forwarded one: a caller cannot pass
+      // `--format` (the allow-list refuses it), and net 2 parses the document
+      // this flag produces. A wrapper that dropped it would leave net 2 parsing
+      // attw's table and reddening every green run, so this is pinned on its own
+      // rather than left riding along on the two cases above.
+      expect(forwardedArgv(OFFLINE).argv.slice(-2)).toEqual(["--format", "json"]);
+      expect(forwardedArgv([]).argv.slice(-2)).toEqual(["--format", "json"]);
     });
 
     it("forwards `--profile` with its value, in both spellings", () => {
@@ -272,8 +292,16 @@ describe("a freshly scaffolded parser inherits the fixed gate", () => {
         ".",
         "--profile",
         "node16",
+        "--format",
+        "json",
       ]);
-      expect(forwardedArgv(["--profile=node16"]).argv).toEqual(["--pack", ".", "--profile=node16"]);
+      expect(forwardedArgv(["--profile=node16"]).argv).toEqual([
+        "--pack",
+        ".",
+        "--profile=node16",
+        "--format",
+        "json",
+      ]);
     });
 
     it("refuses everything else, so `forwards it` cannot be satisfied by forwarding all", () => {
@@ -303,8 +331,12 @@ describe("a freshly scaffolded parser inherits the fixed gate", () => {
         [join(scaffold, "scripts", "attw.mjs"), ...OFFLINE],
         typesNotPacked,
       );
-      expect(gated.out).toContain(UNTYPED);
       expect(gated.code).not.toBe(0);
+      // Structurally, and WITHOUT the sentence: the emitted gate forces
+      // `--format json`, in which attw never renders the untyped prose. The
+      // negation is what carries the change into the scaffolded copy.
+      expect(gated.out).toContain("analysed this package as UNTYPED");
+      expect(gated.out).not.toContain(UNTYPED);
     },
     SPAWN_TIMEOUT,
   );

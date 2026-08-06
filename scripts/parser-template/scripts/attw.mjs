@@ -70,16 +70,26 @@
  *      alone: Node requires `./` there, so a leaf without it is not a path of
  *      ours.
  *
- *   2. POST-CHECK. If `attw` still reports an untyped package, fail. The
+ *   2. POST-CHECK, ON attw's STRUCTURED OUTPUT AND NEVER ON ITS PROSE. The
  *      preflight cannot see this case: the declaration files can be present on
  *      disk and still be absent from the tarball, because `files` (or
  *      `.npmignore`) left them out. That is the case `attw --pack` exists to
  *      catch, and the whole point here is that it catches it silently.
  *
- *   The post-check matches `attw`'s untyped sentence, which is a plain,
- *   un-chalked string in `dist/render/untyped.js`. That makes it blindable, so
- *   the arguments and config that would blind it are REFUSED rather than
- *   tolerated. See BLINDING below.
+ *      SO THIS GATE FORCES `--format json` ONTO THE CHILD AND PARSES ITS STDOUT,
+ *      then asserts one thing: `analysis.types.kind === "included"`, i.e. the
+ *      types came out of THIS package's own tarball. See MEASURED SHAPES below
+ *      for the three values that field takes and why each is the answer it is.
+ *
+ *   WHY STRUCTURE, AND NOT THE SENTENCE IT USED TO MATCH. The post-check used to
+ *   look for `attw`'s untyped sentence, a plain un-chalked string from
+ *   `dist/render/untyped.js`. Anything that suppressed or reformatted output
+ *   deleted that string, and the gate read its ABSENCE as a pass, so every such
+ *   route had to be refused BY NAME, one spelling at a time, on the argv side and
+ *   the config side both. Parsing the JSON inverts the default: a route that hides
+ *   or reformats output leaves stdout unparseable, and UNPARSEABLE FAILS CLOSED.
+ *   Routes nobody has enumerated fail closed too, which is the property a
+ *   name-scoped refusal could never have.
  *
  * WHAT THE PREFLIGHT CANNOT CONCLUDE, AND WHY IT NO LONGER TRIES. This script
  * used to end its preflight failure with a sentence naming the exit code `attw`
@@ -98,9 +108,10 @@
  *
  * BLINDING, AND WHY THE ARGUMENT GUARD IS AN ALLOW-LIST RATHER THAN A DENY-LIST.
  * Each of these was measured against the pinned `@arethetypeswrong/cli@0.18.4`
- * on a package whose tarball carries no types. Each restores the exact false
- * green by making the untyped sentence absent from what this script can read,
- * while `attw` exits 0:
+ * on a package whose tarball carries no types. Each restored the exact false
+ * green AGAINST THE SENTENCE-MATCHING NET 2 THIS FILE NO LONGER HAS, by making
+ * the untyped sentence absent from what this script can read, while `attw`
+ * exits 0:
  *
  *     --quiet / -q             output empty, exit 0
  *     --format json / -f json  sentence absent, output NOT empty, exit 0
@@ -115,6 +126,14 @@
  *     --help / -h / --version / -V
  *                              exit 0, output NOT empty, no sentence: the gate
  *                              cannot tell either from a pass
+ *
+ * EVERY ROW ABOVE NOW FAILS CLOSED ON THE PARSE, because none of them puts
+ * parseable JSON on stdout. THE ALLOW-LIST STAYS ANYWAY, and not as ceremony: it
+ * refuses these at the door with a sentence that says which argument was wrong,
+ * where the parse would only say the output was not JSON. A gate that reds for a
+ * legible reason costs the next reader minutes; one that reds for an illegible
+ * reason costs an hour. It also keeps this script forwarding only what it can
+ * vouch for, which is a smaller promise than "whatever survives the parse".
  *
  * A DENY-LIST DOES NOT HOLD HERE, AND EACH ROUND OF IT BOUGHT EXACTLY ONE MORE
  * EVASION. The first shape refused a fixed set of tokens by `arg.split("=")[0]`,
@@ -147,20 +166,87 @@
  *   because the test suites here pass it (it keeps a gate run off the network),
  *   and nothing else does.
  *
- * THE `.attw.json` REFUSAL STAYS, because it is not an argument: `readConfig()`
- * applies it after argv, so no argument guard of any shape can reach it.
+ * THE `.attw.json` DENY-LIST IS GONE, AND NOTHING REPLACED IT BY NAME. It refused
+ * exactly two keys, `quiet` and `format`: the same shape this file had just
+ * retired on the argument side, and one that could never have been widened
+ * honestly. `readConfig()` calls `setOptionValueWithSource` for EVERY key except
+ * `configPath`/`help`/`version`, and applies them AFTER argv, so a committed
+ * config beats any argument this gate passes and reaches options no list here
+ * names. Enumerating keys would have bought exactly one more evasion per round,
+ * the way enumerating spellings did.
  *
- * AND THAT REFUSAL IS NAME-SCOPED WHERE `readConfig()` IS NOT. THIS GUARD CLOSES
- * THE ARGV HALF ONLY, AND NOTHING HERE SHOULD BE READ AS CLOSING THE CONFIG
- * ROUTE. `readConfig()` calls `setOptionValueWithSource` for EVERY key except
- * `configPath`/`help`/`version`, so a committed `.attw.json` reaches options
- * this script does not name, and config wins regardless of the allow-list.
- * `definitelyTyped` pointed at a `.tgz` is one: it merges those types in and can
- * make an untyped tarball analyse as typed. It needs a committed config file,
- * which is a reviewable artifact rather than an argv nobody reads, so it is
- * latent rather than live. Do not answer it by adding a key: that is the
- * deny-list this file just retired on the argument side. Tracked as its own
- * item, not as another round here.
+ * NET 2's STRUCTURAL FORM CLOSES THE THREE CONFIG KEYS THAT BLIND *NET 2*, AND THAT
+ * IS ALL IT CLOSES. IT DOES NOT CLOSE "THE CONFIG ROUTE" AND NOTHING HERE MAY SAY
+ * SO. See WHAT THIS NET DOES NOT CLAIM below, which names the keys still open and
+ * the case they still pass. Measured on the pinned `@arethetypeswrong/cli@0.18.4`,
+ * against a package whose tarball carries no types at all:
+ *
+ *     {"quiet": true}      stdout empty                 -> unparseable -> RED
+ *     {"format": "table"}  beats the `--format json` this gate passes, and
+ *                          prints prose                 -> unparseable -> RED
+ *     {"definitelyTyped": "./x.tgz"}
+ *                          parses fine, attw exits 0, AND THE PACKAGE ANALYSES AS
+ *                          TYPED. THE PARSE ALONE DOES NOT CATCH THIS ONE; the
+ *                          `kind` assertion is what does.
+ *
+ * THE THIRD ROW IS WHY THE ASSERTION IS ABOUT `kind` AND NOT ABOUT `types` MERELY
+ * BEING TRUTHY. `checkPackage` in `@arethetypeswrong/core` sets its `types` from
+ * `pkg.typesPackage` ALONE (it never re-reads the tarball once a DefinitelyTyped
+ * package has been merged in), so a tarball containing no declaration file
+ * anywhere reports `{"kind": "@types"}` and a clean bill of health. Reproduced end
+ * to end here: an untyped package plus a committed `.attw.json` naming a
+ * `@types/<name>` tarball EXITED 0 through the sentence-matching gate, and reds
+ * through this one.
+ *
+ * MEASURED SHAPES of `analysis.types`, all three read off real runs:
+ *
+ *     false                  no TS-extension file in the
+ *                            tarball                        -> RED, the false green
+ *     {"kind": "included"}   SOME TS-extension file is in
+ *                            THIS tarball                   -> the only pass
+ *     {"kind": "@types"}     types were merged in from a
+ *                            DefinitelyTyped tarball        -> RED
+ *
+ * `kind` CANNOT BE `"@types"` BY ACCIDENT ON THIS GATE'S OWN INVOCATION, so the
+ * assertion costs no false reds. Under `--pack`, the merge happens only when
+ * `opts.definitelyTyped` is a STRING that looks like a path; the option defaults to
+ * the boolean `true`, `--definitely-typed` is refused by the allow-list, and
+ * `--no-definitely-typed` sets it false. A committed config file is the only way in.
+ *
+ * WHAT THIS NET DOES NOT CLAIM, AND MUST NOT BE READ AS CLAIMING. READ THIS BEFORE
+ * WRITING ANYWHERE THAT THE CONFIG ROUTE IS CLOSED, BECAUSE IT IS NOT.
+ *
+ *   (a) `"included"` IS NOT "THE DECLARED DECLARATIONS ARE PRESENT". It is
+ *       `containsTypes()`, which is `listFiles("/").some(ts.hasTSFileExtension)`:
+ *       ANY TypeScript-extension file anywhere in the tarball. A package that packs
+ *       one stray `.d.ts` and loses every DECLARED one is `"included"` here. Net 1
+ *       does not catch it either, because net 1 reads the manifest against the
+ *       WORKING TREE and the loss is in the `files` field. What catches that case is
+ *       attw's own problem list, and therefore attw's own exit code, which this gate
+ *       forwards rather than recomputing.
+ *
+ *   (b) SO A CONFIG THAT RELAXES attw's EXIT CODE STILL PASSES SUCH A PACKAGE, AND
+ *       THAT HALF OF THE CONFIG ROUTE IS OPEN. `ignoreRules`, `ignoreResolutions`
+ *       and `entrypoints` all do it, and `profile` sets `ignoreResolutions` for you.
+ *       MEASURED: a package whose declared `dist/index.d.ts` is left out of `files`
+ *       while an undeclared `dist/internal.d.ts` is packed reds on bare attw (exit
+ *       1, `NoTypes` on all four resolutions) and passes this gate with either
+ *       `{"ignoreRules": ["untyped-resolution"]}` or `{"ignoreResolutions": [...]}`.
+ *       `ignoreResolutions` is not even validated by `readConfig()`.
+ *       THIS REPRODUCES ON THE BASE TOO: it is not something this shape introduced,
+ *       and it is not something this shape fixed. Do not answer it by adding keys
+ *       here; that is the deny-list this file retired twice. It wants its own item.
+ *
+ *   (c) THE PASS LINE IS WORDED TO MATCH (a) AND (b), and must stay that way. It
+ *       claims only what `kind === "included"` proves, which is that SOME
+ *       TypeScript-extension file is in the tarball and that it was not merged in
+ *       from `@types`. IT MUST NOT SAY "the declarations" or "this package's
+ *       types": both assert (a)'s missing half. It never says "no problems" unless
+ *       the document really is empty, and it PRINTS any problem kinds attw
+ *       reported but did not gate.
+ *
+ * No repo in the org ships a `.attw.json` today, so everything above, closed and
+ * open alike, is LATENT rather than live.
  *
  * THE NESTED `npm pack`, AND THE ONE THING IN THE ENVIRONMENT THAT BREAKS IT.
  * `attw --pack .` shells out to a real `npm pack` and then opens the tarball at a
@@ -230,7 +316,6 @@ import { readFileSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const ATTW_BIN = fileURLToPath(new URL("../node_modules/.bin/attw", import.meta.url));
-const UNTYPED = "This package does not contain types.";
 const args = process.argv.slice(2);
 
 const die = (msg) => {
@@ -265,20 +350,6 @@ for (let i = 0; i < args.length; i++) {
     forwarded.push(value);
   }
 }
-try {
-  const config = JSON.parse(readFileSync(".attw.json", "utf8"));
-  const set = ["quiet", "format"].filter((k) => k in config);
-  if (set.length > 0) {
-    die(
-      `.attw.json sets ${set.join(", ")}. These keys are refused wholesale, by name and\n` +
-        `  not by value: readConfig() applies them after argv, this gate reads attw's\n` +
-        `  printed output, and attw exits 0 on an untyped package.`,
-    );
-  }
-} catch {
-  // No .attw.json, or unreadable/invalid. attw itself reports the latter.
-}
-
 /**
  * Every relative path `package.json` promises to ship, deduped and normalized to
  * a leading `./` so two spellings of one promise are not checked twice.
@@ -315,6 +386,39 @@ function declaredArtifacts(pkg) {
   };
   walk(pkg.exports);
   return [...found];
+}
+
+/**
+ * A readable digest of attw's JSON problem map, or `null` if there is not one.
+ *
+ * The gate asks for `--format json` because net 2 reads structure, but that costs
+ * the human the emoji table attw prints by default, and this file's whole point is
+ * that a gate must report its own failure legibly. So the failure path renders the
+ * problem KINDS and the subpaths they hit. Returns `null` (caller falls back to the
+ * raw bytes) when the document cannot be read at all, which on the failure path
+ * includes attw exiting mid-write and truncating its own JSON.
+ *
+ * @param {string} out attw's stdout.
+ * @returns {string | null} A digest, or null if none could be derived.
+ */
+function summarizeProblems(out) {
+  let doc;
+  try {
+    doc = JSON.parse(out);
+  } catch {
+    return null;
+  }
+  const problems = doc?.problems;
+  if (!problems || typeof problems !== "object") return null;
+  const lines = [];
+  for (const [kind, entries] of Object.entries(problems)) {
+    const where = (Array.isArray(entries) ? entries : [])
+      .map((p) => p?.entrypoint ?? p?.subpath ?? p?.resolutionKind)
+      .filter((s) => typeof s === "string");
+    lines.push(`  ${kind}${where.length > 0 ? `: ${[...new Set(where)].join(", ")}` : ``}`);
+  }
+  if (lines.length === 0) return null;
+  return [`attw reported ${lines.length} problem kind(s):`, ...lines].join("\n");
 }
 
 let pkg;
@@ -361,30 +465,124 @@ const PACK_PLACEMENT_CONFIG = /^npm_config_(dry[_-]run|pack[_-]destination)$/i;
 const env = Object.fromEntries(
   Object.entries(process.env).filter(([key]) => !PACK_PLACEMENT_CONFIG.test(key)),
 );
-const res = spawnSync(ATTW_BIN, ["--pack", ".", ...forwarded], {
+// `--format json` is APPENDED BY THIS GATE, never accepted from a caller: net 2
+// reads structure, so the structure has to be there. A `.attw.json` can still
+// override it (config is applied after argv), and that is handled where it lands,
+// as an unparseable transcript, rather than by refusing the key by name.
+// MAXBUFFER IS SET BECAUSE `--format json` IS 20 TO 50 TIMES THE TABLE'S SIZE, and
+// spawnSync's default is 1 MiB. Measured here: ~56 kB for this repo's own
+// two-entrypoint package, and ~245 kB for ONE entrypoint over an unbundled
+// declaration tree. That puts the default's ceiling at a few dozen entrypoints, at
+// which point a package the previous gate passed dies on ENOBUFS instead. A gate
+// that reds because its own reader was too small is a false red, so the buffer is
+// sized past anything a package here will produce and the failure is named below
+// rather than left as `spawnSync ... ENOBUFS`.
+const MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
+const res = spawnSync(ATTW_BIN, ["--pack", ".", ...forwarded, "--format", "json"], {
   encoding: "utf8",
   stdio: ["inherit", "pipe", "pipe"],
   env,
+  maxBuffer: MAX_OUTPUT_BYTES,
 });
-if (res.error) die(`could not run ${ATTW_BIN}: ${res.error.message}`);
-const output = `${res.stdout ?? ""}${res.stderr ?? ""}`;
-process.stdout.write(res.stdout ?? "");
-process.stderr.write(res.stderr ?? "");
-if (res.status !== 0) process.exit(res.status ?? 1);
-
-// ---- Net 2: post-check ------------------------------------------------------
-// An empty transcript means the post-check read nothing, by some route not listed
-// under BLINDING above. Treat that as a failure rather than as a pass: this gate
-// is only as good as the output it got to see.
-if (output.trim() === "") {
-  die(`attw exited 0 but printed nothing, so nothing was checked.`);
+if (res.error) {
+  const why =
+    /** @type {NodeJS.ErrnoException} */ (res.error).code === "ENOBUFS"
+      ? `attw's JSON output exceeded this gate's ${MAX_OUTPUT_BYTES}-byte read buffer, so the\n` +
+        `  gate could not read what it asked for. This is the GATE's limit, not a problem\n` +
+        `  with the package. Raise MAX_OUTPUT_BYTES in this file.`
+      : `could not run ${ATTW_BIN}: ${res.error.message}`;
+  die(why);
 }
-if (output.includes(UNTYPED)) {
+const stdout = res.stdout ?? "";
+process.stderr.write(res.stderr ?? "");
+if (res.status !== 0) {
+  // attw judged the package itself. Its own red is a red: forward its status rather
+  // than re-deciding it. But `--format json` means the transcript is a document and
+  // not the table a human could read, so summarise the problems first and keep the
+  // raw bytes as the fallback. attw calls process.exit() straight after writing on
+  // this path, so a large document can arrive TRUNCATED and unparseable; that is
+  // exactly when the raw dump is the only thing left.
+  process.stdout.write(`${summarizeProblems(stdout) ?? stdout}\n`);
+  process.exit(res.status ?? 1);
+}
+
+// ---- Net 2: post-check, on the structure and never on the prose -------------
+// STDOUT ONLY. attw writes its JSON document to stdout and nothing else to it, so
+// folding stderr in here would let one warning line turn every run into a parse
+// failure. stderr is forwarded to the human above, unread.
+let report;
+try {
+  report = JSON.parse(stdout);
+} catch {
   die(
-    `attw reported "${UNTYPED}" and exited 0.\n` +
+    stdout.trim() === ""
+      ? `attw exited 0 and printed nothing to stdout, so nothing was checked.\n` +
+          `  This gate passes --format json and reads the document attw prints. An empty\n` +
+          `  transcript means something suppressed it. A .attw.json setting "quiet" is the\n` +
+          `  measured route. Refused rather than read as a pass: this gate is only as good\n` +
+          `  as the output it got to see.`
+      : `attw exited 0 but stdout was not the JSON document this gate asked for.\n` +
+          `  It passes --format json and parses the result. Anything that reformats or\n` +
+          `  intercepts that output lands here. A .attw.json setting "format" beats the\n` +
+          `  flag, because readConfig() applies the file after argv. Refused rather than\n` +
+          `  read as a pass. What attw actually printed:\n\n` +
+          stdout,
+  );
+}
+
+const types = report?.analysis?.types;
+if (types === undefined) {
+  // Not a blinding route: attw's own document shape changed under us. Say so,
+  // rather than reporting it as an untyped package.
+  die(
+    `attw's JSON document has no analysis.types field, so this gate could not tell\n` +
+      `  whether the tarball carried types. That is an attw shape change, not a\n` +
+      `  package problem. Re-read scripts/attw.mjs's docblock against the installed\n` +
+      `  @arethetypeswrong/cli before adjusting anything.`,
+  );
+}
+if (types === false) {
+  die(
+    `attw analysed this package as UNTYPED and exited 0.\n` +
       `  This package ships types, so that means the tarball did not carry them.\n` +
       `  Check the "files" field and .npmignore. Reported as a failure here because\n` +
       `  attw's own exit code cannot: getExitCode() returns 0 whenever the analysis\n` +
       `  found no types at all, before it ever looks at the problem list.`,
   );
 }
+if (types.kind !== "included") {
+  die(
+    `attw analysed this package as typed, but the types did NOT come from its own\n` +
+      `  tarball: analysis.types.kind is "${types.kind}"` +
+      (types.packageName ? `, merged in from ${types.packageName}` : ``) +
+      `.\n` +
+      `  checkPackage() sets its verdict from pkg.typesPackage alone, so a tarball with\n` +
+      `  no declaration file in it at all analyses as typed once a DefinitelyTyped\n` +
+      `  package is merged in. A committed .attw.json naming a .tgz is the only way to\n` +
+      `  reach this on --pack. This gate exists to prove the types it analysed came out\n` +
+      `  of THIS tarball rather than somewhere else, so only "included" passes. (That is\n` +
+      `  a claim about ORIGIN, not about the declared declarations being present: see\n` +
+      `  "WHAT THIS NET DOES NOT CLAIM" in the docblock.)`,
+  );
+}
+
+// WHAT THIS LINE MAY AND MAY NOT SAY. `kind === "included"` is `containsTypes()`,
+// which is "some file in the tarball has a TypeScript extension" and NOT "the
+// declarations `package.json` declared are the ones present". So the pass claims
+// the former only. It also must not say "no problems": `getExitCode` filters
+// `analysis.problems` through `ignoreRules`/`ignoreResolutions` (and `--profile`
+// sets the latter), so attw can exit 0 with a non-empty problem list, and an
+// earlier draft of this line asserted "no problems" over exactly that case. The
+// document carries the UNFILTERED list, so the suppressed ones are printed instead
+// of being swallowed by the exit code.
+const kinds = Object.keys(report.problems ?? {});
+process.stdout.write(
+  `✓ attw gate: ${report.analysis.packageName}@${report.analysis.packageVersion}\n` +
+    `  a TypeScript-extension file is present in this tarball, and no @types package\n` +
+    `  was merged in (kind=included).\n` +
+    (kinds.length === 0
+      ? `  attw exited 0 and reported no problems.\n`
+      : `  attw exited 0, but it REPORTED ${kinds.length} problem kind(s) that its exit code\n` +
+        `  did not gate (--profile / ignoreRules / ignoreResolutions suppress the status,\n` +
+        `  not the finding): ${kinds.join(", ")}.\n`),
+);

@@ -28,6 +28,53 @@ no package, so entries here are **dated** rather than versioned.
 
 ### Fixed
 
+- **The `attw` gate's post-check now reads attw's STRUCTURED output, so the three `.attw.json` keys
+  that blinded it no longer can** (`ATTW-CONFIG-ROUTE-BLINDS-THE-GATE`). `readConfig()` applies the file AFTER
+  argv and calls `setOptionValueWithSource` for every key except `configPath`/`help`/`version`, so a
+  config beats every argument the gate passes and the argument allow-list never reached it. The gate
+  now forces `--format json` onto the `attw` child, parses stdout, and asserts
+  `analysis.types.kind === "included"`.
+  - **The route that mattered, reproduced end to end.** `{"definitelyTyped": "./x.tgz"}` naming a
+    `@types/<name>` tarball makes an untyped package analyse as fully typed: `checkPackage` in
+    `@arethetypeswrong/core` sets its verdict from `pkg.typesPackage` alone and never re-reads the
+    tarball once a DefinitelyTyped package is merged in. Measured against a package whose tarball
+    carries no declaration file anywhere, the previous gate **exited 0**; it now reds. The merge
+    happens even when the gate passes `--no-definitely-typed`, because the config overwrites the flag.
+  - **The parse closes the other half, and it fails CLOSED.** `{"quiet": true}` empties stdout and
+    `{"format": "table"}` beats the gate's own `--format json`; neither leaves parseable JSON, so both
+    red without being named anywhere. Routes nobody has enumerated red the same way, which is the
+    property a name-scoped refusal could never have.
+  - **The two-key `.attw.json` deny-list is DELETED, not extended.** It refused `quiet` and `format`
+    by name, which is the shape the argument guard had already retired, and `definitelyTyped` walked
+    straight past it. No key list replaced it.
+  - **Named for what it checks, and NO WIDER. The config route as a whole is NOT closed, and the
+    prose says so rather than implying otherwise.** `"included"` is `containsTypes()`, meaning SOME
+    TypeScript-extension file is in the tarball, not that the DECLARED declarations are. A package
+    that leaves its declared `dist/index.d.ts` out of `files` while packing an undeclared
+    `dist/internal.d.ts` is caught only by attw's own exit code, and a config setting `ignoreRules`,
+    `ignoreResolutions` (which `readConfig()` does not even validate), `entrypoints` or `profile`
+    relaxes that exit code and passes it. Measured on the base as well as here, so it is neither
+    introduced nor fixed by this change; it wants its own item. **No repo in the org ships a
+    `.attw.json` today, so all of it, closed and open alike, is LATENT rather than live.**
+  - **The pass line was corrected to match.** An earlier draft said "attw found no problems", which
+    is false whenever `--profile` (which several sibling manifests pass) suppresses a resolution:
+    `getExitCode` filters the problem list for the STATUS while `analysis.problems` keeps every
+    finding. The gate now prints the suppressed kinds instead of swallowing them, and the failure
+    path renders a problem digest rather than dumping raw JSON.
+  - **`maxBuffer` is set (64 MiB).** `--format json` is 20 to 50 times the size of the table the gate
+    used to read (~56 kB for this repo's own package; ~245 kB for one entrypoint over an unbundled
+    declaration tree), and `spawnSync`'s 1 MiB default would have turned a large but healthy package
+    into an `ENOBUFS` red the previous gate passed.
+  - Carried into both byte-identical copies of the wrapper, so every newly scaffolded parser inherits
+    it, and `scripts/parser-template/CLAUDE.md` now states which half is closed and which half is
+    still open. **8 new cases** pin it (18 to 26 `it()` declarations in
+    `packages/test-utils/test/attw-gate.test.ts`, measured). The cases that close a route were each
+    measured RED against the previous gate; the one pinning the still-open `ignoreRules` hole is green
+    on both sides BY DESIGN, because its job is to red if someone closes that hole without correcting
+    the prose.
+  - **No changeset, deliberately:** `scripts/` and `test/` are in no package's `files`, so no
+    published tarball changes and a changeset would burn a version on identical bytes.
+
 - **Both release gates went silent, exit 0, having graded nothing, for three ordinary invocations**
   (`ENTRYPOINT-STRING-COMPARE`). `scripts/changeset-guard.mjs` and `scripts/release-notes.mjs` each
   decided whether to run their CLI body with

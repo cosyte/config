@@ -6,9 +6,11 @@
  *
  *  1. THE UPSTREAM BEHAVIOUR THE WRAPPER EXISTS FOR. `attw` prints "This package
  *     does not contain types." and exits **0**. If a future `attw` upgrade fixes
- *     that exit code or rewords the sentence, this test reds, which is the point.
- *     A guard that silently stops matching is worse than no guard, and this is the
- *     one net in `attw.mjs` that depends on a string.
+ *     that exit code, this test reds, which is the point. NOTE THAT THE WRAPPER NO
+ *     LONGER READS THAT SENTENCE: net 2 forces `--format json` and asserts on
+ *     `analysis.types.kind`, so a REWORDING is now this counterfactual's problem
+ *     and not the gate's. The sentence is pinned here as evidence of the upstream
+ *     behaviour, never as the gate's mechanism.
  *  2. That the wrapper turns that exit 0 into a failure.
  *  3. That the preflight catches a declared-but-missing artifact. That is the
  *     shape the defect actually takes here: `tsup` writes JS before declarations,
@@ -21,13 +23,23 @@
  *  5. THE GATE'S MOST BASIC OBLIGATION, that a real `attw` failure still fails.
  *     Without this, every other test here would pass on a wrapper that swallowed
  *     attw's own exit status, because net 2 reds the untyped fixture regardless.
- *  6. THE ARGUMENT ALLOW-LIST that keeps net 2 readable, and the `.attw.json`
- *     refusal beside it. Each spelling in that table was measured on this repo
- *     either to make the untyped sentence unreadable while attw exits 0, or to be
- *     indistinguishable from a pass. The guard is an allow-list because a
- *     deny-list bought exactly one more evasion per round: the table is kept as
- *     evidence, not as the definition of what is refused.
- *  7. THE INHERITED npm CONFIG THAT BREAKS THE NESTED `npm pack`. `attw --pack`
+ *  6. THE ARGUMENT ALLOW-LIST that keeps net 2 legible. Each spelling in that
+ *     table was measured on this repo either to make the untyped sentence
+ *     unreadable while attw exits 0, or to be indistinguishable from a pass. The
+ *     guard is an allow-list because a deny-list bought exactly one more evasion
+ *     per round: the table is kept as evidence, not as the definition of what is
+ *     refused.
+ *  7. THE CONFIG ROUTE, WHICH IS THE HALF THE ALLOW-LIST NEVER REACHED.
+ *     `readConfig()` applies a committed `.attw.json` AFTER argv and calls
+ *     `setOptionValueWithSource` for every key but three, so a config beats any
+ *     argument the gate passes. There is no key deny-list any more; net 2's
+ *     structural form is what closes it, and these cases pin each half:
+ *     `quiet` and `format` land as an unparseable transcript, and
+ *     `definitelyTyped`, which parses FINE and exits 0, lands on the
+ *     `kind === "included"` assertion. That last one is the case the whole change
+ *     is for, and it is pinned with its own counterfactual because it exited 0
+ *     through the gate's previous shape.
+ *  8. THE INHERITED npm CONFIG THAT BREAKS THE NESTED `npm pack`. `attw --pack`
  *     runs `npm pack` and opens a path it computed, so `npm_config_dry_run` (which
  *     `pnpm publish --dry-run` sets in every lifecycle script, and `prepublishOnly`
  *     runs this suite) or `npm_config_pack_destination` leaves it opening a file
@@ -44,7 +56,15 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -54,6 +74,14 @@ const PKG_ROOT = process.cwd();
 const WRAPPER = join(PKG_ROOT, "scripts", "attw.mjs");
 const ATTW_BIN = join(PKG_ROOT, "node_modules", ".bin", "attw");
 const UNTYPED = "This package does not contain types.";
+/**
+ * THE WRAPPER'S OWN untyped verdict, which is what net 2 now produces. It is a
+ * different string from `UNTYPED` on purpose: the gate forces `--format json`, in
+ * which attw renders no prose at all, so the sentence above is the BARE CLI's
+ * behaviour and this one is the GATE's. Cases that mean "the gate got to analyse
+ * the pack" assert this; cases that mean "attw itself said so" assert `UNTYPED`.
+ */
+const GATE_UNTYPED = "analysed this package as UNTYPED";
 const OFFLINE = ["--no-definitely-typed"];
 // Each case shells out to `attw --pack`, which runs a real `npm pack`; two of those
 // in one test comfortably exceeds this suite's default timeout.
@@ -226,8 +254,13 @@ describe("scripts/attw.mjs", () => {
     "fails when the tarball carries no types, where attw exits 0",
     () => {
       const r = runWrapper(typesNotPacked);
-      expect(r.out).toContain(UNTYPED);
       expect(r.code).not.toBe(0);
+      expect(r.out).toContain("analysed this package as UNTYPED");
+      // AND IT GOT THERE WITHOUT THE SENTENCE. The gate forces `--format json`, in
+      // which attw never renders the untyped prose at all, so this assertion is
+      // what distinguishes the structural net from the string match it replaced:
+      // it would fail against any gate that still keyed on the sentence.
+      expect(r.out).not.toContain(UNTYPED);
     },
     SPAWN_TIMEOUT,
   );
@@ -489,34 +522,347 @@ describe("the argument allow-list that keeps the post-check readable", () => {
     },
     SPAWN_TIMEOUT,
   );
+});
+
+describe("the config route, which no argument guard can reach", () => {
+  // `readConfig()` applies a committed `.attw.json` AFTER argv and calls
+  // `setOptionValueWithSource` for every key except configPath/help/version, so a
+  // config file beats every argument this gate passes. There is no key deny-list
+  // any more. That was the shape the argument guard retired, and it refused only
+  // `quiet` and `format` while `definitelyTyped` walked past it. Net 2's
+  // structural form is what closes the route, and these cases pin each half
+  // against the mechanism that closes it.
+
+  /** A package whose tarball carries no types, plus whatever config the case needs. */
+  function untypedWithConfig(name: string, config: unknown): string {
+    const dir = join(root, name);
+    writePkg(
+      dir,
+      {
+        name: `attw-gate-fixture-${name}`,
+        version: "1.0.0",
+        main: "./index.js",
+        types: "./index.d.ts",
+        files: ["index.js"],
+      },
+      {
+        // A REAL named export, so that once types are merged in attw finds no
+        // problem to red on. Without it the DefinitelyTyped case below reds on
+        // `NamedExports` and would pass for a reason that is not this gate's.
+        "index.js": "module.exports.a = 1;\n",
+        "index.d.ts": "export declare const a: number;\n",
+        ".attw.json": JSON.stringify(config),
+      },
+    );
+    return dir;
+  }
 
   it(
-    "refuses a .attw.json that sets quiet or format",
+    'reds on {"quiet": true}, which empties the transcript',
     () => {
-      const dir = join(root, "config-blinded");
-      writePkg(
-        dir,
-        {
-          name: "attw-gate-fixture-configblind",
-          version: "1.0.0",
-          main: "./index.js",
-          types: "./index.d.ts",
-          files: ["index.js"],
-        },
-        {
-          "index.js": "module.exports = {};\n",
-          "index.d.ts": "export declare const a: number;\n",
-          ".attw.json": JSON.stringify({ quiet: true }),
-        },
-      );
-      // Bare attw takes the config and goes silent: exit 0 over an untyped pack.
+      const dir = untypedWithConfig("config-quiet", { quiet: true });
+      // The counterfactual: bare attw takes the config and goes silent, exit 0.
       const bare = runAttw(dir);
       expect(bare.code).toBe(0);
       expect(bare.out).not.toContain(UNTYPED);
 
       const r = runWrapper(dir);
       expect(r.code).not.toBe(0);
-      expect(r.out).toContain(".attw.json");
+      expect(r.out).toContain("printed nothing to stdout");
+    },
+    SPAWN_TIMEOUT,
+  );
+
+  it(
+    'reds on {"format": "table"}, which BEATS the --format json the gate passes',
+    () => {
+      // This is the half that proves config wins over argv: the gate appends
+      // `--format json`, and readConfig overwrites it afterwards.
+      const dir = untypedWithConfig("config-format", { format: "table" });
+      const r = runWrapper(dir);
+      expect(r.code).not.toBe(0);
+      expect(r.out).toContain("not the JSON document this gate asked for");
+    },
+    SPAWN_TIMEOUT,
+  );
+
+  it(
+    'reds on {"definitelyTyped": "<@types tarball>"}, the one the parse alone does NOT catch',
+    () => {
+      // THE CASE THE STRUCTURAL NET EXISTS FOR, and the one that exited 0 through
+      // this gate's previous shape. `checkPackage` sets its verdict from
+      // `pkg.typesPackage` ALONE, so merging a DefinitelyTyped tarball in makes a
+      // tarball with no declaration file anywhere analyse as fully typed. The
+      // output is valid JSON and attw exits 0, so nothing about parsing catches
+      // it: `analysis.types.kind` is what does.
+      const dtSrc = join(root, "dt-source");
+      writePkg(
+        dtSrc,
+        {
+          // `@types/<name>` for the victim below, so the merged declarations land
+          // where TypeScript actually resolves them. A mis-named types package
+          // merges in and then fails to resolve, which reds for the wrong reason.
+          name: "@types/attw-gate-fixture-config-dt",
+          version: "1.0.0",
+          types: "./index.d.ts",
+          files: ["index.d.ts"],
+          homepage: "https://example.invalid",
+        },
+        { "index.d.ts": "export declare const a: number;\n" },
+      );
+      const packed = run("npm", ["pack", "--silent"], dtSrc);
+      expect(packed.code, packed.out).toBe(0);
+      const tgz = packed.out.trim().split("\n").filter(Boolean).pop() ?? "";
+      expect(tgz).toMatch(/\.tgz$/);
+
+      const dir = untypedWithConfig("config-dt", { definitelyTyped: "./types.tgz" });
+      copyFileSync(join(dtSrc, tgz), join(dir, "types.tgz"));
+
+      // THE COUNTERFACTUAL, MEASURED RATHER THAN ASSERTED: bare attw exits 0, the
+      // untyped sentence never appears, and the JSON says the package is typed.
+      // Without this the wrapper's red below could be any old failure.
+      //
+      // NOTE THAT THESE RUNS PASS `--no-definitely-typed`, WHICH SETS THE OPTION
+      // FALSE, AND THE MERGE HAPPENS ANYWAY. That is the config route in one
+      // assertion: readConfig() runs after argv, so the file overwrites even an
+      // explicit flag. It also keeps these runs off the network, since the types
+      // come from the local tarball.
+      const bare = runAttw(dir);
+      expect(bare.code).toBe(0);
+      expect(bare.out).not.toContain(UNTYPED);
+      const asJson = run(ATTW_BIN, ["--pack", ".", ...OFFLINE, "--format", "json"], dir);
+      expect(asJson.code).toBe(0);
+      const report = JSON.parse(asJson.out) as { analysis: { types: { kind: string } } };
+      expect(report.analysis.types.kind).toBe("@types");
+
+      // ...and the gate reds on it, naming the reason.
+      const r = runWrapper(dir);
+      expect(r.code).not.toBe(0);
+      expect(r.out).toContain("did NOT come from its own");
+      expect(r.out).toContain('"@types"');
+    },
+    SPAWN_TIMEOUT,
+  );
+
+  it(
+    "CONTROL: the same fixture WITHOUT a config still reds, and a well-formed one is still green",
+    () => {
+      // The first half stops the cases above passing because the fixture is
+      // broken in some way that has nothing to do with the config. The second is
+      // the over-strictness control: `kind === "included"` must not red a package
+      // that legitimately ships its own types, or the gate is worse than useless.
+      const noConfig = join(root, "config-control");
+      writePkg(
+        noConfig,
+        {
+          name: "attw-gate-fixture-config-control",
+          version: "1.0.0",
+          main: "./index.js",
+          types: "./index.d.ts",
+          files: ["index.js"],
+        },
+        {
+          "index.js": "module.exports.a = 1;\n",
+          "index.d.ts": "export declare const a: number;\n",
+        },
+      );
+      const r = runWrapper(noConfig);
+      expect(r.code).not.toBe(0);
+      expect(r.out).toContain("analysed this package as UNTYPED");
+
+      const green = runWrapper(wellFormed);
+      expect(green.code).toBe(0);
+      expect(green.out).toContain("kind=included");
+    },
+    SPAWN_TIMEOUT,
+  );
+});
+
+describe("what the pass line may and may not claim", () => {
+  /**
+   * A package whose declarations are reachable only through `exports`, so node10
+   * (which does not understand `exports`) cannot resolve them. attw reds on it at
+   * `strict` and exits 0 under `--profile node16`, which suppresses node10. That
+   * makes it the fixture for the difference between attw's STATUS and attw's
+   * FINDINGS: `getExitCode` filters `analysis.problems` for the status, while the
+   * JSON document keeps the unfiltered list.
+   */
+  let node10Unresolvable: string;
+
+  beforeAll(() => {
+    node10Unresolvable = join(root, "node10-unresolvable");
+    mkdirSync(join(node10Unresolvable, "dist"), { recursive: true });
+    writeFileSync(
+      join(node10Unresolvable, "package.json"),
+      JSON.stringify(
+        {
+          name: "attw-gate-fixture-node10",
+          version: "1.0.0",
+          type: "module",
+          exports: {
+            ".": {
+              import: { types: "./dist/index.d.ts", default: "./dist/index.mjs" },
+              require: { types: "./dist/index.d.cts", default: "./dist/index.cjs" },
+            },
+          },
+          files: ["dist"],
+        },
+        null,
+        2,
+      ),
+    );
+    for (const [name, body] of Object.entries({
+      "dist/index.mjs": "export const a = 1;\n",
+      "dist/index.d.ts": "export declare const a: number;\n",
+      "dist/index.cjs": "module.exports.a = 1;\n",
+      "dist/index.d.cts": "export declare const a: number;\n",
+    })) {
+      writeFileSync(join(node10Unresolvable, name), body);
+    }
+  });
+
+  it(
+    "never says `no problems` when attw reported some and only its STATUS was suppressed",
+    () => {
+      // THE COUNTERFACTUAL FIRST, so this cannot pass on a fixture with no problem
+      // to suppress: strict reds, and `--profile node16` (which SEVERAL SIBLING
+      // MANIFESTS PASS, so this is not an exotic invocation) turns the same package
+      // green while the finding stays in the document.
+      const strict = runAttw(node10Unresolvable);
+      expect(strict.code).not.toBe(0);
+      const suppressed = run(
+        ATTW_BIN,
+        ["--pack", ".", ...OFFLINE, "--profile", "node16"],
+        node10Unresolvable,
+      );
+      expect(suppressed.code).toBe(0);
+
+      const r = runWrapper(node10Unresolvable, [...OFFLINE, "--profile", "node16"]);
+      expect(r.code).toBe(0);
+      // BOTH WORDINGS OF THE FALSE CLAIM, pinned as absent, because the string moved
+      // once already. The draft that shipped wrong said `and attw found no problems.`
+      // over exactly this case; the current line says `reported no problems`. Pinning
+      // only the current spelling would not have caught the draft it replaced, which
+      // is the whole reason this case exists.
+      expect(r.out).not.toContain("found no problems");
+      expect(r.out).not.toContain("reported no problems");
+      // ...and the finding is surfaced rather than swallowed by the exit code.
+      expect(r.out).toContain("NoResolution");
+    },
+    SPAWN_TIMEOUT,
+  );
+
+  it(
+    "CONTROL: a package with genuinely no problems DOES say so",
+    () => {
+      // Without this the assertion above is satisfied by a gate that never claims
+      // a clean bill of health, which would make the message useless.
+      const r = runWrapper(wellFormed);
+      expect(r.code).toBe(0);
+      expect(r.out).toContain("reported no problems");
+    },
+    SPAWN_TIMEOUT,
+  );
+
+  it(
+    "renders a readable problem digest on the failure path, not raw JSON",
+    () => {
+      // The gate asks for `--format json` because net 2 reads structure, which
+      // costs the human attw's table. This file calls itself a gate "made to report
+      // its own failure", so the digest is what pays that back.
+      const r = runWrapper(node10Unresolvable);
+      expect(r.code).not.toBe(0);
+      expect(r.out).toContain("attw reported 1 problem kind(s)");
+      expect(r.out).toContain("NoResolution");
+      expect(r.out).not.toContain('{"analysis"');
+    },
+    SPAWN_TIMEOUT,
+  );
+
+  it(
+    "DISCLOSED AND STILL OPEN: a config that relaxes attw's exit code passes a package whose DECLARED types are not packed",
+    () => {
+      // THIS CASE IS EXPECTED TO PASS. It is pinned because the docblock and
+      // `scripts/parser-template/CLAUDE.md` both state it as an open hole, and a
+      // disclosure that names a case must name a real one. If someone closes it,
+      // this reds and the prose has to be corrected in the same change.
+      //
+      // `kind === "included"` is `containsTypes()`: SOME TypeScript-extension file
+      // in the tarball. Here the DECLARED `dist/index.d.ts` is left out of `files`
+      // while an undeclared `dist/internal.d.ts` is packed, so the declared promise
+      // is broken and `kind` is still "included".
+      const dir = join(root, "stray-ts");
+      mkdirSync(join(dir, "dist"), { recursive: true });
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify(
+          {
+            name: "attw-gate-fixture-strayts",
+            version: "1.0.0",
+            main: "./dist/index.js",
+            types: "./dist/index.d.ts",
+            files: ["dist/index.js", "dist/internal.d.ts"],
+          },
+          null,
+          2,
+        ),
+      );
+      writeFileSync(join(dir, "dist/index.js"), "module.exports.a = 1;\n");
+      writeFileSync(join(dir, "dist/index.d.ts"), "export declare const a: number;\n");
+      writeFileSync(join(dir, "dist/internal.d.ts"), "export declare const b: number;\n");
+
+      // Without a config the gate reds, on attw's own status.
+      expect(runWrapper(dir).code).not.toBe(0);
+
+      // With one that relaxes that status, it passes. THIS IS THE OPEN HALF.
+      writeFileSync(
+        join(dir, ".attw.json"),
+        JSON.stringify({ ignoreRules: ["untyped-resolution"] }),
+      );
+      const r = runWrapper(dir);
+      expect(r.code).toBe(0);
+      // The one thing the gate still does here: it prints the finding it did not gate.
+      expect(r.out).toContain("UntypedResolution");
+      expect(r.out).not.toContain("reported no problems");
+    },
+    SPAWN_TIMEOUT,
+  );
+
+  it(
+    "reads a JSON document larger than spawnSync's default 1 MiB buffer",
+    () => {
+      // `--format json` is 20 to 50 times the size of the table this gate used to
+      // read, so the default buffer is reachable by an ordinary package with many
+      // entrypoints or unbundled declarations. Without maxBuffer the gate dies on
+      // ENOBUFS: a RED on a package attw passed, and an illegible one.
+      const dir = join(root, "big-output");
+      mkdirSync(join(dir, "node_modules", ".bin"), { recursive: true });
+      mkdirSync(join(dir, "scripts"), { recursive: true });
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify({ name: "attw-gate-fixture-big", version: "1.0.0", private: true }, null, 2),
+      );
+      writeFileSync(join(dir, "scripts", "attw.mjs"), readFileSync(WRAPPER));
+      const shim = join(dir, "node_modules", ".bin", "attw");
+      // A valid document, deliberately past the default buffer.
+      writeFileSync(
+        shim,
+        `#!/usr/bin/env node\n` +
+          `const pad = "x".repeat(2 * 1024 * 1024);\n` +
+          `process.stdout.write(JSON.stringify({ analysis: { packageName: "big", ` +
+          `packageVersion: "1.0.0", types: { kind: "included" }, pad } }) + "\\n");\n`,
+      );
+      chmodSync(shim, 0o755);
+
+      // THE CONTROL: the document really is past the default, so this case is not
+      // vacuous. Measured here rather than assumed from the padding constant.
+      const emitted = run(process.execPath, [shim], dir);
+      expect(emitted.out.length).toBeGreaterThan(1024 * 1024);
+
+      const r = run(process.execPath, [join(dir, "scripts", "attw.mjs")], dir);
+      expect(r.out).not.toContain("ENOBUFS");
+      expect(r.code).toBe(0);
+      expect(r.out).toContain("kind=included");
     },
     SPAWN_TIMEOUT,
   );
@@ -563,7 +909,7 @@ describe("the environment a nested npm pack must not inherit", () => {
     "the wrapper still gates an untyped pack with %s planted",
     (_name, env) => {
       const r = runWrapper(typesNotPacked, OFFLINE, env);
-      expect(r.out).toContain(UNTYPED);
+      expect(r.out).toContain(GATE_UNTYPED);
       expect(r.out).not.toContain("ENOENT");
       expect(r.code).not.toBe(0);
     },
@@ -611,7 +957,7 @@ describe("the environment a nested npm pack must not inherit", () => {
       // too. It is coverage that becomes a real pin on a bash-as-`sh` box, and the
       // wrapper is pinned non-vacuously either way by the underscore cases above.
       const gated = runWrapper(typesNotPacked, OFFLINE, { "npm_config_dry-run": "true" });
-      expect(gated.out).toContain(UNTYPED);
+      expect(gated.out).toContain(GATE_UNTYPED);
       expect(gated.out).not.toContain("ENOENT");
       expect(gated.code).not.toBe(0);
     },
@@ -634,7 +980,7 @@ describe("the environment a nested npm pack must not inherit", () => {
         const gated = runWrapper(typesNotPacked, OFFLINE, {
           npm_config_pack_destination: elsewhere,
         });
-        expect(gated.out).toContain(UNTYPED);
+        expect(gated.out).toContain(GATE_UNTYPED);
         expect(gated.out).not.toContain("ENOENT");
         expect(gated.code).not.toBe(0);
       } finally {
