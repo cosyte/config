@@ -65,6 +65,15 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm test
+      # NOTE: `pnpm test:perf` is deliberately NOT run here. It holds the only tests that read a real
+      # clock, and PERF-P2's own false-alarm sweeps measured this class of runner firing on a LINEAR
+      # workload 4 times in 600 runs and failing to reach steady state in another ~1%, so as a
+      # REQUIRED check it would be a known-flaky gate, which is roadmap §5's risk #1 ("a gate that
+      # false-alarms gets disabled, and then there is no gate"). It also does not currently hold on
+      # Node 24, which is half this matrix. The kit's decision logic is fully covered by `pnpm test`
+      # on an injected clock; what `test:perf` adds is the measurement, and that stays a deliberate
+      # command until P4 settles the ceiling question with the founder.
+      # Evidence: experiments/perf-p2-false-alarm/ANALYSIS.md.
       # Build the workspace's TS packages (test-utils is the first), then verify
       # their published types resolve under every module mode.
       - run: pnpm build

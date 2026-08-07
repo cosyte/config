@@ -31,6 +31,7 @@
     "test:root": "vitest run",
     "test:packages": "pnpm --filter \"./packages/*\" run test",
     "test": "pnpm run test:root && pnpm run test:packages",
+    "test:perf": "pnpm --filter \"./packages/*\" run --if-present test:perf",
     "build": "pnpm --filter \"./packages/*\" run build",
     "typecheck": "pnpm --filter \"./packages/*\" run typecheck",
     "lint": "pnpm --filter \"./packages/*\" run lint",
