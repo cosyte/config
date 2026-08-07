@@ -45,6 +45,19 @@
  *     runs this suite) or `npm_config_pack_destination` leaves it opening a file
  *     that was never written there. Each is planted on the bare CLI, where it must
  *     still break, and on the wrapper, where it must not.
+ *  9. NET 3, WHICH IS THE ONLY NET attw's CONFIGURATION CANNOT REACH. `"included"`
+ *     is `containsTypes()`, so net 2 is satisfied by ANY TypeScript-extension file
+ *     in the tarball, and net 1 reads the working tree rather than the tarball. A
+ *     package that loses its DECLARED `.d.ts` while packing a stray one therefore
+ *     sits behind attw's exit code alone, and a committed `.attw.json` relaxes
+ *     exactly that. Net 3 reads `npm pack --dry-run --json` instead. Each
+ *     relaxation is pinned WITH ITS COUNTERFACTUAL, against a copy of the shipped
+ *     wrapper with net 3 sliced out at test time, so the RED-BEFORE is derived
+ *     rather than pasted and cannot go stale. The block also pins the RESIDUE: net
+ *     3 proves PRESENCE and not RESOLUTION, so a package whose declared paths are
+ *     all packed and whose types resolve wrongly still passes under such a config.
+ *     That case is a test so a future draft of the prose cannot quietly widen the
+ *     claim, which is a thing this file's docblock has already done twice.
  *
  * The fixtures are minimal throwaway packages in a temp dir, nothing to do with
  * this package's own build, so the test does not need one and cannot race one.
@@ -63,6 +76,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -789,17 +803,20 @@ describe("what the pass line may and may not claim", () => {
   );
 
   it(
-    "DISCLOSED AND STILL OPEN: a config that relaxes attw's exit code passes a package whose DECLARED types are not packed",
+    "CLOSED BY NET 3, AND NOT BY WIDENING THIS NET: a config relaxing attw's exit code no longer passes a package whose DECLARED types are not packed",
     () => {
-      // THIS CASE IS EXPECTED TO PASS. It is pinned because the docblock and
-      // `scripts/parser-template/CLAUDE.md` both state it as an open hole, and a
-      // disclosure that names a case must name a real one. If someone closes it,
-      // this reds and the prose has to be corrected in the same change.
+      // THIS CASE USED TO BE EXPECTED TO PASS, and was pinned as an open hole that
+      // the docblock and `scripts/parser-template/CLAUDE.md` both disclosed. It is
+      // inverted here rather than deleted, because the inversion IS the record that
+      // the hole closed, and the prose in both files moved in the same change.
       //
-      // `kind === "included"` is `containsTypes()`: SOME TypeScript-extension file
-      // in the tarball. Here the DECLARED `dist/index.d.ts` is left out of `files`
-      // while an undeclared `dist/internal.d.ts` is packed, so the declared promise
-      // is broken and `kind` is still "included".
+      // WHAT DID NOT CHANGE, and the distinction is the whole point: `kind` is
+      // still `containsTypes()`, this net still asserts nothing more than that, and
+      // the pass line still says nothing more than that. The DECLARED
+      // `dist/index.d.ts` is left out of `files` while an undeclared
+      // `dist/internal.d.ts` is packed, so `kind` is legitimately "included" and
+      // net 2 is legitimately satisfied. What refuses it is net 3, which reads
+      // npm's pack listing and asks attw nothing.
       const dir = join(root, "stray-ts");
       mkdirSync(join(dir, "dist"), { recursive: true });
       writeFileSync(
@@ -820,19 +837,24 @@ describe("what the pass line may and may not claim", () => {
       writeFileSync(join(dir, "dist/index.d.ts"), "export declare const a: number;\n");
       writeFileSync(join(dir, "dist/internal.d.ts"), "export declare const b: number;\n");
 
-      // Without a config the gate reds, on attw's own status.
+      // Without a config the gate reds, on attw's own status. Unchanged.
       expect(runWrapper(dir).code).not.toBe(0);
 
-      // With one that relaxes that status, it passes. THIS IS THE OPEN HALF.
+      // With one that relaxes that status it used to pass. It now reds on net 3,
+      // and names the declared path that went missing rather than leaving the
+      // reader to infer it from a resolution table.
       writeFileSync(
         join(dir, ".attw.json"),
         JSON.stringify({ ignoreRules: ["untyped-resolution"] }),
       );
       const r = runWrapper(dir);
-      expect(r.code).toBe(0);
-      // The one thing the gate still does here: it prints the finding it did not gate.
-      expect(r.out).toContain("UntypedResolution");
-      expect(r.out).not.toContain("reported no problems");
+      expect(r.code).not.toBe(0);
+      expect(r.out).toContain("declares paths the published tarball would NOT carry");
+      expect(r.out).toContain("./dist/index.d.ts");
+      // And it did NOT get there by reading attw's suppressed findings: net 3 never
+      // looks at them. See the residue case in the net 3 block, which is a package
+      // with a suppressed finding that still passes because its declared paths are
+      // all packed.
     },
     SPAWN_TIMEOUT,
   );
@@ -1008,6 +1030,218 @@ describe("the environment a nested npm pack must not inherit", () => {
       expect(r.code).not.toBe(0);
       expect(r.out).not.toContain("ENOENT");
       expect(r.code).toBe(runAttw(attwFails).code);
+    },
+    SPAWN_TIMEOUT,
+  );
+});
+
+describe("net 3: the DECLARED paths must be in the tarball", () => {
+  // THE CASE THIS BLOCK EXISTS FOR. Net 2 asserts `analysis.types.kind`, and
+  // `"included"` is `containsTypes()`: SOME TypeScript-extension file is in the
+  // tarball, never that the DECLARED ones are. So a package that loses its
+  // declared `.d.ts` while packing a stray one satisfies net 2, and net 1 misses
+  // it because net 1 reads the WORKING TREE while the loss is in `files`. The only
+  // thing left catching it was attw's own EXIT CODE, and a committed `.attw.json`
+  // relaxes exactly that. Net 3 reads npm's own pack listing, which no attw
+  // configuration can reach.
+
+  /**
+   * The item's exact shape: the declared `./dist/index.d.ts` is on disk (so net 1
+   * passes) but out of `files`, while an UNDECLARED `./dist/internal.d.ts` is
+   * packed (so `containsTypes()` is true and net 2 passes).
+   */
+  function declaredTypesLost(name: string, config?: unknown): string {
+    const dir = join(root, name);
+    mkdirSync(join(dir, "dist"), { recursive: true });
+    writeFileSync(
+      join(dir, "package.json"),
+      JSON.stringify(
+        {
+          name: `attw-gate-fixture-${name}`,
+          version: "1.0.0",
+          type: "module",
+          main: "./dist/index.mjs",
+          types: "./dist/index.d.ts",
+          exports: { ".": { types: "./dist/index.d.ts", import: "./dist/index.mjs" } },
+          files: ["dist/index.mjs", "dist/internal.d.ts"],
+        },
+        null,
+        2,
+      ),
+    );
+    writeFileSync(join(dir, "dist/index.mjs"), "export const a = 1;\n");
+    writeFileSync(join(dir, "dist/index.d.ts"), "export declare const a: number;\n");
+    writeFileSync(join(dir, "dist/internal.d.ts"), "export declare const b: number;\n");
+    if (config !== undefined) writeFileSync(join(dir, ".attw.json"), JSON.stringify(config));
+    return dir;
+  }
+
+  /**
+   * The wrapper with net 3 SURGICALLY REMOVED. This is the RED-BEFORE half, and it
+   * is derived from the shipped file at test time rather than pasted, so it cannot
+   * drift away from the thing it is the counterfactual for; if the markers stop
+   * matching it reds here instead of silently testing nothing.
+   *
+   * It is written to a THROWAWAY TREE, never beside the real one. The wrapper
+   * resolves `attw` at `../node_modules/.bin/attw` relative to its own URL, so the
+   * tree carries a symlink at that path and nothing else. A second copy of a gate
+   * inside the repo is a file that can be committed by accident.
+   */
+  let withoutNet3 = "";
+  let withoutNet3Root = "";
+
+  beforeAll(() => {
+    const src = readFileSync(WRAPPER, "utf8");
+    const from = src.indexOf("// ---- Net 3:");
+    const to = src.indexOf("// WHAT THIS LINE MAY AND MAY NOT SAY.");
+    expect(from).toBeGreaterThan(-1);
+    expect(to).toBeGreaterThan(from);
+
+    withoutNet3Root = mkdtempSync(join(tmpdir(), "attw-gate-net3-base-"));
+    mkdirSync(join(withoutNet3Root, "scripts"), { recursive: true });
+    mkdirSync(join(withoutNet3Root, "node_modules", ".bin"), { recursive: true });
+    symlinkSync(ATTW_BIN, join(withoutNet3Root, "node_modules", ".bin", "attw"));
+    withoutNet3 = join(withoutNet3Root, "scripts", "attw.mjs");
+    writeFileSync(withoutNet3, src.slice(0, from) + src.slice(to));
+  });
+
+  afterAll(() => {
+    if (withoutNet3Root) rmSync(withoutNet3Root, { recursive: true, force: true });
+  });
+
+  // Each of these was measured to relax attw's exit code on this fixture. They are
+  // pinned as CASES, never as a list the gate refuses: net 3 never reads the config
+  // at all, which is why a key nobody has enumerated is not a hole in it.
+  const relaxations: [string, unknown][] = [
+    ["ignoreRules", { ignoreRules: ["untyped-resolution", "no-resolution", "fallback-condition"] }],
+    ["ignoreResolutions", { ignoreResolutions: ["node10", "node16-cjs", "node16-esm", "bundler"] }],
+    ["an-empty-entrypoints", { entrypoints: [] }],
+  ];
+
+  for (const [label, config] of relaxations) {
+    it(
+      `RED BEFORE, GREEN AFTER: a config setting ${label} hid a lost declaration`,
+      () => {
+        const dir = declaredTypesLost(`net3-${label}`, config);
+
+        // COUNTERFACTUAL. Without net 3 this exact tree passes the whole gate,
+        // which is the defect. attw is not at fault and is not being blamed here:
+        // it exits 0 because it was configured to.
+        const before = run(process.execPath, [withoutNet3, ...OFFLINE], dir);
+        expect(before.code).toBe(0);
+
+        // And with net 3 it reds, naming the path that went missing.
+        const after = runWrapper(dir);
+        expect(after.code).not.toBe(0);
+        expect(after.out).toContain("declares paths the published tarball would NOT carry");
+        expect(after.out).toContain("./dist/index.d.ts");
+      },
+      SPAWN_TIMEOUT,
+    );
+  }
+
+  it(
+    "the unconfigured case was already red and stays red, through attw's own status",
+    () => {
+      // Net 3 must not be credited with a catch that was never open. With no
+      // config, attw reds on its own and the gate forwards that, before and after.
+      const dir = declaredTypesLost("net3-unconfigured");
+      expect(run(process.execPath, [withoutNet3, ...OFFLINE], dir).code).not.toBe(0);
+      expect(runWrapper(dir).code).not.toBe(0);
+    },
+    SPAWN_TIMEOUT,
+  );
+
+  it(
+    "NEGATIVE CONTROL: a well-formed package stays green, and the pass line counts what it checked",
+    () => {
+      // A gate that only ever fails is not a gate. `wellFormed` declares four paths
+      // and packs all four.
+      const r = runWrapper(wellFormed);
+      expect(r.code).toBe(0);
+      expect(r.out).toContain("all 4 literal path(s) package.json declares are in the tarball");
+      // The claim is bounded in the same breath it is made. See "WHAT THESE NETS
+      // DO NOT CLAIM" in the wrapper's docblock.
+      expect(r.out).toContain("presence not resolution");
+    },
+    SPAWN_TIMEOUT,
+  );
+
+  it(
+    "THE RESIDUE, PINNED SO THE PROSE CANNOT QUIETLY WIDEN: net 3 says nothing about resolution",
+    () => {
+      // All declared paths ARE packed, and the package is still broken: it ships
+      // ESM under a CJS-default `main`. Bare attw reds; a config that relaxes its
+      // exit code makes the whole gate green, net 3 included, and net 3 is RIGHT to
+      // be satisfied because both declared paths really are in the tarball. This is
+      // the half of the config route that is still open, and it is pinned here so
+      // that a future draft claiming otherwise reds.
+      const dir = join(root, "net3-residue");
+      mkdirSync(join(dir, "dist"), { recursive: true });
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify(
+          {
+            name: "attw-gate-fixture-net3-residue",
+            version: "1.0.0",
+            main: "./dist/index.js",
+            types: "./dist/index.d.ts",
+            exports: { ".": { import: "./dist/index.js", types: "./dist/index.d.ts" } },
+            files: ["dist"],
+          },
+          null,
+          2,
+        ),
+      );
+      writeFileSync(join(dir, "dist/index.js"), "export const a = 1;\n");
+      writeFileSync(join(dir, "dist/index.d.ts"), "export declare const a: number;\n");
+
+      expect(runAttw(dir).code).not.toBe(0);
+
+      writeFileSync(
+        join(dir, ".attw.json"),
+        JSON.stringify({ ignoreRules: ["unexpected-module-syntax", "fallback-condition"] }),
+      );
+      const r = runWrapper(dir);
+      expect(r.code).toBe(0);
+      expect(r.out).toContain("all 2 literal path(s) package.json declares are in the tarball");
+      // Suppressed, but never swallowed: the gate prints what it did not gate.
+      expect(r.out).toContain("UnexpectedModuleSyntax");
+    },
+    SPAWN_TIMEOUT,
+  );
+
+  it(
+    "FAILS CLOSED when npm's pack listing cannot be read",
+    () => {
+      // An answer this net could not read is not a green one. The shim intercepts
+      // ONLY the `--json` call net 3 makes and hands the real npm everything else,
+      // so attw's own nested `npm pack` still works and the run reaches net 3.
+      const shimDir = mkdtempSync(join(tmpdir(), "attw-gate-npmshim-"));
+      try {
+        const shim = join(shimDir, "npm");
+        // IT RESTORES THE ORIGINAL PATH BEFORE DELEGATING, AND THAT IS NOT
+        // COSMETIC. `npm` can itself be a version-manager shim that re-resolves
+        // `npm` through PATH (mise's does), in which case exec-ing the path
+        // `command -v npm` reports lands back on THIS file and recurses until the
+        // test times out. Measured, and it cost a run.
+        writeFileSync(
+          shim,
+          `#!/bin/sh\n` +
+            `for a in "$@"; do [ "$a" = "--json" ] && { echo 'not a json document'; exit 0; }; done\n` +
+            `PATH=${JSON.stringify(process.env["PATH"] ?? "")}; export PATH\n` +
+            `exec npm "$@"\n`,
+        );
+        chmodSync(shim, 0o755);
+        const r = runWrapper(wellFormed, OFFLINE, {
+          PATH: `${shimDir}:${process.env["PATH"] ?? ""}`,
+        });
+        expect(r.code).not.toBe(0);
+        expect(r.out).toContain("could not read which files a tarball");
+        expect(r.out).toContain("did not print JSON");
+      } finally {
+        rmSync(shimDir, { recursive: true, force: true });
+      }
     },
     SPAWN_TIMEOUT,
   );

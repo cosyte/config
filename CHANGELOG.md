@@ -28,6 +28,52 @@ no package, so entries here are **dated** rather than versioned.
 
 ### Fixed
 
+- **The `attw` gate now checks that the paths `package.json` DECLARES are in the tarball, not just
+  that some TypeScript-extension file is** (`ATTW-INCLUDED-IS-NOT-THE-DECLARED-TYPES`). This is a
+  **hole nothing currently walks through, closed on purpose rather than a bug anyone hit**: no repo
+  in the org ships a `.attw.json`, so every route below is latent, and all 12 sibling repos with an
+  `attw` script were measured to pass the new check unchanged.
+  - **The hole.** Net 2 asserts `analysis.types.kind === "included"`, and `"included"` is
+    `containsTypes()` in `@arethetypeswrong/core`, i.e. `listFiles("/").some(ts.hasTSFileExtension)`:
+    i.e. ANY TypeScript-extension file anywhere in the tarball. Net 1 does not see the case either,
+    because it reads the WORKING TREE while the loss is in the `files` field. So a package that
+    loses every DECLARED `.d.ts` while packing one stray one sat behind attw's own exit code alone,
+    and a committed `.attw.json` relaxes exactly that.
+  - **Measured, on the pinned `@arethetypeswrong/cli@0.18.4`.** Against a package whose declared
+    `./dist/index.d.ts` is out of `files` while an undeclared `./dist/internal.d.ts` is packed, bare
+    attw exits 1, and the gate exited **0** under `{"ignoreRules": [...]}`, under
+    `{"ignoreResolutions": [...]}`, and under `{"entrypoints": []}`. All three now red, and each is
+    pinned with a counterfactual built by slicing net 3 out of the shipped wrapper at test time.
+    `{"profile": ...}` was measured NOT to relax this case, for all three of attw's profiles, and is
+    recorded as such rather than repeated as a fourth route.
+  - **Net 3 reads npm, not attw.** It runs `npm pack --dry-run --json` and requires every declared
+    path to be in the listing. **It is not the key deny-list this file has retired twice, and cannot
+    decay into one**: it never reads `.attw.json`, so an unenumerated key is not a hole in it, and
+    the set it checks is bounded by the manifest rather than by attw's option surface. `--dry-run`
+    and `--json` are on argv because `json` is an ordinary npm config an ambient
+    `npm_config_json` would otherwise pick. An unreadable listing FAILS CLOSED.
+  - **The alternative was rejected on a measurement, not a preference.** Gating on attw's own
+    UNFILTERED problem list would close two of the three routes and not the third (an empty
+    `entrypoints` means attw analysed nothing, so there is no finding to read). It would also red
+    healthy packages that ship today: `mllp`, `deid`, `synth` and `cli` all pass `--profile node16`
+    and **all four** carry a suppressed `NoResolution` their profile silences on purpose.
+  - **What it does NOT claim, stated because two earlier drafts of this gate's prose claimed more
+    than it proved, the second more strongly than the first.** Net 3 proves PRESENCE, never
+    RESOLUTION, and the pass line is bounded twice in the same breath as its count: "presence not
+    resolution", and **literal** paths, because wildcard `exports` subpaths name a set rather than a
+    file and are declared but not checked.
+    The config route is **narrowed, not closed**: a package whose declared paths are all packed and
+    whose types resolve wrongly still passes under a config that relaxes attw's exit code. That
+    residue is itself a test, so a future draft cannot quietly widen the claim.
+  - Both byte-identical copies carry it (`packages/test-utils/scripts/attw.mjs` and
+    `scripts/parser-template/scripts/attw.mjs`), so every scaffolded parser inherits it. **The 12
+    existing sibling repos carry their own older copies and are unchanged by this**; porting is
+    theirs, not this repo's.
+  - **No changeset, deliberately**, following this repo's own precedent (`cf07086`, and `#42`/`#44`/
+    `#47`): `scripts/` and `test/` are outside every published tarball, verified against
+    `@cosyte/test-utils`' own `npm pack` listing, so nothing published changes, and an unnecessary
+    changeset silently withholds a release.
+
 - **The `attw` gate's post-check now reads attw's STRUCTURED output, so the three `.attw.json` keys
   that blinded it no longer can** (`ATTW-CONFIG-ROUTE-BLINDS-THE-GATE`). `readConfig()` applies the file AFTER
   argv and calls `setOptionValueWithSource` for every key except `configPath`/`help`/`version`, so a
