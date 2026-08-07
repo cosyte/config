@@ -31,8 +31,10 @@ no package, so entries here are **dated** rather than versioned.
 - **The `attw` gate now checks that the paths `package.json` DECLARES are in the tarball, not just
   that some TypeScript-extension file is** (`ATTW-INCLUDED-IS-NOT-THE-DECLARED-TYPES`). This is a
   **hole nothing currently walks through, closed on purpose rather than a bug anyone hit**: no repo
-  in the org ships a `.attw.json`, so every route below is latent, and all 12 sibling repos with an
-  `attw` script were measured to pass the new check unchanged.
+  in the org ships a `.attw.json`, so every route below is latent, and **all 13** sibling repos with
+  an `attw` script were measured to pass the new check unchanged. (The census is
+  `git submodule status` filtered by `scripts.attw`, re-derived rather than remembered: a first
+  hand-written list of it said 12 and had dropped `astm`.)
   - **The hole.** Net 2 asserts `analysis.types.kind === "included"`, and `"included"` is
     `containsTypes()` in `@arethetypeswrong/core`, i.e. `listFiles("/").some(ts.hasTSFileExtension)`:
     i.e. ANY TypeScript-extension file anywhere in the tarball. Net 1 does not see the case either,
@@ -59,14 +61,21 @@ no package, so entries here are **dated** rather than versioned.
     and **all four** carry a suppressed `NoResolution` their profile silences on purpose.
   - **What it does NOT claim, stated because two earlier drafts of this gate's prose claimed more
     than it proved, the second more strongly than the first.** Net 3 proves PRESENCE, never
-    RESOLUTION, and the pass line is bounded twice in the same breath as its count: "presence not
-    resolution", and **literal** paths, because wildcard `exports` subpaths name a set rather than a
-    file and are declared but not checked.
+    RESOLUTION, and the pass line is bounded twice in the same breath as its count, because a count
+    reads like a total: it says "presence, not resolution", and it names the three things the set it
+    counted leaves out (wildcard `exports` subpaths, absolute paths, and `package.json` itself).
     The config route is **narrowed, not closed**: a package whose declared paths are all packed and
     whose types resolve wrongly still passes under a config that relaxes attw's exit code. That
     residue is itself a test, so a future draft cannot quietly widen the claim.
+  - **It runs the package's `prepack`/`prepare` a second time**, and that is disclosed rather than
+    suppressed. `npm pack --dry-run` still runs lifecycle scripts; only the tarball write goes away.
+    Measured with `ignore-scripts` off: `prepack` fired ONCE through the base gate and TWICE through
+    this one. Nothing reds today (every repo here uses a `command -v … || true` one-liner), and it
+    is deliberately **not** fixed with `--ignore-scripts`: a `prepack` may generate files that belong
+    in the tarball, so suppressing it would make this net read a listing the real publish would not
+    produce.
   - Both byte-identical copies carry it (`packages/test-utils/scripts/attw.mjs` and
-    `scripts/parser-template/scripts/attw.mjs`), so every scaffolded parser inherits it. **The 12
+    `scripts/parser-template/scripts/attw.mjs`), so every scaffolded parser inherits it. **The 13
     existing sibling repos carry their own older copies and are unchanged by this**; porting is
     theirs, not this repo's.
   - **No changeset, deliberately**, following this repo's own precedent (`cf07086`, and `#42`/`#44`/

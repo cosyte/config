@@ -91,16 +91,31 @@
  *   Routes nobody has enumerated fail closed too, which is the property a
  *   name-scoped refusal could never have.
  *
- *   3. THE TARBALL CHECK (structural, and the only net attw's configuration
- *      cannot reach). It runs LAST, after attw has exited 0 and net 2 has
+ *   3. THE TARBALL CHECK (structural, and independent of attw entirely). LIKE NET
+ *      1 it never consults attw, so no `.attw.json` reaches either of them; UNLIKE
+ *      net 1 it reads the TARBALL rather than the working tree, which is the whole
+ *      of what it adds. It runs LAST, after attw has exited 0 and net 2 has
  *      passed, and it asks NET 1's question one level further out, over NET 1's
- *      OWN SET so the two cannot disagree: every LITERAL relative artifact path
+ *      OWN SET so the two cannot disagree: every relative artifact path
  *      `package.json` promises must be in the TARBALL npm would publish, not
- *      merely on disk. Wildcard `exports` subpaths are skipped there and so are
- *      skipped here; they name a set rather than a file, and the pass line says
- *      "literal" for exactly that reason. The list comes from
- *      `npm pack --dry-run --json` run in this directory, so attw is not
- *      consulted and nothing a committed `.attw.json` sets can change the answer.
+ *      merely on disk. That set is what `declaredArtifacts()` returns, so it
+ *      excludes wildcard `exports` subpaths (they name a set, not a file),
+ *      absolute paths (not ours to promise) and `package.json` itself (always in
+ *      the tarball by definition). The pass line names those exclusions rather
+ *      than printing a count that reads like a total. The list comes from
+ *      `npm pack --dry-run --json` run in this directory, so nothing a committed
+ *      `.attw.json` sets can change the answer.
+ *
+ *      THE COST, MEASURED, BECAUSE IT IS NOT FREE AND WAS NOT OBVIOUS: THIS RUNS
+ *      THE PACKAGE'S `prepack`/`prepare` LIFECYCLE SCRIPTS A SECOND TIME.
+ *      `npm pack --dry-run` still runs them; only the tarball write is suppressed.
+ *      Measured on a well-formed fixture with `ignore-scripts` off: `prepack` fired
+ *      ONCE through the base gate (attw's own nested `npm pack`) and TWICE through
+ *      this one. Every repo here uses a `command -v … || true` one-liner, so
+ *      nothing reds today. IT IS NOT FIXED WITH `--ignore-scripts`, AND THAT IS
+ *      DELIBERATE: a `prepack` may GENERATE files that belong in the tarball, so
+ *      suppressing it would make this net read a listing the real publish would not
+ *      produce, which is a correctness bug wearing a performance fix.
  *
  *      WHY IT IS A NET AND NOT A WIDER READING OF NET 2. Net 2's
  *      `kind === "included"` is `containsTypes()`, which is "SOME
@@ -310,11 +325,13 @@
  *       `@types`. IT MUST NOT SAY "the declarations" or "this package's types":
  *       both assert (a)'s missing half, and two earlier drafts of this line did,
  *       the second more strongly than the first. Its net 3 half is bounded twice
- *       over in the same breath, because a count reads like a total: it says
- *       "presence not resolution", which is (b), and it says LITERAL paths, because
- *       `declaredArtifacts` skips wildcard `exports` subpaths, which name a SET
- *       rather than a file and are therefore declared but not checked. Without that
- *       word the count would read as "everything the manifest declares". It never says "no problems"
+ *       over in the same breath, BECAUSE A COUNT READS LIKE A TOTAL: it says
+ *       "presence, not resolution", which is (b), and it NAMES THE THREE THINGS
+ *       `declaredArtifacts()` LEAVES OUT of the set it counted (wildcard `exports`
+ *       subpaths, absolute paths, and `package.json` itself). Without that clause a
+ *       reader takes "all N paths package.json declares" for "everything the
+ *       manifest declares", and for a manifest with wildcard subpaths that is
+ *       false. It never says "no problems"
  *       unless the document really is empty, and it PRINTS any problem kinds attw
  *       reported but did not gate.
  *
@@ -555,7 +572,9 @@ function packedFiles(pkg, childEnv) {
   const files = new Set();
   for (const entry of listed) {
     if (typeof entry?.path !== "string") {
-      return { error: `npm listed a packed file with no "path" string, so the list is unreadable.` };
+      return {
+        error: `npm listed a packed file with no "path" string, so the list is unreadable.`,
+      };
     }
     files.add(entry.path);
   }
@@ -760,10 +779,10 @@ process.stdout.write(
     // paths are IN the tarball, never that they resolve. Resolution is attw's
     // problem list, and a config can still relax the exit code that gates it.
     (declared.length === 0
-      ? `  package.json declares no literal artifact paths, so net 3 had none to check.\n`
-      : `  all ${declared.length} literal path(s) package.json declares are in the tarball npm\n` +
-        `  would publish (net 3: presence not resolution, and wildcard subpaths are not\n` +
-        `  checked).\n`) +
+      ? `  package.json declares no relative artifact paths, so net 3 had none to check.\n`
+      : `  all ${declared.length} relative artifact path(s) package.json declares are in the\n` +
+        `  tarball npm would publish (net 3). That set excludes wildcard exports subpaths,\n` +
+        `  absolute paths and package.json itself, and it is presence, not resolution.\n`) +
     (kinds.length === 0
       ? `  attw exited 0 and reported no problems.\n`
       : `  attw exited 0, but it REPORTED ${kinds.length} problem kind(s) that its exit code\n` +

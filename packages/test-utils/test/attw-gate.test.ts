@@ -1159,10 +1159,10 @@ describe("net 3: the DECLARED paths must be in the tarball", () => {
       // and packs all four.
       const r = runWrapper(wellFormed);
       expect(r.code).toBe(0);
-      expect(r.out).toContain("all 4 literal path(s) package.json declares are in the tarball");
+      expect(r.out).toContain("all 4 relative artifact path(s) package.json declares are in the");
       // The claim is bounded in the same breath it is made. See "WHAT THESE NETS
       // DO NOT CLAIM" in the wrapper's docblock.
-      expect(r.out).toContain("presence not resolution");
+      expect(r.out).toContain("presence, not resolution");
     },
     SPAWN_TIMEOUT,
   );
@@ -1204,7 +1204,7 @@ describe("net 3: the DECLARED paths must be in the tarball", () => {
       );
       const r = runWrapper(dir);
       expect(r.code).toBe(0);
-      expect(r.out).toContain("all 2 literal path(s) package.json declares are in the tarball");
+      expect(r.out).toContain("all 2 relative artifact path(s) package.json declares are in the");
       // Suppressed, but never swallowed: the gate prints what it did not gate.
       expect(r.out).toContain("UnexpectedModuleSyntax");
     },
