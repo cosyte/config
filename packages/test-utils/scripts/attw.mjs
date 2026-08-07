@@ -107,11 +107,15 @@
  *      `.attw.json` sets can change the answer.
  *
  *      THE COST, MEASURED, BECAUSE IT IS NOT FREE AND WAS NOT OBVIOUS: THIS RUNS
- *      THE PACKAGE'S `prepack`/`prepare` LIFECYCLE SCRIPTS A SECOND TIME.
- *      `npm pack --dry-run` still runs them; only the tarball write is suppressed.
- *      Measured on a well-formed fixture with `ignore-scripts` off: `prepack` fired
- *      ONCE through the base gate (attw's own nested `npm pack`) and TWICE through
- *      this one. Every repo here uses a `command -v … || true` one-liner, so
+ *      EVERY LIFECYCLE SCRIPT `npm pack` FIRES, A SECOND TIME. `npm pack
+ *      --dry-run` still runs them; only the tarball write is suppressed. Measured
+ *      on a well-formed fixture with `ignore-scripts` off: `prepack` fired ONCE
+ *      through the base gate (attw's own nested `npm pack`) and TWICE through this
+ *      one, and `prepare` and `postpack` double the same way. `prepublishOnly` does
+ *      not run under `npm pack` AT ALL (measured: 0 through either gate), which is
+ *      why this cannot recurse into the gate that runs it. Of the three that do
+ *      double, every repo here defines only `prepare`, and defines it as the same
+ *      `command -v simple-git-hooks … || true` one-liner, so
  *      nothing reds today. IT IS NOT FIXED WITH `--ignore-scripts`, AND THAT IS
  *      DELIBERATE: a `prepack` may GENERATE files that belong in the tarball, so
  *      suppressing it would make this net read a listing the real publish would not

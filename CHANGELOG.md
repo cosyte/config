@@ -67,13 +67,15 @@ no package, so entries here are **dated** rather than versioned.
     The config route is **narrowed, not closed**: a package whose declared paths are all packed and
     whose types resolve wrongly still passes under a config that relaxes attw's exit code. That
     residue is itself a test, so a future draft cannot quietly widen the claim.
-  - **It runs the package's `prepack`/`prepare` a second time**, and that is disclosed rather than
-    suppressed. `npm pack --dry-run` still runs lifecycle scripts; only the tarball write goes away.
-    Measured with `ignore-scripts` off: `prepack` fired ONCE through the base gate and TWICE through
-    this one. Nothing reds today (every repo here uses a `command -v … || true` one-liner), and it
-    is deliberately **not** fixed with `--ignore-scripts`: a `prepack` may generate files that belong
-    in the tarball, so suppressing it would make this net read a listing the real publish would not
-    produce.
+  - **It runs every lifecycle script `npm pack` fires a second time**, and that is disclosed rather
+    than suppressed. `npm pack --dry-run` still runs them; only the tarball write goes away. Measured
+    with `ignore-scripts` off: `prepare`, `prepack` and `postpack` each fired ONCE through the base
+    gate and TWICE through this one, while `prepublishOnly` fired **zero** times through either, so
+    this cannot recurse into the gate that runs it. Nothing reds today: of the three that double,
+    all 13 siblings and the template define only `prepare`, as the same
+    `command -v simple-git-hooks … || true` one-liner. It is deliberately **not** fixed with
+    `--ignore-scripts`, because a `prepack` may generate files that belong in the tarball and
+    suppressing it would make this net read a listing the real publish would not produce.
   - Both byte-identical copies carry it (`packages/test-utils/scripts/attw.mjs` and
     `scripts/parser-template/scripts/attw.mjs`), so every scaffolded parser inherits it. **The 13
     existing sibling repos carry their own older copies and are unchanged by this**; porting is
