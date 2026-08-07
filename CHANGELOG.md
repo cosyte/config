@@ -28,6 +28,82 @@ no package, so entries here are **dated** rather than versioned.
 
 ### Fixed
 
+- **The `attw` gate now checks that the paths `package.json` DECLARES are in the tarball, not just
+  that some TypeScript-extension file is** (`ATTW-INCLUDED-IS-NOT-THE-DECLARED-TYPES`). This is a
+  **hole nothing currently walks through, closed on purpose rather than a bug anyone hit**: no repo
+  in the org ships a `.attw.json`, so every route below is latent, and **all 13** sibling repos with
+  an `attw` script were measured to pass the new check unchanged. (The census is
+  `git submodule status` filtered by `scripts.attw`, re-derived rather than remembered: a first
+  hand-written list of it said 12 and had dropped `astm`.)
+  - **The hole.** Net 2 asserts `analysis.types.kind === "included"`, and `"included"` is
+    `containsTypes()` in `@arethetypeswrong/core`, i.e. `listFiles("/").some(ts.hasTSFileExtension)`:
+    i.e. ANY TypeScript-extension file anywhere in the tarball. Net 1 does not see the case either,
+    because it reads the WORKING TREE while the loss is in the `files` field. So a package that
+    loses every DECLARED `.d.ts` while packing one stray one sat behind attw's own exit code alone,
+    and a committed `.attw.json` relaxes exactly that.
+  - **Measured, on the pinned `@arethetypeswrong/cli@0.18.4`.** Against a package whose declared
+    `./dist/index.d.ts` is out of `files` while an undeclared `./dist/internal.d.ts` is packed, bare
+    attw exits 1, and the gate exited **0** under `{"ignoreRules": [...]}`, under
+    `{"ignoreResolutions": [...]}`, and under `{"entrypoints": []}`. All three now red, and each is
+    pinned with a counterfactual built by slicing net 3 out of the shipped wrapper at test time.
+    `{"profile": ...}` was measured NOT to relax this case, for all three of attw's profiles, and is
+    recorded as such rather than repeated as a fourth route.
+  - **Net 3 reads npm, not attw.** It runs `npm pack --dry-run --json` and requires every declared
+    path to be in the listing. **It is not the key deny-list this file has retired twice, and cannot
+    decay into one**: it never reads `.attw.json`, so an unenumerated key is not a hole in it, and
+    the set it checks is bounded by the manifest rather than by attw's option surface. `--dry-run`
+    and `--json` are on argv because `json` is an ordinary npm config an ambient
+    `npm_config_json` would otherwise pick. An unreadable listing FAILS CLOSED.
+  - **The alternative was rejected on a measurement, not a preference.** Gating on attw's own
+    UNFILTERED problem list would close two of the three routes and not the third (an empty
+    `entrypoints` means attw analysed nothing, so there is no finding to read). It would also red
+    healthy packages that ship today: `mllp`, `deid`, `synth` and `cli` all pass `--profile node16`
+    and **all four** carry a suppressed `NoResolution` their profile silences on purpose.
+  - **What it does NOT claim, stated because two earlier drafts of this gate's prose claimed more
+    than it proved, the second more strongly than the first.** Net 3 proves PRESENCE, never
+    RESOLUTION, and the pass line is bounded twice in the same breath as its count, because a count
+    reads like a total: it says "presence, not resolution", and it names the three things the set it
+    counted leaves out (wildcard `exports` subpaths, absolute paths, and `package.json` itself).
+    The config route is **narrowed, not closed**: a package whose declared paths are all packed and
+    whose types resolve wrongly still passes under a config that relaxes attw's exit code. That
+    residue is itself a test, so a future draft cannot quietly widen the claim.
+  - **It runs every lifecycle script `npm pack` fires a second time**, and that is disclosed rather
+    than suppressed. `npm pack --dry-run` still runs them; only the tarball write goes away. Measured
+    with `ignore-scripts` off: `prepare`, `prepack` and `postpack` each fired ONCE through the base
+    gate and TWICE through this one, while `prepublishOnly` fired **zero** times through either, so
+    this cannot recurse into the gate that runs it. Nothing reds today: of the three that double,
+    all 13 siblings and the template define only `prepare`, as the same
+    `command -v simple-git-hooks … || true` one-liner. It is deliberately **not** fixed with
+    `--ignore-scripts`, because a `prepack` may generate files that belong in the tarball and
+    suppressing it would make this net read a listing the real publish would not produce.
+  - **🩺 A TEST FIXTURE THAT SYMLINKS A pnpm `.bin` ENTRY INTO A TEMP TREE IS A BOX-DEPENDENT TEST,
+    and this one passed locally and failed on the runner.** The counterfactual needs the net-3-less
+    wrapper somewhere it can still resolve `../node_modules/.bin/attw`. Linking only that one bin
+    left three cases dying in ~70 ms with a module-not-found before `attw` ever ran, so CI reported a
+    failing gate for a gate that was fine. Linking the WHOLE `node_modules` directory turned the
+    runner green (measured on the runner: red before, green after, on Node 22 and 24 alike), and a
+    liveness assertion was added so a counterfactual that dies can never read as one that ran.
+  - **▶ THE MECHANISM SENTENCE THAT FIRST ACCOMPANIED THAT FIX WAS WRONG AND IS DELETED RATHER THAN
+    REWRITTEN.** It said the dev container writes an absolute `.bin` shim and the runner a portable
+    one, and that linking the directory is "right for both shapes". Refuted by measurement: the
+    absolute shim in this container is a hand-written artifact that **no `pnpm install` recreates**
+    (it is the only non-portable entry of the ten bins beside it), a stock install writes a shim that
+    climbs several levels, and **Node collapses `..` lexically**, so no symlink placed at the temp
+    tree is on the path such a shim resolves. **The construction is therefore STILL BOX-DEPENDENT,
+    and a fresh clone plus a stock install reds these three cases ON THE BASE COMMIT TOO.** Linking
+    the directory is strictly better than linking the bin everywhere it was measured, and it is not a
+    general fix. Named, not closed: the counterfactual should reach `attw` without depending on the
+    shim's relative reach. **Never infer a package manager's shim shape from the box you are on**,
+    and when a measurement cannot be reproduced, delete the claim instead of restating it.
+  - Both byte-identical copies carry it (`packages/test-utils/scripts/attw.mjs` and
+    `scripts/parser-template/scripts/attw.mjs`), so every scaffolded parser inherits it. **The 13
+    existing sibling repos carry their own older copies and are unchanged by this**; porting is
+    theirs, not this repo's.
+  - **No changeset, deliberately**, following this repo's own precedent (`cf07086`, and `#42`/`#44`/
+    `#47`): `scripts/` and `test/` are outside every published tarball, verified against
+    `@cosyte/test-utils`' own `npm pack` listing, so nothing published changes, and an unnecessary
+    changeset silently withholds a release.
+
 - **The `attw` gate's post-check now reads attw's STRUCTURED output, so the three `.attw.json` keys
   that blinded it no longer can** (`ATTW-CONFIG-ROUTE-BLINDS-THE-GATE`). `readConfig()` applies the file AFTER
   argv and calls `setOptionValueWithSource` for every key except `configPath`/`help`/`version`, so a

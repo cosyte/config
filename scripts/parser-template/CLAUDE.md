@@ -67,10 +67,11 @@ a summary.
   `tsup` emits JS in one pass and declarations in a later one, so **every** build has a window where
   `dist/` holds `.mjs`/`.cjs` and no `.d.ts`; a concurrent build or `clean` in the same working tree
   lands `attw` in it. The gate must be able to say its own inputs were missing, whatever removed them.
-  `scripts/attw.mjs` carries **two nets that catch different things** (a structural preflight over
-  what `package.json` promises, and a post-check that forces `--format json` and asserts
-  `analysis.types.kind === "included"`), plus an **argument ALLOW-LIST**, because a deny-list of the
-  spellings that blind a gate bought exactly one more evasion per round.
+  `scripts/attw.mjs` carries **three nets that catch different things** (a structural preflight over
+  what `package.json` promises, a post-check that forces `--format json` and asserts
+  `analysis.types.kind === "included"`, and a tarball check that reads `npm pack --dry-run --json`
+  and requires every declared path to be in it), plus an **argument ALLOW-LIST**, because a deny-list
+  of the spellings that blind a gate bought exactly one more evasion per round.
   **THE RULES ARE STATED ONCE, IN `scripts/attw.mjs`'s OWN DOCBLOCK, AND THIS BULLET IS A POINTER.**
   Read them there. The previous shape of that guard was described in several committed files at once
   and every drift between the copies was a claim edited in some of them and not the others, so do not
@@ -81,11 +82,14 @@ a summary.
   config still beats every argument the gate passes. What changed is that net 2 no longer reads
   prose: `quiet` and `format` leave stdout unparseable and red, and `definitelyTyped` pointed at a
   `.tgz`, which parses fine and exits 0 while making an untyped tarball analyse as typed, reds on the
-  `kind` assertion. **What is still open, and is its own item:** `"included"` only means SOME
-  TypeScript-extension file is in the tarball, not that the DECLARED declarations are, so a package
-  that loses its declared `.d.ts` while packing a stray one is caught only by attw's own exit code.
-  `ignoreRules`, `ignoreResolutions` and `entrypoints` in a config all relax that exit code, so they
-  still pass such a package. **Read the docblock, not this bullet, before acting on any of it.**
+  `kind` assertion. `"included"` still only means SOME TypeScript-extension file is in the tarball,
+  never that the DECLARED declarations are, and **net 2 has not been widened to say otherwise**.
+  What refuses a package that loses its declared `.d.ts` while packing a stray one is **net 3**,
+  which reads npm's pack listing and asks attw nothing. **What is still open:** net 3 proves
+  PRESENCE, not RESOLUTION, so a config relaxing attw's exit code (`ignoreRules`,
+  `ignoreResolutions`, an empty `entrypoints`) still passes a package whose declared paths are all
+  packed and whose types resolve wrongly. **Read the docblock, not this bullet, before acting on any
+  of it.**
   **Do not put a tool that packs, publishes, or installs into `prepublishOnly`.** `attw --pack .`
   packs a tarball of its own into the directory being published, and under `pnpm publish --dry-run`
   it does not pack at all: that command exports `npm_config_dry_run=true` into every lifecycle
