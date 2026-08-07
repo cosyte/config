@@ -77,17 +77,24 @@ no package, so entries here are **dated** rather than versioned.
     `--ignore-scripts`, because a `prepack` may generate files that belong in the tarball and
     suppressing it would make this net read a listing the real publish would not produce.
   - **🩺 A TEST FIXTURE THAT SYMLINKS A pnpm `.bin` ENTRY INTO A TEMP TREE IS A BOX-DEPENDENT TEST,
-    and this one passed locally and failed on the runner.** The counterfactual above needs the
-    net-3-less wrapper somewhere it can still resolve `../node_modules/.bin/attw`. pnpm writes that
-    shim in one of two shapes: an ABSOLUTE `exec node "/abs/.../cli/dist/index.js"`, or the PORTABLE
-    form that computes `basedir=$(dirname "$0")` and reaches `$basedir/../@arethetypeswrong/...`.
-    **The dev container writes the first; `ubuntu-latest` writes the second.** Linking only the bin
-    satisfies the first and breaks the second, so three cases died in ~70 ms with a module-not-found
-    before `attw` ever ran, and CI reported a failing gate for a gate that was fine. Fixed by
-    symlinking the WHOLE `node_modules` directory, which is right for both shapes; reproduced in both
-    directions by installing the portable shim locally and re-running the suite (50/50 under it).
-    **Never infer a package manager's shim shape from the box you are on**, and give a
-    fail-fast counterfactual a liveness assertion so a death cannot read as a pass.
+    and this one passed locally and failed on the runner.** The counterfactual needs the net-3-less
+    wrapper somewhere it can still resolve `../node_modules/.bin/attw`. Linking only that one bin
+    left three cases dying in ~70 ms with a module-not-found before `attw` ever ran, so CI reported a
+    failing gate for a gate that was fine. Linking the WHOLE `node_modules` directory turned the
+    runner green (measured on the runner: red before, green after, on Node 22 and 24 alike), and a
+    liveness assertion was added so a counterfactual that dies can never read as one that ran.
+  - **▶ THE MECHANISM SENTENCE THAT FIRST ACCOMPANIED THAT FIX WAS WRONG AND IS DELETED RATHER THAN
+    REWRITTEN.** It said the dev container writes an absolute `.bin` shim and the runner a portable
+    one, and that linking the directory is "right for both shapes". Refuted by measurement: the
+    absolute shim in this container is a hand-written artifact that **no `pnpm install` recreates**
+    (it is the only non-portable entry of the ten bins beside it), a stock install writes a shim that
+    climbs several levels, and **Node collapses `..` lexically**, so no symlink placed at the temp
+    tree is on the path such a shim resolves. **The construction is therefore STILL BOX-DEPENDENT,
+    and a fresh clone plus a stock install reds these three cases ON THE BASE COMMIT TOO.** Linking
+    the directory is strictly better than linking the bin everywhere it was measured, and it is not a
+    general fix. Named, not closed: the counterfactual should reach `attw` without depending on the
+    shim's relative reach. **Never infer a package manager's shim shape from the box you are on**,
+    and when a measurement cannot be reproduced, delete the claim instead of restating it.
   - Both byte-identical copies carry it (`packages/test-utils/scripts/attw.mjs` and
     `scripts/parser-template/scripts/attw.mjs`), so every scaffolded parser inherits it. **The 13
     existing sibling repos carry their own older copies and are unchanged by this**; porting is

@@ -1088,17 +1088,28 @@ describe("net 3: the DECLARED paths must be in the tarball", () => {
    * so the tree symlinks THE WHOLE `node_modules` DIRECTORY rather than that one
    * bin.
    *
-   * THAT DISTINCTION IS NOT TIDINESS, IT IS A CI RED THIS SUITE ALREADY TOOK.
-   * pnpm's `.bin` entry is a shell shim in one of two shapes, and which one you get
-   * is a property of the box: an ABSOLUTE `exec node "/abs/.../cli/dist/index.js"`,
-   * or the PORTABLE form that computes `basedir=$(dirname "$0")` and then reaches
-   * `$basedir/../.pnpm/...`. Linking just the bin works for the first and breaks for
-   * the second, because `$basedir/..` is then an empty temp tree. The dev container
-   * writes the absolute form and `ubuntu-latest` writes the portable one, so these
-   * three cases passed locally and failed on the runner, dying in ~70 ms with a
-   * module-not-found before `attw` ever ran. Linking the DIRECTORY makes
-   * `$basedir/..` resolve through to the real tree, which is correct for both
-   * shapes. Reproduced in both directions before this was changed.
+   * THAT DISTINCTION IS NOT TIDINESS, IT IS A CI RED THIS SUITE ALREADY TOOK: on
+   * PR #55 these three cases passed locally and failed on both runner legs, dying
+   * in ~70 ms with a module-not-found before `attw` ever ran, so the exit-0
+   * assertion saw a 1. Linking the directory instead of the one bin is what turned
+   * the runner green (measured on the runner: red before, green after, Node 22 and
+   * 24 alike).
+   *
+   * ▶ WHAT IS DELIBERATELY NOT WRITTEN HERE IS *WHY* THAT WORKS, BECAUSE A DRAFT OF
+   * THIS COMMENT GOT IT WRONG AND A REFUTER CAUGHT IT. pnpm's `.bin` entry is a
+   * shell shim whose reach back into the store varies by layout, and Node collapses
+   * `..` LEXICALLY, so for a shim that climbs several levels no symlink placed at
+   * the temp tree is on the path it resolves. A mechanism sentence here would be a
+   * claim about every layout from a sample of one box, which is the exact failure
+   * this file's own subject matter is about.
+   *
+   * ▶ SO THIS CONSTRUCTION IS STILL BOX-DEPENDENT, AND THAT IS AN OPEN RESIDUAL
+   * RATHER THAN A CLOSED PROBLEM: a fresh clone plus a stock `pnpm install` reds
+   * these three cases, ON THE BASE COMMIT TOO. Linking the directory is strictly
+   * better than linking the bin, everywhere it was measured, and it is not a fix for
+   * the general case. The real fix is for the counterfactual to reach `attw` without
+   * depending on the shim's relative reach at all; that is its own item, not a
+   * widening of this one.
    */
   let withoutNet3 = "";
   let withoutNet3Root = "";
