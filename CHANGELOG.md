@@ -76,6 +76,18 @@ no package, so entries here are **dated** rather than versioned.
     `command -v simple-git-hooks … || true` one-liner. It is deliberately **not** fixed with
     `--ignore-scripts`, because a `prepack` may generate files that belong in the tarball and
     suppressing it would make this net read a listing the real publish would not produce.
+  - **🩺 A TEST FIXTURE THAT SYMLINKS A pnpm `.bin` ENTRY INTO A TEMP TREE IS A BOX-DEPENDENT TEST,
+    and this one passed locally and failed on the runner.** The counterfactual above needs the
+    net-3-less wrapper somewhere it can still resolve `../node_modules/.bin/attw`. pnpm writes that
+    shim in one of two shapes: an ABSOLUTE `exec node "/abs/.../cli/dist/index.js"`, or the PORTABLE
+    form that computes `basedir=$(dirname "$0")` and reaches `$basedir/../@arethetypeswrong/...`.
+    **The dev container writes the first; `ubuntu-latest` writes the second.** Linking only the bin
+    satisfies the first and breaks the second, so three cases died in ~70 ms with a module-not-found
+    before `attw` ever ran, and CI reported a failing gate for a gate that was fine. Fixed by
+    symlinking the WHOLE `node_modules` directory, which is right for both shapes; reproduced in both
+    directions by installing the portable shim locally and re-running the suite (50/50 under it).
+    **Never infer a package manager's shim shape from the box you are on**, and give a
+    fail-fast counterfactual a liveness assertion so a death cannot read as a pass.
   - Both byte-identical copies carry it (`packages/test-utils/scripts/attw.mjs` and
     `scripts/parser-template/scripts/attw.mjs`), so every scaffolded parser inherits it. **The 13
     existing sibling repos carry their own older copies and are unchanged by this**; porting is

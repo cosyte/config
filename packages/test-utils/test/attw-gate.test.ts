@@ -1082,10 +1082,23 @@ describe("net 3: the DECLARED paths must be in the tarball", () => {
    * drift away from the thing it is the counterfactual for; if the markers stop
    * matching it reds here instead of silently testing nothing.
    *
-   * It is written to a THROWAWAY TREE, never beside the real one. The wrapper
-   * resolves `attw` at `../node_modules/.bin/attw` relative to its own URL, so the
-   * tree carries a symlink at that path and nothing else. A second copy of a gate
-   * inside the repo is a file that can be committed by accident.
+   * It is written to a THROWAWAY TREE, never beside the real one, because a second
+   * copy of a gate inside the repo is a file that can be committed by accident. The
+   * wrapper resolves `attw` at `../node_modules/.bin/attw` relative to its own URL,
+   * so the tree symlinks THE WHOLE `node_modules` DIRECTORY rather than that one
+   * bin.
+   *
+   * THAT DISTINCTION IS NOT TIDINESS, IT IS A CI RED THIS SUITE ALREADY TOOK.
+   * pnpm's `.bin` entry is a shell shim in one of two shapes, and which one you get
+   * is a property of the box: an ABSOLUTE `exec node "/abs/.../cli/dist/index.js"`,
+   * or the PORTABLE form that computes `basedir=$(dirname "$0")` and then reaches
+   * `$basedir/../.pnpm/...`. Linking just the bin works for the first and breaks for
+   * the second, because `$basedir/..` is then an empty temp tree. The dev container
+   * writes the absolute form and `ubuntu-latest` writes the portable one, so these
+   * three cases passed locally and failed on the runner, dying in ~70 ms with a
+   * module-not-found before `attw` ever ran. Linking the DIRECTORY makes
+   * `$basedir/..` resolve through to the real tree, which is correct for both
+   * shapes. Reproduced in both directions before this was changed.
    */
   let withoutNet3 = "";
   let withoutNet3Root = "";
@@ -1099,8 +1112,7 @@ describe("net 3: the DECLARED paths must be in the tarball", () => {
 
     withoutNet3Root = mkdtempSync(join(tmpdir(), "attw-gate-net3-base-"));
     mkdirSync(join(withoutNet3Root, "scripts"), { recursive: true });
-    mkdirSync(join(withoutNet3Root, "node_modules", ".bin"), { recursive: true });
-    symlinkSync(ATTW_BIN, join(withoutNet3Root, "node_modules", ".bin", "attw"));
+    symlinkSync(join(PKG_ROOT, "node_modules"), join(withoutNet3Root, "node_modules"), "dir");
     withoutNet3 = join(withoutNet3Root, "scripts", "attw.mjs");
     writeFileSync(withoutNet3, src.slice(0, from) + src.slice(to));
   });
@@ -1129,6 +1141,10 @@ describe("net 3: the DECLARED paths must be in the tarball", () => {
         // it exits 0 because it was configured to.
         const before = run(process.execPath, [withoutNet3, ...OFFLINE], dir);
         expect(before.code).toBe(0);
+        // LIVENESS, so a counterfactual that died before reaching `attw` can never
+        // be mistaken for one that ran and passed. Exit 0 alone would not
+        // distinguish them if this file ever grows an early success path.
+        expect(before.out).toContain("attw gate:");
 
         // And with net 3 it reds, naming the path that went missing.
         const after = runWrapper(dir);
