@@ -610,7 +610,16 @@ describe("the config route, which no argument guard can reach", () => {
         },
         { "index.d.ts": "export declare const a: number;\n" },
       );
-      const packed = run("npm", ["pack", "--silent"], dtSrc);
+      // `--no-json` PINS THE OUTPUT FORMAT THIS PARSE ASSUMES, AND IT IS NOT
+      // BELT-AND-BRACES. `--silent` controls how MUCH npm prints, never in WHICH
+      // FORMAT, and `json` is an ordinary npm config: any ambient `npm_config_json`
+      // (or `NPM_CONFIG_JSON`) in the environment makes `npm pack` emit a JSON array
+      // instead of the filename. Reading `.pop()` off that yields `]`, so the assertion
+      // below fails with "expected ']' to match /\.tgz$/" on an unrelated change. This
+      // reproduced deterministically in the `release` job while passing locally and in
+      // `verify`, which is exactly the shape of a test that inherits its format from the
+      // caller's environment. Never read npm's human output without pinning the flag.
+      const packed = run("npm", ["pack", "--silent", "--no-json"], dtSrc);
       expect(packed.code, packed.out).toBe(0);
       const tgz = packed.out.trim().split("\n").filter(Boolean).pop() ?? "";
       expect(tgz).toMatch(/\.tgz$/);
