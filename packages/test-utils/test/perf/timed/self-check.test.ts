@@ -7,10 +7,10 @@
  * theatre. The roadmap is explicit:
  *
  * > ⚠️ The injected-O(n²) check proves nothing unless run at **the fixture sizes that package's real
- * > gate uses** — the signal is size-dependent and can sit inside the noise.
+ * > gate uses**: the signal is size-dependent and can sit inside the noise.
  *
  * The ceiling of 8 is a global constant derived from two numbers moving in opposite directions: the
- * worst false alarm across 3,200 clean ratios (6.649, container leg — a constant) and the weakest
+ * worst false alarm across 3,200 clean ratios (6.649, container leg: a constant) and the weakest
  * real O(n²) signal, which is *not* a constant. Measured, varying only the fixture:
  *
  * | base OBX → 4× | real O(n²) signal | worst false alarm | usable window |
@@ -21,13 +21,13 @@
  * | 1000 → 4000   | 10.68             | 6.649             | 1.61×         |
  *
  * At 125 base segments a genuine quadratic parser is *inside the noise*, so a gate calibrated there
- * reads green while broken. The sizes below are `hl7`'s own — count `n = 1000` ADT messages; size
- * `10` ORU messages at 500 → 2000 OBX lines — which are the sizes PERF-P0's whole calibration was
+ * reads green while broken. The sizes below are `hl7`'s own: count `n = 1000` ADT messages; size
+ * `10` ORU messages at 500 → 2000 OBX lines, which are the sizes PERF-P0's whole calibration was
  * taken at and the sizes P4 will migrate `hl7` onto.
  *
  * **This test measures, so it can be defeated by its runner.** On a CPU-quota-throttled container the
  * warmup rule legitimately refuses to settle and the check fails loudly rather than answering
- * wrongly — that is the fail-safe working, not a bug, but it does mean `pnpm test:perf` is a
+ * wrongly, that is the fail-safe working, not a bug, but it does mean `pnpm test:perf` is a
  * deliberate command run on a machine you have some claim over, not a gate to hang on an arbitrary
  * CI runner. See `experiments/perf-p2-false-alarm/ANALYSIS.md` for the measured behaviour.
  */
@@ -50,7 +50,7 @@ import {
 
 const TIMEOUT = 300_000;
 
-describe("assertScalingGateFires — a real O(n²) parser at a real fixture size", () => {
+describe("assertScalingGateFires: a real O(n²) parser at a real fixture size", () => {
   it(
     "fires: the injected regression clears RATIO_CEILING at `hl7`'s own fixture sizes",
     () => {
@@ -77,7 +77,7 @@ describe("assertScalingGateFires — a real O(n²) parser at a real fixture size
       expect(report.baseSize).toBe(500);
       expect(report.inputs).toEqual([10, 10]);
 
-      // The precondition side: the CLEAN parse — the one the real gate measures — can produce a
+      // The precondition side: the CLEAN parse (the one the real gate measures) can produce a
       // ratio rather than skipping `phase-too-short` forever, on BOTH axes the gate asserts, not
       // just the one the injected regression exercises.
       expect(report.cleanBaseMinMs.count).toBeGreaterThanOrEqual(PERF_CONTRACT.MIN_PHASE_MS);
@@ -87,7 +87,7 @@ describe("assertScalingGateFires — a real O(n²) parser at a real fixture size
       expect(report.samples.base).toHaveLength(PERF_CONTRACT.REPS);
       expect(report.samples.scaled).toHaveLength(PERF_CONTRACT.REPS);
 
-      // PHI: sizes, counts, ratios and timings only — never what was parsed.
+      // PHI: sizes, counts, ratios and timings only, never what was parsed.
       const emitted = [report.diagnostic, ...lines].join("\n");
       for (const needle of ["MSH", "SYNTHETIC", "Nobody", "Glucose", "OBX|"]) {
         expect(emitted).not.toContain(needle);

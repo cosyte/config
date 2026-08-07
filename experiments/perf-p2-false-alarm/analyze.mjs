@@ -4,7 +4,7 @@
  *
  * The question is binary and the roadmap asks it that way: across N clean runs, how many times did
  * the gate FIRE on a workload that is linear by construction? Everything else here is context for
- * that number — the ratio distribution (how close it came), and the skip census (how often it
+ * that number: the ratio distribution (how close it came), and the skip census (how often it
  * refused to answer, which is a different outcome from both firing and passing).
  *
  * Usage: node analyze.mjs [dataDir]
@@ -30,9 +30,9 @@ const q = (xs, p) => {
   const s = [...xs].sort((a, b) => a - b);
   return s[Math.min(s.length - 1, Math.floor(p * s.length))];
 };
-const fmt = (n) => (n === null || n === undefined ? "—" : Number(n).toFixed(4));
+const fmt = (n) => (n === null || n === undefined ? ": " : Number(n).toFixed(4));
 
-console.log(`# PERF-P2 false-alarm sweep — ${rows.length} runs (${file})\n`);
+console.log(`# PERF-P2 false-alarm sweep: ${rows.length} runs (${file})\n`);
 
 const fired = rows.filter((r) => r.fired !== null);
 console.log(`## The acceptance clause\n`);
@@ -49,7 +49,7 @@ for (const op of new Set(fired.map((r) => r.fired))) {
         : ""),
   );
   // Only rows carrying `firedDiagnostic` had their axis READ from the gate's message. Older rows
-  // (see README's warning on `runs-sweepA.jsonl`) inferred it, and inferred it wrongly — every fire
+  // (see README's warning on `runs-sweepA.jsonl`) inferred it, and inferred it wrongly: every fire
   // is labelled `count` there regardless. Reprinting that would relaunder an invented measurement
   // through a tool that looks authoritative, so it is suppressed rather than shown with an asterisk.
   const attributed = these.filter((r) => typeof r.firedDiagnostic === "string");

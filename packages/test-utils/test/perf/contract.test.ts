@@ -60,7 +60,7 @@ describe("PERF_CONTRACT", () => {
   });
 });
 
-describe("signalVerdict — the ceiling as a per-package guarantee", () => {
+describe("signalVerdict: the ceiling as a per-package guarantee", () => {
   // ADR 0001 §5's measured table, encoded. The signal a genuine O(n²)-in-length parser produces is
   // NOT a constant: it climbs with fixture size, so at the smallest of these the gate reads green
   // while blind. This is the single arithmetic decision that turns 8 from a global guess into a

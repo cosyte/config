@@ -3,7 +3,7 @@
  *
  * Everything here is pure: the two estimators ADR 0001 separates (`min` for the ratio assertion,
  * `median` for the reported headline), the rounding used in diagnostics, and the warmup stability
- * predicate — which is the rule that decides when V8 is considered settled, and therefore the rule
+ * predicate, which is the rule that decides when V8 is considered settled, and therefore the rule
  * the whole warmup budget hangs off.
  *
  * Clock-free, so it runs in the default `pnpm test` rather than the timed `pnpm test:perf`.
@@ -21,14 +21,14 @@ import {
   perfSink,
 } from "../../src/perf/measure.js";
 
-describe("minOf — the ratio assertion's estimator", () => {
+describe("minOf: the ratio assertion's estimator", () => {
   it("returns the smallest sample", () => {
     expect(minOf([9.1, 4.2, 7.7])).toBe(4.2);
   });
 
   it("returns +Infinity on an empty vector rather than 0", () => {
     // 0 would silently produce a ratio of Infinity or NaN downstream. +Infinity propagates into a
-    // phase that fails MIN_PHASE_MS' comparison the safe way — it never looks like a fast phase.
+    // phase that fails MIN_PHASE_MS' comparison the safe way: it never looks like a fast phase.
     expect(minOf([])).toBe(Number.POSITIVE_INFINITY);
   });
 
@@ -42,7 +42,7 @@ describe("minOf — the ratio assertion's estimator", () => {
   });
 });
 
-describe("medianOf — the reported headline's estimator", () => {
+describe("medianOf: the reported headline's estimator", () => {
   it("takes the middle sample of an odd-length vector", () => {
     expect(medianOf([3, 1, 2])).toBe(2);
   });
@@ -69,7 +69,7 @@ describe("round4", () => {
   });
 });
 
-describe("defaultWeigh — the sink contribution", () => {
+describe("defaultWeigh: the sink contribution", () => {
   it("counts one per non-nullish result", () => {
     expect(defaultWeigh({})).toBe(1);
     expect(defaultWeigh(0)).toBe(1);
@@ -87,7 +87,7 @@ describe("defaultWeigh — the sink contribution", () => {
 describe("perfSink", () => {
   it("is a live accumulator the runner reads back", () => {
     // Not decoration: Turboshaft's dead-code elimination is use-based, so a measured loop whose
-    // result is never read is a loop the compiler may delete — and a deleted loop produces a
+    // result is never read is a loop the compiler may delete, and a deleted loop produces a
     // confident, fast, meaningless number.
     const before = perfSink.value;
     perfSink.value += 3;
@@ -96,7 +96,7 @@ describe("perfSink", () => {
   });
 });
 
-describe("batchesAreStable — when V8 counts as settled", () => {
+describe("batchesAreStable: when V8 counts as settled", () => {
   const { WARMUP_STABLE_BATCHES, WARMUP_STABLE_TOL } = PERF_CONTRACT;
 
   it("is false before WARMUP_STABLE_BATCHES batches exist", () => {
@@ -109,7 +109,7 @@ describe("batchesAreStable — when V8 counts as settled", () => {
   });
 
   it("judges only the LAST three, so an unsettled prefix does not veto a settled tail", () => {
-    // The rule is "stop when three consecutive batches agree", not "all batches agree" — a warmup
+    // The rule is "stop when three consecutive batches agree", not "all batches agree": a warmup
     // that starts slow and converges is the normal case, not a failure.
     expect(batchesAreStable([500, 250, 10.1, 10, 9.9])).toBe(true);
   });
@@ -137,7 +137,7 @@ describe("batchesAreStable — when V8 counts as settled", () => {
 
   it("uses exactly WARMUP_STABLE_BATCHES samples", () => {
     expect(WARMUP_STABLE_BATCHES).toBe(3);
-    // A pair that agrees is not enough — two consecutive can be a coincidence on a heavy tail.
+    // A pair that agrees is not enough: two consecutive can be a coincidence on a heavy tail.
     expect(batchesAreStable([10, 10])).toBe(false);
   });
 });

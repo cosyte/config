@@ -10,9 +10,9 @@ import { defineConfig } from "vitest/config";
  *
  * `test/perf/timed/**` is excluded and runs under `vitest.perf.config.ts` via `pnpm test:perf`.
  * Those are the only tests here that read a clock, and ADR 0001 §6 puts clock-reading tests in
- * their own non-instrumented invocation. Everything else about the perf kit — the frozen contract,
+ * their own non-instrumented invocation. Everything else about the perf kit: the frozen contract,
  * the two estimators, the warmup stability rule, corpus construction, the fixture-size verdict and
- * the PHI rule on diagnostics — is clock-free and stays in this run, so `scripts/verify.sh config`
+ * the PHI rule on diagnostics: is clock-free and stays in this run, so `scripts/verify.sh config`
  * still exercises it.
  */
 export default defineConfig({

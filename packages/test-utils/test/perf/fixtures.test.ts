@@ -1,11 +1,11 @@
 /**
- * Fixture construction, input validation, and the PHI rule — all reachable without a clock.
+ * Fixture construction, input validation, and the PHI rule: all reachable without a clock.
  *
  * Two things are proved here that the timed tests cannot prove as cleanly:
  *
  * 1. **The size axis genuinely scales size.** The count axis holds input length constant and varies
  *    the number of inputs; the size axis holds the number of inputs constant and varies each one's
- *    length by `SCALE_STEP`. That distinction is the entire reason size-scaling is non-optional —
+ *    length by `SCALE_STEP`. That distinction is the entire reason size-scaling is non-optional:
  *    an O(n²)-in-length tokenizer is invisible to the count axis by construction, because at fixed
  *    message size a quadratic parser still scores ≈4 there. Asserting it on the corpora rather than
  *    on a timing means it cannot be satisfied by a coincidence of the clock.
@@ -38,7 +38,7 @@ const options: ScalingGateOptions<string, ParsedMessage> = {
   report: () => {},
 };
 
-describe("buildAxisCorpora — the count axis", () => {
+describe("buildAxisCorpora: the count axis", () => {
   const { base, scaled, baseSize, scaledSize } = buildAxisCorpora("count", options);
 
   it("scales the NUMBER of inputs by SCALE_STEP", () => {
@@ -63,7 +63,7 @@ describe("buildAxisCorpora — the count axis", () => {
   });
 });
 
-describe("buildAxisCorpora — the size axis", () => {
+describe("buildAxisCorpora: the size axis", () => {
   const { base, scaled, baseSize, scaledSize } = buildAxisCorpora("size", options);
 
   it("holds the input COUNT constant on both phases, so the ratio isolates length", () => {
@@ -76,7 +76,7 @@ describe("buildAxisCorpora — the size axis", () => {
     expect(scaledSize).toBe(20 * PERF_CONTRACT.SCALE_STEP);
     // The generator's size knob is repeated segments, so bytes scale with it but not exactly 4x
     // (the fixed header is not repeated). What must hold is that the scaled input is materially
-    // longer — this is the axis a quadratic-in-length parser blows up on.
+    // longer: this is the axis a quadratic-in-length parser blows up on.
     const baseLen = base[0]?.length ?? 0;
     const scaledLen = scaled[0]?.length ?? 0;
     expect(scaledLen).toBeGreaterThan(baseLen * 3.5);
@@ -100,7 +100,7 @@ describe("buildAxisCorpora — the size axis", () => {
   });
 });
 
-describe("buildAxisCorpora — input validation", () => {
+describe("buildAxisCorpora: input validation", () => {
   it.each([
     ["count.n", { ...options, count: { ...options.count, n: 0 } }, "count" as const],
     ["count.n", { ...options, count: { ...options.count, n: 1.5 } }, "count" as const],
@@ -146,7 +146,7 @@ describe("the self-check refuses a regression that computes something else", () 
   });
 });
 
-describe("PHI — diagnostics carry sizes and counts, never input content", () => {
+describe("PHI: diagnostics carry sizes and counts, never input content", () => {
   // Every value in `_workload.ts` is fabricated, but the rule is structural: the kit takes a
   // generator function and never a file path, and no failure path may echo what it parsed. These
   // needles are the distinctive literals the generators emit.
@@ -163,7 +163,7 @@ describe("PHI — diagnostics carry sizes and counts, never input content", () =
     }
     expect(message).not.toBe("");
     for (const needle of needles) expect(message).not.toContain(needle);
-    // It still says enough to act on: which fixture, and what to do about it.
+    // It still says enough to act on, which fixture, and what to do about it.
     expect(message).toMatch(/6 input\(s\) @ size 20 vs 80/);
   });
 

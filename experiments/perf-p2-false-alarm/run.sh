@@ -2,7 +2,7 @@
 # PERF-P2 false-alarm sweep. Runs the SHIPPED gate over a workload that is linear by construction,
 # in N fresh processes, and records every ratio. Every row is a false alarm by definition.
 #
-#   run.sh            200 runs — the roadmap's acceptance clause, ~25 min
+#   run.sh            200 runs: the roadmap's acceptance clause, ~25 min
 #   run.sh --quick    5 runs, for a smoke check that the harness still works
 #   run.sh <n>        n runs
 #
@@ -29,11 +29,11 @@ if [ "$major" != "22" ]; then
   echo "  ADR 0001 is calibrated on 22.23.1/V8 12.4; try:  mise exec node@22 -- $0 $*" >&2
   exit 66
 fi
-[ -x "$VITEST" ] || { echo "run.sh: $VITEST missing — run 'pnpm install' first" >&2; exit 66; }
+[ -x "$VITEST" ] || { echo "run.sh: $VITEST missing, run 'pnpm install' first" >&2; exit 66; }
 
 mkdir -p "$DATA"
 OUT="$DATA/runs.jsonl"
-# Archive rather than truncate. An acceptance dataset is expensive (~25 min) and not reproducible —
+# Archive rather than truncate. An acceptance dataset is expensive (~25 min) and not reproducible:
 # this sweep's whole finding is that the fire count is environment-dominated, so two sweeps taken
 # hours apart are two observations, not one superseding the other. A previous run of this script
 # destroyed the first 200-run dataset by truncating here; it does not get to happen twice.
@@ -68,7 +68,7 @@ process.stdout.write(JSON.stringify({
   github: process.env.GITHUB_ACTIONS ? { runner: process.env.RUNNER_NAME ?? null, image: process.env.ImageOS ?? null } : null,
 }, null, 2) + "\n");
 ' "$RUNS" > "$DATA/environment.json"
-# The provenance file is committed, and the repo's `format:check` covers `**/*.json` — so normalise it
+# The provenance file is committed, and the repo's `format:check` covers `**/*.json`, so normalise it
 # here rather than leaving a re-run of this sweep to turn CI red for a whitespace diff.
 "$REPO/node_modules/.bin/prettier" --write --log-level warn "$DATA/environment.json" >/dev/null 2>&1 || true
 

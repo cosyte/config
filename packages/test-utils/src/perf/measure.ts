@@ -1,6 +1,6 @@
 /**
  * The measurement primitives: the sink, the estimators, the timed phase, and the time-budgeted
- * warmup. Internal to `@cosyte/test-utils/perf` — the public surface is
+ * warmup. Internal to `@cosyte/test-utils/perf`: the public surface is
  * {@link ../scaling-gate.js | scalingGate} and {@link ../self-check.js | assertScalingGateFires}.
  *
  * Everything here is hand-rolled on `node:perf_hooks`, with zero dependencies. That question is
@@ -22,7 +22,7 @@ import { PERF_CONTRACT } from "./contract.js";
  *
  * It is not decoration and not optional. V8's optimizing backend in Node 22 is Turboshaft, whose
  * dead-code elimination is **use-based** (`src/compiler/turboshaft/dead-code-elimination-reducer.h`
- * — not the type-based `dead-code-elimination.h` pass that gets cited by mistake). A measured loop
+ *: not the type-based `dead-code-elimination.h` pass that gets cited by mistake). A measured loop
  * whose result is never used is a loop the compiler is entitled to delete, and a deleted loop
  * produces a confident, fast, meaningless number. Summing into a module-level export that the
  * runner reads back afterwards is the structural defence.
@@ -37,7 +37,7 @@ import { PERF_CONTRACT } from "./contract.js";
 export const perfSink: { value: number } = { value: 0 };
 
 /**
- * Smallest sample in a vector. The estimator ADR 0001 fixes for the **ratio assertion** — and only
+ * Smallest sample in a vector. The estimator ADR 0001 fixes for the **ratio assertion**, and only
  * for that. On the ratio of two same-process phases the noise is one-sided, so `min` is the only
  * estimator that does not import a one-sided stall on one side of the ratio into the ratio itself;
  * measured, it is the only one that leaves a usable window at all (6.65…8.84 rather than 8.58…8.84).
@@ -81,7 +81,7 @@ export function round4(n: number): number {
 
 /**
  * The default `weigh`: one per non-nullish result. Shared by the gate and the self-check so the two
- * cannot drift — a self-check that summed a different quantity than the gate would be measuring a
+ * cannot drift: a self-check that summed a different quantity than the gate would be measuring a
  * different loop.
  *
  * @internal
@@ -92,7 +92,7 @@ export function defaultWeigh(result: unknown): number {
 
 /**
  * Where loud diagnostics go by default. `stderr` rather than `stdout` so a skip survives a test
- * reporter that swallows stdout — a skip that nobody sees is the silent pass the fail-safe rule
+ * reporter that swallows stdout: a skip that nobody sees is the silent pass the fail-safe rule
  * exists to prevent.
  *
  * @internal
@@ -103,11 +103,11 @@ export function toStderr(line: string): void {
 
 /**
  * One timed phase: `reps` full passes over `corpus`, returning the **full** sample vector in
- * milliseconds. Never pre-reduced — W2's one surviving remedy is that the whole vector is available
+ * milliseconds. Never pre-reduced: W2's one surviving remedy is that the whole vector is available
  * to whoever reads the diagnostic.
  *
  * The corpus is built by the caller *outside* every timed region. `parse` and `weigh` are local
- * bindings here, so the loop calls them directly rather than through a Vite-SSR namespace getter —
+ * bindings here, so the loop calls them directly rather than through a Vite-SSR namespace getter:
  * the shape P0's harness had, and the reason the kit takes a function rather than a module.
  *
  * @internal
@@ -161,7 +161,7 @@ export function batchesAreStable(batches: readonly number[]): boolean {
 }
 
 /**
- * Time-budgeted warmup with a stability rule — never a fixed invocation count.
+ * Time-budgeted warmup with a stability rule: never a fixed invocation count.
  *
  * W1 is structural, not a tuning observation: V8's `InterruptBudgetFor()` returns
  * `invocation_count_for_maglev * bytecode_length`, and `DEFINE_WEAK_IMPLICATION(maglev,
@@ -171,21 +171,21 @@ export function batchesAreStable(batches: readonly number[]): boolean {
  * first measured rep is up to **1.23× slower than the fifth**, and that first rep is the only
  * measurement a real CI gate ever takes.
  *
- * Warms on the **base** corpus only, once per axis — both phases exercise the same code path.
+ * Warms on the **base** corpus only, once per axis: both phases exercise the same code path.
  *
  * **Two properties of the batching, recorded because they are easy to misread:**
  *
  * 1. A batch runs *whole passes* until at least `WARMUP_BATCH_MS` has been timed, so a corpus whose
  *    single pass already exceeds 50 ms degenerates to one-pass batches. The stability rule then
  *    evaluates at exactly the per-pass granularity ADR 0001 §2 measures as satisfiable in as few as
- *    **1.0%** of already-warm phases — so such a package is likely to hit `warmup-unstable`. That
+ *    **1.0%** of already-warm phases, so such a package is likely to hit `warmup-unstable`. That
  *    fails safe (a loud skip, never a silent pass) and the ADR's stated remedy is to raise
  *    `WARMUP_BATCH_MS` under its review triggers, not to special-case it here.
  * 2. `WarmupReport.batches` is **milliseconds per pass**, not the raw batch total. ADR 0001 §2 says
  *    "batch timings"; normalising is the only reading that is a statistic at all, since batches can
  *    contain different pass counts as the runtime tiers up, and comparing a 6-pass total against a
  *    5-pass total would read a 20% regression that is not there. Note this is **not** uniformly the
- *    laxer reading — with pass cost drifting 8.0 → 9.0 ms, raw totals of 56 / 54 / 56 look stable at
+ *    laxer reading: with pass cost drifting 8.0 → 9.0 ms, raw totals of 56 / 54 / 56 look stable at
  *    3.6% while the normalised 8 / 9 / 8 is 12.5% and does not. It is the *correct* reading, not the
  *    permissive one, and on that example it is the stricter of the two.
  *

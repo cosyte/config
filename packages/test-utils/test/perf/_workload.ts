@@ -3,19 +3,19 @@
  *
  * A workload defined inside a test file is called through a plain local binding; one imported from
  * another module is called through a Vite-SSR namespace getter (V4). A consumer's `parse` comes from
- * its own `src/`, so it is the second shape — and it is the shape PERF-P0's calibration was taken
+ * its own `src/`, so it is the second shape, and it is the shape PERF-P0's calibration was taken
  * against. Defining these inline would test the kit under a host no adopting package runs under.
  *
  * Both parsers are lifted from `experiments/perf-calibration/` so the kit's own tests exercise
  * exactly the code the constants in ADR 0001 were measured against. `parseMessage` is linear in the
  * total byte length; `parseMessageQuadratic` computes **the same output** in O(segments × length) by
- * re-scanning from offset 0 for every segment — the shape a real "just use `indexOf`" refactor
+ * re-scanning from offset 0 for every segment: the shape a real "just use `indexOf`" refactor
  * regression takes, not a pathological sleep. It deliberately does not lean on `slice` being a copy:
  * V8 returns an O(1) SlicedString for long strings, which would quietly make the naive
  * implementation linear again.
  *
  * PHI: every value below is fabricated and generated in-process. There are no fixture files and no
- * corpus on disk — the generators are the only input source, which is the shape the kit requires of
+ * corpus on disk: the generators are the only input source, which is the shape the kit requires of
  * its callers.
  */
 
@@ -74,7 +74,7 @@ export function parseMessageQuadratic(raw: string): ParsedMessage {
   return { segments };
 }
 
-/** Synthetic admit message, five segments, **fixed** size — the count axis's corpus. */
+/** Synthetic admit message, five segments, **fixed** size: the count axis's corpus. */
 export function admitMessage(i: number): string {
   const id = String(i).padStart(6, "0");
   return (
@@ -87,7 +87,7 @@ export function admitMessage(i: number): string {
 }
 
 /**
- * Synthetic result message with `resultLines` repeated result segments — the size axis's knob.
+ * Synthetic result message with `resultLines` repeated result segments: the size axis's knob.
  * `resultLines` is what the gate scales 4×.
  */
 export function resultMessage(i: number, resultLines: number): string {
@@ -105,7 +105,7 @@ export function resultMessage(i: number, resultLines: number): string {
   );
 }
 
-/** Count the segments a parse produced — the `weigh` these tests hand the runner. */
+/** Count the segments a parse produced: the `weigh` these tests hand the runner. */
 export function weighSegments(parsed: ParsedMessage): number {
   return parsed.segments.length;
 }

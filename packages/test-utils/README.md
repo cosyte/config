@@ -144,7 +144,7 @@ describe("hl7 conformance", () => {
 });
 ```
 
-## `@cosyte/test-utils/perf` — the performance kit
+## `@cosyte/test-utils/perf`: the performance kit
 
 A second, separately-imported runner family on the `./perf` subpath. It exists so every package can
 prove, in its own CI and without bespoke code, that it has not silently acquired an
@@ -184,10 +184,10 @@ it("has fixtures large enough for that gate to fail", () => {
 ### Both axes, and why size-scaling is not optional
 
 `count` scales the _number_ of inputs at fixed length; `size` scales each input's _length_ at fixed
-count. An O(n²)-in-length tokenizer is invisible to the count axis **by construction** — at fixed
+count. An O(n²)-in-length tokenizer is invisible to the count axis **by construction**: at fixed
 message size a quadratic parser still scores ≈4 there. There is no way to ask for one axis.
 
-### What it will not tell you — read this before quoting it
+### What it will not tell you: read this before quoting it
 
 1. **It does not detect constant-factor regressions.** A 10% slowdown passes, and always will. From
    a single cloud instance only 17–22% of configurations reliably detect a ≤10% slowdown, so this is
@@ -198,16 +198,16 @@ message size a quadratic parser still scores ≈4 there. There is no way to ask 
    O(n²)-in-length parser climbed 4.69 → 8.09 → 8.84 → 10.68 as the base fixture grew 125 → 250 →
    500 → 1000 repeated segments, against a false-alarm tail that stays at 6.649. At the smallest of
    those a real regression is _inside the noise_. `assertScalingGateFires` is what proves your own
-   fixtures clear that bar — a package that skips it has a gate with no established sensitivity.
+   fixtures clear that bar: a package that skips it has a gate with no established sensitivity.
 3. **The ceiling is calibrated to a runner class, and yours may not be in it.** Measured by
    PERF-P2's own false-alarm sweeps: on a CPU-quota-throttled container the gate fired on a workload
-   that is linear by construction **4 times in 600 clean runs**, at ratios of 8.94–11.01 — which sit
+   that is linear by construction **4 times in 600 clean runs**, at ratios of 8.94–11.01, which sit
    **above** the weakest real O(n²) signal at `hl7`'s own fixture size (8.84). On that box no ceiling
    separates noise from signal at all. The
    mechanism is not modelled by the contract: a same-process ratio cancels JIT state, but the two
    phases are separated in _time_ and a cgroup's throttling state changes between them. So
    `assertScalingGateFires` proves your **fixture** is big enough and says nothing about whether your
-   **runner** is quiet enough. Establish both before adopting — `experiments/perf-p2-false-alarm/`
+   **runner** is quiet enough. Establish both before adopting: `experiments/perf-p2-false-alarm/`
    in the `config` repo re-runs on any machine and answers the second question.
 4. Absolute timings are not a portable guarantee, cross-package comparison is meaningless, and
    nothing here sees a regression that only appears under real I/O, network or concurrency.
@@ -215,7 +215,7 @@ message size a quadratic parser still scores ≈4 there. There is no way to ask 
 ### Fail-safe, and PHI
 
 A performance measurement must never report a confident wrong answer. When the preconditions for a
-ratio do not hold — `phase-too-short`, `warmup-unstable` — the gate **skips loudly** on stderr and
+ratio do not hold (`phase-too-short`, `warmup-unstable`) the gate **skips loudly** on stderr and
 returns `status: "skipped"`. **A skip is not a pass**; read the returned report if you want one to
 fail your suite. Both bounds are asserted: the ceiling catches the complexity regression, the floor
 catches the two phases having received the same workload.
@@ -226,7 +226,7 @@ and sample vectors, and never echoes input content.
 
 ### Running it
 
-Perf tests belong in their **own non-instrumented invocation** — coverage instrumentation compiles
+Perf tests belong in their **own non-instrumented invocation**: coverage instrumentation compiles
 an effectful counter into the measured function body at a cost that does not cleanly cancel in a
 ratio. This package ships that split as a worked example: `pnpm test` (clock-free, coverage-safe) and
 `pnpm test:perf` (`vitest.perf.config.ts`, the tests that actually measure).
@@ -234,7 +234,7 @@ ratio. This package ships that split as a worked example: `pnpm test` (clock-fre
 Every constant is fixed by
 [ADR 0001](../../documentation/decisions/0001-perf-measurement-contract.md), each tagged _measured_
 or _judgement_, from the PERF-P0 calibration: 3,200 4N-vs-N ratios on a linear workload, 320 on a
-deliberately O(n²) one, on Node 22.23.1 / V8 12.4. They are **not tuning knobs** — the ADR's review
+deliberately O(n²) one, on Node 22.23.1 / V8 12.4. They are **not tuning knobs**: the ADR's review
 triggers are the process for moving one.
 
 Part of [cosyte/config](https://github.com/cosyte/config).

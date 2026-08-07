@@ -1,4 +1,4 @@
-# PERF-P2 — the false-alarm sweep
+# PERF-P2: the false-alarm sweep
 
 **Read `ANALYSIS.md` first.** This file is how to re-run it.
 
@@ -9,7 +9,7 @@ else in the repo imports it.
 ## The question
 
 The roadmap's acceptance clause for PERF-P2 has two halves. One is "fires on an injected O(n²)
-fixture", and that is a _test_ — it lives in
+fixture", and that is a _test_: it lives in
 `packages/test-utils/test/perf/timed/self-check.test.ts`. The other cannot be a test, because it is a
 statement about a distribution:
 
@@ -21,19 +21,19 @@ P0 already measured 3,200 ratios on a linear workload, which is a much larger fa
 this one. It does not answer the question, and ADR 0001 §2 says so in terms:
 
 > `min` over 5 reps partially launders an unfinished warmup, because the last reps are the fast ones
-> — and `RATIO_CEILING` was set from the worst false alarm in the whole population, which is a _warm_
-> row. **Changing the warmup rule moves the operating point, so the ceiling must be re-checked — on
+> , and `RATIO_CEILING` was set from the worst false alarm in the whole population, which is a _warm_
+> row. **Changing the warmup rule moves the operating point, so the ceiling must be re-checked: on
 > both sides.** […] The false-alarm side […] is roadmap P2's own acceptance clause, "does **not** fire
 > across 200 clean runs"; that run must be taken under the warmup rule decided here, not under
 > `hl7`'s fixed-count one. P2 owns both.
 
 P0 warmed with `hl7`'s fixed ~2,100 invocations. The kit warms on a **time budget with a stability
-rule** — ≥500 ms, stop on three consecutive 50 ms batches within ±5%, cap 5 s — which was P1's
+rule** (≥500 ms, stop on three consecutive 50 ms batches within ±5%, cap 5 s) which was P1's
 judgement and had never been run at scale by anyone. So the false-alarm side is re-measured here
 against the thing that actually ships.
 
 `false-alarm.test.ts` imports P0's linear workload module (`../perf-calibration/workload.ts`)
-**unchanged**, at P0 Experiment A's own fixture sizes — 1,000 ADT messages on the count axis, 10 ORU
+**unchanged**, at P0 Experiment A's own fixture sizes: 1,000 ADT messages on the count axis, 10 ORU
 messages at 500 → 2,000 OBX lines on the size axis. Nothing in this directory modifies that module:
 its bytecode length and coverage block count are what P0's 3,200 committed measurements were taken
 against.
@@ -45,7 +45,7 @@ before attributing any difference from P0 to the warmup rule.
 ## What one run is
 
 One fresh `vitest` process, one `scalingGate` call over a workload that is **linear by construction**.
-Every ratio recorded is therefore a false alarm by definition — the questions are only how large, how
+Every ratio recorded is therefore a false alarm by definition: the questions are only how large, how
 often the gate refused to answer at all (a skip is a third outcome, distinct from both firing and
 passing), and how often it fired.
 
@@ -55,29 +55,29 @@ gate runs: once, in a fresh fork, with no JIT state inherited from a previous tr
 ## Running it
 
 ```bash
-mise exec node@22 -- ./run.sh          # 200 runs — the acceptance clause, ~25 min
+mise exec node@22 -- ./run.sh          # 200 runs: the acceptance clause, ~25 min
 mise exec node@22 -- ./run.sh --quick  # 5 runs, smoke check
 mise exec node@22 -- ./run.sh 50       # n runs
 node analyze.mjs data                  # re-summarise a dataset without re-taking it
 ```
 
 **Node 22 is required, not preferred.** ADR 0001's constants are calibrated on Node 22.23.1 / V8 12.4
-and its review trigger 4 is "Node's major version moves" — re-measuring the ceiling on 24 answers a
+and its review trigger 4 is "Node's major version moves": re-measuring the ceiling on 24 answers a
 different question. `run.sh` refuses to run on anything else. This is not hypothetical: the first
 probe of this gate was taken on Node 24.18.0 in this container and scored **6.709** on the count axis
 for the same linear workload that scores ~4.0 on 22.
 
 ## What is in `data/`
 
-| File                     | What it is                                                                                       |
-| ------------------------ | ------------------------------------------------------------------------------------------------ |
-| `runs.jsonl`             | the current sweep — one row per run: both axes' status, ratio, full sample vectors, warmup shape |
-| `runs-<timestamp>.jsonl` | an archived sweep, written by `run.sh` before it starts a new one                                |
-| `runs-sweepA.jsonl`      | the first sweep. ⚠️ its `firedAxis` field is **invented** — see below                            |
-| `environment.json`       | the machine, the Node/V8 build, and the **cgroup CPU quota** — see `ANALYSIS.md`                 |
+| File                     | What it is                                                                                      |
+| ------------------------ | ----------------------------------------------------------------------------------------------- |
+| `runs.jsonl`             | the current sweep: one row per run: both axes' status, ratio, full sample vectors, warmup shape |
+| `runs-<timestamp>.jsonl` | an archived sweep, written by `run.sh` before it starts a new one                               |
+| `runs-sweepA.jsonl`      | the first sweep. ⚠️ its `firedAxis` field is **invented**: see below                            |
+| `environment.json`       | the machine, the Node/V8 build, and the **cgroup CPU quota**: see `ANALYSIS.md`                 |
 
 ⚠️ **`runs-sweepA.jsonl` predates the axis-attribution fix.** Its harness inferred the firing axis
-rather than reading it, and inferred it wrongly — every fire is labelled `count` regardless (see
+rather than reading it, and inferred it wrongly: every fire is labelled `count` regardless (see
 `ANALYSIS.md` §5.1). Its fire count and ratios are valid; its axis is not. `analyze.mjs` suppresses
 the axis breakdown for any row lacking `firedDiagnostic`, which is exactly the pre-fix rows, so
 re-summarising it will not reprint the bad attribution. The field is left in the file rather than

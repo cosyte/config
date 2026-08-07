@@ -1,12 +1,12 @@
 /**
- * The throughput scaling gate — the generic, per-package regression gate for
+ * The throughput scaling gate: the generic, per-package regression gate for
  * *complexity-shaped* slowdowns.
  *
  * It measures two axes in one process and asserts both:
  *
- * - **count** — `N` inputs of a fixed size vs `4N` of the same size. Catches work that is
+ * - **count**: `N` inputs of a fixed size vs `4N` of the same size. Catches work that is
  *   super-linear in the *number* of messages (an accumulating rescan, an O(n²) index rebuild).
- * - **size** — a fixed number of inputs at length `S` vs the same number at length `4S`. Catches an
+ * - **size**: a fixed number of inputs at length `S` vs the same number at length `4S`. Catches an
  *   O(n²)-in-length tokenizer, which the count axis **structurally cannot see**: at fixed message
  *   size, a quadratic-in-length parser still scores ≈4 on the count axis.
  *
@@ -23,7 +23,7 @@
  *   size (4.69 → 8.09 → 8.84 → 10.68 as the base grows 125 → 250 → 500 → 1000 repeated segments, on
  *   the noisier runner class), while the false-alarm tail stays at 6.649. At the smallest of those
  *   the signal is *inside the noise* and the gate reads green while blind. **Each adopting package
- *   must prove its own fixtures are large enough** — that is what
+ *   must prove its own fixtures are large enough**, that is what
  *   {@link ../self-check.js | assertScalingGateFires} is for, and it fails the build when they are not.
  * - Anything that only manifests under real I/O, network, or concurrency. Every workload here is
  *   synthetic and in-memory.
@@ -32,7 +32,7 @@
  *
  * Borrowed from the parser class: **a performance measurement must never report a confident wrong
  * answer.** When the preconditions for a ratio do not hold the gate **skips loudly** with a typed
- * reason rather than passing silently or failing — see {@link PerfSkipReason}. A skip is not a pass.
+ * reason rather than passing silently or failing: see {@link PerfSkipReason}. A skip is not a pass.
  *
  * ## PHI
  *
@@ -66,11 +66,11 @@ export type PerfAxis = "count" | "size";
 /**
  * Why a gate refused to answer. A skip is **not** a pass.
  *
- * - `phase-too-short` — the base phase's `min` sample is under `MIN_PHASE_MS` (4 ms). The fastest
+ * - `phase-too-short`: the base phase's `min` sample is under `MIN_PHASE_MS` (4 ms). The fastest
  *   base phase in P0's whole 3,200-sample population was 4.14 ms; below that the ceiling is
  *   extrapolation, so the gate refuses rather than answers wrongly. It means the package's fixture
  *   is below the calibrated regime.
- * - `warmup-unstable` — `WARMUP_MAX_MS` elapsed without `WARMUP_STABLE_BATCHES` consecutive batches
+ * - `warmup-unstable`: `WARMUP_MAX_MS` elapsed without `WARMUP_STABLE_BATCHES` consecutive batches
  *   inside the tolerance, i.e. the runtime never reached steady state.
  *
  * The memory runner adds `gc-unavailable` and `gc-unsettled` to this union when it lands.
@@ -85,7 +85,7 @@ export interface CountAxisFixture<TInput> {
   readonly n: number;
   /**
    * Build one input. `index` varies so the corpus is not one object repeated, but the input's
-   * **length must not depend on it** — this axis holds size constant so the ratio isolates count.
+   * **length must not depend on it**: this axis holds size constant so the ratio isolates count.
    */
   readonly generate: (index: number) => TInput;
 }
@@ -95,7 +95,7 @@ export interface CountAxisFixture<TInput> {
  * `size * SCALE_STEP`.
  */
 export interface SizeAxisFixture<TInput> {
-  /** Inputs per phase — identical on both phases, so the ratio isolates length. */
+  /** Inputs per phase: identical on both phases, so the ratio isolates length. */
   readonly inputs: number;
   /**
    * The base phase's size knob, in whatever unit the generator scales (repeated segments, records,
@@ -124,7 +124,7 @@ export interface ScalingGateOptions<TInput, TResult> {
   /**
    * Reduce a parse result to a number summed into {@link ../measure.js | perfSink}, so the compiler
    * cannot delete the measured call. Defaults to `1` per non-nullish result. **If your `parse`
-   * returns nothing, you must supply this** — the runner refuses to report a ratio from an empty
+   * returns nothing, you must supply this**: the runner refuses to report a ratio from an empty
    * sink.
    */
   readonly weigh?: (result: TResult) => number;
@@ -145,9 +145,9 @@ export interface PhaseReport {
   readonly size: number | null;
   /** Every timed rep, in milliseconds, in the order taken. */
   readonly samples: readonly number[];
-  /** `min(samples)` — the estimator the ratio assertion uses. */
+  /** `min(samples)`: the estimator the ratio assertion uses. */
   readonly min: number;
-  /** `median(samples)` — the estimator a published headline uses. Reported, never asserted on. */
+  /** `median(samples)`: the estimator a published headline uses. Reported, never asserted on. */
   readonly median: number;
 }
 
@@ -218,7 +218,7 @@ function describe(
   headline: string,
 ): string {
   const lines = [
-    `[@cosyte/test-utils/perf] ${name} — ${axis} axis: ${headline}`,
+    `[@cosyte/test-utils/perf] ${name}: ${axis} axis: ${headline}`,
     `  contract: floor ${String(PERF_CONTRACT.RATIO_FLOOR)} <= min(scaled)/min(base) <= ceiling ` +
       `${String(PERF_CONTRACT.RATIO_CEILING)}, reps ${String(PERF_CONTRACT.REPS)}, ` +
       `step ${String(PERF_CONTRACT.SCALE_STEP)}x, phase order base -> scaled (fixed)`,
@@ -236,7 +236,7 @@ function describe(
   }
   if (ratio !== null) lines.push(`  ratio:   ${String(round4(ratio))}`);
   lines.push(
-    "  (diagnostics carry sizes, counts and timings only — never input content. ADR 0001.)",
+    "  (diagnostics carry sizes, counts and timings only: never input content. ADR 0001.)",
   );
   return lines.join("\n");
 }
@@ -268,7 +268,7 @@ function runAxis<TInput, TResult, A extends PerfAxis>(
       null,
       null,
       null,
-      `SKIPPED (warmup-unstable) — ${String(PERF_CONTRACT.WARMUP_MAX_MS)} ms elapsed without ` +
+      `SKIPPED (warmup-unstable): ${String(PERF_CONTRACT.WARMUP_MAX_MS)} ms elapsed without ` +
         `${String(PERF_CONTRACT.WARMUP_STABLE_BATCHES)} consecutive batches within ` +
         `+/-${String(PERF_CONTRACT.WARMUP_STABLE_TOL * 100)}% of their median. A skip is NOT a pass.`,
     );
@@ -290,7 +290,7 @@ function runAxis<TInput, TResult, A extends PerfAxis>(
   if (perfSink.value === sinkBefore) {
     throw new AssertionError({
       message:
-        `[@cosyte/test-utils/perf] ${name} — ${axis} axis: the sink never moved, so the measured ` +
+        `[@cosyte/test-utils/perf] ${name}: ${axis} axis: the sink never moved, so the measured ` +
         "loop may have been eliminated and any ratio from it would be meaningless. Supply `weigh` " +
         "if `parse` returns nothing (the default counts one per non-nullish result).",
       operator: "perf-sink-liveness",
@@ -308,7 +308,7 @@ function runAxis<TInput, TResult, A extends PerfAxis>(
       base,
       scaled,
       null,
-      `SKIPPED (phase-too-short) — base min ${String(base.min)} ms is under MIN_PHASE_MS ` +
+      `SKIPPED (phase-too-short): base min ${String(base.min)} ms is under MIN_PHASE_MS ` +
         `${String(PERF_CONTRACT.MIN_PHASE_MS)} ms, so the ceiling would be extrapolation. ` +
         "This fixture is below the calibrated regime: grow it. A skip is NOT a pass.",
     );
@@ -331,7 +331,7 @@ function runAxis<TInput, TResult, A extends PerfAxis>(
     throw new AssertionError({
       message:
         `${measured}\n  FAILED: ratio ${String(round4(ratio))} exceeds RATIO_CEILING ` +
-        `${String(PERF_CONTRACT.RATIO_CEILING)} — this is the shape of a complexity regression on the ` +
+        `${String(PERF_CONTRACT.RATIO_CEILING)}: this is the shape of a complexity regression on the ` +
         `${axis} axis (ideal linear ratio is ${String(PERF_CONTRACT.SCALE_STEP)}).`,
       actual: round4(ratio),
       expected: `<= ${String(PERF_CONTRACT.RATIO_CEILING)}`,
@@ -343,7 +343,7 @@ function runAxis<TInput, TResult, A extends PerfAxis>(
       message:
         `${measured}\n  FAILED: ratio ${String(round4(ratio))} is under RATIO_FLOOR ` +
         `${String(PERF_CONTRACT.RATIO_FLOOR)}. What this catches is narrow and specific: **the two ` +
-        "phases received the same workload** — a wrong input size, or a generator returning the same " +
+        "phases received the same workload**: a wrong input size, or a generator returning the same " +
         "corpus twice. It does NOT catch dead-code elimination (that stays at ~4 on the count axis " +
         "and is prevented structurally by the sink).",
       actual: round4(ratio),
@@ -368,8 +368,8 @@ function runAxis<TInput, TResult, A extends PerfAxis>(
  *
  * Separate from {@link buildAxisCorpora} because the self-check's precondition pass needs the base
  * phase of *both* axes and the scaled phase of neither. Building the pair and discarding `.scaled`
- * would hold an extra 4× corpus live across a timed region — at `hl7`'s fixture that is 4,000 more
- * messages — and adding GC pressure to a `>= MIN_PHASE_MS` check pushes it the wrong way: it
+ * would hold an extra 4× corpus live across a timed region: at `hl7`'s fixture that is 4,000 more
+ * messages, and adding GC pressure to a `>= MIN_PHASE_MS` check pushes it the wrong way: it
  * inflates the measured time, which is what lets a knife-edge fixture pass the precondition and then
  * skip `phase-too-short` on every real run.
  *
@@ -439,13 +439,13 @@ export function buildAxisCorpora<TInput, TResult>(
  * Run the scaling gate on both axes and assert both ratios.
  *
  * Per axis: build both corpora outside every timed region, warm up on the base corpus with the
- * time-budgeted stability rule, time the base phase then the scaled phase (**fixed** order — C5 is
+ * time-budgeted stability rule, time the base phase then the scaled phase (**fixed** order: C5 is
  * a reproducible ~4.7–5.1% bias, not noise, and randomizing would fold it into the variance of a
  * window only 1.33× wide), sum every result into the sink, then assert
  * `RATIO_FLOOR <= min(scaled)/min(base) <= RATIO_CEILING`.
  *
- * **Throws** an `AssertionError` on a ratio outside the band. **Skips loudly** — writes the full
- * diagnostic to stderr and returns a `status: "skipped"` axis report — when the preconditions for a
+ * **Throws** an `AssertionError` on a ratio outside the band. **Skips loudly**: writes the full
+ * diagnostic to stderr and returns a `status: "skipped"` axis report, when the preconditions for a
  * ratio do not hold. Read the returned report if you want a skip to fail your suite; a skip is not
  * a pass, and `assertScalingGateFires` is what stops a package from shipping a permanently-skipping
  * gate.

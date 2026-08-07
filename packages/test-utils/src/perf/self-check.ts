@@ -4,7 +4,7 @@
  *
  * This is the load-bearing half of the perf kit, not a formality. The ceiling of 8 is a *global*
  * constant derived from two numbers that move in opposite directions: the worst false alarm across
- * 3,200 clean ratios (6.649, on the noisier runner class) and the weakest real O(n²) signal — and
+ * 3,200 clean ratios (6.649, on the noisier runner class) and the weakest real O(n²) signal, and
  * the signal is **not a constant**. Measured, on the same runner, with the same estimator and the
  * same 4× step, varying only the fixture size:
  *
@@ -16,7 +16,7 @@
  * | 1000 → 4000    | 10.68             | 6.649             | 1.61×         |
  *
  * At the smallest fixture a genuine quadratic regression is *indistinguishable from noise*: the gate
- * would read green while broken. So a package cannot inherit the ceiling — it has to **earn** it, by
+ * would read green while broken. So a package cannot inherit the ceiling: it has to **earn** it, by
  * showing that a deliberately regressed parse, at its own fixture sizes, clears the ceiling.
  *
  * `assertScalingGateFires` takes the **same options object** your real gate is given. That is the
@@ -32,14 +32,14 @@
  * spelling out because ADR 0001 §2 leans on the guarantee being real.
  *
  * 1. **It checks the clean parse, not only the regressed one.** The self-check's own phases run
- *    `regressedParse`, which is *several times slower* than the real `parse` — so a fixture the real
+ *    `regressedParse`, which is *several times slower* than the real `parse`, so a fixture the real
  *    gate would skip on (`phase-too-short`) can still give the regressed parse a comfortable phase,
  *    and a naive self-check would pass while the real gate skipped forever. The asymmetry runs one
  *    way only: the regressed parse is never the faster one, so the clean side is the binding one.
  * 2. **It checks both axes, not only the injection's.** `scalingGate` asserts the count axis *and*
  *    the size axis and skips per axis, while an injected regression only ever exercises one. A
  *    self-check that checked only its own axis would let a package prove its size axis and ship a
- *    count axis that skips on every run — the same silent failure, one axis over.
+ *    count axis that skips on every run: the same silent failure, one axis over.
  *
  * The signal side is still measured on the injection's axis alone; it is only the *precondition*
  * that has to cover everything the gate will assert.
@@ -73,7 +73,7 @@ import {
  */
 export interface ScalingRegressionInjection<TInput, TResult> {
   /**
-   * A parse with a deliberate complexity regression — the honest shape is the real algorithm reached
+   * A parse with a deliberate complexity regression: the honest shape is the real algorithm reached
    * the wrong way (re-scanning from offset 0 for every segment instead of carrying a cursor), not a
    * pathological `sleep`. It **must compute the same output** as the real `parse`; a "regression"
    * that computes something else is a different program and its timing means nothing.
@@ -88,7 +88,7 @@ export interface ScalingRegressionInjection<TInput, TResult> {
   readonly axis?: PerfAxis;
   /**
    * Equality used to prove the regression computes the same thing. Defaults to comparing
-   * `JSON.stringify` output — override for models JSON does not round-trip (`Map`, `Set`, `bigint`,
+   * `JSON.stringify` output: override for models JSON does not round-trip (`Map`, `Set`, `bigint`,
    * class instances with private state).
    */
   readonly equals?: (a: TResult, b: TResult) => boolean;
@@ -104,12 +104,12 @@ export interface ScalingSelfCheckReport {
   readonly baseSize: number | null;
   /** Inputs per phase, base then scaled. */
   readonly inputs: readonly [number, number];
-  /** `min(scaled)/min(base)` for the **regressed** parse — the signal. */
+  /** `min(scaled)/min(base)` for the **regressed** parse: the signal. */
   readonly signal: number;
   /** `signal / RATIO_CEILING`. How much room the package actually has. */
   readonly margin: number;
   /**
-   * `min` of the **clean** parse's base phase, in milliseconds, **per axis** — the precondition
+   * `min` of the **clean** parse's base phase, in milliseconds, **per axis**: the precondition
    * check. The real gate measures `parse`, not `regressedParse`, and it asserts both axes, so these
    * are the two numbers that decide whether the real gate can produce a ratio at all rather than
    * skipping `phase-too-short` on one of them.
@@ -154,14 +154,14 @@ function fail(message: string, extra?: { actual: number; expected: string }): ne
  *
  * It proves two things, in this order:
  *
- * 1. **The real gate can produce a ratio here at all** — the *clean* `parse`'s warmup settles and its
+ * 1. **The real gate can produce a ratio here at all**: the *clean* `parse`'s warmup settles and its
  *    base phase clears `MIN_PHASE_MS`, **on both axes**. Checked on the clean parse specifically,
  *    because that is what the real gate measures and it is the faster of the two; checked on both
  *    axes because the gate asserts both and skips per axis (see the module docs).
- * 2. **A real complexity regression at these sizes clears `RATIO_CEILING`** — the signal side, which
+ * 2. **A real complexity regression at these sizes clears `RATIO_CEILING`**: the signal side, which
  *    is what converts the global ceiling into a guarantee for *these* fixtures.
  *
- * Throws — with the full diagnostic, and a specific instruction to grow the fixture — when either
+ * Throws (with the full diagnostic, and a specific instruction to grow the fixture) when either
  * fails, or when the injected parse does not compute the same output as the real one. Returns the
  * measured signal and its margin on success. Sizes, counts and timings only; input content is never
  * echoed.
@@ -191,7 +191,7 @@ function fail(message: string, extra?: { actual: number; expected: string }): ne
  *   return out;
  * };
  *
- * // EXACTLY the options the real gate gets — that is what makes the sizes match.
+ * // EXACTLY the options the real gate gets, that is what makes the sizes match.
  * const options: ScalingGateOptions<string, string[][]> = {
  *   name: "example parser",
  *   parse,
@@ -215,7 +215,7 @@ export function assertScalingGateFires<TInput, TResult>(
   const { regressedParse } = injection;
 
   const { base, scaled, baseSize, scaledSize } = buildAxisCorpora(axis, options);
-  const label = `[@cosyte/test-utils/perf] ${options.name} — self-check on the ${axis} axis`;
+  const label = `[@cosyte/test-utils/perf] ${options.name}: self-check on the ${axis} axis`;
   const fixture =
     `${String(base.length)} input(s)` +
     (baseSize === null
@@ -223,7 +223,7 @@ export function assertScalingGateFires<TInput, TResult>(
       : ` @ size ${String(baseSize)} vs ${String(scaledSize)}`);
 
   // A "regression" that computes something different is not a regression. Check one input from
-  // each phase — the scaled one matters most, since a length-dependent bug hides at small sizes.
+  // each phase: the scaled one matters most, since a length-dependent bug hides at small sizes.
   for (const corpus of [base, scaled]) {
     const input = corpus[0];
     if (input === undefined) fail(`${label}: the ${axis}-axis corpus is empty.`);
@@ -242,7 +242,7 @@ export function assertScalingGateFires<TInput, TResult>(
   // Two reasons this is not the obvious one-axis check.
   //
   // 1. **The clean parse, not the regressed one.** The self-check's own phases run `regressedParse`,
-  //    which is several times SLOWER than `parse` — so a fixture on which the real gate would skip
+  //    which is several times SLOWER than `parse`, so a fixture on which the real gate would skip
   //    `phase-too-short` can still give the regressed parse a comfortable multi-millisecond phase.
   // 2. **Both axes, not just the injection's.** `scalingGate` asserts the count axis AND the size
   //    axis and skips per axis, while an injected regression only exercises one of them. Checking
@@ -255,10 +255,10 @@ export function assertScalingGateFires<TInput, TResult>(
   const cleanBaseMinMs = { count: 0, size: 0 };
   for (const preAxis of ["count", "size"] as const) {
     // Base corpus only: the precondition never times a scaled phase, and holding a 4x corpus live
-    // across this measurement would inflate it — the direction that lets a knife-edge fixture pass
+    // across this measurement would inflate it: the direction that lets a knife-edge fixture pass
     // here and skip `phase-too-short` on every real run.
     const corpus = buildAxisBaseCorpus(preAxis, options);
-    const preLabel = `[@cosyte/test-utils/perf] ${options.name} — self-check precondition on the ${preAxis} axis`;
+    const preLabel = `[@cosyte/test-utils/perf] ${options.name}: self-check precondition on the ${preAxis} axis`;
     const preFixture =
       `${String(corpus.base.length)} input(s)` +
       (corpus.baseSize === null ? "" : ` @ size ${String(corpus.baseSize)}`);
@@ -266,7 +266,7 @@ export function assertScalingGateFires<TInput, TResult>(
     const cleanWarmup = warmUp(corpus.base, options.parse, weigh);
     if (!cleanWarmup.stable) {
       fail(
-        `${preLabel}: FAILED — the CLEAN parse's warmup never settled ` +
+        `${preLabel}: FAILED, the CLEAN parse's warmup never settled ` +
           `(${String(round4(cleanWarmup.elapsedMs))} ms, ${String(cleanWarmup.batches.length)} batches, ` +
           `ms/pass ${cleanWarmup.batches.map(round4).join(", ")}). The real gate warms on \`parse\` on ` +
           "this axis too, so it would skip `warmup-unstable` on every run, and a permanently-skipping " +
@@ -276,7 +276,7 @@ export function assertScalingGateFires<TInput, TResult>(
     const min = minOf(timePhase(corpus.base, options.parse, weigh));
     if (min < PERF_CONTRACT.MIN_PHASE_MS) {
       fail(
-        `${preLabel}: FAILED — the CLEAN base phase measured ${String(round4(min))} ms, under ` +
+        `${preLabel}: FAILED, the CLEAN base phase measured ${String(round4(min))} ms, under ` +
           `MIN_PHASE_MS ${String(PERF_CONTRACT.MIN_PHASE_MS)} ms (fixture: ${preFixture}). The real ` +
           `gate asserts BOTH axes, so a ${preAxis} axis below the calibrated regime skips on every ` +
           "run however healthy the other axis is. Grow this axis's fixture.",
@@ -289,7 +289,7 @@ export function assertScalingGateFires<TInput, TResult>(
   const warmup = warmUp(base, regressedParse, weigh);
   if (!warmup.stable) {
     fail(
-      `${label}: FAILED — warmup never settled (${String(round4(warmup.elapsedMs))} ms, ` +
+      `${label}: FAILED, warmup never settled (${String(round4(warmup.elapsedMs))} ms, ` +
         `${String(warmup.batches.length)} batches, ms/pass ${warmup.batches.map(round4).join(", ")}). ` +
         "The real gate would skip here, and a permanently-skipping gate reads green while blind. " +
         "This is a build failure on purpose.",
@@ -301,7 +301,7 @@ export function assertScalingGateFires<TInput, TResult>(
   const scaledSamples = timePhase(scaled, regressedParse, weigh);
   if (perfSink.value === sinkBefore) {
     fail(
-      `${label}: FAILED — the sink never moved, so the measured loop may have been eliminated. ` +
+      `${label}: FAILED, the sink never moved, so the measured loop may have been eliminated. ` +
         "Supply `weigh` if `parse` returns nothing.",
     );
   }
@@ -310,7 +310,7 @@ export function assertScalingGateFires<TInput, TResult>(
   const scaledMin = minOf(scaledSamples);
   if (baseMin < PERF_CONTRACT.MIN_PHASE_MS) {
     fail(
-      `${label}: FAILED — the regressed base phase measured ${String(round4(baseMin))} ms, under ` +
+      `${label}: FAILED, the regressed base phase measured ${String(round4(baseMin))} ms, under ` +
         `MIN_PHASE_MS ${String(PERF_CONTRACT.MIN_PHASE_MS)} ms (fixture: ${fixture}). The real gate ` +
         "would skip, so this fixture cannot demonstrate anything. Grow it.",
     );
@@ -321,21 +321,21 @@ export function assertScalingGateFires<TInput, TResult>(
   const diagnostic = [
     `${label}: signal ${String(round4(signal))} vs RATIO_CEILING ` +
       `${String(PERF_CONTRACT.RATIO_CEILING)} (margin ${String(verdict.margin)}x)`,
-    `  fixture: ${fixture} — the sizes this package's real gate uses`,
+    `  fixture: ${fixture}, the sizes this package's real gate uses`,
     `  base:    min ${String(round4(baseMin))} ms | median ${String(round4(medianOf(baseSamples)))} ms | ` +
       `samples [${baseSamples.map(round4).join(", ")}]`,
     `  scaled:  min ${String(round4(scaledMin))} ms | median ${String(round4(medianOf(scaledSamples)))} ms | ` +
       `samples [${scaledSamples.map(round4).join(", ")}]`,
     `  warmup:  stable after ${String(round4(warmup.elapsedMs))} ms, ${String(warmup.passes)} passes`,
     `  clean:   base min ${String(cleanBaseMinMs.count)} ms (count) / ${String(cleanBaseMinMs.size)} ms ` +
-      `(size), both >= MIN_PHASE_MS ${String(PERF_CONTRACT.MIN_PHASE_MS)} ms — the real gate can ` +
+      `(size), both >= MIN_PHASE_MS ${String(PERF_CONTRACT.MIN_PHASE_MS)} ms: the real gate can ` +
       "produce a ratio on both axes, not skip",
   ].join("\n");
 
   if (!verdict.clears) {
     fail(
       `${diagnostic}\n  FAILED: a real complexity regression at THESE fixture sizes does not clear ` +
-        `the ceiling, so this package's gate cannot fail — it would read green while blind. The ` +
+        `the ceiling, so this package's gate cannot fail: it would read green while blind. The ` +
         `signal climbs with fixture size (4.69 → 8.09 → 8.84 → 10.68 for 125/250/500/1000 base ` +
         `segments, measured); the fix is to GROW the fixture, never to raise the ceiling.`,
       { actual: round4(signal), expected: `> ${String(PERF_CONTRACT.RATIO_CEILING)}` },

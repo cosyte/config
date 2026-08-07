@@ -4,7 +4,7 @@
  * `assertScalingGateFires` is the mechanism that turns `RATIO_CEILING` from a global constant into a
  * per-package guarantee, so *every* way it can refuse matters as much as the way it passes. Those
  * are decisions about arithmetic and ordering, not about a workload, so they are driven here with
- * exact fake-millisecond costs — see `_clock.ts`.
+ * exact fake-millisecond costs: see `_clock.ts`.
  *
  * The one thing that cannot be faked is whether a *real* O(n²) parser at a *real* fixture size
  * clears the ceiling on a real clock. That is the roadmap's load-bearing acceptance clause for
@@ -52,7 +52,7 @@ function regressionWithRatio(clock: FakeClock, base: number, ratio: number) {
   return costingParse(clock, (input: Costed) => (input.size === base ? 20 : 20 * ratio));
 }
 
-describe("assertScalingGateFires — the signal side", () => {
+describe("assertScalingGateFires: the signal side", () => {
   it("passes and reports the margin when the injected regression clears the ceiling", () => {
     const clock = installFakeClock();
     const lines: string[] = [];
@@ -78,7 +78,7 @@ describe("assertScalingGateFires — the signal side", () => {
   it("FAILS the build when the signal does not clear the ceiling", () => {
     // ADR 0001 §5's whole point: the signal a real quadratic produces is not a constant, it climbs
     // with fixture size. Below the ceiling the gate cannot fail, so it would read green while
-    // broken — and the self-check is what converts that into a build failure at adoption.
+    // broken, and the self-check is what converts that into a build failure at adoption.
     const clock = installFakeClock();
     const lines: string[] = [];
     const opts = fixture(clock, { inputs: 4, size: 10, cleanPerUnit: 0.2 }, lines);
@@ -115,18 +115,18 @@ describe("assertScalingGateFires — the signal side", () => {
   });
 });
 
-describe("assertScalingGateFires — the precondition side", () => {
+describe("assertScalingGateFires: the precondition side", () => {
   it("FAILS when the CLEAN parse is too fast to measure, even though the regressed one is not", () => {
     // The asymmetry that makes this check necessary, and the defect it closes. The regressed parse
     // is several times SLOWER than the real one, so a fixture on which the real gate would skip
     // `phase-too-short` on every single run can still give the self-check's own phases a comfortable
     // multi-millisecond base. Without checking the clean side, a package could pass here and ship a
-    // permanently-skipping gate — green while blind, the exact outcome ADR 0001 §2 claims this makes
+    // permanently-skipping gate: green while blind, the exact outcome ADR 0001 §2 claims this makes
     // structurally impossible. It only is if the clean side is checked too.
     const clock = installFakeClock();
     const lines: string[] = [];
     // Clean: 2 inputs x 10 units x 0.1 = 2 ms, under MIN_PHASE_MS. Regressed: 2 x 20 = 40 ms, well
-    // over it — so the signal side alone would have been perfectly happy.
+    // over it, so the signal side alone would have been perfectly happy.
     const opts = fixture(clock, { inputs: 2, size: 10, cleanPerUnit: 0.1 }, lines);
 
     let thrown: (Error & { operator?: string; actual?: number }) | undefined;
@@ -144,7 +144,7 @@ describe("assertScalingGateFires — the precondition side", () => {
     expect(thrown?.message).toContain("CLEAN base phase");
     expect(thrown?.message).toMatch(/MIN_PHASE_MS 4 ms/);
     expect(thrown?.message).toContain("Grow this axis's fixture");
-    // It names WHICH axis, and it caught the count axis — the one the size-axis injection never
+    // It names WHICH axis, and it caught the count axis: the one the size-axis injection never
     // touches. That is the second half of the guarantee: the gate asserts both axes, so a
     // precondition that only covered the injection's axis would let a package ship an axis that
     // skips on every run.
@@ -228,7 +228,7 @@ describe("assertScalingGateFires — the precondition side", () => {
   });
 });
 
-describe("assertScalingGateFires — the count axis", () => {
+describe("assertScalingGateFires: the count axis", () => {
   it("can be pointed at a regression super-linear in the number of inputs", () => {
     // The default axis is `size`, because that is the one an O(n²)-in-length tokenizer blows up and
     // the one count-scaling structurally cannot see. A regression super-linear in the NUMBER of

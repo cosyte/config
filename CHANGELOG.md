@@ -195,7 +195,7 @@ no package, so entries here are **dated** rather than versioned.
     by a separate entry point that knows nothing about how they were produced, a body that is empty,
     a stub, an em dash, one naming a different version than the one being tagged, or one carrying
     any of the three fingerprints of the CHANGELOG dump. It deliberately does **not** port
-    `cosyte/.github`'s prose classifier: that is tuned against a single-package parser's changeset
+    `cosyte/.github`'s prose classifier, that is tuned against a single-package parser's changeset
     corpus, and an uncalibrated classifier that refuses a good release is worse than none.
   - **The publish command is NOT gated on the classifier**, and that is deliberate. The shared
     workflow withholds `publish:` when its notes step says "not a release"; here, a classifier that
@@ -326,7 +326,7 @@ no package, so entries here are **dated** rather than versioned.
     **What this does NOT claim:** an allow-list that exists but cannot be READ (a directory at that
     path, or mode 000) makes `readFileSync` throw a plain `Error`, which the handler wrapping it
     rethrows, and the run still takes exit 1. That is `PRE-EXISTING`, unchanged, and not answered by
-    widening the catch or by enumerating `EACCES`/`EISDIR`: that is the deny-list shape the `attw`
+    widening the catch or by enumerating `EACCES`/`EISDIR`, that is the deny-list shape the `attw`
     guard next door just retired. Its own slice if it is worth closing.
   - **The staged enumerator's status filter is now `--diff-filter=d` (an EXCLUSION) rather than
     `AMT` (an allow-list).** `synth#37` and `ncpdp#54` both ended on the exclusion form with "do not
@@ -486,7 +486,7 @@ no package, so entries here are **dated** rather than versioned.
     over as prose, and each exits 0 with the sentence gone: `--quiet`, `--format json`, its attached
     short form `-fjson`, and a `.attw.json` setting either (`readConfig()` calls
     `setOptionValueWithSource(..., "config")` inside the command action, **after** argv, so the file
-    beats the flag). `--format table-flipped` still prints the sentence and is refused anyway: that
+    beats the flag). `--format table-flipped` still prints the sentence and is refused anyway, that
     over-strictness is the deliberate trade against value-parsing the guard.
   - **Short options are matched per character, not per token**, and that is load-bearing rather than
     tidy. Commander accepts an attached value (`-fjson`) and a cluster (`-Pq`), so a guard holding
@@ -521,7 +521,7 @@ no package, so entries here are **dated** rather than versioned.
     compares against. Do not read that one as a control.
   - `packages/test-utils/test/attw-gate.test.ts` pins both nets against the real binary, including
     **attw's own exit 0**, a negative control on a well-formed package, and that a real `attw`
-    failure still fails: so an upgrade that reworks the wording or fixes the exit code reds the
+    failure still fails, so an upgrade that reworks the wording or fixes the exit code reds the
     suite instead of letting the net go quietly slack.
   - No changeset accompanies this, deliberately, per the entry below and the `prepublishOnly`
     precedent: nothing in any published tarball changes, and an unnecessary changeset withholds a
@@ -588,16 +588,16 @@ no package, so entries here are **dated** rather than versioned.
     same empty output and the same exit 0. Both halves were checked against a real `-I`-forcing
     interposition rather than reasoned about, as was every other refusal in the script.
 
-- **PERF-P2 — repo plumbing for the perf gate.** The gate itself is a `@cosyte/test-utils` change and
+- **PERF-P2: repo plumbing for the perf gate.** The gate itself is a `@cosyte/test-utils` change and
   is described in that package's changelog; what lands at the repo level is:
   - A root `test:perf` script (`pnpm --filter "./packages/*" run --if-present test:perf`), so the
     perf tests run in their **own non-instrumented invocation**. ADR 0001 §6 is the reason they
     cannot simply join `pnpm test`: `@vitest/coverage-v8` drives V8's `kBlockCount` precise coverage,
     compiling an effectful counter into the measured function body in every tier at a cost that
-    scales with executed-block count — which differs between the two phases a ratio compares, so it
+    scales with executed-block count, which differs between the two phases a ratio compares, so it
     does not cleanly cancel. `--if-present` keeps it a no-op for the five config packages that have
-    nothing to measure. It is **deliberately not wired into CI yet** — see below.
-  - `experiments/perf-p2-false-alarm/` — a throwaway-but-committed sweep, the same shape as
+    nothing to measure. It is **deliberately not wired into CI yet**: see below.
+  - `experiments/perf-p2-false-alarm/`: a throwaway-but-committed sweep, the same shape as
     `perf-calibration/`, answering the roadmap's P2 acceptance clause: **does the shipped gate fire
     across 200 clean runs?** It could not be inherited from PERF-P0, because P0 measured its 3,200
     ratios after an `hl7`-shaped _fixed-count_ warmup while the kit ships a _time-budgeted_ one, and
@@ -605,16 +605,16 @@ no package, so entries here are **dated** rather than versioned.
     set from. It imports P0's linear workload module unchanged, so the warmup rule and the runner are
     the only variables. Read `ANALYSIS.md`; the datasets are under `data/`.
   - **What the sweep found, and it is not a clean pass.** Three independent 200-run sweeps on one
-    box against identical gate code gave **3, 0 and 1** fires — **4 in 600 runs (0.67%)** — on a
+    box against identical gate code gave **3, 0 and 1** fires (**4 in 600 runs (0.67%)**) on a
     workload that is linear by construction. One sweep of three met the roadmap's clause outright;
     the others did not. The rate is dominated by ambient CPU contention rather than by the gate, and
     that is a stronger claim than any single sweep could have supported. **No constant was changed in
     response**: they are frozen by ADR 0001 and P2 implements a decided contract. Raising the ceiling
-    to clear the worst observed 11.01 would put it above 8.84 — the weakest real O(n²) signal at
-    `hl7`'s own fixture size — turning a gate that occasionally cries wolf into one guaranteed to
+    to clear the worst observed 11.01 would put it above 8.84: the weakest real O(n²) signal at
+    `hl7`'s own fixture size: turning a gate that occasionally cries wolf into one guaranteed to
     sleep through a real regression. The mechanism is evidenced rather than guessed, from a preserved
     firing diagnostic: the warmup rule declared steady state on a batch series oscillating **5×**
-    (7.25–36.80 ms/pass), because three consecutive batches coincided within ±5% — so
+    (7.25–36.80 ms/pass), because three consecutive batches coincided within ±5%, so
     `WARMUP_STABLE_BATCHES = 3`, a judgement constant, is the leading suspect. Underneath it, this
     container runs a 2-CPU `cpu.max` while `os.cpus().length` reports 56, so V8 sizes its GC/compiler
     pools from the host and the cgroup throttles in bursts; a same-process ratio cancels JIT state
@@ -622,14 +622,14 @@ no package, so entries here are **dated** rather than versioned.
     them is not cancelled by anything in the contract. Also recorded, and it answers ADR 0001 §2's
     "re-check the operating point on both sides" **per axis**, because pooling them hides the effect:
     against P0's matched cell the **count** axis is unchanged (p50 −0.1%) while the **size** axis body
-    shifted **+8.1%** (4.2665 → 4.6100), reproducibly across all three sweeps — and the size axis is
+    shifted **+8.1%** (4.2665 → 4.6100), reproducibly across all three sweeps, and the size axis is
     the one whose worst false alarm set the ceiling, so that eats into a 1.20× margin. Three
     candidates for it are confounded here and none is established: the warmup rule, the fact that the
     kit runs both axes in one process (size second) where P0 ran one, and a changed timed-loop body.
     Separately, the floor's thinnest observed margin is **1.06×** (a 1.5833 ratio against a floor of
     1.5), thinner than the 1.13× the ADR believed. Because of all
-    this, `pnpm test:perf` is **not** wired into CI — a known-flaky required check is roadmap §5's
-    risk #1 — and adoption should not proceed on the strength of the global ceiling until P4 settles
+    this, `pnpm test:perf` is **not** wired into CI, a known-flaky required check is roadmap §5's
+    risk #1, and adoption should not proceed on the strength of the global ceiling until P4 settles
     it with the founder.
 
 - **PERF-P1: the measurement contract is now written down.** New

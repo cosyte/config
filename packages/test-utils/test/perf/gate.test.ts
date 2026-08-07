@@ -2,7 +2,7 @@
  * The gate's wiring, end to end, on an injected clock: does a ratio above the ceiling fail, does one
  * below the floor fail, and does an unmeasurable phase skip loudly instead of doing either?
  *
- * Every duration here is arithmetic rather than measurement — see `_clock.ts` for why that is the
+ * Every duration here is arithmetic rather than measurement: see `_clock.ts` for why that is the
  * right substrate for these particular assertions, and why a wall-clock spin is not. The consequence
  * is that these tests are exact, finish in milliseconds, and are immune to whatever else is running
  * on the machine, so they run in the default `pnpm test` (and therefore in `scripts/verify.sh
@@ -11,7 +11,7 @@
  * ADR 0001 §6 takes *clock-reading* tests out of the coverage run, because coverage instrumentation
  * lowers an effectful counter into the measured function body at a cost that does not cleanly cancel
  * in a ratio. Nothing here reads the real clock, so nothing here is distorted by it. The one test
- * that genuinely measures — a real parser at a real fixture size — lives in `timed/`.
+ * that genuinely measures (a real parser at a real fixture size) lives in `timed/`.
  */
 
 import { describe, expect, it } from "vitest";
@@ -55,7 +55,7 @@ function options(
   };
 }
 
-describe("scalingGate — the happy path", () => {
+describe("scalingGate: the happy path", () => {
   it("measures both axes and reports a ratio inside the band", () => {
     const clock = installFakeClock();
     const lines: string[] = [];
@@ -118,12 +118,12 @@ describe("scalingGate — the happy path", () => {
   });
 });
 
-describe("scalingGate — the ceiling fires on the SIZE axis", () => {
+describe("scalingGate: the ceiling fires on the SIZE axis", () => {
   it("throws when a size-scaling ratio exceeds RATIO_CEILING, after the count axis passed", () => {
     const clock = installFakeClock();
     const lines: string[] = [];
     // The shape of an O(n²)-in-length tokenizer: 4x the length costs 12.5x the time. The count
-    // axis, at fixed input size, sees nothing wrong at all — which is exactly why the size axis is
+    // axis, at fixed input size, sees nothing wrong at all, which is exactly why the size axis is
     // not optional and there is no way to ask for only one.
     let thrown: (Error & { operator?: string; actual?: number }) | undefined;
     try {
@@ -142,7 +142,7 @@ describe("scalingGate — the ceiling fires on the SIZE axis", () => {
     expect(thrown?.message).toMatch(/samples \[/);
   });
 
-  it("does NOT fire on the count axis for a length-only regression — the structural blind spot", () => {
+  it("does NOT fire on the count axis for a length-only regression: the structural blind spot", () => {
     const clock = installFakeClock();
     const lines: string[] = [];
     // Same 12.5x-per-4x cost curve. Read only the count axis, which the ceiling test above proved
@@ -188,13 +188,13 @@ describe("scalingGate — the ceiling fires on the SIZE axis", () => {
   });
 });
 
-describe("scalingGate — the floor fires", () => {
+describe("scalingGate: the floor fires", () => {
   it("throws when both phases received the same workload", () => {
     const clock = installFakeClock();
     const lines: string[] = [];
     // The size axis's generator charges the base cost on both phases, so the scaled phase parses
-    // the base phase's workload: a ratio of exactly 1. This is the bug the floor exists to catch —
-    // a wrong input size, or a corpus builder returning the same thing twice — and it is
+    // the base phase's workload: a ratio of exactly 1. This is the bug the floor exists to catch,
+    // a wrong input size, or a corpus builder returning the same thing twice, and it is
     // deterministic, so it is caught the first time rather than needing luck.
     let thrown: (Error & { operator?: string; actual?: number }) | undefined;
     try {
@@ -227,7 +227,7 @@ describe("scalingGate — the floor fires", () => {
   });
 });
 
-describe("scalingGate — the fail-safe skips", () => {
+describe("scalingGate: the fail-safe skips", () => {
   it("skips loudly with `phase-too-short` rather than extrapolating below the calibrated regime", () => {
     const clock = installFakeClock();
     const lines: string[] = [];
@@ -263,7 +263,7 @@ describe("scalingGate — the fail-safe skips", () => {
     const clock = installFakeClock();
     const lines: string[] = [];
     // A cost that grows 10% per pass can never satisfy "three consecutive batches within +/-5% of
-    // their median", so WARMUP_MAX_MS is reached and the gate refuses — without ever timing a phase.
+    // their median", so WARMUP_MAX_MS is reached and the gate refuses: without ever timing a phase.
     let cost = 8;
     const report = scalingGate<Costed, number>({
       ...options(clock, "never settles", 2, 8, 4, lines),
@@ -302,7 +302,7 @@ describe("scalingGate — the fail-safe skips", () => {
   });
 });
 
-describe("scalingGate — the sink is a liveness check, not decoration", () => {
+describe("scalingGate: the sink is a liveness check, not decoration", () => {
   it("throws rather than reporting a ratio when nothing reached the sink", () => {
     // `weigh` returning 0 everywhere is the observable form of "the measured loop may have been
     // eliminated". A ratio computed from a deleted loop is confident, fast and meaningless, so the
@@ -325,10 +325,10 @@ describe("scalingGate — the sink is a liveness check, not decoration", () => {
   });
 });
 
-describe("scalingGate — every diagnostic names its own axis", () => {
+describe("scalingGate: every diagnostic names its own axis", () => {
   // The gate runs two axes and throws from whichever one trips, so the axis name in the message is
-  // the ONLY thing that says which. Anything reading the outcome after the fact — a CI log, a
-  // developer, or `experiments/perf-p2-false-alarm/`, which parses it to attribute a false alarm —
+  // the ONLY thing that says which. Anything reading the outcome after the fact: a CI log, a
+  // developer, or `experiments/perf-p2-false-alarm/`, which parses it to attribute a false alarm:
   // depends on that. It is asserted here rather than assumed because the alternative inference
   // ("the count axis runs first, so an unreported count axis must be the one that fired") is
   // wrong in the silent direction: a throw means NEITHER axis was reported.
@@ -351,18 +351,18 @@ describe("scalingGate — every diagnostic names its own axis", () => {
       message = (error as Error).message;
     }
     expect(message).not.toBe("");
-    expect(/— (count|size) axis[:\s]/.exec(message)?.[1]).toBe(expected);
+    expect(/: (count|size) axis[:\s]/.exec(message)?.[1]).toBe(expected);
   });
 
   it("names the axis on a loud skip too", () => {
     const clock = installFakeClock();
     const lines: string[] = [];
     scalingGate(options(clock, "axis naming on skip", 1, 4, 3, lines));
-    expect(/— (count|size) axis[:\s]/.exec(lines[0] ?? "")?.[1]).toBe("count");
+    expect(/: (count|size) axis[:\s]/.exec(lines[0] ?? "")?.[1]).toBe("count");
   });
 });
 
-describe("scalingGate — PHI", () => {
+describe("scalingGate: PHI", () => {
   it("never echoes input content in a skip or a failure diagnostic", () => {
     const clock = installFakeClock();
     const lines: string[] = [];
