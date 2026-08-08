@@ -76,17 +76,18 @@ no package, so entries here are **dated** rather than versioned.
     U+2029 end a line comment; only a block-comment terminator ends a block one). It is **not**
     complete for Markdown, deliberately: `Bad *emph* Title` is accepted, and prettier-on-emit
     normalises it to `Bad _emph_ Title` in whichever emitted Markdown its globs reach, while
-    `package.json` and the Markdown they do not reach keep the raw bytes. That divergence is **`PRE-EXISTING`** - it arrived with `#57`'s formatting step, is
-    identical on this change's base, and yields a repo that builds, publishes and gates green - so
-    it is named rather than fixed by refusing titles on cosmetic grounds.
+    `package.json` and the Markdown they do not reach keep the raw bytes. That divergence is
+    **`PRE-EXISTING`** - it arrived with `#57`'s formatting step, is identical on this change's
+    base, and yields a repo that builds, publishes and gates green - so it is named rather than
+    fixed by refusing titles on cosmetic grounds.
   - **`test/scaffold-title.test.ts` proves it on the real generator**, red before and green after
     (13 failing cases -> 19 passing), with a conformant control that asserts the emitted manifest
     parses, names `@cosyte/probe`, carries its title, and leaves no `{{...}}` token anywhere in the
     34-file tree. **Three counterfactuals rebuild the generator with one or both calls textually
     removed** and measure that the guards are independent: strip both and the exit-0 `@evil/pwned`
     scaffold comes straight back; strip either one alone and the other still catches it. **The
-    counterfactuals cover those two cases**: the two ends of what these guards do, a manifest that
-    parses and lies and one that does not parse at all. Every other case is asserted on the branch's
+    counterfactuals cover the injection and a quoted title**: the two ends of what these guards do,
+    a manifest that parses and lies and one that does not parse at all. Every other case is asserted on the branch's
     behaviour - a refusal, before any write.
   - **The emitted tree is unchanged for conformant input, proved rather than assumed**: the
     **34-file** emitted tree is `diff -r` clean against the previous generator for `a`, `hl7`,

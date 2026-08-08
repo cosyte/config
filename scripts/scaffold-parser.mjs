@@ -86,8 +86,8 @@ function printUsage() {
       "  <name>          package segment, e.g. x12 -> @cosyte/x12 (lowercase; [a-z][a-z0-9-]*)",
       "  --title <str>   human-readable title for prose/docs (default: derived from <name>).",
       '                  No quote, backslash, "{{", block-comment terminator, control character or',
-      "                  line separator: it is substituted verbatim into JSON, TS comments and",
-      "                  Markdown.",
+      "                  line/paragraph separator: it is substituted verbatim into JSON, TS comments",
+      "                  and Markdown.",
       "  --out <dir>     parent dir to emit into (default: cwd); repo lands at <out>/<name>",
       "",
     ].join("\n"),
@@ -364,8 +364,9 @@ function emittedPrettierGlobs(pkgPath, scriptName) {
     // refuses with a message aimed at the template. The `format:check` call below parses it a
     // SECOND time, after `prettier --write` has rewritten it, and that route is closed by prettier
     // rather than by us: a `--write` that emitted invalid JSON would have failed first. So nothing
-    // arrives here while main() calls those two. What it buys is that this function cannot throw a stack trace if it is ever
-    // called from somewhere else, which is the whole reason it reads the manifest defensively.
+    // arrives here while main() calls those two. What it buys is that this function cannot throw a
+    // stack trace if it is ever called from somewhere else, which is the whole reason it reads the
+    // manifest defensively.
     fail(
       `the emitted ${pkgPath} is not valid JSON (${error.message}), so the globs to format with ` +
         `cannot be derived from it. Check scripts/parser-template/package.json. Nothing was ` +
