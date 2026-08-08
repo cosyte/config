@@ -1448,4 +1448,29 @@ describe("the field set nets 1 and 3 share: `exports` is not the only field that
     },
     SPAWN_TIMEOUT,
   );
+
+  it(
+    "THE FIELD SET IS KNOWN-INCOMPLETE, AND THE PASS LINE SAYS WHICH FIELDS IT SKIPS",
+    () => {
+      // A completeness claim was written into a draft of this slice and was WRONG:
+      // `man` and `directories` also name files and are still unread, and `man` is
+      // `bin`'s own sibling in the npm spec while `bin` is a hole this gate closed.
+      // The remedy was to correct the claim rather than grow the guard, so what is
+      // pinned here is the DISCLOSURE, and the counterfactual is that the fields
+      // really are still unread. If a later slice reads them, this reds and the
+      // pass line has to be re-earned rather than quietly kept.
+      const dir = declaredOnlyVia("known-unread", {
+        man: ["./man/absent.1"],
+        directories: { bin: "./absent-bin", man: "./absent-man" },
+        unpkg: "./absent-unpkg.js",
+        jsdelivr: "./absent-jsdelivr.js",
+      });
+      const r = runWrapper(dir);
+      expect(r.code, r.out).toBe(0);
+      expect(r.out).toContain("all 4 relative artifact path(s) package.json declares are in the");
+      expect(r.out).toContain("man, directories, unpkg and jsdelivr are");
+      expect(r.out).toContain("known-unread");
+    },
+    SPAWN_TIMEOUT,
+  );
 });

@@ -100,9 +100,14 @@
  *      `package.json` promises must be in the TARBALL npm would publish, not
  *      merely on disk. That set is what `declaredArtifacts()` returns, so it
  *      excludes wildcard subpaths (they name a set, not a file), absolute paths
- *      (not ours to promise), bare specifiers (someone else's package),
- *      `browser` map KEYS (see below) and `package.json` itself (always in the
- *      tarball by definition). The pass line names those exclusions rather
+ *      (not ours to promise), `browser` map KEYS (see below), `package.json`
+ *      itself (always in the tarball by definition), and, IN THE FIELDS WHOSE
+ *      GRAMMAR REQUIRES A `./` PREFIX (`exports`, `imports`, `browser` maps),
+ *      every leaf that lacks one, because there a leaf without it is a package
+ *      specifier. That last exclusion is field-conditional and the pass line says
+ *      so: in `main`, `types`, `bin`, `typesVersions` and the STRING form of
+ *      `browser` the prefix is optional, so a bare leaf there IS read as a path.
+ *      The pass line names those exclusions rather
  *      than printing a count that reads like a total. The list comes from
  *      `npm pack --dry-run --json` run in this directory, so nothing a committed
  *      `.attw.json` sets can change the answer.
@@ -179,8 +184,15 @@
  *                     paths with an OPTIONAL `./`, so they are read the lenient way
  *                     `types` is, not the strict way an `exports` target is.
  *   `imports`         Same target grammar as `exports` (`./`-relative or a bare
- *                     specifier), and a `#foo` that resolves into an unpacked file
- *                     breaks the package's OWN runtime resolution once installed.
+ *                     specifier). A `#foo` that a SHIPPED file imports and that
+ *                     resolves into an unpacked file breaks the package's own
+ *                     runtime resolution once installed. Node resolves a `#`
+ *                     specifier only when something imports it, so this is read
+ *                     STRICTLY on purpose: a `#test-helpers` pointing into an
+ *                     unpacked `test/` reds here and is not a broken publish. That
+ *                     is a known false red, taken deliberately, because deciding
+ *                     the other way means deciding WHICH declarations are load
+ *                     bearing, and this gate does not resolve anything.
  *   `browser`         A string entry point, or a replacement map.
  *
  * MEASURED, NOT PREDICTED, on four throwaway packages that are otherwise identical
@@ -206,10 +218,30 @@
  * bought for no catch. `false` values fall out of the same rule with no case of
  * their own, because `false` is not a `./`-relative string.
  *
+ * ▶ TWO MORE `browser` EDGES, MEASURED AND NAMED RATHER THAN CODED AROUND. (a) The
+ * STRING form goes through the lenient reading, so `"browser": "some-shim-pkg"`
+ * is read as `./some-shim-pkg` and reds net 1. That is the same reading `main`
+ * gets and the same risk `main` has always carried; the string form is an entry
+ * point by convention, not a specifier slot. (b) Net 1 requires NON-EMPTY, so a
+ * 0-byte browser shim (browserify's `_empty.js` convention) reds even when it is
+ * packed. Both are new false reds, both were measured, and neither has a user in
+ * this org. They are written down here instead of being special-cased, because a
+ * per-field exception to net 1's non-empty rule is a bigger surface than the two
+ * cases it would buy.
+ *
  * ▶ AND THIS IS NOT AN ENUMERATION THAT BUYS ONE EVASION PER ROUND, which is the
- * shape this file has retired twice. The question is schema-sized and closed by the
- * manifest: which fields of `package.json` name a file inside this package? Nothing
- * a caller passes, and nothing attw releases, can add one.
+ * shape this file has retired twice: the question is schema-sized and bounded by
+ * `package.json` rather than by attw's option surface, so nothing a caller passes
+ * and nothing an attw release adds can extend it. BUT IT IS NOT COMPLETE, AND AN
+ * EARLIER DRAFT OF THIS PARAGRAPH SAID IT WAS. Measured after that draft: `man`,
+ * `directories`, `unpkg` and `jsdelivr` also name files and are still unread, at
+ * base and at head alike. `man` is the sharpest of them, being `bin`'s own sibling
+ * in the npm spec, and `bin` is a hole this same docblock claims to have closed.
+ * They are left unread because none has a user in this org and because `man` is a
+ * LINK-TIME promise rather than a resolution-time one, so a lost `man` page is not
+ * the broken-publish class these nets are for. That is a reason, not a proof of
+ * completeness, and the difference is the point: this list is KNOWN-INCOMPLETE and
+ * says which fields it knows it skips.
  *
  * WHAT THE PREFLIGHT CANNOT CONCLUDE, AND WHY IT NO LONGER TRIES. This script
  * used to end its preflight failure with a sentence naming the exit code `attw`
@@ -860,8 +892,10 @@ process.stdout.write(
       ? `  package.json declares no relative artifact paths, so net 3 had none to check.\n`
       : `  all ${declared.length} relative artifact path(s) package.json declares are in the\n` +
         `  tarball npm would publish (net 3). That set excludes wildcard subpaths, absolute\n` +
-        `  paths, bare specifiers, browser-map keys and package.json itself, and it is\n` +
-        `  presence, not resolution.\n`) +
+        `  paths, browser-map keys, package.json itself, and non-"./" leaves of exports,\n` +
+        `  imports and browser maps; and it is presence, not resolution. It does NOT cover\n` +
+        `  every field that can name a file: man, directories, unpkg and jsdelivr are\n` +
+        `  known-unread.\n`) +
     (kinds.length === 0
       ? `  attw exited 0 and reported no problems.\n`
       : `  attw exited 0, but it REPORTED ${kinds.length} problem kind(s) that its exit code\n` +

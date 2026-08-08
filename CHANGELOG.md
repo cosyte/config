@@ -50,6 +50,21 @@ no package, so entries here are **dated** rather than versioned.
     loading. Reading keys would red a package that maps a file away precisely because it does not
     ship it to browsers: a false red bought for no catch. `false` values need no case of their own,
     because `false` is not a `./`-relative string.
+  - **THE FIELD SET IS KNOWN-INCOMPLETE AND NOW SAYS SO, IN THE PASS LINE ITSELF.** A draft of this
+    slice claimed the enumeration was closed by the manifest. That was wrong and the gate refuter
+    measured it: `man`, `directories`, `unpkg` and `jsdelivr` also name files and are still unread,
+    at base and at head alike. `man` is the sharpest, being `bin`'s sibling in the npm spec, and
+    `bin` is a hole this same gate closed. **The remedy was to correct the claim, not to grow the
+    guard** (`man` is a link-time promise rather than a resolution-time one, and none of the four
+    has a user in this org). A test pins the disclosure AND that the four really are still unread,
+    so a later slice that reads them has to re-earn the pass line rather than quietly keep it.
+  - **THREE NEW FALSE REDS, MEASURED AND NAMED RATHER THAN CODED AROUND**, none with a user in this
+    org: a `browser` map value pointing at a 0-byte shim (browserify's `_empty.js` convention) reds
+    net 1's non-empty rule; a `#test-helpers` import into an unpacked `test/` reds net 3, because
+    Node resolves a `#` specifier only when something imports it and this gate resolves nothing; and
+    the STRING form of `browser` takes the lenient reading, so a bare specifier there is read as a
+    path, exactly as it would be in `main`. A per-field exception to net 1's non-empty rule is a
+    bigger surface than the cases it would buy.
   - **THE HONEST BOUND: this closed a LATENT hole and nothing in the org moves.** `typesVersions` is
     the only one of the three any cosyte manifest uses (`ncpdp` and `@cosyte/test-utils`), and in
     BOTH of them every `typesVersions` target is already declared through `exports`, so the derived
