@@ -28,6 +28,57 @@ no package, so entries here are **dated** rather than versioned.
 
 ### Fixed
 
+- **Every parser this repo has ever scaffolded was born with a red `format:check`, and the emitted
+  tree is now formatted on emit** (`CONFIG-SCAFFOLD-BORN-UNFORMATTED`). `scripts/parser-template` is
+  `.prettierignore`d **wholesale**, because it carries `{{PLACEHOLDER}}` tokens and is not valid TS
+  or JSON until it has been generated. Nothing formatted the template, and nothing formatted the
+  emitted tree either, so a brand-new repo's first CI run failed on whitespace: `format:check` is a
+  gate in the shared workflow the emitted `.github/workflows/ci.yml` calls. `#56` widened this
+  repo's own globs to read `.mjs` and closed the half a glob can reach; **no glob can reach this
+  half, because the input does not exist until the generator runs.**
+  - **It is package-name-length dependent, which is why one probe reads clean and proves nothing.**
+    Substitution moves line lengths in **both** directions. Measured on this template with the
+    format step removed: `cli`/`x12`/`hl7` (3 chars) red only
+    `test/property/round-trip.property.test.ts`, because a short name shortens an already-wrapped
+    import until prettier wants it collapsed; `terminology` (11) reds only `src/index.ts` and
+    `test/docs-content.test.ts`, because a long one pushes a signature and a ternary past 100.
+    **Those two sets are disjoint**, so measuring either end clears neither. A third regime appears
+    when only the PascalCase identifier moves: `a-a-a-a-a-a` is the same 11 characters but the
+    generator drops hyphens when it builds the identifier, and it reds a third set again.
+  - **So the fix is not a line edit, it is running the formatter.** `scripts/scaffold-parser.mjs`
+    now runs prettier over the tree it emitted, then **proves it with `--check`** rather than
+    treating "we ran `--write`" as evidence (`--write` is not idempotent in general). The emitted
+    bytes are a fixed point of prettier for every name at every length, with nothing to keep in step
+    with the template's line lengths.
+  - **What it formats is derived from the emitted repo, never listed in the generator.** The globs
+    come out of the emitted `package.json`'s own `format` script, and the verification uses its
+    `format:check` script, so the set formatted on emit and the set checked in CI cannot disagree.
+    A script shape the generator cannot parse **refuses loudly** instead of formatting nothing,
+    which would be the same never-pointed-at-its-input defect one level up.
+  - **The generator gains two dependencies of this repo** (`prettier`, `@cosyte/prettier-config`),
+    resolved **before the first file is written** so a missing `pnpm install` refuses with nothing on
+    disk. It is no longer stdlib-only, and its header says so.
+  - **Proved semantics-free apart from formatting, rather than assumed**: `--help` is byte-identical
+    to base, and for `a`, `hl7`, `terminology` and `c-cda` the **34-file** emitted tree is `diff -r`
+    clean against the base generator's output run through `prettier --write`. The only deliberate
+    behaviour change is the "Next steps" line, which no longer tells the author to run `pnpm format`.
+    `prettier --write` was run **only on the two paths this change opened**, never across the tree,
+    because of the code-span-inside-bold-span non-idempotency hazard.
+  - **`test/scaffold-format.test.ts` is the guard, and its probe set is derived rather than listed.**
+    The real ends come from `drift-manifest.json`'s `targets` (the roster of parser repos this
+    generator exists to mint), so they track the ecosystem instead of going stale beside it; the
+    absolute ends come from the generator's own name rule and from `printWidth` read out of
+    `@cosyte/prettier-config`. **Measured red before and green after on all five probes.** The
+    checked census is re-derived every run with prettier's own glob expansion rather than counted by
+    hand, and a **counterfactual rebuilds the pre-fix generator** by textually removing the format
+    call, asserting that the substitution really changed the file, that every probe reds without it,
+    and that the two real name lengths red **disjoint** sets. If that disjointness ever stops
+    holding, the guard reds and the probe set has to be re-derived rather than trimmed.
+  - **Named, not fixed, and out of this slice:** the template pins `@cosyte/prettier-config` at
+    `^0.0.2` while this repo builds `0.0.4`, which under caret-on-`0.0.x` are different releases.
+    Their settings are identical today (`0.0.3` and `0.0.4` are documentation-only in that package's
+    own changelog), so nothing is hidden; a settings change shipped without moving the pin would be.
+
 - **`format:check` never read a single `.mjs` file, and reported success for it**
   (`CONFIG-FORMAT-CHECK-SKIPS-MJS`). The root globs named `{js,ts,json,md,yml,yaml}` while the repo
   tracks **eight** `.mjs` files, **seven** of them outside `.prettierignore` and so in scope for

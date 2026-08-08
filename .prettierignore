@@ -5,6 +5,8 @@ coverage
 **/coverage
 pnpm-lock.yaml
 # Scaffold templates contain {{PLACEHOLDER}} tokens, not valid TS/JSON until generated.
+# The EMITTED tree is formatted instead, by scripts/scaffold-parser.mjs after substitution: this
+# line is why nothing here can be checked, and why every scaffolded parser was once born red.
 scripts/parser-template
 # PERF-P0 calibration datasets: machine-written evidence, formatted by the experiment not by us.
 experiments/perf-calibration/data
