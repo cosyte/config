@@ -87,6 +87,26 @@ describe("phi-scan starter: clean + allow-listed content passes", () => {
   });
 });
 
+describe("phi-scan starter: paths mode reads EVERY path it was given", () => {
+  it("a clean path first does not hide a violator second (exit 1, the violator named)", () => {
+    // The floor-of-one polarity, pinned without needing an override entry. The
+    // scanner used to have a whole-run floor of one: a run could enumerate more
+    // than it read and still report clean. This is the cheap positive that
+    // guards the read half of it in the template's own suite. The refusal half
+    // needs a LOGGED bypass, which a committed template must not ship, so it is
+    // exercised in `cosyte/config`'s `test/phi-scan-scaffold.test.ts` against a
+    // throwaway scaffold instead.
+    const clean = join(dir, "first-clean.txt");
+    const violator = join(dir, "second-dirty.txt");
+    writeFileSync(clean, "ordinary text\n");
+    writeFileSync(violator, "patient ssn 123-45-6789 on file\n");
+    const r = runScanner([clean, violator]);
+    expect(r.code, `stderr: ${r.stderr}`).toBe(1);
+    expect(r.stderr).toMatch(/second-dirty\.txt/);
+    expect(r.stderr).toMatch(/123-45-6789/);
+  });
+});
+
 describe("phi-scan starter: the override-log gate", () => {
   it("rejects --allow-fixture without a matching override entry (exit 2)", () => {
     const clean = join(dir, "override-me.txt");
@@ -94,5 +114,18 @@ describe("phi-scan starter: the override-log gate", () => {
     const r = runScanner(["--allow-fixture", clean]);
     expect(r.code).toBe(2);
     expect(r.stderr).toMatch(/phi-scan-overrides\.md/);
+  });
+
+  it("the hit footer does not advertise --allow-fixture as a remedy", () => {
+    // A bypass withdraws a file from the read set, and the completeness rule
+    // refuses (exit 2) over a target enumerated and never read. So the flag can
+    // no longer reach exit 0, and printing it as the remedy for a hit would walk
+    // a developer from exit 1 into exit 2: a printed remedy that cannot reach
+    // the state it promises, which is a false green with the sign flipped.
+    const r = scan("footer.txt", "patient ssn 123-45-6789 on file\n");
+    expect(r.code, `stderr: ${r.stderr}`).toBe(1);
+    expect(r.stderr).toMatch(/scripts\/phi-allow-list\.txt/);
+    expect(r.stderr).not.toMatch(/run with --allow-fixture/);
+    expect(r.stderr).toMatch(/REFUSED/);
   });
 });

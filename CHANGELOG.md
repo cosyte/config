@@ -28,6 +28,85 @@ no package, so entries here are **dated** rather than versioned.
 
 ### Fixed
 
+- **The parser template's PHI scanner reported `OK: no hits` and exited 0 over a corpus it never
+  opened, and the generator was re-minting that into every future parser**
+  (`PHI-SCAN-STAGED-PREDICATE`, generator leg). `--allow-fixture` withdrew a file from the read set
+  AFTER enumeration, and the empty remainder read as clean. **This is a change to
+  `scripts/parser-template/`, so it reaches every parser scaffolded from here on. It does NOT reach
+  the parsers already scaffolded** - each of those copies has diverged and each is its own slice, on
+  its own exit contract.
+  - **RE-MEASURED IN THE TEMPLATE'S OWN CODE BEFORE ANYTHING WAS BUILT TO IT, AND IT IS WIDER THAN
+    THE FILED DESCRIPTION.** Four argv shapes exited 0 with a live, detectable SSN sitting in
+    `test/fixtures/`, not the one that was filed: `phi-scan README.md --allow-fixture <violator>`
+    (the flag was a **silent no-op** whenever a positional path was present, because the seed read
+    `paths.length > 0 ? paths : [...allowFixtures]`, so the violator was never **admitted** to the
+    run rather than withdrawn from it); `phi-scan <violator> --allow-fixture <violator>` (a floor of
+    one at whole-run scope); **`phi-scan --allow-fixture <violator>` with no positional at all**,
+    which is the worst of the four because a lone bypass selected `paths` mode over exactly the file
+    it then withdrew, so a caller expecting a full sweep got a clean verdict over an empty run; and
+    **`phi-scan --staged --allow-fixture <violator>`**, the identical floor on the route a commit is
+    actually blocked on.
+  - **THE RULE: a target this run ENUMERATED and never READ refuses (exit 2), in every mode, naming
+    the paths.** The comparison is a **set DIFFERENCE and never a size**: a count counts the targets
+    that DID get read, so the arithmetic hides precisely the ones that did not, and no number can
+    name a path. **Enumeration is the run's own declaration of what it will read**, so the read
+    filters upstream of it (the walk's `.md` exemption, gitignored entries, `isStagedReadable`) are
+    untouched and do not fire the rule.
+  - **The bypass flag is now seeded UNCONDITIONALLY and deduped by repo-relative path**, so it means
+    the same thing in every argv, and **it no longer chooses the mode** - a subtractive flag must not
+    also decide what gets scanned. A **bypass naming a path the run does not enumerate refuses too**:
+    it subtracts nothing, and honouring it silently lets a developer believe a file was
+    acknowledged. The two tiers are a union, not a duplicate; a test pins that restoring the old seed
+    alone still refuses, through the other tier.
+  - **THE CALL: `--allow-fixture` CAN NO LONGER REACH EXIT 0 IN ANY MODE.** The flag, the override
+    log and the rejection gate are all kept, so an attempt is **recorded and then refused**; the
+    token-level allow-list (`scripts/phi-allow-list.txt`) is the mechanism that reaches a clean run,
+    and it is strictly narrower because the file still gets opened. **The hit footer therefore no
+    longer advertises the flag as a remedy**: a printed remedy that walks a developer from exit 1
+    into exit 2 is the same defect as one that reaches a false green, with the sign flipped.
+    `phi-scan-overrides.md` says so too, since that is the file a developer reads next.
+  - **A HIT IS NEVER SWALLOWED BY THE UNREAD REFUSAL.** Hits print first, that refusal follows, and
+    `OK: no hits` can never appear beside one. **It is a guarantee about that refusal and not about
+    refusals in general, and the emitted file names the others rather than leaving them assumed**:
+    the unmatched-bypass refusal fires before any target is read, so no hit exists for it to swallow;
+    and a target whose bytes cannot be read refuses from INSIDE the loop, which does discard the hits
+    found before it. That last one is **pre-existing** and left alone deliberately - it exits 2, so
+    it is loud rather than green, and salvaging a partial hit list would be a claim about a corpus
+    the scan just said it could not account for.
+  - **THE EXIT CONTRACT IS DEFINED IN THE EMITTED FILE, NOT INHERITED.** A scaffolded parser has no
+    history, so the template states it: **0** clean and every enumerated target read, **1** hits,
+    **2** every state the file RAISES in which the scan cannot account for something (bad argument,
+    **missing** allow-list, unlogged bypass, unmatched bypass, a non-regular in-scope entry, an
+    unparseable index record, an unreadable target, and a target enumerated but never read). `1` is
+    reserved because CI and the pre-commit hook branch on the code and must be able to tell "PHI was
+    found" from "this scan is not trustworthy". **Sibling scanners do not agree on these numbers and
+    are not required to; the emitted file says so, and says never to port one in or out.**
+    - **`1` IS RESERVED BUT NOT EXCLUSIVE, AND THE TABLE SAYS SO RATHER THAN OVERCLAIMING.** A first
+      draft of it read "missing or unreadable allow-list" under **2** and "nothing else reaches it"
+      under **1**. The gate refuter measured both wrong in one run: an allow-list that EXISTS but
+      cannot be read (a directory at that path, or mode 000) makes `readFileSync` throw a plain
+      `Error`, which is rethrown rather than handled, and the run takes **node's own exit 1** with a
+      stack. That escape is **pre-existing and deliberately not closed** (widening the catch, or
+      enumerating `EACCES`/`EISDIR`, is the deny-list-of-spellings shape this file already retired on
+      the `attw` gate). **The remedy was to correct the claim, not to grow the guard** - a contract
+      promising a code it cannot deliver is worse than the gap it papers over, because the next
+      reader branches on it. A test pins the disclosure (a **directory** at the allow-list path, not
+      a `chmod`, so the case does not depend on the uid running it), so a later slice that closes the
+      escape has to come here and change the claim too. **`loadOverrideLog()` has the identical shape
+      and is named alongside it**: no exhaustive claim is made about that set, which is the whole
+      reason `1` is documented as reserved rather than exclusive.
+  - **The superset is proved in BOTH polarities.** Every changed row moves toward a **refusal** and
+    none toward permission, each pinned beside a positive the detector still catches: violator alone
+    still 1 in `paths`, `all` and `--staged`; a clean corpus still 0 in all three; a clean positional
+    followed by a violator still 1; a `.md` fixture and a gitignored fixture still skipped, still 0.
+    The pre-fix scanner is **rebuilt out of the shipped one by substitution** and shown exiting 0 on
+    three of the four shapes, with each substitution asserted to have landed so the counterfactual
+    cannot go vacuous.
+  - The logged-bypass cases live in `test/phi-scan-scaffold.test.ts` (against a throwaway scaffold),
+    not in the template's own suite, because the template's `phi-scan-overrides.md` is committed and
+    must ship with no entries. The template's suite gains the two cases that need no override entry:
+    `paths` mode reads every path it was given, and the footer no longer names the flag.
+
 - **The `attw` gate's declared-artifact set read `exports` and stopped, so a path declared through
   `typesVersions`, `imports` or `browser` was invisible to nets 1 AND 3 at once**
   (`CONFIG-SCAFFOLD-RESIDUALS`). Both nets ask their question of the one set
