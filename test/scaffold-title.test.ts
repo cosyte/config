@@ -18,10 +18,10 @@
  *                                          the published package description
  *
  * WHAT `#57` ALREADY CHANGED, AND WHAT IT DID NOT. At `d3df2f3`, this suite's base, the format step
- * `#57` added parses the emitted manifest and runs prettier over the emitted tree, so every row
- * above EXCEPT the injection already exits 1 - loudly, but only after a full broken tree has been
- * written to disk, and for two of them diagnosed as a formatting failure. The injection is
- * untouched: it still exits 0 with the banner.
+ * `#57` added parses the emitted manifest and runs prettier over the emitted tree, so the quote,
+ * control-character, line-terminator and block-comment rows already exit 1 - loudly, but only after
+ * a full broken tree has been written to disk, and two of them reported as a formatting failure.
+ * The placeholder row and the injection row are untouched: both still exit 0 with the banner.
  *
  * THE SILENT ONE IS THE POINT. An unparseable manifest breaks every downstream gate at once, which
  * is loud in its own way; a manifest that PARSES and names someone else's package is the failure
@@ -34,10 +34,10 @@
  * package that was asked for. Strip either one and the other still catches the injection; strip
  * BOTH and the silent exit-0 wrong-package scaffold comes straight back.
  *
- * SCOPE OF THE COUNTERFACTUALS, STATED SO IT IS NOT READ WIDER. They reconstruct the base behaviour
- * of the injection and of a quoted title only. The other rows already exit 1 at base, so a
- * counterfactual over them would be measuring `#57`'s format step rather than these guards; what
- * this suite asserts for them is the branch's behaviour - a refusal, before any write.
+ * SCOPE OF THE COUNTERFACTUALS, STATED SO IT IS NOT READ WIDER. They reconstruct base behaviour for
+ * the injection and for a quoted title: the two ends of what these guards do, a manifest that
+ * parses and lies and one that does not parse at all. What this suite asserts for every other row
+ * is the branch's behaviour - a refusal, before any write.
  *
  * SECURITY: every subprocess call uses spawnSync with array args. No exec, no shell form.
  */

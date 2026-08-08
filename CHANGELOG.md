@@ -31,27 +31,28 @@ no package, so entries here are **dated** rather than versioned.
 - **A crafted `--title` could scaffold a repo whose `package.json` names a DIFFERENT PACKAGE, while
   the generator printed `Scaffolded @cosyte/<name>` and exited 0** (`CONFIG-SCAFFOLD-RESIDUALS`).
   The title is substituted verbatim into every template file carrying `{{TITLE}}`, and nothing
-  checked it. **The two base columns are not the same column, and saying so is the whole of the
-  claim**: at `e76939f` every title below exited **0** with a success banner, but `#57`'s format
-  step - which parses the emitted manifest and runs prettier over the emitted tree - turned most of
-  this class loud without being aimed at it, so at `d3df2f3`, **this change's base**, only the last
-  row is still silent.
+  checked it. At `e76939f` every title below exited **0** with a success banner:
   - `Bad "Q" Title`, `Bad \ Title`, a raw newline and a raw tab each emitted a `package.json`
-    **nothing can parse**. **At `d3df2f3` these already exit 1** with a typed refusal - but only
-    after a full broken tree has been written to disk.
+    **nothing can parse**.
   - **U+2028 / U+2029 were found while measuring, not predicted from a list.** They are legal raw
     inside a JSON string, so no amount of JSON care catches them, but they are ECMAScript **line
     terminators**: they end the line comments they land in and the emitted TypeScript stops parsing.
-    **At `d3df2f3` these exit 1 too**, via prettier failing to parse the tree, which names a
-    formatting failure rather than the title that caused it.
+  - A `*` followed by a `/` closes the JSDoc block in the emitted `src/index.ts`.
   - `Title {{NAME}} here` shipped an **unsubstituted placeholder** into the README and into the
     published package `description`; `{{Pascal}}` was silently rewritten by a token that runs later.
     Neither is the title that was asked for.
-  - **`X", "name": "@evil/pwned", "x": "` is the row that matters, and the only one `#57` did not
-    change.** It emitted a `package.json` that **PARSES CLEANLY and names `@evil/pwned`**, at exit
-    **0**, with the success banner, on `d3df2f3` as much as on `e76939f`. It is the reason a parse
-    check is not enough: every downstream gate then runs, green, against the wrong identity. **This
-    is the silent case the item was filed for, and it was worse than the filed description.**
+  - `X", "name": "@evil/pwned", "x": "` emitted a `package.json` that **PARSES CLEANLY and names
+    `@evil/pwned`**. **This is the silent case the item was filed for, and it was worse than the
+    filed description.**
+  - **What `d3df2f3`, this change's base, already did - stated in two sentences, because a per-row
+    account of it was written wrong twice.** `#57`'s format step parses the emitted manifest and
+    runs prettier over the emitted tree, so at base the first three bullets above already exit 1 -
+    but only after a full broken tree has been written to disk, and the line-terminator and
+    block-comment cases are reported as a formatting failure rather than as the title that caused
+    them. **The placeholder and injection bullets still exit 0 with the success banner at
+    `d3df2f3`**, and they are why this exists: handing back a **working** repo that carries someone
+    else's package name, or an unsubstituted token in a published `description`, is worse than
+    handing back a broken one loudly.
   - **The remedy is refusal at the door plus an identity check on the way out, and deliberately NOT
     escaping.** The same string lands in four syntaxes at once (a JSON string, a JSDoc block, line
     comments, Markdown prose), so no single escaping is correct in all of them: JSON-escaping the
@@ -74,8 +75,8 @@ no package, so entries here are **dated** rather than versioned.
     forbids exactly `"`, `\` and raw `U+0000`-`U+001F`) and TypeScript (only LF, CR, U+2028 and
     U+2029 end a line comment; only a block-comment terminator ends a block one). It is **not**
     complete for Markdown, deliberately: `Bad *emph* Title` is accepted, and prettier-on-emit
-    normalises it to `Bad _emph_ Title` in the emitted README while `package.json` keeps the raw
-    bytes. That divergence is **`PRE-EXISTING`** - it arrived with `#57`'s formatting step, is
+    normalises it to `Bad _emph_ Title` in whichever emitted Markdown its globs reach, while
+    `package.json` and the Markdown they do not reach keep the raw bytes. That divergence is **`PRE-EXISTING`** - it arrived with `#57`'s formatting step, is
     identical on this change's base, and yields a repo that builds, publishes and gates green - so
     it is named rather than fixed by refusing titles on cosmetic grounds.
   - **`test/scaffold-title.test.ts` proves it on the real generator**, red before and green after
@@ -84,9 +85,9 @@ no package, so entries here are **dated** rather than versioned.
     34-file tree. **Three counterfactuals rebuild the generator with one or both calls textually
     removed** and measure that the guards are independent: strip both and the exit-0 `@evil/pwned`
     scaffold comes straight back; strip either one alone and the other still catches it. **The
-    counterfactuals reconstruct the base behaviour of those two rows only**, because the rest
-    already exit 1 at base, where a counterfactual would be measuring `#57`'s format step rather
-    than these guards.
+    counterfactuals cover those two cases**: the two ends of what these guards do, a manifest that
+    parses and lies and one that does not parse at all. Every other case is asserted on the branch's
+    behaviour - a refusal, before any write.
   - **The emitted tree is unchanged for conformant input, proved rather than assumed**: the
     **34-file** emitted tree is `diff -r` clean against the previous generator for `a`, `hl7`,
     `terminology`, `a-a-a-a-a-a` and an explicit `--title "C-CDA R2.1"`. **`--help` is NOT

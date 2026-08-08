@@ -85,8 +85,9 @@ function printUsage() {
       "",
       "  <name>          package segment, e.g. x12 -> @cosyte/x12 (lowercase; [a-z][a-z0-9-]*)",
       "  --title <str>   human-readable title for prose/docs (default: derived from <name>).",
-      '                  No quote, backslash, "{{", block-comment terminator or control character:',
-      "                  it is substituted verbatim into JSON, TS comments and Markdown.",
+      '                  No quote, backslash, "{{", block-comment terminator, control character or',
+      "                  line separator: it is substituted verbatim into JSON, TS comments and",
+      "                  Markdown.",
       "  --out <dir>     parent dir to emit into (default: cwd); repo lands at <out>/<name>",
       "",
     ].join("\n"),
@@ -116,35 +117,36 @@ function toPascal(name) {
  * characters in the first place.
  *
  * MEASURED ON THE REAL GENERATOR, and each rule below is tied to one of these rather than to a
- * general suspicion of punctuation. The two base columns are the point, and they are NOT the same
- * column: `#57` added a format step that parses the emitted manifest and runs prettier over the
- * emitted tree, which turned most of this class loud without being aimed at it.
+ * general suspicion of punctuation:
  *
- *                                          at e76939f (pre-#57)   at d3df2f3 (this change's base)
- *   Bad "Q" Title                          exit 0 + banner        exit 1, typed refusal
- *   a newline, or a raw tab                exit 0 + banner        exit 1, typed refusal
- *   U+2028 / U+2029                        exit 0 + banner        exit 1, via prettier's parse
- *   a block-comment terminator             exit 0 + banner        exit 1, via prettier's parse
- *   X", "name": "@evil/pwned", "x": "      exit 0 + banner        exit 0 + banner
+ *   Bad "Q" Title / Bad \ Title          -> the emitted package.json is not valid JSON
+ *   a newline, or a raw tab              -> a C0 control character raw inside a JSON string, and a
+ *                                          line comment in the emitted scanner that stops there
+ *   U+2028 / U+2029                      -> legal in JSON, but ECMAScript LINE TERMINATORS, so the
+ *                                          same comments end early and the tree no longer parses
+ *   a `*` followed by a `/`              -> closes the JSDoc block it is substituted into
+ *   Title {{NAME}} here                  -> an unsubstituted placeholder ships in the README and in
+ *                                          the published package description; `{{Pascal}}` is
+ *                                          instead rewritten by a token that runs later
+ *   X", "name": "@evil/pwned", "x": "    -> the emitted package.json PARSES CLEANLY and names a
+ *                                          DIFFERENT PACKAGE
  *
- * WHAT THEY DO WRONG, in order: an emitted `package.json` that nothing can parse; a C0 control
- * character raw inside a JSON string, and a line comment in the emitted scanner that stops there;
- * U+2028 and U+2029, legal in JSON but ECMAScript LINE TERMINATORS, so the same comments end early
- * and the emitted tree no longer parses; a `*` followed by a `/`, which closes the JSDoc block it
- * lands in; and the last one, which emits a manifest that PARSES CLEANLY and names a different
- * package while this script prints `Scaffolded @cosyte/probe` and exits 0.
+ * WHAT THE BASE COMMIT ALREADY DID, IN TWO SENTENCES, BECAUSE A PER-ROW ACCOUNT OF IT WAS WRITTEN
+ * WRONG TWICE. `#57` added a format step that parses the emitted manifest and runs prettier over
+ * the emitted tree, so at `d3df2f3` the first four rows already exit 1 - but only after a full tree
+ * has been written to disk, and two of them are reported as a formatting failure rather than as the
+ * title that caused it. The last two rows exit 0 with the success banner at `d3df2f3` exactly as
+ * they did at `e76939f`, and they are the reason this exists: handing back a WORKING repo that
+ * carries someone else's package name, or an unsubstituted token in a published description, is
+ * worse than handing back a broken one loudly.
  *
- * THE LAST ROW IS WHY THIS EXISTS. It is the only one `#57` did not change, and it is the worst of
- * them: the others hand back a broken repo loudly, that one hands back a working repo with someone
- * else's identity. The rows above it are still worth refusing, because `#57` catches them only
- * AFTER a full tree has been written to disk and diagnoses two of them as a formatting failure.
- * Refusing the input reaches all five, and it reaches them before the first file is written, which
+ * Refusing the input reaches all six, and it reaches them before the first file is written, which
  * is the discipline resolveFormatter() already follows: a refusal that leaves a half-written repo
  * behind has already broken the promise the scaffold makes.
  *
  * test/scaffold-title.test.ts asserts the refusal and the empty disk for every row. Its
- * counterfactuals reconstruct the base behaviour of the last two rows only - the injection's exit-0
- * scaffold and the quote's unparseable manifest - because those are the two that bound the claim.
+ * counterfactuals reconstruct base behaviour for the injection and for a quoted title, the two ends
+ * of what these guards do: a manifest that parses and lies, and one that does not parse at all.
  *
  * NOT REFUSED, BECAUSE IT WAS MEASURED NOT TO BREAK ANYTHING: U+007F (legal raw in a JSON string,
  * and not a line terminator), and a title of 300 characters (nothing reflows a comment, so the
@@ -155,11 +157,11 @@ function toPascal(name) {
  * exactly `"`, `\` and raw U+0000-U+001F) and TypeScript (only LF, CR, U+2028 and U+2029 end a line
  * comment; only a block-comment terminator ends a block one). It is NOT complete for Markdown, and
  * that is deliberate rather than overlooked: `Bad *emph* Title` is accepted, and prettier-on-emit
- * normalises it to `Bad _emph_ Title` in the emitted README while `package.json` keeps the raw
- * bytes. That divergence is PRE-EXISTING - it arrived with `#57`'s formatting step, is identical on
- * this change's base, and produces a repo that builds, publishes and gates green - so it is named
- * here rather than fixed by widening the rules, which would start refusing titles on cosmetic
- * grounds.
+ * normalises it to `Bad _emph_ Title` in whichever emitted Markdown its globs reach, while
+ * `package.json` and the Markdown they do not reach keep the raw bytes. That divergence is
+ * PRE-EXISTING - it arrived with `#57`'s formatting step, is identical on this change's base, and
+ * produces a repo that builds, publishes and gates green - so it is named here rather than fixed by
+ * widening the rules, which would start refusing titles on cosmetic grounds.
  */
 function firstUnsafeInTitle(title) {
   const rules = [
@@ -359,8 +361,10 @@ function emittedPrettierGlobs(pkgPath, scriptName) {
     // escaping - is refused by validateTitle() before anything is written. Every other route to an
     // unparseable manifest, including the template's own package.json being edited into one, is
     // caught by assertEmittedManifest(), which parses the same path with no write in between and
-    // refuses with a message aimed at the template. So nothing arrives here while main() calls
-    // those two. What it buys is that this function cannot throw a stack trace if it is ever
+    // refuses with a message aimed at the template. The `format:check` call below parses it a
+    // SECOND time, after `prettier --write` has rewritten it, and that route is closed by prettier
+    // rather than by us: a `--write` that emitted invalid JSON would have failed first. So nothing
+    // arrives here while main() calls those two. What it buys is that this function cannot throw a stack trace if it is ever
     // called from somewhere else, which is the whole reason it reads the manifest defensively.
     fail(
       `the emitted ${pkgPath} is not valid JSON (${error.message}), so the globs to format with ` +
