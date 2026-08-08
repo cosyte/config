@@ -25,11 +25,19 @@
  * runs the same source with no transform, so it stands in. If a future edit uses
  * syntax the stripper rejects, this suite reds loudly rather than skipping.
  *
- * COUNTERFACTUALS, NOT JUST ASSERTIONS. Three cases below build a deliberately
+ * THE SECOND DEFECT, INDEPENDENT OF THE FIRST. `--allow-fixture` withdrew a file
+ * from the read set AFTER enumeration, and the empty remainder reported
+ * `OK: no hits` and exit 0. Four argv shapes did it, including one with no
+ * positional path at all and one on `--staged`, the route a commit is blocked
+ * on. The shipped scanner now refuses over a target it enumerated and never
+ * read, in every mode, comparing the two sets by DIFFERENCE so the refusal can
+ * name the paths. A count cannot: it counts the targets that DID get read.
+ *
+ * COUNTERFACTUALS, NOT JUST ASSERTIONS. Several cases below build a deliberately
  * WEAKENED scanner out of the emitted one by textual substitution and show it
  * failing where the shipped one refuses. Each substitution is asserted to have
  * actually changed the file, so a counterfactual cannot go vacuous if the source
- * is reworded.
+ * is reworded. No count is written down here, because it went stale once.
  *
  * SECURITY / PHI: the payload is synthetic. It is name-bearing on purpose (its
  * FILENAME carries a synthetic surname/given/DOB shape) because the no-echo
@@ -57,6 +65,10 @@ const SCAFFOLDER = join(REPO_ROOT, "scripts", "scaffold-parser.mjs");
  */
 const STRIP: string[] =
   Number(process.versions.node.split(".")[0]) >= 23 ? [] : ["--experimental-strip-types"];
+
+/** A synthetic violator INSIDE the scaffold's own corpus, and the bypass flag. */
+const VIOLATOR = "test/fixtures/violator.txt";
+const BYPASS = "--allow-fixture";
 
 /** A synthetic, name-bearing payload. Nothing here is real. */
 const PAYLOAD_BASENAME = "rivera-jordan-19700101.txt";
@@ -98,11 +110,42 @@ function scan(scanner: string, args: string[] = [], cwd = scaffold): RunResult {
  * weakening actually landed. A counterfactual that silently failed to apply
  * would pass every assertion below for the wrong reason.
  */
-function weakened(name: string, from: string, to: string): string {
-  const source = readFileSync(join(scaffold, "scripts", "phi-scan.ts"), "utf8");
-  expect(source, `counterfactual "${name}" no longer matches the shipped scanner`).toContain(from);
+function weakenedAll(name: string, subs: [string, string][]): string {
+  let source = readFileSync(join(scaffold, "scripts", "phi-scan.ts"), "utf8");
+  for (const [from, to] of subs) {
+    expect(source, `counterfactual "${name}" no longer matches the shipped scanner`).toContain(
+      from,
+    );
+    source = source.replace(from, to);
+  }
   const rel = join("scripts", name);
-  writeFileSync(join(scaffold, rel), source.replace(from, to), "utf8");
+  writeFileSync(join(scaffold, rel), source, "utf8");
+  return rel;
+}
+
+function weakened(name: string, from: string, to: string): string {
+  return weakenedAll(name, [[from, to]]);
+}
+
+/**
+ * Log a `--allow-fixture` bypass in the scaffold's own override log, so the
+ * argument-tier gate admits it and the run reaches the completeness tiers.
+ *
+ * This lives here rather than in the template's own suite for one reason: the
+ * template's `phi-scan-overrides.md` is COMMITTED and travels into every
+ * scaffolded parser, so it must ship with no entries. A throwaway scaffold is
+ * the only place a LOGGED bypass can be exercised.
+ */
+function logBypass(...repoPaths: string[]): void {
+  const entries = repoPaths
+    .map((p) => `\n### ${p}\n\n- **Date:** 2026-08-08\n- **Reason:** test\n`)
+    .join("");
+  writeFileSync(join(scaffold, "phi-scan-overrides.md"), entries, { flag: "a" });
+}
+
+/** A synthetic violator inside the scaffold's own corpus. */
+function writeViolator(rel = VIOLATOR): string {
+  writeFileSync(join(scaffold, ...rel.split("/")), "patient ssn 123-45-6789 on file\n", "utf8");
   return rel;
 }
 
@@ -167,6 +210,11 @@ describe("controls: the suite is exercising the emitted scanner, and it can stil
       "isUnderScanRoot(s.path) && !REGULAR_BLOB_MODES.has(s.mode)",
       '["diff", "--cached", "--raw", "-z", "--no-renames", "--diff-filter=d"]',
       "unscannable.push({ path: normalizePath(full), kind: direntKind(e) });",
+      // The completeness rule. Each of these is a line whose loss reopens a
+      // measured exit-0-over-an-unopened-corpus hole.
+      'const scanPaths = mode === "paths" ? dedupeByRepoPath([...paths, ...allowFixtures]) : paths;',
+      "const unmatched = [...allowed].filter((p) => !enumerated.has(p));",
+      "const unread = [...enumerated].filter((p) => !read.has(p));",
     ]) {
       expect(source).toContain(line);
       expect(emitted).toContain(line);
@@ -434,5 +482,200 @@ describe("--staged refuses a non-regular entry, and keys on the ROOT half of sco
     const r = scan("scripts/phi-scan.ts", ["--staged"]);
     expect(r.code).toBe(1);
     expect(r.out).toContain("test/fixtures/bad.txt");
+  });
+});
+
+/**
+ * THE COMPLETENESS RULE: a target the run ENUMERATED and never READ refuses.
+ *
+ * The defect, measured on the template's own scanner before this suite existed:
+ * four argv shapes printed `OK: no hits` and exited 0 over a corpus carrying a
+ * live, detectable hit, because `--allow-fixture` withdrew a file from the read
+ * set AFTER enumeration and the empty remainder read as clean. Two separate
+ * causes sat underneath, and the second is the sharper one: the target list was
+ * seeded `paths.length > 0 ? paths : [...allowFixtures]`, so the flag seeded it
+ * ONLY when no positional path was given and was a silent no-op the moment one
+ * was. The violator was never ADMITTED to the run rather than withdrawn from it.
+ *
+ * Every case below is the exit code AND the message, because a refusal that
+ * names no path is not a remedy a developer can act on, and a set DIFFERENCE is
+ * the only comparison that can name one. A size comparison cannot: a count
+ * counts the targets that DID get read.
+ */
+describe("a target enumerated but never read refuses, in every mode", () => {
+  /** The four shapes that used to exit 0. Each must now name the unread path. */
+  const shapes: { label: string; argv: string[] }[] = [
+    // The item's own reproduction: a clean positional plus a bypass on a violator.
+    { label: "a clean positional path alongside a bypass", argv: ["README.md", BYPASS, VIOLATOR] },
+    // The floor of one at whole-run scope: the entire target list withdrawn.
+    { label: "the same path as target and bypass", argv: [VIOLATOR, BYPASS, VIOLATOR] },
+    // No positional at all. The worst of the four: it reads like a full sweep.
+    { label: "a bare bypass with no positional path", argv: [BYPASS, VIOLATOR] },
+    // The route a commit is actually blocked on.
+    {
+      label: "--staged with a bypass on the only staged violator",
+      argv: ["--staged", BYPASS, VIOLATOR],
+    },
+  ];
+
+  for (const { label, argv } of shapes) {
+    it(`refuses: ${label}`, () => {
+      resetToBaseline();
+      writeViolator();
+      logBypass(VIOLATOR);
+      git(["add", "test/fixtures/violator.txt", "phi-scan-overrides.md"]);
+
+      const r = scan("scripts/phi-scan.ts", argv);
+      expect(r.code, r.out).toBe(2);
+      expect(r.out).toContain("enumerated and never read");
+      expect(r.out).toContain(VIOLATOR);
+      // A refusal, not a report: the clean line must never appear beside it.
+      expect(r.out).not.toContain("OK: no hits");
+    });
+  }
+
+  it("THE DEFECT, REPRODUCED: without the rule the same argv exits 0 over the unopened violator", () => {
+    resetToBaseline();
+    writeViolator();
+    logBypass(VIOLATOR);
+
+    // Both halves restored: the conditional seed AND the missing reconciliation.
+    // Either one alone still refuses (the other tier catches it), which is the
+    // point of having two: this is what the pre-fix scanner did.
+    const pre = weakenedAll("pre-completeness-rule.ts", [
+      [
+        'const scanPaths = mode === "paths" ? dedupeByRepoPath([...paths, ...allowFixtures]) : paths;',
+        "const scanPaths = paths.length > 0 ? paths : [...allowFixtures];",
+      ],
+      [
+        "const unread = [...enumerated].filter((p) => !read.has(p));",
+        "const unread: string[] = [];",
+      ],
+      [
+        "const unmatched = [...allowed].filter((p) => !enumerated.has(p));",
+        "const unmatched: string[] = [];",
+      ],
+    ]);
+
+    for (const argv of [
+      ["README.md", "--allow-fixture", VIOLATOR],
+      [VIOLATOR, "--allow-fixture", VIOLATOR],
+      ["--allow-fixture", VIOLATOR],
+    ]) {
+      const r = scan(pre, argv);
+      expect(r.code, `${argv.join(" ")}: ${r.out}`).toBe(0);
+      expect(r.out).toContain("OK: no hits");
+    }
+
+    // ANTI-VACUITY: the violator is detectable the whole time. A clean report
+    // over it is a miss, not an absence.
+    const named = scan("scripts/phi-scan.ts", [VIOLATOR]);
+    expect(named.code).toBe(1);
+    expect(named.out).toContain("123-45-6789");
+  });
+
+  it("the two tiers are a union, not a duplicate: the old seed alone still refuses", () => {
+    // With the seed restored but the reconciliation intact, the violator is
+    // never enumerated at all, so the UNMATCHED tier catches it instead. Neither
+    // tier subsumes the other, and the message says which one fired.
+    resetToBaseline();
+    writeViolator();
+    logBypass(VIOLATOR);
+
+    const oldSeed = weakened(
+      "old-conditional-seed.ts",
+      'const scanPaths = mode === "paths" ? dedupeByRepoPath([...paths, ...allowFixtures]) : paths;',
+      "const scanPaths = paths.length > 0 ? paths : [...allowFixtures];",
+    );
+    const r = scan(oldSeed, ["README.md", "--allow-fixture", VIOLATOR]);
+    expect(r.code, r.out).toBe(2);
+    expect(r.out).toContain("does not enumerate");
+    expect(r.out).not.toContain("OK: no hits");
+  });
+
+  it("refuses a bypass naming a path the run does not enumerate", () => {
+    // `docs/notes.md` is nowhere near a scan root, so an all-mode run never
+    // enumerates it and the flag subtracts nothing. Honouring it silently would
+    // let a developer believe a file was acknowledged.
+    resetToBaseline();
+    mkdirSync(join(scaffold, "docs"), { recursive: true });
+    writeFileSync(join(scaffold, "docs", "notes.md"), "ordinary prose\n", "utf8");
+    logBypass("docs/notes.md");
+
+    const r = scan("scripts/phi-scan.ts", ["--allow-fixture", "docs/notes.md"]);
+    expect(r.code, r.out).toBe(2);
+    expect(r.out).toContain("does not enumerate");
+    expect(r.out).toContain("docs/notes.md");
+    expect(r.out).not.toContain("OK: no hits");
+  });
+
+  it("dedupes by repo-relative path, so one file named twice is one target named once", () => {
+    resetToBaseline();
+    writeViolator();
+    logBypass(VIOLATOR);
+
+    const r = scan("scripts/phi-scan.ts", [VIOLATOR, "--allow-fixture", `./${VIOLATOR}`]);
+    expect(r.code, r.out).toBe(2);
+    expect(r.out.split(VIOLATOR).length - 1).toBe(1);
+  });
+
+  it("NEVER SWALLOWS A HIT: an incomplete run carrying hits prints both, and exits 2", () => {
+    // The order matters and is asserted rather than assumed. Refusing first
+    // would drop a real PHI finding on the floor; reporting the clean line
+    // alongside a refusal would contradict it.
+    resetToBaseline();
+    writeViolator();
+    logBypass("test/fixtures/ok.txt");
+
+    const r = scan("scripts/phi-scan.ts", ["--allow-fixture", "test/fixtures/ok.txt"]);
+    expect(r.code, r.out).toBe(2);
+    expect(r.out).toContain("123-45-6789"); // the hit survived
+    expect(r.out).toContain("enumerated and never read");
+    expect(r.out).toContain("test/fixtures/ok.txt");
+    expect(r.out).not.toContain("OK: no hits");
+  });
+
+  it("the hit footer does not advertise --allow-fixture, which now leads to exit 2", () => {
+    resetToBaseline();
+    writeViolator();
+    const r = scan("scripts/phi-scan.ts", [VIOLATOR]);
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("scripts/phi-allow-list.txt");
+    expect(r.out).not.toMatch(/run with --allow-fixture/);
+  });
+
+  it("POSITIVES: a bypass-free run is untouched in every mode", () => {
+    // The superset proof's other polarity. Every row above moved toward a
+    // REFUSAL; nothing that used to be judged is judged more leniently, and
+    // nothing that used to pass now fails.
+    resetToBaseline();
+    expect(scan("scripts/phi-scan.ts").code).toBe(0); // all: clean corpus
+    expect(scan("scripts/phi-scan.ts", ["--staged"]).code).toBe(0); // staged: empty index
+    expect(scan("scripts/phi-scan.ts", ["README.md"]).code).toBe(0); // paths: clean file
+
+    writeViolator();
+    expect(scan("scripts/phi-scan.ts").code).toBe(1); // all: still catches
+    expect(scan("scripts/phi-scan.ts", [VIOLATOR]).code).toBe(1); // paths: still catches
+    git(["add", "test/fixtures/violator.txt"]);
+    expect(scan("scripts/phi-scan.ts", ["--staged"]).code).toBe(1); // staged: still catches
+
+    // And the floor-of-one polarity with no bypass in sight: a clean path first
+    // does not hide a violator second.
+    const pair = scan("scripts/phi-scan.ts", ["README.md", VIOLATOR]);
+    expect(pair.code).toBe(1);
+    expect(pair.out).toContain(VIOLATOR);
+  });
+
+  it("leaves the read filters alone: a skipped file is not an unread target", () => {
+    // Enumeration is the run's own declaration of what it will read. A `.md`
+    // file the walk skips, and a gitignored entry, are never enumerated, so the
+    // rule must not fire on them. Without this the gate reds on every repo.
+    resetToBaseline();
+    writeFileSync(join(scaffold, "test", "fixtures", "notes.md"), "ssn 123-45-6789\n", "utf8");
+    writeFileSync(join(scaffold, ".gitignore"), "test/fixtures/ignored.txt\n", { flag: "a" });
+    writeFileSync(join(scaffold, "test", "fixtures", "ignored.txt"), "ssn 123-45-6789\n", "utf8");
+    const r = scan("scripts/phi-scan.ts");
+    expect(r.code, r.out).toBe(0);
+    expect(r.out).toContain("OK: no hits");
   });
 });

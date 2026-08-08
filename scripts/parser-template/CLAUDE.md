@@ -110,6 +110,21 @@ a summary.
   `isUnderScanRoot` decides whether an entry is the scan's business (every non-regular check keys on
   it), and the read filters decide whether a regular file's bytes are read. The full statement is in
   that file's docblock; this bullet is a pointer.
+- **`scripts/phi-scan.ts` ALSO REFUSES (exit 2) A TARGET IT ENUMERATED AND NEVER READ, IN EVERY
+  MODE.** Four argv shapes used to print `OK: no hits` and exit 0 over a corpus carrying a live hit,
+  because `--allow-fixture` withdrew a file after enumeration and the empty result read as clean:
+  with a positional path present the flag was a **silent no-op** (the seed was
+  `paths.length > 0 ? paths : [...allowFixtures]`, so it seeded the list only when there was no
+  positional), and with none present it selected `paths` mode over exactly the file it then withdrew.
+  The rule compares the enumerated set against the read set **by DIFFERENCE and names the paths,
+  never by size**: a count counts the targets that DID get read, so the arithmetic hides precisely
+  the ones that did not. **A bypass therefore cannot reach exit 0 in any mode** (it is recorded, then
+  refused), a bypass naming a path the run does not enumerate refuses too, and the hit footer no
+  longer advertises the flag as a remedy, because following a printed remedy into exit 2 is the same
+  defect as following one into a false green. **The exit contract is DEFINED in that file, not
+  inherited: 0 clean, 1 hits and nothing else, 2 every state the scan cannot account for. Siblings do
+  not agree on these numbers. Never port an exit code in or out.** Read the docblock, not this
+  bullet.
 - **This file, `scripts/attw.mjs` and `scripts/phi-scan.ts` all arrive from `cosyte/config`'s
   `scripts/parser-template/`.** Fix a gate there, never only here, or the next scaffolded parser is
   born with the defect again.
