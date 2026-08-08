@@ -38,10 +38,11 @@
  * test. Both the generator and this suite therefore use THIS repo's copies. That closes the gap
  * that produced the defect (nothing formatted the emitted tree at all) and leaves one open: the
  * template pins `@cosyte/prettier-config` at `^0.0.2` while this repo builds `0.0.4`, and under
- * caret-on-`0.0.x` semantics those are different releases. They carry identical settings today
- * (`0.0.3` and `0.0.4` are documentation-only in that package's own CHANGELOG), so nothing is
- * hidden right now; a settings change shipped without moving the template's pin would be invisible
- * here. That is a pin question rather than a formatting one, and it is not in this slice.
+ * caret-on-`0.0.x` semantics those are different releases. Measured rather than reasoned from the
+ * changelog: `index.json` is BYTE-IDENTICAL across all four published versions and this repo's
+ * working copy (sha256 `605a669523ab8b44...`), so nothing is hidden right now. A settings change
+ * shipped without moving the template's pin would be invisible here. That is a pin question rather
+ * than a formatting one, and it is not in this slice.
  *
  * SECURITY: every subprocess call uses spawnSync with array args. No exec, no shell form.
  */
@@ -173,12 +174,21 @@ function formatCheck(dir: string): RunResult {
   return prettier(dir, "--check", emittedGlobs(dir, "format:check"));
 }
 
-/** Repo-relative paths the emitted `format:check` would red, in prettier's own words. */
+/**
+ * Repo-relative paths the emitted `format:check` would red, in prettier's own words.
+ *
+ * Prettier's diagnostics are dropped rather than counted as paths. `[error] No files matching the
+ * pattern were found` on stderr would otherwise read as one "unformatted file", and the census
+ * below asserts it found a non-empty set: a glob that matched nothing would then satisfy the
+ * assertion that exists to catch exactly that. That route is unreachable today (prettier exits 2 on
+ * an unmatched pattern, and the generator's own `--write` fails first), which is the point: the
+ * claim is that the set is real, so it must not be true only by luck.
+ */
 function unformattedFiles(dir: string): string[] {
   return prettier(dir, "--list-different", emittedGlobs(dir, "format:check"))
     .out.split("\n")
     .map((line) => line.trim())
-    .filter(Boolean)
+    .filter((line) => line && !line.startsWith("[error]") && !line.startsWith("[warn]"))
     .sort();
 }
 

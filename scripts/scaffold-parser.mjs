@@ -205,7 +205,24 @@ function resolveFormatter() {
  * and reports success is the same never-pointed-at-its-input defect this whole step exists to close.
  */
 function emittedPrettierGlobs(pkgPath, scriptName) {
-  const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
+  let pkg;
+  try {
+    pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
+  } catch (error) {
+    // Refusing loudly is this function's whole contract, so it has to hold for an unreadable
+    // manifest too, not only for an unrecognised script. The reachable cause today is substitution
+    // itself: `--title` is interpolated into a JSON string without being escaped for JSON, so a
+    // value carrying a quote, a backslash or a control character emits a manifest nothing can
+    // parse. The BASE generator emitted that manifest and exited 0, handing over a repo whose
+    // package.json is invalid; that unescaped substitution is a separate defect and is not fixed
+    // here, but it must not surface as an uncaught stack trace either.
+    fail(
+      `the emitted ${pkgPath} is not valid JSON (${error.message}). If --title carried a quote, ` +
+        `a backslash or a control character, that is the cause: it is substituted into the ` +
+        `package.json without JSON escaping. Nothing was formatted; delete the emitted directory ` +
+        `before retrying.`,
+    );
+  }
   const script = String(pkg.scripts?.[scriptName] ?? "").trim();
   const flag = scriptName === "format" ? "--write" : "--check";
   const shape = new RegExp(`^prettier ${flag} ((?:"[^"]+"\\s*)+)$`);

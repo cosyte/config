@@ -76,8 +76,15 @@ no package, so entries here are **dated** rather than versioned.
     holding, the guard reds and the probe set has to be re-derived rather than trimmed.
   - **Named, not fixed, and out of this slice:** the template pins `@cosyte/prettier-config` at
     `^0.0.2` while this repo builds `0.0.4`, which under caret-on-`0.0.x` are different releases.
-    Their settings are identical today (`0.0.3` and `0.0.4` are documentation-only in that package's
-    own changelog), so nothing is hidden; a settings change shipped without moving the pin would be.
+    Measured rather than reasoned from the changelog: `index.json` is **byte-identical across all
+    four published versions and the working copy** (sha256 `605a669523ab8b44...`), so nothing is
+    hidden today; a settings change shipped without moving the pin would be.
+  - **An unreadable emitted manifest now refuses loudly too**, rather than throwing an uncaught
+    `SyntaxError` out of the new derivation step. The one reachable cause is `--title`, which is
+    substituted into the emitted `package.json` **without JSON escaping**, so a title carrying a
+    quote or a backslash emits a manifest nothing can parse. That unescaped substitution is a
+    separate, **pre-existing** defect and is not fixed here: on the base generator the same input
+    exits **0** and hands over a repo whose `package.json` is invalid JSON, silently.
 
 - **`format:check` never read a single `.mjs` file, and reported success for it**
   (`CONFIG-FORMAT-CHECK-SKIPS-MJS`). The root globs named `{js,ts,json,md,yml,yaml}` while the repo
