@@ -15,7 +15,10 @@
 //   node scripts/scaffold-parser.mjs <name> [--title "Human Title"] [--out <dir>]
 //
 //   <name>          package name segment, e.g. `x12` -> @cosyte/x12 (lowercase; [a-z][a-z0-9-]*)
-//   --title <str>   human-readable title used in prose/docs (default: derived from <name>)
+//   --title <str>   human-readable title used in prose/docs (default: derived from <name>).
+//                   Substituted verbatim into JSON, TypeScript comments and Markdown, so it may
+//                   not carry a quote, a backslash, a block-comment terminator, a control or
+//                   line-separator character, or `{{`. See firstUnsafeInTitle() for why each.
 //   --out <dir>     parent directory to emit into (default: $CWD); the repo lands at <out>/<name>
 //
 // It refuses to overwrite an existing non-empty <out>/<name>.
@@ -81,7 +84,9 @@ function printUsage() {
       '  node scripts/scaffold-parser.mjs <name> [--title "Human Title"] [--out <dir>]',
       "",
       "  <name>          package segment, e.g. x12 -> @cosyte/x12 (lowercase; [a-z][a-z0-9-]*)",
-      "  --title <str>   human-readable title for prose/docs (default: derived from <name>)",
+      "  --title <str>   human-readable title for prose/docs (default: derived from <name>).",
+      '                  No quote, backslash, "{{", block-comment terminator or control character:',
+      "                  it is substituted verbatim into JSON, TS comments and Markdown.",
       "  --out <dir>     parent dir to emit into (default: cwd); repo lands at <out>/<name>",
       "",
     ].join("\n"),
@@ -111,26 +116,50 @@ function toPascal(name) {
  * characters in the first place.
  *
  * MEASURED ON THE REAL GENERATOR, and each rule below is tied to one of these rather than to a
- * general suspicion of punctuation (test/scaffold-title.test.ts reproduces all of them):
+ * general suspicion of punctuation. The two base columns are the point, and they are NOT the same
+ * column: `#57` added a format step that parses the emitted manifest and runs prettier over the
+ * emitted tree, which turned most of this class loud without being aimed at it.
  *
- *   Bad "Q" Title                        -> the emitted package.json is not valid JSON
- *   X", "name": "@evil/pwned", "x": "    -> the emitted package.json IS valid JSON and names a
- *                                          DIFFERENT PACKAGE, while this script printed
- *                                          `Scaffolded @cosyte/probe` and exited 0
- *   a newline, or a raw tab              -> a C0 control character raw inside a JSON string, and a
- *                                          line comment in the emitted scanner that stops there
- *   U+2028 / U+2029                      -> legal in JSON, but ECMAScript LINE TERMINATORS, so the
- *                                          emitted scanner's line comments end early and the tree
- *                                          no longer parses
+ *                                          at e76939f (pre-#57)   at d3df2f3 (this change's base)
+ *   Bad "Q" Title                          exit 0 + banner        exit 1, typed refusal
+ *   a newline, or a raw tab                exit 0 + banner        exit 1, typed refusal
+ *   U+2028 / U+2029                        exit 0 + banner        exit 1, via prettier's parse
+ *   a block-comment terminator             exit 0 + banner        exit 1, via prettier's parse
+ *   X", "name": "@evil/pwned", "x": "      exit 0 + banner        exit 0 + banner
  *
- * Every one of them exited 0 with a success banner before this existed. Refusing the input is the
- * only remedy that reaches all four, and it reaches them before the first file is written, which is
- * the same discipline resolveFormatter() already follows: a refusal that leaves a half-written repo
- * on disk has already broken the promise the scaffold makes.
+ * WHAT THEY DO WRONG, in order: an emitted `package.json` that nothing can parse; a C0 control
+ * character raw inside a JSON string, and a line comment in the emitted scanner that stops there;
+ * U+2028 and U+2029, legal in JSON but ECMAScript LINE TERMINATORS, so the same comments end early
+ * and the emitted tree no longer parses; a `*` followed by a `/`, which closes the JSDoc block it
+ * lands in; and the last one, which emits a manifest that PARSES CLEANLY and names a different
+ * package while this script prints `Scaffolded @cosyte/probe` and exits 0.
+ *
+ * THE LAST ROW IS WHY THIS EXISTS. It is the only one `#57` did not change, and it is the worst of
+ * them: the others hand back a broken repo loudly, that one hands back a working repo with someone
+ * else's identity. The rows above it are still worth refusing, because `#57` catches them only
+ * AFTER a full tree has been written to disk and diagnoses two of them as a formatting failure.
+ * Refusing the input reaches all five, and it reaches them before the first file is written, which
+ * is the discipline resolveFormatter() already follows: a refusal that leaves a half-written repo
+ * behind has already broken the promise the scaffold makes.
+ *
+ * test/scaffold-title.test.ts asserts the refusal and the empty disk for every row. Its
+ * counterfactuals reconstruct the base behaviour of the last two rows only - the injection's exit-0
+ * scaffold and the quote's unparseable manifest - because those are the two that bound the claim.
  *
  * NOT REFUSED, BECAUSE IT WAS MEASURED NOT TO BREAK ANYTHING: U+007F (legal raw in a JSON string,
  * and not a line terminator), and a title of 300 characters (nothing reflows a comment, so the
  * emitted tree stays format-clean). A rule for either would be a claim nothing supports.
+ *
+ * HOW FAR THE ACCEPT-SET REACHES, STATED NO WIDER THAN IT HOLDS. It is complete for the two
+ * destinations where a title can produce an artifact that does not PARSE: JSON (RFC 8259 forbids
+ * exactly `"`, `\` and raw U+0000-U+001F) and TypeScript (only LF, CR, U+2028 and U+2029 end a line
+ * comment; only a block-comment terminator ends a block one). It is NOT complete for Markdown, and
+ * that is deliberate rather than overlooked: `Bad *emph* Title` is accepted, and prettier-on-emit
+ * normalises it to `Bad _emph_ Title` in the emitted README while `package.json` keeps the raw
+ * bytes. That divergence is PRE-EXISTING - it arrived with `#57`'s formatting step, is identical on
+ * this change's base, and produces a repo that builds, publishes and gates green - so it is named
+ * here rather than fixed by widening the rules, which would start refusing titles on cosmetic
+ * grounds.
  */
 function firstUnsafeInTitle(title) {
   const rules = [
@@ -186,10 +215,13 @@ function describeUnsafe(text) {
 function validateTitle(title, derived) {
   const source = derived ? "the title derived from <name>" : "--title";
   if (title.trim() === "") {
+    // Phrased without a remedy that assumes which branch this is: defaultTitle() cannot return an
+    // empty string for a name matching `[a-z][a-z0-9-]*`, so the derived branch is unreachable
+    // today, and telling that caller to "omit --title" would be advice they had already taken.
     fail(
       `${source} is empty, so the emitted README, docs and package description would each be left ` +
-        `with a gap where the standard's name belongs. Pass a title, or omit --title to derive one ` +
-        `from <name>. Nothing was written.`,
+        `with a gap where the standard's name belongs. Pass a title that names the standard. ` +
+        `Nothing was written.`,
     );
   }
   const unsafe = firstUnsafeInTitle(title);
@@ -204,7 +236,8 @@ function validateTitle(title, derived) {
       `A title is written VERBATIM into the emitted package.json, into JSDoc and line comments in`,
       `the emitted TypeScript, and into the Markdown docs, so no one escaping is correct in all of`,
       `them. Re-run with a title carrying none of: a double quote, a backslash, a block-comment`,
-      `terminator, or a control / line-separator character. Nothing was written.`,
+      `terminator, a control / line-separator character, or a "{{" placeholder opener. Nothing was`,
+      `written.`,
     ].join("\n"),
   );
 }
@@ -321,13 +354,14 @@ function emittedPrettierGlobs(pkgPath, scriptName) {
   try {
     pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
   } catch (error) {
-    // Refusing loudly is this function's whole contract, so it has to hold for an unreadable
-    // manifest too, not only for an unrecognised script. The cause this comment used to name -
-    // `--title` substituted into a JSON string with no escaping - is now refused two steps
-    // earlier, by validateTitle() before anything is written and by assertEmittedManifest() before
-    // prettier is invoked, so a reader arriving here should not go looking at the title. What is
-    // left is the template's own package.json being edited into something unparseable, which this
-    // still has to refuse rather than throw a stack trace over.
+    // THIS BRANCH IS UNREACHABLE TODAY, AND IT IS KEPT AS A LOCAL INVARIANT, NOT AS A LIVE GUARD.
+    // The cause this comment used to name - `--title` substituted into a JSON string with no
+    // escaping - is refused by validateTitle() before anything is written. Every other route to an
+    // unparseable manifest, including the template's own package.json being edited into one, is
+    // caught by assertEmittedManifest(), which parses the same path with no write in between and
+    // refuses with a message aimed at the template. So nothing arrives here while main() calls
+    // those two. What it buys is that this function cannot throw a stack trace if it is ever
+    // called from somewhere else, which is the whole reason it reads the manifest defensively.
     fail(
       `the emitted ${pkgPath} is not valid JSON (${error.message}), so the globs to format with ` +
         `cannot be derived from it. Check scripts/parser-template/package.json. Nothing was ` +

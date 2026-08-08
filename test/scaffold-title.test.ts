@@ -5,8 +5,8 @@
  * THE DEFECT. The title is substituted VERBATIM into every template file carrying `{{TITLE}}`, and
  * those files are not all the same syntax: a JSON string in `package.json`, a JSDoc block in
  * `src/index.ts`, line comments in `scripts/phi-scan.ts`, Markdown prose in the docs. Nothing
- * checked it. Measured on the generator as it stood, every one of these exited 0 and printed
- * `Scaffolded @cosyte/probe`:
+ * checked it. Every one of these exited 0 and printed `Scaffolded @cosyte/probe` on the generator
+ * as it stood at `e76939f`:
  *
  *   `Bad "Q" Title`                     -> the emitted package.json is not valid JSON
  *   `X", "name": "@evil/pwned", "x": "` -> the emitted package.json IS valid JSON and names a
@@ -16,6 +16,12 @@
  *                                          line comment that stops being a comment
  *   `Title {{NAME}} here`               -> an unsubstituted placeholder ships in the README and in
  *                                          the published package description
+ *
+ * WHAT `#57` ALREADY CHANGED, AND WHAT IT DID NOT. At `d3df2f3`, this suite's base, the format step
+ * `#57` added parses the emitted manifest and runs prettier over the emitted tree, so every row
+ * above EXCEPT the injection already exits 1 - loudly, but only after a full broken tree has been
+ * written to disk, and for two of them diagnosed as a formatting failure. The injection is
+ * untouched: it still exits 0 with the banner.
  *
  * THE SILENT ONE IS THE POINT. An unparseable manifest breaks every downstream gate at once, which
  * is loud in its own way; a manifest that PARSES and names someone else's package is the failure
@@ -27,6 +33,11 @@
  * written, and `assertEmittedManifest()` refuses an emitted manifest that does not describe the
  * package that was asked for. Strip either one and the other still catches the injection; strip
  * BOTH and the silent exit-0 wrong-package scaffold comes straight back.
+ *
+ * SCOPE OF THE COUNTERFACTUALS, STATED SO IT IS NOT READ WIDER. They reconstruct the base behaviour
+ * of the injection and of a quoted title only. The other rows already exit 1 at base, so a
+ * counterfactual over them would be measuring `#57`'s format step rather than these guards; what
+ * this suite asserts for them is the branch's behaviour - a refusal, before any write.
  *
  * SECURITY: every subprocess call uses spawnSync with array args. No exec, no shell form.
  */
