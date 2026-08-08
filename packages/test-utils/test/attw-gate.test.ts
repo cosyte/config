@@ -1273,3 +1273,204 @@ describe("net 3: the DECLARED paths must be in the tarball", () => {
     SPAWN_TIMEOUT,
   );
 });
+
+describe("the field set nets 1 and 3 share: `exports` is not the only field that names a file", () => {
+  // WHY THIS BLOCK EXISTS. Nets 1 and 3 ask their questions of ONE set, the one
+  // `declaredArtifacts()` returns, so a declaring field missing from that set is a
+  // hole in BOTH at once and neither of them says a word. `typesVersions`,
+  // `imports` and `browser` all name files inside the package and all three were
+  // walked past, so a path declared through any of them could sit outside the
+  // tarball with the whole gate green. That is net 3's own defect shape arriving
+  // through a field net 3 did not read.
+  //
+  // THE HONEST BOUND, PINNED IN PROSE HERE BECAUSE NO TEST CAN CARRY IT: this
+  // closed a LATENT hole. `typesVersions` is the only one of the three any cosyte
+  // manifest uses (`ncpdp`, `@cosyte/test-utils`), and in both of them every
+  // `typesVersions` target is already declared through `exports`, so the derived set
+  // does not move. Nothing shipped broken.
+
+  /**
+   * A well-formed dual ESM/CJS package that packs everything EXCEPT one path, which
+   * is left on disk (so net 1 passes) and declared ONLY through `fragment`. attw is
+   * green on it and net 2 is satisfied, so the field under test is the only thing
+   * standing between this package and a false green.
+   */
+  function declaredOnlyVia(label: string, fragment: Record<string, unknown>): string {
+    const dir = join(root, `fieldset-${label}`);
+    writePkg(
+      dir,
+      {
+        name: `attw-gate-fixture-fieldset-${label}`,
+        version: "1.0.0",
+        type: "module",
+        exports: {
+          ".": {
+            import: { types: "./index.d.ts", default: "./index.js" },
+            require: { types: "./index.d.cts", default: "./index.cjs" },
+          },
+        },
+        ...fragment,
+        files: ["index.js", "index.d.ts", "index.cjs", "index.d.cts"],
+      },
+      {
+        "index.js": "export const a = 1;\n",
+        "index.d.ts": "export declare const a: number;\n",
+        "index.cjs": "module.exports.a = 1;\n",
+        "index.d.cts": "export declare const a: number;\n",
+        // The one path that is on disk and NOT in `files`.
+        "extra.d.ts": "export declare const b: number;\n",
+        "extra.mjs": "export const b = 2;\n",
+      },
+    );
+    return dir;
+  }
+
+  /**
+   * The wrapper with the three fields SLICED BACK OUT, derived from the shipped file
+   * at test time so the RED-BEFORE half cannot drift away from the thing it is the
+   * counterfactual for. Same throwaway-tree-plus-symlinked-`node_modules`
+   * construction as the net 3 block above, and it inherits that block's documented
+   * residual unchanged: the reach of `node_modules/.bin/attw` from a temp tree is
+   * box-dependent, and that is a pre-existing open residual rather than something
+   * this block introduces.
+   */
+  let withoutFields = "";
+  let withoutFieldsRoot = "";
+
+  beforeAll(() => {
+    const src = readFileSync(WRAPPER, "utf8");
+    const from = src.indexOf("// ---- BEYOND `exports`:");
+    const to = src.indexOf("// ---- END BEYOND `exports`");
+    // If either marker stops matching, this reds rather than silently testing a
+    // counterfactual identical to the shipped gate.
+    expect(from).toBeGreaterThan(-1);
+    expect(to).toBeGreaterThan(from);
+
+    withoutFieldsRoot = mkdtempSync(join(tmpdir(), "attw-gate-fieldset-base-"));
+    mkdirSync(join(withoutFieldsRoot, "scripts"), { recursive: true });
+    symlinkSync(join(PKG_ROOT, "node_modules"), join(withoutFieldsRoot, "node_modules"), "dir");
+    withoutFields = join(withoutFieldsRoot, "scripts", "attw.mjs");
+    writeFileSync(withoutFields, src.slice(0, from) + src.slice(to));
+  });
+
+  afterAll(() => {
+    if (withoutFieldsRoot) rmSync(withoutFieldsRoot, { recursive: true, force: true });
+  });
+
+  const cases: [string, Record<string, unknown>, string][] = [
+    // Targets are paths with an OPTIONAL `./`, so this one is read the lenient way
+    // `types` is. The spelling without the prefix is the one TypeScript's own
+    // documentation uses, and it is what this case pins.
+    ["typesVersions", { typesVersions: { "*": { sub: ["extra.d.ts"] } } }, "./extra.d.ts"],
+    // A `#foo` that resolves into an unpacked file breaks the package's OWN runtime
+    // resolution once installed, which is a broken publish by any reading.
+    ["imports", { imports: { "#internal": "./extra.mjs" } }, "./extra.mjs"],
+    // The map form: only the VALUES are read.
+    ["browser-map-value", { browser: { "./index.js": "./extra.mjs" } }, "./extra.mjs"],
+    // The string form, which is an entry point like `main` and is read like one.
+    ["browser-string", { browser: "./extra.mjs" }, "./extra.mjs"],
+  ];
+
+  for (const [label, fragment, missing] of cases) {
+    it(
+      `RED BEFORE, GREEN AFTER: a path declared only through \`${label}\` was invisible`,
+      () => {
+        const dir = declaredOnlyVia(label, fragment);
+
+        // COUNTERFACTUAL. Without the field, this exact tree passes the WHOLE gate:
+        // net 1 finds nothing missing because it never looked, attw exits 0, and net
+        // 3 grades a set the path is not in.
+        const before = run(process.execPath, [withoutFields, ...OFFLINE], dir);
+        expect(before.code).toBe(0);
+        // LIVENESS, so a counterfactual that died before reaching attw can never be
+        // mistaken for one that ran and passed.
+        expect(before.out).toContain("attw gate:");
+        expect(before.out).not.toContain(missing);
+
+        // And with the field read, it reds, naming the path that went missing.
+        const after = runWrapper(dir);
+        expect(after.code).not.toBe(0);
+        expect(after.out).toContain("declares paths the published tarball would NOT carry");
+        expect(after.out).toContain(missing);
+      },
+      SPAWN_TIMEOUT,
+    );
+  }
+
+  it(
+    "NEGATIVE CONTROL: the shapes that are NOT files of ours stay out of the set",
+    () => {
+      // Widening a field set is exactly how a gate acquires false reds, so every
+      // exclusion the pass line claims is asserted here on one package. Every shape
+      // that must be SKIPPED names a path that is neither on disk nor packed, so if
+      // any of them were read, net 1 would red before attw even ran. The two that
+      // point at real packed files (`./index.js` as a browser VALUE, `./index.cjs` as
+      // a browser KEY) are there to keep the count honest: the value is legitimately
+      // read and is already in the set, so the total must still be 4.
+      const dir = declaredOnlyVia("negative-control", {
+        typesVersions: {
+          "*": {
+            // A wildcard target names a SET, not a file. Keyed off a subpath that is
+            // not `*` on purpose: a `*` KEY remaps every subpath including `.`, which
+            // reds attw itself and would measure the wrong thing.
+            sub: ["./dist/*.d.ts"],
+            // Not ours to promise.
+            abs: ["/nowhere/absent.d.ts"],
+          },
+        },
+        imports: {
+          // Someone else's package.
+          "#dep": "some-package-that-is-not-here",
+          // The "block this specifier" form.
+          "#blocked": null,
+        },
+        browser: {
+          // A KEY is what a browser build stops loading, not a promise about the
+          // tarball. Reading keys would red a package that maps a file away
+          // precisely because it does not ship it to browsers.
+          "./absent-key.js": "./index.js",
+          // The "stub this out" form, which falls out of the same rule as a bare
+          // specifier rather than needing a case of its own.
+          fs: false,
+          // A replacement that is a dependency, not a file.
+          "./index.cjs": "some-polyfill-package",
+        },
+      });
+
+      const r = runWrapper(dir);
+      expect(r.code, r.out).toBe(0);
+      // The four packed paths of the base fixture, and nothing above added to them.
+      expect(r.out).toContain("all 4 relative artifact path(s) package.json declares are in the");
+      // The pass line names its exclusions rather than printing a bare total, so the
+      // claim above is bounded in the same breath it is made.
+      expect(r.out).toContain("browser-map keys");
+      expect(r.out).toContain("presence, not resolution");
+    },
+    SPAWN_TIMEOUT,
+  );
+
+  it(
+    "THE FIELD SET IS KNOWN-INCOMPLETE, AND THE PASS LINE SAYS WHICH FIELDS IT SKIPS",
+    () => {
+      // A completeness claim was written into a draft of this slice and was WRONG:
+      // `man` and `directories` also name files and are still unread, and `man` is
+      // `bin`'s own sibling in the npm spec while `bin` is a hole this gate closed.
+      // The remedy was to correct the claim rather than grow the guard, so what is
+      // pinned here is the DISCLOSURE, and the counterfactual is that the fields
+      // really are still unread. If a later slice reads them, this reds and the
+      // pass line has to be re-earned rather than quietly kept.
+      const dir = declaredOnlyVia("known-unread", {
+        man: ["./man/absent.1"],
+        directories: { bin: "./absent-bin", man: "./absent-man" },
+        unpkg: "./absent-unpkg.js",
+        jsdelivr: "./absent-jsdelivr.js",
+      });
+      const r = runWrapper(dir);
+      expect(r.code, r.out).toBe(0);
+      expect(r.out).toContain("all 4 relative artifact path(s) package.json declares are in the");
+      expect(r.out).toContain("man, directories, unpkg and");
+      expect(r.out).toContain("known-unread");
+    },
+    SPAWN_TIMEOUT,
+  );
+});

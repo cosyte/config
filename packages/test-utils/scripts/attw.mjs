@@ -52,10 +52,10 @@
  * THREE NETS, AND THEY CATCH DIFFERENT THINGS. Keep all three.
  *
  *   1. PREFLIGHT (structural, no string matching). Every relative artifact path
- *      `package.json` promises (`main`, `module`, `types`, `typings`, `bin`, and
- *      every string leaf of `exports`) must exist and be non-empty before `attw`
- *      runs. This is the one that catches the window above, and it names the
- *      missing file instead of leaving the reader to infer it.
+ *      `package.json` promises (the field set is enumerated once, under "THE
+ *      FIELDS THIS READS" below) must exist and be non-empty before `attw` runs.
+ *      This is the one that catches the window above, and it names the missing
+ *      file instead of leaving the reader to infer it.
  *
  *      TWO THINGS IT USED TO WALK PAST, both closed here. (a) `bin` was never
  *      read, so a package could ship a manifest promising a command that is not
@@ -99,9 +99,19 @@
  *      OWN SET so the two cannot disagree: every relative artifact path
  *      `package.json` promises must be in the TARBALL npm would publish, not
  *      merely on disk. That set is what `declaredArtifacts()` returns, so it
- *      excludes wildcard `exports` subpaths (they name a set, not a file),
- *      absolute paths (not ours to promise) and `package.json` itself (always in
- *      the tarball by definition). The pass line names those exclusions rather
+ *      excludes wildcard subpaths (they name a set, not a file), absolute paths
+ *      (not ours to promise), `browser` map KEYS (see below), `package.json`
+ *      itself (always in the tarball by definition), and, IN THE FIELDS WHOSE
+ *      GRAMMAR REQUIRES A RELATIVE TARGET (`exports`, `imports`, `browser` maps),
+ *      every leaf that DOES NOT BEGIN WITH A DOT, because there such a leaf is a
+ *      package specifier. Read the test literally: it is a leading DOT, not a
+ *      leading `./`, so `.hidden.js` and `../outside.js` are kept and reported.
+ *      Both are invalid `exports`/`imports` targets to Node itself, so reporting
+ *      them is right; what would be wrong is a sentence here implying they are
+ *      dropped. That exclusion is field-conditional and the pass line says so: in
+ *      `main`, `module`, `types`, `typings`, `bin`, `typesVersions` and the STRING
+ *      form of `browser` the prefix is optional, so a bare leaf there IS read as a
+ *      path. The pass line names those exclusions rather
  *      than printing a count that reads like a total. The list comes from
  *      `npm pack --dry-run --json` run in this directory, so nothing a committed
  *      `.attw.json` sets can change the answer.
@@ -167,6 +177,75 @@
  *      NOT MEASURED TO BLIND THIS CASE rather than as a fourth route; the config
  *      was confirmed to be read at all by `{"profile": "bogus-profile"}`, which
  *      attw rejects outright.
+ *
+ * THE FIELDS THIS READS. Nets 1 and 3 both ask their question of ONE set, the one
+ * `declaredArtifacts()` returns, so a declaring field missing from that set is a
+ * hole in BOTH of them at once and neither says anything. Until this was measured
+ * the set was `main`, `module`, `types`, `typings`, `bin` and `exports`, and three
+ * further fields that name files were walked past:
+ *
+ *   `typesVersions`   `{ <range>: { <subpath>: [ <path>, ... ] } }`. The values are
+ *                     paths with an OPTIONAL `./`, so they are read the lenient way
+ *                     `types` is, not the strict way an `exports` target is.
+ *   `imports`         Same target grammar as `exports` (`./`-relative or a bare
+ *                     specifier). A `#foo` that a SHIPPED file imports and that
+ *                     resolves into an unpacked file breaks the package's own
+ *                     runtime resolution once installed. Node resolves a `#`
+ *                     specifier only when something imports it, so this is read
+ *                     STRICTLY on purpose: a `#test-helpers` pointing into an
+ *                     unpacked `test/` reds here and is not a broken publish. That
+ *                     is a known false red, taken deliberately, because deciding
+ *                     the other way means deciding WHICH declarations are load
+ *                     bearing, and this gate does not resolve anything.
+ *   `browser`         A string entry point, or a replacement map.
+ *
+ * MEASURED, NOT PREDICTED, on four throwaway packages that are otherwise identical
+ * to the well-formed dual ESM/CJS fixture: one path on disk, left out of `files`,
+ * and declared ONLY through the field under test. All four passed the whole gate at
+ * `95730a7` (nets 1, 2 and 3 green, attw exited 0 and reported nothing), which is
+ * the same false-green shape net 3 was built for, arriving through a field net 3
+ * did not read. The cases are pinned in `attw-gate.test.ts` with the pre-fix field
+ * set derived from THIS file at test time.
+ *
+ * ▶ WHAT IT DID NOT CHANGE, AND THIS IS THE HONEST HALF: nothing in the org moves.
+ * `typesVersions` is the only one of the three that any cosyte manifest uses today
+ * (`ncpdp` and `@cosyte/test-utils`), and in BOTH of them every `typesVersions`
+ * target is already declared through `exports`, so the derived set is byte-for-byte
+ * what it was. `imports` and `browser` have no users here at all. This closes a
+ * LATENT hole, exactly like the `.attw.json` class above, and the claim is not that
+ * anything shipped broken.
+ *
+ * ▶ `browser` MAP KEYS ARE DELIBERATELY NOT READ, and it is the only exclusion here
+ * that is a judgement rather than a grammar. A value is what a browser build LOADS;
+ * a key is what it stops loading. Reading keys would red a package that maps a file
+ * away precisely because that file is not shipped to browsers, which is a false red
+ * bought for no catch. `false` values fall out of the same rule with no case of
+ * their own, because `false` is not a `./`-relative string.
+ *
+ * ▶ TWO MORE `browser` EDGES, MEASURED AND NAMED RATHER THAN CODED AROUND. (a) The
+ * STRING form goes through the lenient reading, so `"browser": "some-shim-pkg"`
+ * is read as `./some-shim-pkg` and reds net 1. That is the same reading `main`
+ * gets and the same risk `main` has always carried; the string form is an entry
+ * point by convention, not a specifier slot. (b) Net 1 requires NON-EMPTY, so a
+ * 0-byte browser shim (browserify's `_empty.js` convention) reds even when it is
+ * packed. Both are new false reds, both were measured, and neither has a user in
+ * this org. They are written down here instead of being special-cased, because a
+ * per-field exception to net 1's non-empty rule is a bigger surface than the two
+ * cases it would buy.
+ *
+ * ▶ AND THIS IS NOT AN ENUMERATION THAT BUYS ONE EVASION PER ROUND, which is the
+ * shape this file has retired twice: the question is schema-sized and bounded by
+ * `package.json` rather than by attw's option surface, so nothing a caller passes
+ * and nothing an attw release adds can extend it. BUT IT IS NOT COMPLETE, AND AN
+ * EARLIER DRAFT OF THIS PARAGRAPH SAID IT WAS. Measured after that draft: `man`,
+ * `directories`, `unpkg` and `jsdelivr` also name files and are still unread, at
+ * base and at head alike. `man` is the sharpest of them, being `bin`'s own sibling
+ * in the npm spec, and `bin` is a hole this same docblock claims to have closed.
+ * They are left unread because none has a user in this org and because `man` is a
+ * LINK-TIME promise rather than a resolution-time one, so a lost `man` page is not
+ * the broken-publish class these nets are for. That is a reason, not a proof of
+ * completeness, and the difference is the point: this list is KNOWN-INCOMPLETE and
+ * says which fields it knows it skips.
  *
  * WHAT THE PREFLIGHT CANNOT CONCLUDE, AND WHY IT NO LONGER TRIES. This script
  * used to end its preflight failure with a sentence naming the exit code `attw`
@@ -447,12 +526,18 @@ for (let i = 0; i < args.length; i++) {
 /**
  * Every relative path `package.json` promises to ship, deduped and normalized to
  * a leading `./` so two spellings of one promise are not checked twice.
+ *
+ * THE FIELD SET IS THE WHOLE OF WHAT NETS 1 AND 3 CAN SEE, so a declaring field
+ * missing from it is a hole in both at once, silently. See "THE FIELDS THIS READS"
+ * in the docblock for which fields are here, which are deliberately not, and the
+ * measurement behind each.
  */
 function declaredArtifacts(pkg) {
   const found = new Set();
-  // `main`, `module`, `types`, `typings` and `bin` are ALWAYS paths, never
-  // package specifiers, and the `./` prefix is optional on all of them. Only an
-  // absolute path (not ours to promise) or a pattern is skipped.
+  // `main`, `module`, `types`, `typings`, `bin`, the string form of `browser` and
+  // every `typesVersions` target are ALWAYS paths, never package specifiers, and
+  // the `./` prefix is optional on all of them. Only an absolute path (not ours to
+  // promise) or a pattern is skipped.
   const addPath = (v) => {
     if (typeof v !== "string" || v === "") return;
     if (v.startsWith("/") || v.includes("*")) return;
@@ -460,8 +545,17 @@ function declaredArtifacts(pkg) {
     if (rel === "./package.json") return;
     found.add(rel);
   };
-  // An `exports` target is required by spec to be `./`-relative, so a leaf that
-  // is not one is a package specifier or a pattern, and is not a file of ours.
+  // An `exports` or `imports` target is required by spec to be `./`-relative, so a
+  // leaf that is not one is a package specifier or a pattern, and is not a file of
+  // ours. A `browser` map VALUE follows the same convention and is read the same
+  // way, which is also what makes `false` (the "stub this out" form) fall out here
+  // rather than needing a case of its own.
+  //
+  // THE TEST IS A LEADING DOT, NOT A LEADING `./`, AND THAT IS DELIBERATE: it keeps
+  // `../outside.js` and `.hidden.js`, which are INVALID targets to Node and which a
+  // reader is better off seeing named than silently dropped. Do not tighten it to
+  // `"./"` without deciding what should happen to those, and do not describe it as
+  // `./` anywhere: that sentence has already been wrong once.
   const addTarget = (v) => {
     if (typeof v !== "string") return;
     // Skip wildcard subpath patterns (they name a set, not a file) and the
@@ -474,11 +568,33 @@ function declaredArtifacts(pkg) {
   if (typeof pkg.bin === "string") addPath(pkg.bin);
   else if (pkg.bin && typeof pkg.bin === "object")
     for (const v of Object.values(pkg.bin)) addPath(v);
-  const walk = (node) => {
-    if (typeof node === "string") addTarget(node);
-    else if (node && typeof node === "object") for (const v of Object.values(node)) walk(v);
+  // Conditions nest arbitrarily and fallback ARRAYS are legal in both maps, so the
+  // leaves are reached generically rather than by walking a shape this has to
+  // predict. `null` targets (the "block this subpath" form) are objects to
+  // `typeof` and are excluded by the truthiness test, not by a case.
+  const walk = (node, add) => {
+    if (typeof node === "string") add(node);
+    else if (node && typeof node === "object") for (const v of Object.values(node)) walk(v, add);
   };
-  walk(pkg.exports);
+  walk(pkg.exports, addTarget);
+  // ---- BEYOND `exports`: the three fields net 3 was blind to ------------------
+  // COUNTERFACTUAL MARKER. `attw-gate.test.ts` rebuilds the pre-fix field set by
+  // deleting from here to the closing marker, so the RED-BEFORE half of that suite
+  // is derived from this file rather than pasted beside it. Keep both markers; the
+  // suite reds if either stops matching.
+  walk(pkg.imports, addTarget);
+  // `typesVersions` is `{ <range>: { <subpath>: [ <path>, ... ] } }`. Its targets
+  // are paths with an OPTIONAL `./` (TypeScript's own documented example writes
+  // `["ts3.1/*"]`), so they take `addPath`, and the `*` forms drop out there.
+  walk(pkg.typesVersions, addPath);
+  // `browser` is a bundler convention, not a Node one: a string entry point, or a
+  // replacement map. Only the VALUES are read. A key is the module being replaced
+  // rather than a promise about the tarball, and reading keys would red a package
+  // that maps a file away precisely because it does not ship it to browsers.
+  if (typeof pkg.browser === "string") addPath(pkg.browser);
+  else if (pkg.browser && typeof pkg.browser === "object")
+    for (const v of Object.values(pkg.browser)) addTarget(v);
+  // ---- END BEYOND `exports` ---------------------------------------------------
   return [...found];
 }
 
@@ -785,8 +901,11 @@ process.stdout.write(
     (declared.length === 0
       ? `  package.json declares no relative artifact paths, so net 3 had none to check.\n`
       : `  all ${declared.length} relative artifact path(s) package.json declares are in the\n` +
-        `  tarball npm would publish (net 3). That set excludes wildcard exports subpaths,\n` +
-        `  absolute paths and package.json itself, and it is presence, not resolution.\n`) +
+        `  tarball npm would publish (net 3). That set excludes wildcard subpaths, absolute\n` +
+        `  paths, browser-map keys, package.json itself, and leaves of exports, imports and\n` +
+        `  browser maps that do not begin with a dot; and it is presence, not resolution.\n` +
+        `  It does NOT cover every field that can name a file: man, directories, unpkg and\n` +
+        `  jsdelivr are known-unread.\n`) +
     (kinds.length === 0
       ? `  attw exited 0 and reported no problems.\n`
       : `  attw exited 0, but it REPORTED ${kinds.length} problem kind(s) that its exit code\n` +
