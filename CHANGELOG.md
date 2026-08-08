@@ -28,6 +28,52 @@ no package, so entries here are **dated** rather than versioned.
 
 ### Fixed
 
+- **The `attw` gate's declared-artifact set read `exports` and stopped, so a path declared through
+  `typesVersions`, `imports` or `browser` was invisible to nets 1 AND 3 at once**
+  (`CONFIG-SCAFFOLD-RESIDUALS`). Both nets ask their question of the one set
+  `declaredArtifacts()` returns: net 1 that every declared path is on disk before `attw` runs, net 3
+  that every one of them is in the tarball `npm pack` would write. A field missing from that set is
+  therefore a hole in both, and neither says anything. `typesVersions`, `imports` and `browser` all
+  name files inside the package and none of them were read.
+  - **MEASURED, RED BEFORE AND GREEN AFTER, on four throwaway packages** otherwise identical to the
+    well-formed dual ESM/CJS fixture: one path on disk, left out of `files`, declared ONLY through
+    the field under test. At `95730a7` all four passed the WHOLE gate (`attw` exited 0 reporting
+    nothing, nets 1, 2 and 3 green), which is net 3's own defect shape arriving through a field net
+    3 did not read. At head all four exit 1 naming the path.
+  - **Each field is read by its own grammar, not by one widened rule.** `typesVersions` targets are
+    paths with an OPTIONAL `./` (TypeScript's own documented example writes `["ts3.1/*"]`), so they
+    take the lenient reading `types` takes. `imports` has `exports`' target grammar exactly, so it
+    takes the strict one. `browser` is a bundler convention: a string entry point, read like `main`,
+    or a replacement map whose VALUES are read.
+  - **`browser` map KEYS are deliberately NOT read**, and it is the only exclusion here that is a
+    judgement rather than a grammar. A value is what a browser build loads; a key is what it stops
+    loading. Reading keys would red a package that maps a file away precisely because it does not
+    ship it to browsers: a false red bought for no catch. `false` values need no case of their own,
+    because `false` is not a `./`-relative string.
+  - **THE HONEST BOUND: this closed a LATENT hole and nothing in the org moves.** `typesVersions` is
+    the only one of the three any cosyte manifest uses (`ncpdp` and `@cosyte/test-utils`), and in
+    BOTH of them every `typesVersions` target is already declared through `exports`, so the derived
+    set is byte-for-byte what it was. `imports` and `browser` have no users here at all. The claim
+    is not that anything shipped broken.
+  - **The counterfactual is derived from the shipped file, never pasted beside it.**
+    `attw-gate.test.ts` rebuilds the pre-fix field set by deleting between two markers in
+    `attw.mjs`, and reds if either marker stops matching. It inherits the net 3 block's documented
+    residual unchanged (the reach of `node_modules/.bin/attw` from a temp tree is box-dependent);
+    that residual is pre-existing and is not widened here.
+  - A **negative control** on one package pins every exclusion the pass line claims: a wildcard
+    `typesVersions` target, an absolute one, a bare `imports` specifier, a `null` `imports` target,
+    a `browser` key, a `false` value and a bare-specifier value. Each names a path that is neither
+    on disk nor packed, so any of them being read would red net 1 before `attw` ran.
+  - The pass line's exclusion clause is widened to match, and both copies of the wrapper
+    (`packages/test-utils/scripts/` and `scripts/parser-template/scripts/`) stay byte-identical, so
+    every newly scaffolded parser inherits this and the existing identity test enforces it.
+  - **No changeset.** `packages/test-utils` packs only `dist`, `README.md` and `CHANGELOG.md`, so
+    `scripts/attw.mjs` is not in that package's published tarball and a bump would republish
+    identical bytes. `#55`, the slice that built net 3 in this same file, set that precedent.
+  - **NOT PORTED HERE, AND IT IS A REAL RESIDUAL:** thirteen sibling repos carry their own
+    `scripts/attw.mjs`, and every one of them differs from this repo's copy already, at different
+    stages of the porting campaign. Porting this is their work, not a widening of this slice.
+
 - **A crafted `--title` could scaffold a repo whose `package.json` names a DIFFERENT PACKAGE, while
   the generator printed `Scaffolded @cosyte/<name>` and exited 0** (`CONFIG-SCAFFOLD-RESIDUALS`).
   The title is substituted verbatim into every template file carrying `{{TITLE}}`, and nothing
