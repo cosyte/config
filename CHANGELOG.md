@@ -28,6 +28,55 @@ no package, so entries here are **dated** rather than versioned.
 
 ### Fixed
 
+- **A crafted `--title` could scaffold a repo whose `package.json` names a DIFFERENT PACKAGE, while
+  the generator printed `Scaffolded @cosyte/<name>` and exited 0** (`CONFIG-SCAFFOLD-RESIDUALS`).
+  The title is substituted verbatim into every template file carrying `{{TITLE}}`, and nothing
+  checked it. Measured on the real generator, all of these exited **0** with a success banner before
+  this change:
+  - `Bad "Q" Title`, `Bad \ Title`, a raw newline and a raw tab each emitted a `package.json`
+    **nothing can parse**. `#57` later turned these into a loud refusal, but only after a full
+    broken tree had been written to disk.
+  - `X", "name": "@evil/pwned", "x": "` emitted a `package.json` that **PARSES CLEANLY and names
+    `@evil/pwned`**. This one was untouched by `#57` and is the reason a parse check is not enough:
+    every downstream gate then runs, green, against the wrong identity. **This is the silent case
+    the item was filed for, and it was worse than the filed description.**
+  - **U+2028 / U+2029 were found while measuring, not predicted from a list.** They are legal raw
+    inside a JSON string, so no amount of JSON care catches them, but they are ECMAScript **line
+    terminators**: they end the line comments they land in and the emitted TypeScript stops parsing.
+  - `Title {{NAME}} here` shipped an **unsubstituted placeholder** into the README and into the
+    published package `description`; `{{Pascal}}` was silently rewritten by a token that runs later.
+    Neither is the title that was asked for.
+  - **The remedy is refusal at the door plus an identity check on the way out, and deliberately NOT
+    escaping.** The same string lands in four syntaxes at once (a JSON string, a JSDoc block, line
+    comments, Markdown prose), so no single escaping is correct in all of them: JSON-escaping the
+    value would put a literal backslash-quote in the README, and nothing you do to quotes rescues a
+    block-comment terminator. "Escape it properly" therefore means one escaper per destination plus
+    a router that knows which file is which - real machinery, to carry a display string that has no
+    legitimate reason to hold any of these characters. `validateTitle()` refuses instead, with a
+    typed message naming the character (`U+0022 QUOTATION MARK`), its offset, and the destination it
+    breaks, and it runs **before the first file is written**, so a refusal never leaves a
+    half-written repo behind.
+  - **`assertEmittedManifest()` is the second guard and is not a restatement of the first.** It
+    checks that the emitted manifest names the package that was asked for and carries the title it
+    was given. The injection case is precisely why: that manifest **parses**, so only an identity
+    check sees it. If the accept-set is ever wrong or widened, the silent class cannot return.
+  - **Each rule is tied to a measured breakage, and two candidates were REFUSED for lack of one:**
+    `U+007F` (legal raw in JSON, not a line terminator) and a 300-character title (nothing reflows a
+    comment, so the emitted tree stays format-clean) are both accepted.
+  - **`test/scaffold-title.test.ts` proves it on the real generator**, red before and green after
+    (13 failing cases -> 19 passing), with a conformant control that asserts the emitted manifest
+    parses, names `@cosyte/probe`, carries its title, and leaves no `{{...}}` token anywhere in the
+    34-file tree. **Three counterfactuals rebuild the generator with one or both calls textually
+    removed** and measure that the guards are independent: strip both and the exit-0 `@evil/pwned`
+    scaffold comes straight back; strip either one alone and the other still catches it.
+  - **Proved semantics-free on conformant input rather than assumed**: `--help` byte-identical, and
+    the **34-file** emitted tree `diff -r` clean against the previous generator for `a`, `hl7`,
+    `terminology`, `a-a-a-a-a-a` and an explicit `--title "C-CDA R2.1"`. `prettier --write` was run
+    **only on the two paths this change opened**, never across the tree.
+  - **The item's own description was corrected by measurement:** at `d3df2f3` the invalid-manifest
+    class surfaces as a **typed exit-1 refusal**, not an uncaught stack trace. What `#57` genuinely
+    left open was the silent injection, and that is what this closes.
+
 - **Every parser this repo has ever scaffolded was born with a red `format:check`, and the emitted
   tree is now formatted on emit** (`CONFIG-SCAFFOLD-BORN-UNFORMATTED`). `scripts/parser-template` is
   `.prettierignore`d **wholesale**, because it carries `{{PLACEHOLDER}}` tokens and is not valid TS
