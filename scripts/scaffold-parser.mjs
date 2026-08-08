@@ -16,7 +16,16 @@
 //
 // It refuses to overwrite an existing non-empty <out>/<name>.
 
-import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -62,7 +71,7 @@ function printUsage() {
       "Scaffold a new @cosyte/* parser from the shared standard template.",
       "",
       "Usage:",
-      "  node scripts/scaffold-parser.mjs <name> [--title \"Human Title\"] [--out <dir>]",
+      '  node scripts/scaffold-parser.mjs <name> [--title "Human Title"] [--out <dir>]',
       "",
       "  <name>          package segment, e.g. x12 -> @cosyte/x12 (lowercase; [a-z][a-z0-9-]*)",
       "  --title <str>   human-readable title for prose/docs (default: derived from <name>)",
