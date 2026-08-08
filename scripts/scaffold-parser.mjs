@@ -15,7 +15,10 @@
 //   node scripts/scaffold-parser.mjs <name> [--title "Human Title"] [--out <dir>]
 //
 //   <name>          package name segment, e.g. `x12` -> @cosyte/x12 (lowercase; [a-z][a-z0-9-]*)
-//   --title <str>   human-readable title used in prose/docs (default: derived from <name>)
+//   --title <str>   human-readable title used in prose/docs (default: derived from <name>).
+//                   Substituted verbatim into JSON, TypeScript comments and Markdown, so it may
+//                   not carry a quote, a backslash, a block-comment terminator, a control or
+//                   line-separator character, or `{{`. See firstUnsafeInTitle() for why each.
 //   --out <dir>     parent directory to emit into (default: $CWD); the repo lands at <out>/<name>
 //
 // It refuses to overwrite an existing non-empty <out>/<name>.
@@ -81,7 +84,10 @@ function printUsage() {
       '  node scripts/scaffold-parser.mjs <name> [--title "Human Title"] [--out <dir>]',
       "",
       "  <name>          package segment, e.g. x12 -> @cosyte/x12 (lowercase; [a-z][a-z0-9-]*)",
-      "  --title <str>   human-readable title for prose/docs (default: derived from <name>)",
+      "  --title <str>   human-readable title for prose/docs (default: derived from <name>).",
+      '                  No quote, backslash, "{{", block-comment terminator, control character or',
+      "                  line/paragraph separator: it is substituted verbatim into JSON, TS comments",
+      "                  and Markdown.",
       "  --out <dir>     parent dir to emit into (default: cwd); repo lands at <out>/<name>",
       "",
     ].join("\n"),
@@ -95,6 +101,147 @@ function toPascal(name) {
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join("");
+}
+
+/**
+ * WHY A HOSTILE `--title` IS REFUSED AT THE DOOR RATHER THAN ESCAPED AT EACH DESTINATION.
+ *
+ * `--title` is a DISPLAY string, and it is substituted verbatim into every template file that
+ * carries the `{{TITLE}}` token: a JSON string in `package.json`, a JSDoc block in `src/index.ts`,
+ * line comments in `scripts/phi-scan.ts`, and Markdown prose in the docs. Those are four different
+ * syntaxes, and no single escaping is correct in all of them: JSON-escaping the value would put a
+ * literal backslash-quote in the README, and no escaping at all rescues a block-comment
+ * terminator, which ends a JSDoc block whatever you do to the quotes around it. "Escape it
+ * properly" therefore means one escaper per destination plus a router that knows which file is
+ * which - real machinery, to carry a value that has no legitimate reason to hold any of these
+ * characters in the first place.
+ *
+ * MEASURED ON THE REAL GENERATOR, and each rule below is tied to one of these rather than to a
+ * general suspicion of punctuation:
+ *
+ *   Bad "Q" Title / Bad \ Title          -> the emitted package.json is not valid JSON
+ *   a newline, or a raw tab              -> a C0 control character raw inside a JSON string, and a
+ *                                          line comment in the emitted scanner that stops there
+ *   U+2028 / U+2029                      -> legal in JSON, but ECMAScript LINE TERMINATORS, so the
+ *                                          same comments end early and the tree no longer parses
+ *   a `*` followed by a `/`              -> closes the JSDoc block it is substituted into
+ *   Title {{NAME}} here                  -> an unsubstituted placeholder ships in the README and in
+ *                                          the published package description; `{{Pascal}}` is
+ *                                          instead rewritten by a token that runs later
+ *   X", "name": "@evil/pwned", "x": "    -> the emitted package.json PARSES CLEANLY and names a
+ *                                          DIFFERENT PACKAGE
+ *
+ * WHAT THE BASE COMMIT ALREADY DID, IN TWO SENTENCES, BECAUSE A PER-ROW ACCOUNT OF IT WAS WRITTEN
+ * WRONG TWICE. `#57` added a format step that parses the emitted manifest and runs prettier over
+ * the emitted tree, so at `d3df2f3` the first four rows already exit 1 - but only after a full tree
+ * has been written to disk, and two of them are reported as a formatting failure rather than as the
+ * title that caused it. The last two rows exit 0 with the success banner at `d3df2f3` exactly as
+ * they did at `e76939f`, and they are the reason this exists: handing back a WORKING repo that
+ * carries someone else's package name, or an unsubstituted token in a published description, is
+ * worse than handing back a broken one loudly.
+ *
+ * Refusing the input reaches all six, and it reaches them before the first file is written, which
+ * is the discipline resolveFormatter() already follows: a refusal that leaves a half-written repo
+ * behind has already broken the promise the scaffold makes.
+ *
+ * test/scaffold-title.test.ts asserts the refusal and the empty disk for every row. Its
+ * counterfactuals reconstruct base behaviour for the injection and for a quoted title, the two ends
+ * of what these guards do: a manifest that parses and lies, and one that does not parse at all.
+ *
+ * NOT REFUSED, BECAUSE IT WAS MEASURED NOT TO BREAK ANYTHING: U+007F (legal raw in a JSON string,
+ * and not a line terminator), and a title of 300 characters (nothing reflows a comment, so the
+ * emitted tree stays format-clean). A rule for either would be a claim nothing supports.
+ *
+ * HOW FAR THE ACCEPT-SET REACHES, STATED NO WIDER THAN IT HOLDS. It is complete for the two
+ * destinations where a title can produce an artifact that does not PARSE: JSON (RFC 8259 forbids
+ * exactly `"`, `\` and raw U+0000-U+001F) and TypeScript (only LF, CR, U+2028 and U+2029 end a line
+ * comment; only a block-comment terminator ends a block one). It is NOT complete for Markdown, and
+ * that is deliberate rather than overlooked: `Bad *emph* Title` is accepted, and prettier-on-emit
+ * normalises it to `Bad _emph_ Title` in whichever emitted Markdown its globs reach, while
+ * `package.json` and the Markdown they do not reach keep the raw bytes. That divergence is
+ * PRE-EXISTING - it arrived with `#57`'s formatting step, is identical on this change's base, and
+ * produces a repo that builds, publishes and gates green - so it is named here rather than fixed by
+ * widening the rules, which would start refusing titles on cosmetic grounds.
+ */
+function firstUnsafeInTitle(title) {
+  const rules = [
+    [
+      /["\\]/,
+      "the emitted package.json is a JSON document, and a quote or a backslash either breaks it " +
+        "outright or silently REWRITES it: a crafted title can rename the package",
+    ],
+    [
+      /[\u0000-\u001f]/,
+      "a C0 control character is not legal raw inside a JSON string, and a newline additionally " +
+        "ends the line comment it lands in",
+    ],
+    [
+      /[\u2028\u2029]/,
+      "U+2028 and U+2029 are legal inside a JSON string but are ECMAScript LINE TERMINATORS, so " +
+        "they end the line comments they land in and the emitted TypeScript no longer parses",
+    ],
+    [/\*\//, "this sequence closes the JSDoc block comment it is substituted into"],
+    [
+      /\{\{/,
+      "a title is substituted into the tree alongside the other placeholders, so a `{{...}}` in it " +
+        "is either expanded by a token that runs later or survives into the emitted prose " +
+        "unsubstituted - measured: `{{Pascal}}` is rewritten, `{{NAME}}` ships literally in the " +
+        "README and in the published package description. Neither is the title that was asked for",
+    ],
+  ];
+  for (const [pattern, why] of rules) {
+    const found = pattern.exec(title);
+    if (found) return { index: found.index, text: found[0], why };
+  }
+  return undefined;
+}
+
+/** Name a character the way an error message can be acted on: `U+0022 QUOTATION MARK`. */
+function describeUnsafe(text) {
+  if (text.length > 1) return `\`${text}\``;
+  const code = text.codePointAt(0);
+  const named = {
+    0x09: "TAB",
+    0x0a: "LINE FEED",
+    0x0d: "CARRIAGE RETURN",
+    0x22: "QUOTATION MARK",
+    0x5c: "REVERSE SOLIDUS (backslash)",
+    0x2028: "LINE SEPARATOR",
+    0x2029: "PARAGRAPH SEPARATOR",
+  }[code];
+  const hex = `U+${code.toString(16).toUpperCase().padStart(4, "0")}`;
+  return named ? `${hex} ${named}` : hex;
+}
+
+/** Refuse a title that cannot be substituted safely, before anything reaches the disk. */
+function validateTitle(title, derived) {
+  const source = derived ? "the title derived from <name>" : "--title";
+  if (title.trim() === "") {
+    // Phrased without a remedy that assumes which branch this is: defaultTitle() cannot return an
+    // empty string for a name matching `[a-z][a-z0-9-]*`, so the derived branch is unreachable
+    // today, and telling that caller to "omit --title" would be advice they had already taken.
+    fail(
+      `${source} is empty, so the emitted README, docs and package description would each be left ` +
+        `with a gap where the standard's name belongs. Pass a title that names the standard. ` +
+        `Nothing was written.`,
+    );
+  }
+  const unsafe = firstUnsafeInTitle(title);
+  if (!unsafe) return;
+  fail(
+    [
+      `${source} carries ${describeUnsafe(unsafe.text)} at offset ${unsafe.index}, which cannot be ` +
+        `substituted safely.`,
+      // JSON.stringify so a control character is shown rather than executed against the terminal.
+      `  title: ${JSON.stringify(title)}`,
+      `  ${unsafe.why}.`,
+      `A title is written VERBATIM into the emitted package.json, into JSDoc and line comments in`,
+      `the emitted TypeScript, and into the Markdown docs, so no one escaping is correct in all of`,
+      `them. Re-run with a title carrying none of: a double quote, a backslash, a block-comment`,
+      `terminator, a control / line-separator character, or a "{{" placeholder opener. Nothing was`,
+      `written.`,
+    ].join("\n"),
+  );
 }
 
 /** Default human title from a name: uppercase short codes, else Title Case. `x12` -> `X12`. */
@@ -209,18 +356,21 @@ function emittedPrettierGlobs(pkgPath, scriptName) {
   try {
     pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
   } catch (error) {
-    // Refusing loudly is this function's whole contract, so it has to hold for an unreadable
-    // manifest too, not only for an unrecognised script. The reachable cause today is substitution
-    // itself: `--title` is interpolated into a JSON string without being escaped for JSON, so a
-    // value carrying a quote, a backslash or a control character emits a manifest nothing can
-    // parse. The BASE generator emitted that manifest and exited 0, handing over a repo whose
-    // package.json is invalid; that unescaped substitution is a separate defect and is not fixed
-    // here, but it must not surface as an uncaught stack trace either.
+    // THIS BRANCH IS UNREACHABLE TODAY, AND IT IS KEPT AS A LOCAL INVARIANT, NOT AS A LIVE GUARD.
+    // The cause this comment used to name - `--title` substituted into a JSON string with no
+    // escaping - is refused by validateTitle() before anything is written. Every other route to an
+    // unparseable manifest, including the template's own package.json being edited into one, is
+    // caught by assertEmittedManifest(), which parses the same path with no write in between and
+    // refuses with a message aimed at the template. The `format:check` call below parses it a
+    // SECOND time, after `prettier --write` has rewritten it, and that route is closed by prettier
+    // rather than by us: a `--write` that emitted invalid JSON would have failed first. So nothing
+    // arrives here while main() calls those two. What it buys is that this function cannot throw a
+    // stack trace if it is ever called from somewhere else, which is the whole reason it reads the
+    // manifest defensively.
     fail(
-      `the emitted ${pkgPath} is not valid JSON (${error.message}). If --title carried a quote, ` +
-        `a backslash or a control character, that is the cause: it is substituted into the ` +
-        `package.json without JSON escaping. Nothing was formatted; delete the emitted directory ` +
-        `before retrying.`,
+      `the emitted ${pkgPath} is not valid JSON (${error.message}), so the globs to format with ` +
+        `cannot be derived from it. Check scripts/parser-template/package.json. Nothing was ` +
+        `formatted; delete the emitted directory before retrying.`,
     );
   }
   const script = String(pkg.scripts?.[scriptName] ?? "").trim();
@@ -235,6 +385,53 @@ function emittedPrettierGlobs(pkgPath, scriptName) {
     );
   }
   return [...matched[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+}
+
+/**
+ * THE EMITTED MANIFEST DESCRIBES THE PACKAGE THAT WAS ASKED FOR - PARSING IT IS NOT ENOUGH.
+ *
+ * validateTitle() refuses every input measured to corrupt this file, so in normal operation this
+ * assertion cannot fire, and that is exactly why it is written down rather than left implicit: the
+ * failure it covers is the one that was SILENT. A title of `X", "name": "@evil/pwned", "x": "`
+ * produced a package.json that PARSES CLEANLY and names a different package, while the generator
+ * printed `Scaffolded @cosyte/probe` and exited 0. A parse check - which is all the format step
+ * needed, and all the generator had - accepts that manifest without complaint. Only an identity
+ * check catches it.
+ *
+ * So the two guards fail in different ways and neither restates the other: the accept-set decides
+ * what may enter, this decides whether what came out is the repo that was ordered. If the
+ * accept-set is ever wrong, or widened, the injection class cannot go silent again - and a
+ * scaffold that hands over a manifest naming someone else's package while reporting success is the
+ * worst outcome available here, because every downstream gate then runs against the wrong identity.
+ *
+ * WHAT IS ASSERTED IS ONLY WHAT THE TOKENS CONTROL. `name` and the presence of the title in
+ * `description` are what substitution produces; the rest of the manifest is the template's business
+ * and pinning it here would red the first time the template legitimately grows a field.
+ */
+function assertEmittedManifest(pkgPath, expectedName, title) {
+  let pkg;
+  try {
+    pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
+  } catch (error) {
+    fail(
+      `the emitted ${pkgPath} is not valid JSON (${error.message}). Nothing downstream of this can ` +
+        `be trusted, so nothing was formatted; delete the emitted directory before retrying.`,
+    );
+  }
+  if (pkg?.name !== expectedName) {
+    fail(
+      `the emitted ${pkgPath} names "${pkg?.name}", but this run was asked for "${expectedName}". ` +
+        `Substitution has written outside the field it was given, which a JSON parse cannot see. ` +
+        `Nothing was formatted; delete the emitted directory before retrying.`,
+    );
+  }
+  if (typeof pkg?.description !== "string" || !pkg.description.includes(title)) {
+    fail(
+      `the emitted ${pkgPath} has a description that does not contain the title it was given ` +
+        `(${JSON.stringify(title)}), so substitution did not land where it was meant to. Nothing ` +
+        `was formatted; delete the emitted directory before retrying.`,
+    );
+  }
 }
 
 function runPrettier(formatter, destDir, flag, globs) {
@@ -298,6 +495,11 @@ function main() {
     fail(`invalid name "${name}": must match [a-z][a-z0-9-]* (e.g. x12, ccda, ncpdp, fhir)`);
   }
 
+  // Both inputs are checked before the environment is, and long before the first write: a title
+  // that cannot be substituted safely must not leave a partially-written repo behind.
+  const title = flags.title ?? defaultTitle(name);
+  validateTitle(title, flags.title === undefined);
+
   if (!existsSync(TEMPLATE_DIR) || !statSync(TEMPLATE_DIR).isDirectory()) {
     fail(`template directory not found at ${TEMPLATE_DIR}`);
   }
@@ -313,7 +515,6 @@ function main() {
     if (!isEmptyDir(destDir)) fail(`refusing to overwrite non-empty directory ${destDir}`);
   }
 
-  const title = flags.title ?? defaultTitle(name);
   // Token order matters only when one token is a prefix of another; these are disjoint, and
   // `split/join` replaces exact occurrences, so order is irrelevant here.
   const tokens = {
@@ -324,6 +525,7 @@ function main() {
   };
 
   copyTree(TEMPLATE_DIR, destDir, tokens);
+  assertEmittedManifest(join(destDir, "package.json"), tokens["{{PKG}}"], title);
   formatEmitted(formatter, destDir);
 
   process.stdout.write(
