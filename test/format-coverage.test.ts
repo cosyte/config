@@ -34,8 +34,9 @@ import { describe, expect, it } from "vitest";
  *
  * It also does not reach the emitted output of `scripts/scaffold-parser.mjs`.
  * `scripts/parser-template` is `.prettierignore`d wholesale (it carries `{{PLACEHOLDER}}` tokens
- * and is not valid TS/JSON until generated), so the scaffold's own formatting is a separate,
- * still-open concern that no glob here can reach.
+ * and is not valid TS/JSON until generated), and no glob here can reach a tree that does not exist
+ * until the generator runs. That half is closed separately, by the generator formatting what it
+ * emits; `test/scaffold-format.test.ts` is the guard for it.
  */
 
 const REPO_ROOT = join(import.meta.dirname, "..");
