@@ -116,10 +116,15 @@
  * A HIT IS NEVER SWALLOWED BY THE UNREAD REFUSAL. Hits are reported first and
  * that refusal follows, so a run that is both incomplete AND carrying hits
  * prints both. The code is 2: the incompleteness is the larger claim, and the
- * hits are already on stderr where a human reads them. THE UNMATCHED-BYPASS
- * REFUSAL IS DIFFERENT AND THE DIFFERENCE IS STATED RATHER THAN GLOSSED: it
- * fires BEFORE any target is read, so there are no hits in existence for it to
- * swallow. It is not the same guarantee and must not be described as one.
+ * hits are already on stderr where a human reads them. IT IS A GUARANTEE ABOUT
+ * THAT REFUSAL AND NOT ABOUT REFUSALS IN GENERAL, and the others are named here
+ * rather than left to be assumed: the unmatched-bypass refusal fires BEFORE any
+ * target is read, so no hit exists for it to swallow; and a target whose bytes
+ * cannot be read refuses from INSIDE the loop, which does discard the hits found
+ * before it. That last one is pre-existing and is left alone deliberately: it
+ * exits 2, so it is loud rather than green, and re-ordering the loop to salvage
+ * a partial hit list would be a claim about a corpus the scan just said it could
+ * not account for.
  * ===========================================================================
  *
  * ===========================================================================
@@ -143,13 +148,18 @@
  * those need different human responses, and collapsing them makes the second
  * read as the first.
  *
- * THE ONE STATE THAT DEFEATS THAT, MEASURED AND NOT CLOSED HERE: an allow-list
- * that EXISTS but cannot be READ (a directory at that path, or mode 000) makes
- * `readFileSync` throw a plain `Error`, which is rethrown rather than handled,
- * and the run takes node's own exit 1 with a stack. A caller reads that as
- * "hits found". It is pre-existing, it is deliberately NOT fixed by widening a
- * catch or by enumerating `EACCES`/`EISDIR` (see the paragraph below on why a
- * deny-list of spellings buys one more evasion per round), and the table above
+ * ONE SUCH STATE, MEASURED HERE AND NOT CLOSED: an allow-list that EXISTS but
+ * cannot be READ (a directory at that path, or mode 000) makes `readFileSync`
+ * throw a plain `Error`, which is rethrown rather than handled, and the run
+ * takes node's own exit 1 with a stack. A caller reads that as "hits found".
+ * `loadOverrideLog()` HAS THE IDENTICAL SHAPE and is named rather than left for
+ * the next reader to rediscover: an unreadable `phi-scan-overrides.md` escapes
+ * the same way. NO EXHAUSTIVE CLAIM IS MADE ABOUT THIS SET, which is why the
+ * table says 1 is reserved but NOT exclusive.
+ *
+ * Both are pre-existing, and both are deliberately NOT fixed by widening a catch
+ * or by enumerating `EACCES`/`EISDIR` (see the paragraph below on why a
+ * deny-list of spellings buys one more evasion per round). The table above
  * therefore says MISSING rather than "missing or unreadable". A contract that
  * claimed the state it cannot deliver would be worse than the gap it papers
  * over, because the next reader would branch on it.

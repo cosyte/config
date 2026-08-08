@@ -66,9 +66,13 @@ no package, so entries here are **dated** rather than versioned.
     into exit 2 is the same defect as one that reaches a false green, with the sign flipped.
     `phi-scan-overrides.md` says so too, since that is the file a developer reads next.
   - **A HIT IS NEVER SWALLOWED BY THE UNREAD REFUSAL.** Hits print first, that refusal follows, and
-    `OK: no hits` can never appear beside one. A run that is both incomplete and carrying PHI prints
-    both and exits 2. **The unmatched-bypass refusal is a different thing and is not described as the
-    same one**: it fires before any target is read, so no hit exists for it to swallow.
+    `OK: no hits` can never appear beside one. **It is a guarantee about that refusal and not about
+    refusals in general, and the emitted file names the others rather than leaving them assumed**:
+    the unmatched-bypass refusal fires before any target is read, so no hit exists for it to swallow;
+    and a target whose bytes cannot be read refuses from INSIDE the loop, which does discard the hits
+    found before it. That last one is **pre-existing** and left alone deliberately - it exits 2, so
+    it is loud rather than green, and salvaging a partial hit list would be a claim about a corpus
+    the scan just said it could not account for.
   - **THE EXIT CONTRACT IS DEFINED IN THE EMITTED FILE, NOT INHERITED.** A scaffolded parser has no
     history, so the template states it: **0** clean and every enumerated target read, **1** hits,
     **2** every state the file RAISES in which the scan cannot account for something (bad argument,
@@ -86,7 +90,11 @@ no package, so entries here are **dated** rather than versioned.
       enumerating `EACCES`/`EISDIR`, is the deny-list-of-spellings shape this file already retired on
       the `attw` gate). **The remedy was to correct the claim, not to grow the guard** - a contract
       promising a code it cannot deliver is worse than the gap it papers over, because the next
-      reader branches on it.
+      reader branches on it. A test pins the disclosure (a **directory** at the allow-list path, not
+      a `chmod`, so the case does not depend on the uid running it), so a later slice that closes the
+      escape has to come here and change the claim too. **`loadOverrideLog()` has the identical shape
+      and is named alongside it**: no exhaustive claim is made about that set, which is the whole
+      reason `1` is documented as reserved rather than exclusive.
   - **The superset is proved in BOTH polarities.** Every changed row moves toward a **refusal** and
     none toward permission, each pinned beside a positive the detector still catches: violator alone
     still 1 in `paths`, `all` and `--staged`; a clean corpus still 0 in all three; a clean positional

@@ -123,10 +123,11 @@ a summary.
   longer advertises the flag as a remedy, because following a printed remedy into exit 2 is the same
   defect as following one into a false green. **The exit contract is DEFINED in that file, not
   inherited: 0 clean, 1 hits, 2 every state this file RAISES in which the scan cannot account for
-  something. `1` is reserved but NOT exclusive, and the file names the escape it does not close: an
-  allow-list that exists but cannot be READ throws a plain `Error` and takes node's own exit 1, which
-  a caller reads as "hits found". Siblings do not agree on these numbers. Never port an exit code in
-  or out.** Read the docblock, not this bullet.
+  something. `1` is reserved but NOT exclusive, and the file names escapes it does not close rather
+  than claiming there is one: an allow-list, or an override log, that exists but cannot be READ
+  throws a plain `Error` and takes node's own exit 1, which a caller reads as "hits found". Siblings
+  do not agree on these numbers. Never port an exit code in or out.** Read the docblock, not this
+  bullet.
 - **This file, `scripts/attw.mjs` and `scripts/phi-scan.ts` all arrive from `cosyte/config`'s
   `scripts/parser-template/`.** Fix a gate there, never only here, or the next scaffolded parser is
   born with the defect again.
