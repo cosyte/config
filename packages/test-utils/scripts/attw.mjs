@@ -102,12 +102,16 @@
  *      excludes wildcard subpaths (they name a set, not a file), absolute paths
  *      (not ours to promise), `browser` map KEYS (see below), `package.json`
  *      itself (always in the tarball by definition), and, IN THE FIELDS WHOSE
- *      GRAMMAR REQUIRES A `./` PREFIX (`exports`, `imports`, `browser` maps),
- *      every leaf that lacks one, because there a leaf without it is a package
- *      specifier. That last exclusion is field-conditional and the pass line says
- *      so: in `main`, `types`, `bin`, `typesVersions` and the STRING form of
- *      `browser` the prefix is optional, so a bare leaf there IS read as a path.
- *      The pass line names those exclusions rather
+ *      GRAMMAR REQUIRES A RELATIVE TARGET (`exports`, `imports`, `browser` maps),
+ *      every leaf that DOES NOT BEGIN WITH A DOT, because there such a leaf is a
+ *      package specifier. Read the test literally: it is a leading DOT, not a
+ *      leading `./`, so `.hidden.js` and `../outside.js` are kept and reported.
+ *      Both are invalid `exports`/`imports` targets to Node itself, so reporting
+ *      them is right; what would be wrong is a sentence here implying they are
+ *      dropped. That exclusion is field-conditional and the pass line says so: in
+ *      `main`, `module`, `types`, `typings`, `bin`, `typesVersions` and the STRING
+ *      form of `browser` the prefix is optional, so a bare leaf there IS read as a
+ *      path. The pass line names those exclusions rather
  *      than printing a count that reads like a total. The list comes from
  *      `npm pack --dry-run --json` run in this directory, so nothing a committed
  *      `.attw.json` sets can change the answer.
@@ -546,6 +550,12 @@ function declaredArtifacts(pkg) {
   // ours. A `browser` map VALUE follows the same convention and is read the same
   // way, which is also what makes `false` (the "stub this out" form) fall out here
   // rather than needing a case of its own.
+  //
+  // THE TEST IS A LEADING DOT, NOT A LEADING `./`, AND THAT IS DELIBERATE: it keeps
+  // `../outside.js` and `.hidden.js`, which are INVALID targets to Node and which a
+  // reader is better off seeing named than silently dropped. Do not tighten it to
+  // `"./"` without deciding what should happen to those, and do not describe it as
+  // `./` anywhere: that sentence has already been wrong once.
   const addTarget = (v) => {
     if (typeof v !== "string") return;
     // Skip wildcard subpath patterns (they name a set, not a file) and the
@@ -892,10 +902,10 @@ process.stdout.write(
       ? `  package.json declares no relative artifact paths, so net 3 had none to check.\n`
       : `  all ${declared.length} relative artifact path(s) package.json declares are in the\n` +
         `  tarball npm would publish (net 3). That set excludes wildcard subpaths, absolute\n` +
-        `  paths, browser-map keys, package.json itself, and non-"./" leaves of exports,\n` +
-        `  imports and browser maps; and it is presence, not resolution. It does NOT cover\n` +
-        `  every field that can name a file: man, directories, unpkg and jsdelivr are\n` +
-        `  known-unread.\n`) +
+        `  paths, browser-map keys, package.json itself, and leaves of exports, imports and\n` +
+        `  browser maps that do not begin with a dot; and it is presence, not resolution.\n` +
+        `  It does NOT cover every field that can name a file: man, directories, unpkg and\n` +
+        `  jsdelivr are known-unread.\n`) +
     (kinds.length === 0
       ? `  attw exited 0 and reported no problems.\n`
       : `  attw exited 0, but it REPORTED ${kinds.length} problem kind(s) that its exit code\n` +

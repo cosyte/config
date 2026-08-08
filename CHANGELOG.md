@@ -58,6 +58,14 @@ no package, so entries here are **dated** rather than versioned.
     guard** (`man` is a link-time promise rather than a resolution-time one, and none of the four
     has a user in this org). A test pins the disclosure AND that the four really are still unread,
     so a later slice that reads them has to re-earn the pass line rather than quietly keep it.
+  - **THE `./` EXCLUSION IS A LEADING DOT, NOT A LEADING `./`, AND THE FIRST CORRECTION SAID `./`.**
+    The gate refuter measured it on the second pass: `addTarget` tests `startsWith(".")`, so
+    `.hidden.js` and `../outside.js` in `exports`/`imports`/`browser` maps are KEPT and reported.
+    Both are invalid targets to Node itself, so reporting them is right and the code is unchanged;
+    what was wrong was the sentence. The lenient list was also missing `module` and `typings`. Both
+    fixed in the docblock and in the pass line. **This was the third round in a row where the prose
+    drifted ahead of `declaredArtifacts()`**, so the rule is now written beside the code it
+    describes rather than only in the header.
   - **THREE NEW FALSE REDS, MEASURED AND NAMED RATHER THAN CODED AROUND**, none with a user in this
     org: a `browser` map value pointing at a 0-byte shim (browserify's `_empty.js` convention) reds
     net 1's non-empty rule; a `#test-helpers` import into an unpacked `test/` reds net 3, because

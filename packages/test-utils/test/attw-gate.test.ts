@@ -1468,7 +1468,7 @@ describe("the field set nets 1 and 3 share: `exports` is not the only field that
       const r = runWrapper(dir);
       expect(r.code, r.out).toBe(0);
       expect(r.out).toContain("all 4 relative artifact path(s) package.json declares are in the");
-      expect(r.out).toContain("man, directories, unpkg and jsdelivr are");
+      expect(r.out).toContain("man, directories, unpkg and");
       expect(r.out).toContain("known-unread");
     },
     SPAWN_TIMEOUT,
