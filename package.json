@@ -23,8 +23,8 @@
   },
   "prettier": "@cosyte/prettier-config",
   "scripts": {
-    "format": "prettier --write \"**/*.{js,ts,json,md,yml,yaml}\"",
-    "format:check": "prettier --check \"**/*.{js,ts,json,md,yml,yaml}\"",
+    "format": "prettier --write \"**/*.{js,mjs,ts,json,md,yml,yaml}\"",
+    "format:check": "prettier --check \"**/*.{js,mjs,ts,json,md,yml,yaml}\"",
     "check:no-emdash": "bash scripts/check-no-emdash.sh",
     "changeset:guard": "node scripts/changeset-guard.mjs",
     "release:notes": "node scripts/release-notes.mjs",

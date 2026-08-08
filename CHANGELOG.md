@@ -28,6 +28,32 @@ no package, so entries here are **dated** rather than versioned.
 
 ### Fixed
 
+- **`format:check` never read a single `.mjs` file, and reported success for it**
+  (`CONFIG-FORMAT-CHECK-SKIPS-MJS`). The root globs named `{js,ts,json,md,yml,yaml}` while the repo
+  tracks **seven** `.mjs` files, including every gate script this repo runs before `pnpm install`
+  (`changeset-guard.mjs`, `release-notes.mjs`, `scaffold-parser.mjs`) and the published
+  `attw` wrapper in `packages/test-utils/scripts/`. A glob that omits an extension reports a pass
+  rather than "no such input", so nothing in CI could tell "checked and clean" apart from **never
+  looked**. That is how a 101-character line in `attw.mjs` reached review under `#55` with a green
+  `format:check` behind it; the refuter caught it, this repo's own gate did not.
+  - **Widened to `{js,mjs,ts,json,md,yml,yaml}`, on both `format` and `format:check`.** Measured red
+    before and green after: on the base glob `pnpm format:check` exits 0; widened and unformatted it
+    exits 1 naming `scripts/scaffold-parser.mjs`; formatted it exits 0.
+  - **One file was actually dirty**, `scripts/scaffold-parser.mjs`: a 119-character `node:fs` import
+    and a double-quoted string carrying escaped quotes. Both changes are syntactic. Proved rather
+    than assumed: the generator's `--help` output is byte-identical before and after, and so is the
+    entire **34-file** tree it emits. The other six files were already conformant and are byte-
+    unchanged, so the assertion holding `packages/test-utils/scripts/attw.mjs` and its
+    `scripts/parser-template/` twin byte-identical still holds.
+  - **The census is derived on every run, never written down.** `test/format-coverage.test.ts` pipes
+    `git ls-files` through prettier's own `getFileInfo()` and fails naming any tracked, non-ignored,
+    prettier-parseable file the globs do not reach. A hand-written extension list is a claim, and it
+    is exactly the shape that went stale here; this one goes red the first time a `.cjs`, `.mts` or
+    `.css` lands unmatched. It also pins `format` and `format:check` to the same extension set (drift
+    either way is a violation shipping green, or a red CI with no local remedy), refuses a glob shape
+    it cannot derive coverage from instead of passing vacuously, and refuses an empty census, which
+    is the same never-looked failure it exists to catch.
+
 - **The `attw` gate now checks that the paths `package.json` DECLARES are in the tarball, not just
   that some TypeScript-extension file is** (`ATTW-INCLUDED-IS-NOT-THE-DECLARED-TYPES`). This is a
   **hole nothing currently walks through, closed on purpose rather than a bug anyone hit**: no repo
