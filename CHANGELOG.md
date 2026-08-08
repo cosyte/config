@@ -65,17 +65,28 @@ no package, so entries here are **dated** rather than versioned.
     longer advertises the flag as a remedy**: a printed remedy that walks a developer from exit 1
     into exit 2 is the same defect as one that reaches a false green, with the sign flipped.
     `phi-scan-overrides.md` says so too, since that is the file a developer reads next.
-  - **A HIT IS NEVER SWALLOWED BY THE REFUSAL.** Hits print first, the refusal follows, and
+  - **A HIT IS NEVER SWALLOWED BY THE UNREAD REFUSAL.** Hits print first, that refusal follows, and
     `OK: no hits` can never appear beside one. A run that is both incomplete and carrying PHI prints
-    both and exits 2.
+    both and exits 2. **The unmatched-bypass refusal is a different thing and is not described as the
+    same one**: it fires before any target is read, so no hit exists for it to swallow.
   - **THE EXIT CONTRACT IS DEFINED IN THE EMITTED FILE, NOT INHERITED.** A scaffolded parser has no
-    history, so the template states it: **0** clean and every enumerated target read, **1** hits and
-    nothing else reaches it, **2** every state the scan cannot account for (bad argument, missing or
-    unreadable allow-list, unlogged bypass, unmatched bypass, a non-regular in-scope entry, an
+    history, so the template states it: **0** clean and every enumerated target read, **1** hits,
+    **2** every state the file RAISES in which the scan cannot account for something (bad argument,
+    **missing** allow-list, unlogged bypass, unmatched bypass, a non-regular in-scope entry, an
     unparseable index record, an unreadable target, and a target enumerated but never read). `1` is
     reserved because CI and the pre-commit hook branch on the code and must be able to tell "PHI was
     found" from "this scan is not trustworthy". **Sibling scanners do not agree on these numbers and
     are not required to; the emitted file says so, and says never to port one in or out.**
+    - **`1` IS RESERVED BUT NOT EXCLUSIVE, AND THE TABLE SAYS SO RATHER THAN OVERCLAIMING.** A first
+      draft of it read "missing or unreadable allow-list" under **2** and "nothing else reaches it"
+      under **1**. The gate refuter measured both wrong in one run: an allow-list that EXISTS but
+      cannot be read (a directory at that path, or mode 000) makes `readFileSync` throw a plain
+      `Error`, which is rethrown rather than handled, and the run takes **node's own exit 1** with a
+      stack. That escape is **pre-existing and deliberately not closed** (widening the catch, or
+      enumerating `EACCES`/`EISDIR`, is the deny-list-of-spellings shape this file already retired on
+      the `attw` gate). **The remedy was to correct the claim, not to grow the guard** - a contract
+      promising a code it cannot deliver is worse than the gap it papers over, because the next
+      reader branches on it.
   - **The superset is proved in BOTH polarities.** Every changed row moves toward a **refusal** and
     none toward permission, each pinned beside a positive the detector still catches: violator alone
     still 1 in `paths`, `all` and `--staged`; a clean corpus still 0 in all three; a clean positional

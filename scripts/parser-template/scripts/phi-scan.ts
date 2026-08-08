@@ -113,10 +113,13 @@
  * A REMEDY: a printed remedy that leads to exit 2 is the same defect as a
  * printed remedy that leads to a false green, with the sign flipped.
  *
- * A HIT IS NEVER SWALLOWED BY THE REFUSAL. Hits are reported first and the
- * refusal follows, so a run that is both incomplete AND carrying hits prints
- * both. The code is 2: the incompleteness is the larger claim, and the hits are
- * already on stderr where a human reads them.
+ * A HIT IS NEVER SWALLOWED BY THE UNREAD REFUSAL. Hits are reported first and
+ * that refusal follows, so a run that is both incomplete AND carrying hits
+ * prints both. The code is 2: the incompleteness is the larger claim, and the
+ * hits are already on stderr where a human reads them. THE UNMATCHED-BYPASS
+ * REFUSAL IS DIFFERENT AND THE DIFFERENCE IS STATED RATHER THAN GLOSSED: it
+ * fires BEFORE any target is read, so there are no hits in existence for it to
+ * swallow. It is not the same guarantee and must not be described as one.
  * ===========================================================================
  *
  * ===========================================================================
@@ -125,10 +128,11 @@
  * accident:
  *
  *   0  the scan ran, READ EVERY TARGET IT ENUMERATED, and found nothing.
- *   1  HITS, AND NOTHING ELSE REACHES IT. Reserved exclusively for "this corpus
- *      contains something that looks like PHI".
- *   2  EVERY STATE IN WHICH THE SCAN CANNOT ACCOUNT FOR SOMETHING: a bad
- *      argument, a missing or unreadable allow-list, an unlogged bypass, a
+ *   1  HITS. Reserved for "this corpus contains something that looks like PHI",
+ *      and nothing this file RAISES ever takes it. It is NOT exclusive, and the
+ *      escape is named below rather than left to be discovered.
+ *   2  EVERY STATE THIS FILE RAISES IN WHICH THE SCAN CANNOT ACCOUNT FOR
+ *      SOMETHING: a bad argument, a MISSING allow-list, an unlogged bypass, a
  *      bypass naming a path this run does not enumerate, an in-scope entry that
  *      is not a regular file, an unparseable `git diff --cached` record, a
  *      target whose bytes cannot be read, and a target enumerated but never
@@ -138,6 +142,17 @@
  * must be able to tell "PHI was found here" from "this scan is not trustworthy":
  * those need different human responses, and collapsing them makes the second
  * read as the first.
+ *
+ * THE ONE STATE THAT DEFEATS THAT, MEASURED AND NOT CLOSED HERE: an allow-list
+ * that EXISTS but cannot be READ (a directory at that path, or mode 000) makes
+ * `readFileSync` throw a plain `Error`, which is rethrown rather than handled,
+ * and the run takes node's own exit 1 with a stack. A caller reads that as
+ * "hits found". It is pre-existing, it is deliberately NOT fixed by widening a
+ * catch or by enumerating `EACCES`/`EISDIR` (see the paragraph below on why a
+ * deny-list of spellings buys one more evasion per round), and the table above
+ * therefore says MISSING rather than "missing or unreadable". A contract that
+ * claimed the state it cannot deliver would be worse than the gap it papers
+ * over, because the next reader would branch on it.
  *
  * DO NOT PORT THIS TABLE INTO, OR OUT OF, A SIBLING PARSER. The `@cosyte/*`
  * scanners do not agree on it and are not required to: at least one sibling uses

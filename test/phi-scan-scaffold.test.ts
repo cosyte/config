@@ -602,21 +602,71 @@ describe("a target enumerated but never read refuses, in every mode", () => {
     writeFileSync(join(scaffold, "docs", "notes.md"), "ordinary prose\n", "utf8");
     logBypass("docs/notes.md");
 
+    writeViolator(); // a live hit sitting in the corpus the whole time
+
     const r = scan("scripts/phi-scan.ts", ["--allow-fixture", "docs/notes.md"]);
     expect(r.code, r.out).toBe(2);
     expect(r.out).toContain("does not enumerate");
     expect(r.out).toContain("docs/notes.md");
     expect(r.out).not.toContain("OK: no hits");
+    // AND THE LIMIT OF THAT TIER, PINNED RATHER THAN GLOSSED: it refuses BEFORE
+    // any target is read, so it prints no hit. That is not the same guarantee
+    // the unread tier gives (which reports hits first), and the docblock says so
+    // in those words. Loud and never green either way.
+    expect(r.out).not.toContain("123-45-6789");
   });
 
-  it("dedupes by repo-relative path, so one file named twice is one target named once", () => {
+  it("DISCLOSURE, PINNED: an allow-list that exists but cannot be READ still takes exit 1", () => {
+    // The one state the emitted exit contract does NOT deliver, and says it does
+    // not. `existsSync` passes, `readFileSync` throws a plain Error rather than
+    // an InvocationError, nothing handles it, and the run takes node's own exit
+    // 1: the code reserved for "hits found". Pre-existing, and deliberately not
+    // closed by widening a catch or enumerating errno spellings (the
+    // deny-list-of-spellings shape this template already retired on the attw
+    // gate). This test exists so the DISCLOSURE cannot go stale: a later slice
+    // that closes the escape has to come here and change the claim too.
+    //
+    // A DIRECTORY rather than mode 000, because a chmod is a no-op for a
+    // privileged uid and this must not depend on who runs it.
+    resetToBaseline();
+    rmSync(join(scaffold, "scripts", "phi-allow-list.txt"), { force: true });
+    mkdirSync(join(scaffold, "scripts", "phi-allow-list.txt"), { recursive: true });
+
+    const r = scan("scripts/phi-scan.ts", ["README.md"]);
+    expect(r.code, r.out).toBe(1);
+    expect(r.out).not.toContain("OK: no hits");
+
+    // ...whereas a MISSING allow-list is the state the contract does assign: 2.
+    rmSync(join(scaffold, "scripts", "phi-allow-list.txt"), { recursive: true, force: true });
+    const missing = scan("scripts/phi-scan.ts", ["README.md"]);
+    expect(missing.code, missing.out).toBe(2);
+    expect(missing.out).toContain("allow-list not found");
+  });
+
+  it("dedupes by repo-relative path, so one file named twice is scanned once", () => {
+    // PINNED ON THE ONE OBSERVABLE DEDUPE ACTUALLY HAS, which is the hit count.
+    // An earlier version of this case asserted the refusal named the path once,
+    // and that passed with the dedupe removed: `enumerated`, `read` and the
+    // difference between them are Sets keyed on the normalized path, so a
+    // duplicate collapses there whatever `parseArgs` returns. A test that the
+    // rest of the code would satisfy on its own pins nothing.
     resetToBaseline();
     writeViolator();
-    logBypass(VIOLATOR);
 
-    const r = scan("scripts/phi-scan.ts", [VIOLATOR, "--allow-fixture", `./${VIOLATOR}`]);
-    expect(r.code, r.out).toBe(2);
-    expect(r.out.split(VIOLATOR).length - 1).toBe(1);
+    const r = scan("scripts/phi-scan.ts", [VIOLATOR, `./${VIOLATOR}`]);
+    expect(r.code, r.out).toBe(1);
+    expect(r.out.split("segment=").length - 1).toBe(1);
+
+    // The defect, reproduced: without the dedupe the same file is read twice and
+    // the same SSN is reported twice, which is a scanner that cannot count.
+    const noDedupe = weakened(
+      "no-dedupe.ts",
+      'const scanPaths = mode === "paths" ? dedupeByRepoPath([...paths, ...allowFixtures]) : paths;',
+      'const scanPaths = mode === "paths" ? [...paths, ...allowFixtures] : paths;',
+    );
+    const doubled = scan(noDedupe, [VIOLATOR, `./${VIOLATOR}`]);
+    expect(doubled.code, doubled.out).toBe(1);
+    expect(doubled.out.split("segment=").length - 1).toBe(2);
   });
 
   it("NEVER SWALLOWS A HIT: an incomplete run carrying hits prints both, and exits 2", () => {

@@ -9,11 +9,13 @@ creates an audit trail.
 > **A BYPASS IS RECORDED AND THEN REFUSED. IT CANNOT PRODUCE A CLEAN RUN, IN ANY
 > MODE.** `--allow-fixture` withdraws a file from the read set, and the scanner
 > refuses (**exit 2**) over a target it enumerated and never read: a scan that
-> did not open a file has no clean verdict to give about it. Both gates are still
-> here and both still fire, in this order: an **unlogged** path is rejected at
-> the argument tier, and a **logged** one is admitted, recorded, withdrawn, and
-> then refused by the completeness rule. Reaching for this flag to get a green
-> run is following a remedy to exit 2.
+> did not open a file has no clean verdict to give about it. Three gates stand
+> between the flag and a clean run, and each refuses on its own: an **unlogged**
+> path is rejected at the argument tier; a logged path the run **does not
+> enumerate** is refused because the flag would subtract nothing; and a logged
+> path the run **does** enumerate is admitted, recorded, withdrawn, and then
+> refused by the completeness rule. Reaching for this flag to get a green run is
+> following a remedy to exit 2.
 >
 > **The remedy that reaches a clean run is `scripts/phi-allow-list.txt`**: a
 > token-level, reviewed declaration that specific identifiers are synthetic. It
