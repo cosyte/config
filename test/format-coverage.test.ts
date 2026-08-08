@@ -7,10 +7,10 @@ import { describe, expect, it } from "vitest";
 
 /**
  * Guards the root `format` / `format:check` globs against the defect that let a formatting
- * violation ship green here: the globs named `{js,ts,json,md,yml,yaml}` while this repo carries
- * seven tracked `.mjs` files, so `prettier` was never once pointed at any of them. `format:check`
- * passed on every one of those files without reading them. A guard that has never been pointed at
- * an input has not cleared that input.
+ * violation ship green here: the globs named `{js,ts,json,md,yml,yaml}` while this repo tracks
+ * eight `.mjs` files, seven of them outside `.prettierignore`, so `prettier` was never once
+ * pointed at any of the seven. `format:check` passed on every one of them without reading them.
+ * A guard that has never been pointed at an input has not cleared that input.
  *
  * That gap is why a 101-character line in `scripts/attw.mjs` reached review under `#55` with a
  * green `format:check` behind it, and it is invisible by construction: a glob that omits an
@@ -20,12 +20,19 @@ import { describe, expect, it } from "vitest";
  * THE CENSUS IS DERIVED ON EVERY RUN, NEVER WRITTEN DOWN. `git ls-files` is piped through
  * prettier's own `getFileInfo()`, which is the same resolution the CLI uses for `.prettierignore`
  * and for parser inference. A hand-written list of extensions is a claim, and it is precisely the
- * shape that went stale here — it would go stale again the first time someone lands a `.cjs`,
+ * shape that went stale here, and it would go stale again the first time someone lands a `.cjs`,
  * a `.mts`, or a `.css`. This test fails the moment such a file is tracked and unmatched, and
  * names it.
  *
- * Scope, stated no wider than it holds: this proves prettier is POINTED AT every file it can
- * parse. It does not prove the emitted output of `scripts/scaffold-parser.mjs` is formatted —
+ * SCOPE, STATED NO WIDER THAN IT HOLDS. What is compared is EXTENSION SETS, not file sets: every
+ * extension carried by a tracked, non-ignored, prettier-parseable file must appear in the globs.
+ * That is strictly weaker than "prettier reads every such file", and the gap is real rather than
+ * theoretical. `getFileInfo()` is given only `.prettierignore`, while the prettier CLI defaults to
+ * `[".gitignore", ".prettierignore"]`, so a file ignored by `.gitignore` alone counts here and is
+ * skipped there. Today the two file sets are identical, so nothing is hidden; the point is that a
+ * green here does not by itself prove they still are.
+ *
+ * It also does not reach the emitted output of `scripts/scaffold-parser.mjs`.
  * `scripts/parser-template` is `.prettierignore`d wholesale (it carries `{{PLACEHOLDER}}` tokens
  * and is not valid TS/JSON until generated), so the scaffold's own formatting is a separate,
  * still-open concern that no glob here can reach.
@@ -45,7 +52,7 @@ function coveredExtensions(script: string, flag: "--check" | "--write"): Set<str
       `Root "${flag === "--check" ? "format:check" : "format"}" is no longer a single ` +
         `\`**/*.{ext,...}\` glob, so this guard can no longer derive what it covers.\n` +
         `  got: ${script}\n` +
-        `Teach coveredExtensions() the new shape before changing the script — do not delete ` +
+        `Teach coveredExtensions() the new shape before changing the script. Do not delete ` +
         `this assertion to get green.`,
     );
   }
@@ -87,8 +94,8 @@ describe("root format globs", () => {
     const covered = coveredExtensions(pkg.scripts["format:check"] as string, "--check");
     const present = await trackedFormattableByExtension();
 
-    // The census must not be empty, or this test clears a corpus it never read — the same
-    // failure mode it exists to catch.
+    // The census must not be empty, or this test clears a corpus it never read, which is the
+    // same failure mode it exists to catch.
     expect(present.size).toBeGreaterThan(0);
 
     const unreached = [...present.entries()]
