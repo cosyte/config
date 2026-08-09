@@ -28,6 +28,86 @@ no package, so entries here are **dated** rather than versioned.
 
 ### Fixed
 
+- **A scaffolded parser was handed a file no formatter in it would ever read, and that file was not
+  prettier-clean** (`CONFIG-SCAFFOLD-RESIDUALS`). `#57` made the generator format the tree it emits
+  and derive what to format from the emitted `package.json`'s own `format` script, so the set
+  formatted on emit and the set checked in CI cannot disagree. They agreed - on four path-scoped
+  globs covering `src/`, `test/`, `scripts/` and the root's `*.{json,md,yml}`. Everything outside all
+  four was emitted unformatted and then reported clean by never being looked at, and every one of
+  the four matched something, so prettier had nothing to refuse as unmatched either. `docs-content/`,
+  `.changeset/`, `.github/workflows/`, `eslint.config.js`, `tsup.config.ts` and `vitest.config.ts`
+  were all outside, and `docs-content/quickstart.md` is unformatted at every package-name length.
+  - **The template's `format` / `format:check` are now the single whole-tree glob this repo's own
+    root already uses**, `"**/*.{js,mjs,ts,json,md,yml,yaml}"`. A path list is a claim about the
+    template that goes stale the first time it grows a directory, and it had.
+  - **The template also gains a `.prettierignore`, and exactly one line of it is load-bearing.**
+    Measured on a copy of an emitted tree carrying a built `dist/`, a `coverage/`, an installed
+    `node_modules/`, a `.pnpm-store/` and a `pnpm-lock.yaml`: with the file absent the whole-tree
+    glob reaches `pnpm-lock.yaml` and nothing else it should not, because prettier's default
+    `--ignore-path` is `[.gitignore, .prettierignore]` and the emitted `.gitignore` already carries
+    every generated and installed directory. A lockfile is the one tool-owned file that is
+    **committed**, so no `.gitignore` covers it, and reformatting it churns it on every install. A
+    freshly emitted tree carries no lockfile, so the test plants one - and removes the ignore file
+    from a copy of that same tree as the negative control.
+  - **🩺 THE FILED DESCRIPTION WAS WRONG AGAIN, WHICH IS THIS ARC'S MOST REPEATED SHAPE.** It said
+    widening rewrites a fenced `ts` block. **At every name length this generator is really asked
+    for, it does not.** What prettier rewrites is two FOUR-BACKTICK INLINE CODE SPANS in a
+    blockquote whose content is the literal text of a fence marker; the `ts runnable` block a few
+    lines above is untouched, and at a real name length those two spans plus the two script lines
+    themselves are the whole delta **the widening** makes to the emitted tree. (The FORMAT STEP's
+    own delta, against a generator with no format step at all, is larger and name-dependent: that is
+    the row list in `test/scaffold-format.test.ts`'s docblock, not anything in this file.) Both
+    spellings carry identical content under CommonMark's backtick-string rule - rendered HTML is
+    byte-identical - and the result is a fixed point, clean on a second `--check`. The filed
+    sentence becomes true only at the synthetic 100-character probe, for the reason in the next
+    bullet, and it is not the reason it was filed for.
+  - **What the widening DOES do is point prettier at `docs-content/` for the first time, and
+    prettier formats the TypeScript inside a fence**, which is a rewriter aimed at the corpus the
+    emitted doc/code-agreement gate runs. Measured with the shipped extractor and rewriter: snippet
+    count and `// =>` assertion count are preserved at every probe, and the snippet bytes are
+    unchanged at every name length this generator is really asked for. Only at the synthetic
+    100-character probe does prettier rewrap the call, and the assertion line survives that too. Both
+    are now asserted every run against the unformatted tree the existing counterfactual produces.
+  - **The other newly-covered directory worth naming is `.changeset/`.** A hand-written changeset
+    that uses `*` bullets or `1)` numbering now reds a scaffolded repo's `format:check`, where before
+    it was never read. The remedy is `pnpm format`, and the emitted `format` and `format:check` globs
+    are asserted identical, so no **formatting** red is out of `format`'s reach. A file prettier
+    cannot parse still reds, at exit 2, and `pnpm format` cannot fix that - which is prettier's
+    behaviour and was identical under the pre-fix globs.
+  - **The guard is a pair of derived censuses, neither written down.** One is what the emitted globs
+    reached (prettier's own glob expansion, via a perturbed copy); the other is what was there to
+    reach (prettier's own `getFileInfo`, handed the two ignore files in the order the CLI defaults
+    to). The difference must be empty. A second case asks prettier by explicit path whether anything
+    emitted is unformatted, so it stays true even if the first is weakened. **Both honour the
+    emitted ignore files, which is the guard's own floor and is stated rather than hidden**: a path
+    added to the emitted `.prettierignore` later leaves both censuses at once. That is the same
+    opt-out the emitted repo's gate honours - ignoring the ignore files would report `dist/` as a
+    hole in every built repo - but it is a surface through which this guard can be narrowed.
+  - **The negative control runs the REAL generator with only the template's globs wound back** and
+    asserts three things: files go unreached, one of them is unformatted, and the emitted
+    `format:check` is nonetheless **green** - which is why the hole was invisible from inside it.
+  - **🩺 THE WIDENING GAVE THE EXISTING COUNTERFACTUAL A FLOOR, AND THE FLOOR WOULD HAVE MADE TWO OF
+    ITS ASSERTIONS PASS FOR THE WRONG REASON.** `#57`'s counterfactual strips the format step and
+    requires each probe to red something and the two real name lengths to red disjoint sets. One file
+    is now unformatted at **every** name length, so "this probe reds something" became true for a
+    probe contributing nothing, and the disjointness case reds without a single name-driven overlap.
+    Both now subtract the set every probe reds - the name-INDEPENDENT floor - before making any claim
+    about the name axis. The floor is derived and never named: if it empties, nothing changes.
+  - **Two prose claims cut rather than grown to fit.** The `--title` docblock said prettier-on-emit
+    normalises Markdown "in whichever emitted Markdown its globs reach"; that split no longer exists,
+    and the surviving one is prose-vs-code. Measured on `--title "Bad *emph* Title"`:
+    `docs-content/intro.md` moved from raw to normalised and `docs-content/quickstart.md` now holds
+    **both**, normalised in its prose and raw inside its `ts` fence. And `formatEmitted()`'s
+    "cannot disagree" sentence now says what it does not cover: two globs can agree with each other
+    and still miss a directory.
+  - **This is a change to `scripts/parser-template/`, so it reaches every parser scaffolded from here
+    on. It does NOT reach the parsers already scaffolded**, which each carry an already-divergent
+    copy - and none of the thirteen uses a whole-tree glob today; `astm` widened its own the
+    path-scoped way. Cost, measured on this box, two samples each: `test/scaffold-format.test.ts`
+    goes **14 tests / 21.0 s to 34 / 41.9 s**. **No changeset**, on `#59`'s, `#61`'s and `#62`'s
+    precedent: `scripts/` and `test/` are outside every published tarball and the root workspace is
+    `private`, so a changeset would bump nothing and `changeset-guard.mjs` refuses an inert one.
+
 - **The parser template's PHI scanner reported `OK: no hits` and exited 0 over a corpus it never
   opened, and the generator was re-minting that into every future parser**
   (`PHI-SCAN-STAGED-PREDICATE`, generator leg). `--allow-fixture` withdrew a file from the read set

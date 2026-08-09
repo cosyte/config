@@ -26,12 +26,27 @@
  * the generator DROPS HYPHENS when it builds the PascalCase identifier, so the segment and the
  * identifier are two different lengths.
  *
+ * THE ROWS ABOVE ARE THE NAME-DEPENDENT PART, AND THERE IS NOW ALSO A PART THAT IS NOT.
+ * `docs-content/quickstart.md` comes out unformatted at EVERY name length. It was invisible for as
+ * long as the emitted `format`/`format:check` were four path-scoped globs over `src/`, `test/`,
+ * `scripts/` and the root's `*.{json,md,yml}`: `docs-content/` was outside all four, so the check
+ * reported clean by never looking, and every one of the four matched something so prettier had
+ * nothing to refuse as unmatched either. The template's scripts are now one whole-tree glob. That
+ * floor is subtracted, and never named, before any claim about the name axis is made below - a file
+ * red at every length carries no information about which lengths differ.
+ *
  * WHAT IS ASSERTED, AND WHAT IS NOT. The generator now runs prettier over what it emitted, so the
  * emitted bytes are a fixed point of prettier for every name at every length, and nothing in it has
  * to be kept in step with the template's line lengths. This suite does NOT take the generator's
  * word for that: its own post-write `--check` is part of what is under test, so every case here
  * re-runs the check independently, with the globs read out of the EMITTED `package.json`, which is
  * the script the new repo's CI runs.
+ *
+ * A GREEN CHECK IS A VERDICT ON THE FILES IT MATCHED AND SAYS NOTHING ABOUT THE FILES IT DID NOT,
+ * so two censuses are derived here rather than one. `checkedCensus()` answers "what did the emitted
+ * globs reach"; `parseableCensus()` answers "what was there to reach". The gap between them must be
+ * empty, and a separate case asks prettier directly, by explicit path rather than through the globs
+ * under test, whether anything emitted is unformatted. Neither set is written down.
  *
  * SCOPE, STATED NO WIDER THAN IT HOLDS. The emitted repo would resolve `prettier` and
  * `@cosyte/prettier-config` from its own `node_modules`, and `pnpm install` is not available to a
@@ -51,6 +66,7 @@ import { spawnSync } from "node:child_process";
 import {
   appendFileSync,
   cpSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -61,8 +77,10 @@ import {
 } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 
+import { extractRunnableSnippets, rewriteAssertions } from "@cosyte/vitest-config/snippets";
+import { getFileInfo } from "prettier";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const REPO_ROOT = process.cwd();
@@ -224,6 +242,74 @@ function checkedCensus(dir: string): string[] {
   return census;
 }
 
+/**
+ * WHICH FILES THE EMITTED TREE OFFERS THE FORMATTER, DERIVED THE SAME WAY AND ALSO NEVER WRITTEN
+ * DOWN. This is the other census: `checkedCensus()` is what the globs reached, this is what was
+ * there to reach, and the difference is the hole a green `format:check` cannot report.
+ *
+ * The two ignore files are handed over explicitly, in the order prettier's CLI defaults to
+ * (`--help ignore-path`: `[.gitignore, .prettierignore]`), and only when they exist, so a file the
+ * emitted repo's own check would skip is not counted as a hole here. `resolveConfig` is off for the
+ * same reason the generator passes `--config` explicitly: the emitted `package.json` names
+ * `"prettier": "@cosyte/prettier-config"` and the emitted repo has no `node_modules` to resolve it
+ * through. It changes no parser inference - the shared config sets options, never parsers.
+ */
+async function parseableCensus(dir: string): Promise<string[]> {
+  const ignorePath = [join(dir, ".gitignore"), join(dir, ".prettierignore")].filter((path) =>
+    existsSync(path),
+  );
+  const out: string[] = [];
+  for (const file of everyFileUnder(dir)) {
+    const info = await getFileInfo(file, { ignorePath, resolveConfig: false });
+    if (info.ignored || info.inferredParser === null) continue;
+    out.push(relative(dir, file));
+  }
+  return out.sort();
+}
+
+/** Emitted files prettier can parse that the emitted `format:check` globs never look at. */
+async function unreachedByFormatCheck(dir: string): Promise<string[]> {
+  const reached = new Set(checkedCensus(dir));
+  return (await parseableCensus(dir)).filter((path) => !reached.has(path));
+}
+
+/**
+ * Emitted files prettier can parse that are not prettier-clean, named by prettier.
+ *
+ * Pointed at explicit paths rather than at a glob, deliberately: it states the property a new
+ * repo's author actually cares about - nothing I was handed is unformatted - without asking the
+ * question through the globs that are themselves under test.
+ */
+async function unformattedParseableFiles(dir: string): Promise<string[]> {
+  const census = await parseableCensus(dir);
+  if (census.length === 0) return [];
+  return prettier(dir, "--list-different", census)
+    .out.split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("[error]") && !line.startsWith("[warn]"))
+    .sort();
+}
+
+/**
+ * Every runnable doc snippet in an emitted tree, with the number of `// =>` assertions each one
+ * would contribute to the emitted repo's doc/code-agreement gate.
+ *
+ * Read with the SHIPPED extractor and the SHIPPED rewriter (`@cosyte/vitest-config/snippets`), the
+ * same pair the emitted `test/docs-content.test.ts` runs on, rather than a regex written here.
+ */
+function docSnippetShape(dir: string): { code: string; assertions: number }[] {
+  const docs = join(dir, "docs-content");
+  if (!existsSync(docs)) return [];
+  const out: { code: string; assertions: number }[] = [];
+  for (const name of readdirSync(docs).sort()) {
+    if (!name.endsWith(".md")) continue;
+    for (const snippet of extractRunnableSnippets(readFileSync(join(docs, name), "utf8"))) {
+      out.push({ code: snippet.code, assertions: rewriteAssertions(snippet.code).assertions });
+    }
+  }
+  return out;
+}
+
 beforeAll(() => {
   root = mkdtempSync(join(tmpdir(), "cosyte-scaffold-format-"));
   for (const [label, name] of Object.entries(PROBES)) {
@@ -278,6 +364,80 @@ describe("a scaffolded parser is born format-clean", () => {
       expect(emittedGlobs(dir, "format")).toEqual(emittedGlobs(dir, "format:check"));
     }
   });
+
+  it.each(Object.keys(PROBES))(
+    "%s: leaves no emitted file the formatter is never pointed at",
+    async (label) => {
+      // Agreeing with itself is not the same as covering the tree: the emitted `format` and
+      // `format:check` can name the same globs, both be green, and still never look at a directory.
+      // Prettier's "no files matching the pattern" refusal does not reach it either, because every
+      // pattern matched something. So the gap is measured directly, both sides derived.
+      const unreached = await unreachedByFormatCheck(emitted.get(label) as string);
+      expect(
+        unreached,
+        `The emitted format:check never reads these files. They ship unchecked, and they red the ` +
+          `day anyone widens the glob:\n  ${unreached.join("\n  ")}`,
+      ).toEqual([]);
+    },
+    SPAWN_TIMEOUT,
+  );
+
+  it.each(Object.keys(PROBES))(
+    "%s: hands over no unformatted file its own ignore files do not exclude",
+    async (label) => {
+      // Asked by explicit path rather than through the globs under test, so it stays true even if
+      // the coverage case above is weakened. This is the property the success banner promises the
+      // new repo's author, stated without going through the thing being promised about.
+      //
+      // Stated no wider than that: the census honours the emitted `.gitignore` and `.prettierignore`
+      // exactly as the emitted check does, so a path added to either is out of scope for BOTH
+      // censuses at once. That is a deliberate opt-out the emitted repo's own gate honours too, not
+      // a blind spot this suite could close by ignoring the ignore files - doing that would report
+      // `dist/` as a hole in every built repo.
+      const dirty = await unformattedParseableFiles(emitted.get(label) as string);
+      expect(
+        dirty,
+        `A repo scaffolded as "${PROBES[label]}" is handed unformatted files:\n  ` +
+          dirty.join("\n  "),
+      ).toEqual([]);
+    },
+    SPAWN_TIMEOUT,
+  );
+
+  it(
+    "keeps a committed lockfile out of the whole-tree glob, which is what the emitted .prettierignore is for",
+    () => {
+      // The one line of the emitted `.prettierignore` that is load-bearing rather than documentary.
+      // `dist/`, `coverage/`, `node_modules/` and `.pnpm-store/` are all in the emitted `.gitignore`,
+      // which prettier reads by default; a lockfile is the one tool-owned file that is COMMITTED, so
+      // no `.gitignore` can cover it, and reformatting it churns it on every `pnpm install`.
+      //
+      // A freshly emitted tree carries no lockfile, so a census taken on it would ignore nothing and
+      // pass with the file deleted. One is planted here to make the case answerable, and the same
+      // tree with the ignore file removed is the negative control: without it the lockfile IS read,
+      // so this is not asserting a property the glob had anyway.
+      const source = emitted.get("shortest-real") as string;
+      const guarded = mkdtempSync(join(root, "lockfile-"));
+      cpSync(source, guarded, { recursive: true });
+      expect(existsSync(join(guarded, ".prettierignore"))).toBe(true);
+      writeFileSync(
+        join(guarded, "pnpm-lock.yaml"),
+        'lockfileVersion:   "9.0"\nimporters:\n    .:\n        dependencies:   {}\n',
+      );
+
+      const control = mkdtempSync(join(root, "lockfile-unguarded-"));
+      cpSync(guarded, control, { recursive: true });
+      rmSync(join(control, ".prettierignore"));
+
+      expect(
+        unformattedFiles(control),
+        "the planted lockfile is already prettier-clean, so this control cannot fail and proves " +
+          "nothing about the ignore file. Re-derive the fixture.",
+      ).toContain("pnpm-lock.yaml");
+      expect(unformattedFiles(guarded)).toEqual([]);
+    },
+    SPAWN_TIMEOUT,
+  );
 });
 
 describe("counterfactual: the same generator without its format step", () => {
@@ -291,6 +451,8 @@ describe("counterfactual: the same generator without its format step", () => {
   let stripped: string;
   let workspace: string;
   const red = new Map<string, string[]>();
+  /** The UNFORMATTED emitted tree per probe: the "before" the shipped generator's format step has no other way to show. */
+  const unformattedTree = new Map<string, string>();
 
   beforeAll(() => {
     workspace = mkdtempSync(join(tmpdir(), "cosyte-scaffold-unformatted-"));
@@ -319,6 +481,7 @@ describe("counterfactual: the same generator without its format step", () => {
         throw new Error(`stripped generator failed on "${label}" (${result.code}):\n${result.out}`);
       }
       red.set(label, unformattedFiles(result.dir));
+      unformattedTree.set(label, result.dir);
     }
   }, SPAWN_TIMEOUT * 2);
 
@@ -326,12 +489,41 @@ describe("counterfactual: the same generator without its format step", () => {
     rmSync(workspace, { recursive: true, force: true });
   });
 
+  /**
+   * The part of a probe's red set the package NAME does not move: whatever every probe reds.
+   *
+   * It is subtracted before the two claims below, because those are claims about the name axis and
+   * a file red at every length carries no information about it. There was no floor when these cases
+   * were written; pointing the emitted globs at the whole tree gave them one, and that single file
+   * would otherwise have made "this probe reds something" true for a probe contributing nothing,
+   * and made the disjointness case red without a single name-driven overlap. Both would have been
+   * the right verdict for the wrong reason. The floor is derived, never named: if it empties,
+   * nothing here changes.
+   *
+   * WHAT IT COSTS, SAID RATHER THAN LEFT IMPLICIT: this is an intersection over all five probes, so
+   * a genuinely name-driven file that happened to red at every one of them - including `a` and the
+   * 100-character probe - would be subtracted silently. The per-probe case below bounds how much
+   * that can swallow: each probe must still red something of its own.
+   */
+  function nameIndependentFloor(): Set<string> {
+    const sets = Object.keys(PROBES).map((label) => red.get(label) as string[]);
+    const [first, ...rest] = sets;
+    return new Set((first ?? []).filter((path) => rest.every((set) => set.includes(path))));
+  }
+
+  function nameDependentRed(label: string): string[] {
+    const floor = nameIndependentFloor();
+    return (red.get(label) as string[]).filter((path) => !floor.has(path));
+  }
+
   it.each(Object.keys(PROBES))("%s: reds without the format step", (label) => {
-    // A probe that reds nothing even with the fix removed clears nothing when the fix is present.
+    // A probe that reds nothing OF ITS OWN even with the fix removed clears nothing when the fix is
+    // present: it is only re-measuring a file every other probe already covers.
     expect(
-      red.get(label),
-      `Removing the format step left "${label}" format-clean, so that probe cannot detect the ` +
-        `defect and its place in the set has to be re-derived.`,
+      nameDependentRed(label),
+      `Removing the format step left "${label}" with nothing red that the other probes do not ` +
+        `already red, so that probe cannot detect the name-dependent defect and its place in the ` +
+        `set has to be re-derived.`,
     ).not.toEqual([]);
   });
 
@@ -340,8 +532,8 @@ describe("counterfactual: the same generator without its format step", () => {
     // than on constructed extremes: measuring the short end clears nothing about the long end, and
     // the reverse. If these ever overlap, one probe would have sufficed and the reason there are
     // two has changed, so re-derive rather than deleting an end to get green.
-    const short = red.get("shortest-real") as string[];
-    const long = red.get("longest-real") as string[];
+    const short = nameDependentRed("shortest-real");
+    const long = nameDependentRed("longest-real");
     expect(short.filter((path) => long.includes(path))).toEqual([]);
   });
 
@@ -349,6 +541,141 @@ describe("counterfactual: the same generator without its format step", () => {
     // Same segment length as the longest real target, hyphens instead of letters. The generator
     // drops the hyphens when it builds the identifier, so this holds the length axis fixed and
     // moves the identifier axis alone. A probe set indexed on segment length would miss it.
-    expect(red.get("longest-real-hyphenated")).not.toEqual(red.get("longest-real"));
+    expect(nameDependentRed("longest-real-hyphenated")).not.toEqual(
+      nameDependentRed("longest-real"),
+    );
   });
+
+  it.each(Object.keys(PROBES))(
+    "%s: formatting docs-content on emit does not weaken the emitted doc/code-agreement gate",
+    (label) => {
+      // Pointing the emitted globs at the whole tree points prettier at `docs-content/` for the
+      // first time, and prettier formats the TypeScript INSIDE a fence. That is a rewriter aimed at
+      // the corpus the emitted `test/docs-content.test.ts` runs: a snippet dropped, or an
+      // `<expr>; // => <value>` line rewrapped so the marker no longer sits on the same line as its
+      // expression, silently turns an assertion into a statement that merely executes. The gate
+      // would stay green while checking less, which is the failure mode this whole file is about.
+      //
+      // Measured against the unformatted tree next door rather than argued: same probe, same
+      // generator, format step removed. Snippet count, snippet bodies at every real name length,
+      // and the assertion count at every probe are read with the SHIPPED extractor and rewriter.
+      const before = docSnippetShape(unformattedTree.get(label) as string);
+      const after = docSnippetShape(emitted.get(label) as string);
+      expect(
+        before.length,
+        "the template ships no runnable snippet, so this proves nothing about " +
+          "the gate; re-derive it or delete it",
+      ).toBeGreaterThan(0);
+      expect(after.map((s) => s.assertions)).toEqual(before.map((s) => s.assertions));
+    },
+  );
+
+  it("leaves the runnable snippets byte-identical at every name length the generator is really asked for", () => {
+    // The stronger statement, and it only holds at the real lengths: at the `saturating` probe a
+    // 100-character identifier pushes the call past `printWidth` and prettier rewraps it, which is
+    // correct and is why the case above asserts the assertion count rather than the bytes. The real
+    // targets come from `drift-manifest.json`, so this tracks the ecosystem instead of a list here.
+    for (const label of ["shortest-real", "longest-real", "longest-real-hyphenated"]) {
+      const before = docSnippetShape(unformattedTree.get(label) as string).map((s) => s.code);
+      const after = docSnippetShape(emitted.get(label) as string).map((s) => s.code);
+      expect(after, `formatting on emit rewrote a runnable snippet at "${PROBES[label]}"`).toEqual(
+        before,
+      );
+    }
+  });
+});
+
+describe("counterfactual: the REAL generator over the pre-fix emitted globs", () => {
+  /**
+   * The negative control for the two coverage cases, and the only thing that stops them being
+   * tautologies. The format step is left exactly as it ships; only the template's own `format` /
+   * `format:check` are wound back to the four path-scoped patterns it carried before this change.
+   * The generator derives what to format from those scripts, so winding them back reproduces the
+   * defect end to end instead of describing it.
+   *
+   * The pre-fix globs are a literal here on purpose: they are a record of one commit's bytes, not a
+   * census, so they cannot go stale the way a written-down file list would. Every file set the
+   * assertions compare is still derived, and the patch is asserted to have changed the manifest, so
+   * a later edit to the shipped script cannot quietly turn this into a second test of the fixed one.
+   *
+   * ONE PROBE, DELIBERATELY. What this measures is which PATHS the globs reach; the emitted tree
+   * carries no name-derived filenames and the case next door asserts the reached census is identical
+   * across all five probes, so a second probe here would re-measure a fixed set.
+   */
+  const PRE_FIX_GLOBS =
+    '"src/**/*.{ts,md}" "test/**/*.ts" "scripts/**/*.{ts,mjs}" "*.{json,md,yml}"';
+
+  let workspace: string;
+  let dir: string;
+
+  beforeAll(() => {
+    workspace = mkdtempSync(join(tmpdir(), "cosyte-scaffold-prefix-globs-"));
+    symlinkSync(join(REPO_ROOT, "node_modules"), join(workspace, "node_modules"), "dir");
+    mkdirSync(join(workspace, "scripts"), { recursive: true });
+    const template = join(workspace, "scripts", "parser-template");
+    cpSync(TEMPLATE, template, { recursive: true });
+    const scaffolder = join(workspace, "scripts", "scaffold-parser.mjs");
+    cpSync(SCAFFOLDER, scaffolder);
+
+    const manifestPath = join(template, "package.json");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+      scripts: Record<string, string>;
+    };
+    const shipped = { ...manifest.scripts };
+    manifest.scripts["format"] = `prettier --write ${PRE_FIX_GLOBS}`;
+    manifest.scripts["format:check"] = `prettier --check ${PRE_FIX_GLOBS}`;
+    expect(
+      [manifest.scripts["format"], manifest.scripts["format:check"]],
+      "the template already carries the pre-fix globs, so this counterfactual is reconstructing " +
+        "nothing and would pass vacuously",
+    ).not.toEqual([shipped["format"], shipped["format:check"]]);
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, undefined, 2)}\n`);
+
+    const result = scaffold("probe", join(workspace, "emitted"), scaffolder);
+    if (result.code !== 0) {
+      throw new Error(`pre-fix-glob generator failed (exit ${result.code}):\n${result.out}`);
+    }
+    dir = result.dir;
+  }, SPAWN_TIMEOUT * 2);
+
+  afterAll(() => {
+    rmSync(workspace, { recursive: true, force: true });
+  });
+
+  it(
+    "leaves emitted files the formatter is never pointed at",
+    async () => {
+      const unreached = await unreachedByFormatCheck(dir);
+      expect(
+        unreached,
+        "The pre-fix globs reached every emitted file, so the coverage case above clears a hole " +
+          "that was never there and proves nothing. Re-derive the control.",
+      ).not.toEqual([]);
+    },
+    SPAWN_TIMEOUT,
+  );
+
+  it(
+    "hands the new repo an unformatted file, which is the harm and not merely the gap",
+    async () => {
+      const dirty = await unformattedParseableFiles(dir);
+      expect(
+        dirty,
+        "The pre-fix globs left nothing unformatted, so the gap they leave is currently harmless " +
+          "and the second coverage case above is measuring nothing.",
+      ).not.toEqual([]);
+    },
+    SPAWN_TIMEOUT,
+  );
+
+  it(
+    "still passes its OWN format:check, which is why the hole was invisible",
+    () => {
+      // Not a restatement of the two cases above: it is the reason they had to exist. The emitted
+      // repo's gate is green on the pre-fix globs, at the same moment it is holding an unformatted
+      // file. Nothing inside the check can report that.
+      expect(formatCheck(dir).code).toBe(0);
+    },
+    SPAWN_TIMEOUT,
+  );
 });
