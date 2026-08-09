@@ -1858,9 +1858,11 @@ describe("net 4: the manifest PNPM would publish, which is not the manifest on d
   it(
     "`publishConfig.directory`: RED when the subtree pnpm publishes names a path it does not carry",
     () => {
-      // pnpm publishes `<directory>/package.json` VERBATIM and packs that subtree.
-      // Measured: the root's other overrides do not apply at all in this mode, which
-      // is exactly the rule a merge written inside the gate would have had to guess.
+      // pnpm packs the `<directory>` subtree and publishes ITS manifest. Measured, in
+      // two runs: the ROOT's other overrides are not applied in this mode, and the
+      // SUBTREE's own `publishConfig` then is. That two-level rule is exactly what a
+      // merge written inside the gate would have had to guess, and reading the
+      // tarball gets both levels for free.
       const dir = overrideFixture(
         "directory-red",
         { publishConfig: { directory: "sub", main: "./never-applied.js" } },
@@ -1888,13 +1890,54 @@ describe("net 4: the manifest PNPM would publish, which is not the manifest on d
       // The root's own override is NOT what reds: pnpm never applied it. Naming it
       // here would be the gate claiming a catch it did not make.
       expect(r.out).not.toContain("./never-applied.js");
-      // AND THE MESSAGE MUST NOT NAME THE OVERRIDE CAUSE EITHER. `directory` is not
-      // an override: the subtree's own manifest is published verbatim, so "fix the
-      // publishConfig override" sends the reader to the wrong file. The failure has
-      // a second shape for exactly this case, and this is what pins it.
-      expect(r.out).toContain("publishes sub/package.json VERBATIM");
-      expect(r.out).toContain("Fix it there");
+      // AND THE MESSAGE MUST NAME NO CAUSE AT ALL. A draft of this slice gave the
+      // failure a second shape for `directory`, asserting pnpm ships the subtree's
+      // manifest VERBATIM. That is false - the subtree's OWN publishConfig is applied
+      // too - and this test pinned the false half. Both the branch and its assertions
+      // were DELETED rather than replaced with a third shape: the gate did not measure
+      // which level caused the red, so it names the document and no cause.
+      expect(r.out).not.toContain("VERBATIM");
       expect(r.out).not.toContain("Fix the publishConfig override");
+      expect(r.out).toContain("net 3 graded the one at");
+
+      // THE SECOND LEVEL OF THE RULE, MEASURED HERE BECAUSE THE DOCBLOCK NOW CLAIMS
+      // IT. The root's overrides are dropped in directory mode, but the SUBTREE's own
+      // publishConfig is applied on top of the subtree manifest. Believing otherwise
+      // is what produced the deleted message shape. Pack-only, never gated.
+      const twoLevel = join(root, "net4-directory-two-level");
+      writePkg(
+        twoLevel,
+        {
+          name: "attw-gate-fixture-net4-two-level",
+          version: "1.0.0",
+          main: "./root.js",
+          files: ["root.js", "sub"],
+          publishConfig: { directory: "sub", main: "./never-applied.js" },
+        },
+        { "root.js": "module.exports.a = 1;\n" },
+      );
+      mkdirSync(join(twoLevel, "sub"), { recursive: true });
+      writeFileSync(
+        join(twoLevel, "sub", "package.json"),
+        JSON.stringify({
+          name: "attw-gate-fixture-net4-two-level",
+          version: "1.0.0",
+          main: "./on-disk.js",
+          files: ["built.js"],
+          publishConfig: { main: "./overridden-by-subtree.js" },
+        }),
+      );
+      writeFileSync(join(twoLevel, "sub", "built.js"), "module.exports.a = 1;\n");
+      const packed = packInto("pnpm", twoLevel);
+      try {
+        const published = packedManifest(packed.tgz);
+        // The subtree's own override won; the subtree's on-disk value did not survive;
+        // the ROOT's override never appeared.
+        expect(published["main"]).toBe("./overridden-by-subtree.js");
+        expect(published["publishConfig"]).toBeUndefined();
+      } finally {
+        rmSync(packed.dest, { recursive: true, force: true });
+      }
     },
     SPAWN_TIMEOUT,
   );
@@ -2047,11 +2090,18 @@ describe("net 4: the manifest PNPM would publish, which is not the manifest on d
       // publishConfig OBJECT", and it is accurate rather than merely narrower:
       // measured, pnpm ignores a non-object publishConfig, so there really is no
       // override to grade and the skip is the right behaviour.
-      const dir = overrideFixture("publishconfig-string", { publishConfig: "not-an-object" });
+      const dir = overrideFixture("publishconfig-string", {
+        main: "./index.cjs",
+        publishConfig: "not-an-object",
+      });
       const byPnpm = packInto("pnpm", dir);
       try {
-        // pnpm applied nothing: the published manifest still names the on-disk paths.
-        expect(packedManifest(byPnpm.tgz)["main"]).toBeUndefined();
+        // pnpm applied nothing: the published manifest still names the on-disk path.
+        // ASSERTED ON A KEY THE FIXTURE ACTUALLY DECLARES. An earlier draft asserted
+        // `main` was `undefined` on a fixture that declared no `main`, which is
+        // `undefined` vs `undefined` and could not have failed.
+        expect(packedManifest(byPnpm.tgz)["main"]).toBe("./index.cjs");
+        expect(packedManifest(byPnpm.tgz)["publishConfig"]).toBe("not-an-object");
       } finally {
         rmSync(byPnpm.dest, { recursive: true, force: true });
       }

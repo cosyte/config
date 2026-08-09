@@ -67,11 +67,13 @@ a summary.
   `tsup` emits JS in one pass and declarations in a later one, so **every** build has a window where
   `dist/` holds `.mjs`/`.cjs` and no `.d.ts`; a concurrent build or `clean` in the same working tree
   lands `attw` in it. The gate must be able to say its own inputs were missing, whatever removed them.
-  `scripts/attw.mjs` carries **three nets that catch different things** (a structural preflight over
+  `scripts/attw.mjs` carries **four nets that catch different things** (a structural preflight over
   what `package.json` promises, a post-check that forces `--format json` and asserts
-  `analysis.types.kind === "included"`, and a tarball check that reads `npm pack --dry-run --json`
-  and requires every declared path to be in it), plus an **argument ALLOW-LIST**, because a deny-list
-  of the spellings that blind a gate bought exactly one more evasion per round.
+  `analysis.types.kind === "included"`, a tarball check that reads `npm pack --dry-run --json`
+  and requires every declared path to be in it, and a fourth that reads the manifest **pnpm** would
+  publish out of a tarball `pnpm pack` wrote, because pnpm applies `publishConfig` and `npm pack`
+  does not), plus an **argument ALLOW-LIST**, because a deny-list of the spellings that blind a gate
+  bought exactly one more evasion per round.
   **THE RULES ARE STATED ONCE, IN `scripts/attw.mjs`'s OWN DOCBLOCK, AND THIS BULLET IS A POINTER.**
   Read them there. The previous shape of that guard was described in several committed files at once
   and every drift between the copies was a claim edited in some of them and not the others, so do not

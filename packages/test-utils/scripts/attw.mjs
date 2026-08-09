@@ -205,14 +205,24 @@
  *
  *      THAT CHOICE IS THE WHOLE DESIGN, AND SYNTHESISING THE MERGE WAS THE
  *      ALTERNATIVE. Applying `publishConfig` over the manifest in this file would be
- *      shorter, and it would have been WRONG in a way measurement caught and
- *      guessing would not: under `publishConfig.directory` pnpm does NOT apply the
- *      root's other overrides at all. It publishes `<directory>/package.json`
- *      verbatim and packs that subtree. Measured on a package with
- *      `publishConfig: { directory: "dist", main: "./absent-in-dist.js" }` whose
- *      `dist/package.json` says `main: "./built.js"`: the published manifest reads
- *      `./built.js`, and `./absent-in-dist.js` never appears. Reading the tarball
- *      gets that for free; a merge in this file would have had to know it.
+ *      shorter, and `publishConfig.directory` is the measurement that says it would
+ *      also have been wrong. TWO SEPARATE RUNS, AND THE SECOND ONE CORRECTED THE
+ *      FIRST:
+ *
+ *        - The ROOT's other overrides are NOT applied. On
+ *          `publishConfig: { directory: "dist", main: "./absent-in-dist.js" }` over a
+ *          `dist/package.json` saying `main: "./built.js"`, the published manifest
+ *          reads `./built.js` and `./absent-in-dist.js` never appears.
+ *        - But the SUBTREE's own `publishConfig` IS applied, and an earlier draft of
+ *          this paragraph said the subtree manifest ships "verbatim", which is FALSE.
+ *          On a `sub/package.json` carrying `main: "./on-disk.js"` and
+ *          `publishConfig: { main: "./overridden-by-subtree.js" }`, the published
+ *          manifest reads `./overridden-by-subtree.js` and carries no
+ *          `publishConfig`.
+ *
+ *      So the rule is TWO-LEVEL, and reading the tarball gets both levels for free
+ *      while a merge written here would have had to know each of them. The gate
+ *      never states which level produced a red, because it did not measure that.
  *
  *      IT RUNS ONLY WHEN `publishConfig` IS PRESENT, and that is a cost decision
  *      with a measured floor, not an optimisation. A real `pnpm pack` costs
@@ -1307,40 +1317,34 @@ if (pkg.publishConfig !== null && typeof pkg.publishConfig === "object") {
   if (published.error) {
     die(
       `this gate could not read the manifest pnpm would publish, so it could not check\n` +
-        `  the paths that manifest declares. package.json sets publishConfig, which pnpm\n` +
-        `  applies as publish-time OVERRIDES, so the manifest nets 1 and 3 graded is not\n` +
-        `  the one that would be published. Refused rather than passed: an answer this\n` +
-        `  net could not read is not a green one. ${published.error}`,
+        `  the paths that manifest declares. package.json sets publishConfig, so the\n` +
+        `  manifest that would be published is not the one nets 1 and 3 graded. Refused\n` +
+        `  rather than passed: an answer this net could not read is not a green one.\n` +
+        `  ${published.error}`,
     );
   }
   const publishedDeclared = declaredArtifacts(published.manifest);
   const missing = publishedDeclared.filter((rel) => !published.files.has(rel.replace(/^\.\//, "")));
   if (missing.length > 0) {
-    // WHY THIS MESSAGE HAS TWO SHAPES. `publishConfig.directory` is not an override
-    // at all: pnpm publishes that subtree's OWN manifest verbatim and does not apply
-    // the root's other publishConfig keys. Printing the override wording there would
-    // name a cause this net did not establish and send the reader to the wrong file,
-    // which is the "sentence promising more than the code delivers" defect wearing a
-    // remedy. Both halves say only what was read out of the tarball.
-    const directory = pkg.publishConfig.directory;
+    // THIS MESSAGE SAYS ONLY WHAT WAS READ, AND IT COST TWO ROUNDS TO GET THERE.
+    // It used to end by naming a cause: "pnpm applies publishConfig as overrides, so
+    // this is not the manifest on disk - fix the override." A second shape was then
+    // added for `publishConfig.directory` claiming pnpm ships that subtree's manifest
+    // VERBATIM. BOTH were wrong somewhere, because the rule is two-level: the root's
+    // other overrides are dropped in directory mode, AND the subtree's own
+    // publishConfig is then applied. Whichever level caused a red, this net did not
+    // measure which, so it names neither and points at the document instead. See net
+    // 4 in the docblock for both measurements.
     die(
       `the manifest PNPM WOULD PUBLISH declares paths its tarball would NOT carry:\n` +
         missing.map((rel) => `    ${rel}\n`).join("") +
-        `\n  This is not net 3 repeating itself. ` +
-        (typeof directory === "string"
-          ? `package.json sets publishConfig.directory, so pnpm\n` +
-            `  publishes ${directory}/package.json VERBATIM and packs that subtree instead of\n` +
-            `  this one. The root's other publishConfig keys are NOT applied in that mode, so\n` +
-            `  the manifest above is ${directory}/package.json and the tarball is ${directory}'s.\n` +
-            `  Fix it there, or pack what it names.\n`
-          : `package.json sets publishConfig, and pnpm\n` +
-            `  applies it as publish-time overrides while \`npm pack\` leaves it alone, so the\n` +
-            `  manifest above is not the manifest on disk.\n` +
-            `  Fix the publishConfig override, or pack what it names.\n`) +
-        `  Both documents were read out of a tarball \`pnpm pack\` just wrote, so nothing\n` +
-        `  here is predicted. THIS ORG PUBLISHES WITH pnpm, so that is the document that\n` +
-        `  would ship: an installer would get a package whose own manifest points at paths\n` +
-        `  that are not in it.\n`,
+        `\n  This is not net 3 repeating itself: package.json sets publishConfig, so the\n` +
+        `  manifest above is the one pnpm would publish, and net 3 graded the one at\n` +
+        `  ./package.json. Both the manifest and the file list were read out of a tarball\n` +
+        `  \`pnpm pack\` just wrote, so nothing here is predicted.\n` +
+        `  THIS ORG PUBLISHES WITH pnpm, so that is the document that would ship: an\n` +
+        `  installer would get a package whose own manifest points at paths that are not\n` +
+        `  in it.\n`,
     );
   }
   net4 = { declared: publishedDeclared.length };

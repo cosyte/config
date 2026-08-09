@@ -124,12 +124,15 @@ no package, so entries here are **dated** rather than versioned.
   - **IT ASKS pnpm RATHER THAN MODELLING IT, AND THAT WAS THE DESIGN DECISION.** Net 4 runs a real
     `pnpm pack` into a temp directory outside the package and reads BOTH the manifest and the entry
     list out of the tarball pnpm just wrote. Synthesising the merge in the gate was the alternative
-    and would have been **wrong in a way measurement caught and guessing would not**: under
-    `publishConfig.directory` pnpm does not apply the root's other overrides at all - it publishes
-    `<directory>/package.json` VERBATIM and packs that subtree. Measured with
+    and would have been **wrong in a way measurement caught and guessing would not**, because
+    `publishConfig.directory` makes the rule TWO-LEVEL. Measured in two runs, the second correcting
+    the first: (a) the ROOT's other overrides are not applied - with
     `publishConfig: { directory: "dist", main: "./absent-in-dist.js" }` over a `dist/package.json`
-    saying `main: "./built.js"`: the published manifest reads `./built.js` and the root override
-    never appears.
+    saying `main: "./built.js"`, the published manifest reads `./built.js` and the root override
+    never appears; (b) but the SUBTREE's own `publishConfig` **is** applied - with
+    `sub/package.json` carrying `main: "./on-disk.js"` and
+    `publishConfig: { main: "./overridden-by-subtree.js" }`, the published manifest reads
+    `./overridden-by-subtree.js`. Reading the tarball gets both levels for free.
   - **THE `directory` CASE IS PINNED IN BOTH DIRECTIONS, BECAUSE THE GREEN ONE IS THE FALSE RED A
     WIDER FIELD SET WOULD HAVE BOUGHT.** A correctly-packed `publishConfig.directory` package is
     GREEN through net 4 and would have been RED through a widened `declaredArtifacts()`, which would
@@ -158,8 +161,9 @@ no package, so entries here are **dated** rather than versioned.
     which the real entry is literally named `PaxHeader`. Both lengths are the suite's own
     fixtures. Read `name` alone and a correctly packed file is
     invisible. Both are handled and pinned, with the ARCHIVE's own bytes asserted by a walker that
-    is not the gate's, so the green cannot be green for the wrong reason. A GNU `LongLink` record is
-    handled on the same terms and is named as a safeguard rather than a reproduction.
+    is not the gate's, so the green cannot be green for the wrong reason. GNU's `LongName` record is
+    handled on the same terms, `LongLink` is ignored without clearing a pending name, and both are
+    named as safeguards rather than reproductions.
   - **REFUSED, NEVER SKIPPED**: a `pnpm pack` that cannot be run or read reds, with the reason. An
     answer this net could not read is not a green one.
   - **`publishConfig` CAME OFF `KNOWN_UNREAD_FIELDS`, AND THE PROBE CAME OFF WITH IT.** That is the
@@ -173,7 +177,7 @@ no package, so entries here are **dated** rather than versioned.
     with it; the three net 3 cases died on a `ReferenceError` that reads as a plain exit 1. Caught
     by those tests, fixed with an explicit `// ---- END Net 3` marker.
   - **COST, MEASURED RATHER THAN ASSUMED:** `attw-gate.test.ts` goes 62 tests / 122.7 s -> 73 tests
-    / 156.3 s on this box. The slowest single case is 7.9 s, nowhere near the 120 s per-test
+    / 158.5 s on this box. The slowest single case is 7.9 s, nowhere near the 120 s per-test
     timeout.
   - Both copies of the wrapper (`packages/test-utils/scripts/` and `scripts/parser-template/scripts/`)
     stay byte-identical, so every newly scaffolded parser inherits this.
@@ -207,6 +211,28 @@ no package, so entries here are **dated** rather than versioned.
     - Also carried: the recursion argument covers `prepublishOnly` **and nothing else** -
       `prepack`/`prepare`/`postpack` do fire, so the docblock now names the hook it settled
       instead of implying it settled the question.
+  - **🩺 AND THE GATE REFUTED THE FIRST REMEDY, ON THE ONE FINDING THAT MATTERED.** `gate-refuter`
+    pass 2 (remedy diff only) returned **`REFUTED`**: one `INTRODUCED` **major**, two minors. The
+    major is worth recording because it is the arc's own defect **committed inside the commit that
+    claimed to end it** - the pass-1 remedy answered a claim defect by **adding a branch**, and the
+    branch asserted something false. `publishConfig.directory` does not publish
+    `<dir>/package.json` "VERBATIM": the **subtree's own `publishConfig` is applied to it**
+    (measured - `main: "./on-disk.js"` plus `publishConfig: { main: "./overridden-by-subtree.js" }`
+    publishes `./overridden-by-subtree.js`). So the message denied the cause in exactly the
+    configuration this item exists to catch, and a test pinned the false half.
+    - **The remedy is DELETION.** The second message shape and its assertions are gone; the single
+      surviving message **names no cause at all**, because the gate did not measure which level
+      produced the red. It says which document it read and points at `./package.json` as the one
+      net 3 graded. No third shape was added - that is the move ADR 0027 §"Why deletion-only" names.
+    - The two-level rule is now stated in the docblock **and pinned by a pack-only measurement**,
+      rather than asserted in prose that nothing compares to the tool.
+    - Two minors, both also corrected rather than argued: the string-`publishConfig` test asserted
+      `undefined` vs `undefined` (**the same vacuity it fixed four lines away**) and now compares a
+      key the fixture declares; and the `LongLink` sentence contradicted its own correction 43 lines
+      later in this entry.
+    - `scripts/parser-template/CLAUDE.md` still said **three nets**. It is a pointer bullet whose own
+      text warns that the rules are stated once in the gate's docblock - and it had drifted exactly
+      as that sentence warns.
   - **NOT PORTED HERE:** the sibling repos carry their own already-divergent `scripts/attw.mjs`.
     Porting is their work, not a widening of this slice.
 
