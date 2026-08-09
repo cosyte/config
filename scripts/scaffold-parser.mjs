@@ -157,11 +157,17 @@ function toPascal(name) {
  * exactly `"`, `\` and raw U+0000-U+001F) and TypeScript (only LF, CR, U+2028 and U+2029 end a line
  * comment; only a block-comment terminator ends a block one). It is NOT complete for Markdown, and
  * that is deliberate rather than overlooked: `Bad *emph* Title` is accepted, and prettier-on-emit
- * normalises it to `Bad _emph_ Title` in whichever emitted Markdown its globs reach, while
- * `package.json` and the Markdown they do not reach keep the raw bytes. That divergence is
- * PRE-EXISTING - it arrived with `#57`'s formatting step, is identical on this change's base, and
- * produces a repo that builds, publishes and gates green - so it is named here rather than fixed by
- * widening the rules, which would start refusing titles on cosmetic grounds.
+ * normalises it to `Bad _emph_ Title` wherever it lands in Markdown PROSE, while `package.json`,
+ * the TypeScript comments and the text inside a fenced code block keep the raw bytes. That
+ * divergence is PRE-EXISTING - it arrived with `#57`'s formatting step and produces a repo that
+ * builds, publishes and gates green - so it is named here rather than fixed by widening the rules,
+ * which would start refusing titles on cosmetic grounds.
+ *
+ * The sentence above USED to say "in whichever emitted Markdown its globs reach", which described a
+ * split that no longer exists: the emitted globs are now the whole tree, so every emitted Markdown
+ * file is reached and the surviving split is prose-vs-code, not file-vs-file. Measured on
+ * `--title "Bad *emph* Title"`: `docs-content/intro.md` moved from raw to normalised, and
+ * `docs-content/quickstart.md` now holds BOTH - normalised in its prose, raw inside its `ts` fence.
  */
 function firstUnsafeInTitle(title) {
   const rules = [
@@ -316,11 +322,20 @@ function copyTree(srcDir, destDir, tokens) {
  * after substitution, so the emitted bytes are a fixed point of prettier for EVERY name at every
  * length, with nothing here to keep in sync with the template's line lengths.
  *
+ * NOT EVERY UNFORMATTED FILE DEPENDS ON THE NAME, AND THE ONE THAT DOES NOT IS THE REASON THE
+ * TEMPLATE'S OWN GLOBS HAD TO CHANGE. `docs-content/quickstart.md` is unformatted at EVERY name
+ * length; it stayed invisible while the emitted `format` / `format:check` were four path-scoped
+ * globs that did not include `docs-content/`, so the emitted tree was handed over carrying it and
+ * the check reported clean by never looking. The template's scripts are now a single whole-tree
+ * glob, which is what makes this step reach it.
+ *
  * WHAT IT IS POINTED AT IS DERIVED FROM THE EMITTED REPO, NEVER LISTED HERE. The globs come out of
  * the emitted `package.json`'s own `format` script, which is the script the new repo will be
  * checked with. A list of paths in this file would be a claim about the template, and it would go
  * stale the first time the template grows a directory. Deriving it means the set formatted on emit
- * and the set checked in CI cannot disagree.
+ * and the set checked in CI cannot disagree. It does NOT by itself mean either set is the whole
+ * emitted tree - `test/scaffold-format.test.ts` derives that census separately and asserts the gap
+ * is empty, because a glob can agree with itself and still miss a directory.
  */
 function resolveFormatter() {
   // Resolved BEFORE anything is copied, so a missing `pnpm install` fails with an empty disk rather
