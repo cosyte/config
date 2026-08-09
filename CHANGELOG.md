@@ -147,9 +147,19 @@ no package, so entries here are **dated** rather than versioned.
     Not closed in this slice, and the reason is the SHAPE of the fix: net 3's authority is
     `npm pack`, which is the wrong document for this question. Closing it means grading the manifest
     pnpm WOULD write, a **second source of truth**, not another key in `declaredArtifacts()`.
-    Widening the field set would buy false reds instead. `PRE-EXISTING` (identical at `fe2f427`,
+    Widening the field set is the wrong move for a reason worth stating precisely, because the
+    short version is not true of every key: for a plain override the target has to be packed
+    anyway, so a `packed.files.has()` on it would be a TRUE red and what widening gets wrong is
+    the DOCUMENT it grades; for `publishConfig.directory` pnpm packs a different subtree entirely
+    and every path this net holds goes wrong at once. `PRE-EXISTING` (identical at `fe2f427`,
     whose four-name disclosure omitted it too), so it is named on every run and left as a slice of
     its own.
+  - **AND IT PRINTS ON EVERY RUN, INCLUDING THE ZERO-DECLARED ONE.** The sentence sat inside the
+    "all N paths are packed" branch for one commit while the docblock claimed it printed every
+    run. A package that declares its entry point ONLY through a `publishConfig` override has no
+    relative artifact path of its own, so it lands in the other branch: exactly the shape the
+    disclosure exists to warn about, and exactly where it was missing. Moved out of the branch and
+    pinned by a test on a fixture of that shape.
   - **THE DISCLOSURE IS NOW ONE STRING, AND THE SUITE COMPARES IT TO THE GATE RATHER THAN TO ANOTHER
     COPY OF ITSELF.** `KNOWN_UNREAD_FIELDS` in `attw.mjs` is the single copy of that claim; the pass
     line prints it, and `attw-gate.test.ts` parses the literal out of the shipped file, builds a
@@ -204,7 +214,9 @@ no package, so entries here are **dated** rather than versioned.
     - **▶ SUPERSEDED WITHIN `[Unreleased]` BY THE ENTRY ABOVE, AND LEFT STANDING RATHER THAN
       REWRITTEN.** The later slice read `man`, `unpkg` and `jsdelivr`, so "the four are still
       unread" and "a test pins that the four really are still unread" are **no longer true at
-      head**: one field is unread, and the test that pins it derives its names from the gate. The
+      head**: exactly one of those four (`directories`) is still unread, the gate's own
+      known-unread set is `directories` and `publishConfig`, and the test that pins it derives
+      its names from the gate rather than from any sentence. The
       link-time reason quoted here is the one that slice retired, because `bin` is link-time too
       and is read. This bullet is history and reads as history; the entry above is what is true.
   - **THE `./` EXCLUSION IS A LEADING DOT, NOT A LEADING `./`, AND THE FIRST CORRECTION SAID `./`.**

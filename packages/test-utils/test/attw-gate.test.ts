@@ -1534,14 +1534,20 @@ describe("the field set nets 1 and 3 share: `exports` is not the only field that
         Object.keys(UNREAD_PROBES).sort(),
         "every KNOWN_UNREAD_FIELDS name needs a probe here, and every probe a name",
       ).toEqual([...names].sort());
-      // AND EACH PROBE MUST ACTUALLY DECLARE THROUGH ITS OWN FIELD. Key-set equality
-      // alone would let a future `foo: {}` pass green while proving nothing, which is
-      // the vacuous-guard shape this whole block exists to avoid.
+      // AND EACH PROBE MUST ACTUALLY DECLARE AN ABSENT PATH THROUGH ITS OWN FIELD.
+      // Key-set equality alone would let a future `foo: {}` pass green while proving
+      // nothing, and requiring the key alone would let `foo: { foo: {} }` do the same
+      // one level down. Both are the vacuous shape, so the probe must also carry at
+      // least one `./absent...` target: that path going unseen IS the claim.
       for (const name of names) {
         expect(
           Object.keys(UNREAD_PROBES[name] ?? {}),
           `the ${name} probe must set ${name}`,
         ).toEqual([name]);
+        expect(
+          JSON.stringify(UNREAD_PROBES[name]),
+          `the ${name} probe must declare at least one ./absent... path through ${name}`,
+        ).toMatch(/"\.\/absent[^"]*"/);
       }
 
       const dir = declaredOnlyVia(
@@ -1554,7 +1560,38 @@ describe("the field set nets 1 and 3 share: `exports` is not the only field that
       expect(r.out).toContain("all 4 relative artifact path(s) package.json declares are in the");
       // And the sentence says exactly which fields, in the gate's own words.
       expect(r.out).toContain(`Known-unread: ${names.join(", ")}.`);
-      expect(r.out).toContain("It does NOT cover every field that can name a file");
+      expect(r.out).toContain("does NOT cover every field that can name a file");
+    },
+    SPAWN_TIMEOUT,
+  );
+
+  it(
+    "THE DISCLOSURE PRINTS ON THE ZERO-DECLARED RUN TOO, WHICH IS THE RUN IT IS MOST FOR",
+    () => {
+      // The sentence sat inside the "all N paths are packed" branch for one commit
+      // while the docblock said it printed every run. A package that declares its
+      // entry point ONLY through a `publishConfig` override has no relative artifact
+      // path of its own, so it lands in the other branch: exactly the shape the
+      // known-unread sentence exists to warn about, and exactly where it went
+      // missing.
+      const dir = join(root, "zero-declared");
+      writePkg(
+        dir,
+        {
+          name: "attw-gate-fixture-zero-declared",
+          version: "1.0.0",
+          publishConfig: { main: "./absent-override.js" },
+          files: ["index.js", "index.d.ts"],
+        },
+        {
+          "index.js": "module.exports.a = 1;\n",
+          "index.d.ts": "export declare const a: number;\n",
+        },
+      );
+      const r = runWrapper(dir);
+      expect(r.code, r.out).toBe(0);
+      expect(r.out).toContain("declares no relative artifact paths");
+      expect(r.out).toContain(`Known-unread: ${knownUnreadFields().join(", ")}.`);
     },
     SPAWN_TIMEOUT,
   );

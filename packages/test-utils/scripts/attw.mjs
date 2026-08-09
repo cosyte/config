@@ -295,9 +295,18 @@
  * size. Net 3 grades `npm pack --dry-run --json`, which is the wrong document for
  * this question: closing it means grading the manifest pnpm WOULD write, which is
  * a second source of truth for what the package declares, not another key in
- * `declaredArtifacts()`. Widening the field set would produce false reds instead,
- * since an override target is resolved against a tarball this net never reads. It
- * is named in `KNOWN_UNREAD_FIELDS`, so the pass line says it out loud on every
+ * `declaredArtifacts()`.
+ *
+ * BE PRECISE ABOUT WHY WIDENING IS THE WRONG MOVE, BECAUSE THE SHORT VERSION IS NOT
+ * TRUE OF EVERY KEY. For a plain override (`publishConfig.main` and its friends) the
+ * target has to be packed anyway, so a `packed.files.has()` on it would be a TRUE
+ * red rather than a false one; what widening gets wrong THERE is the document it
+ * grades, since the published manifest is not the one on disk. For
+ * `publishConfig.directory` it is worse: pnpm packs a different subtree entirely, so
+ * every path this net holds goes wrong at once, and that one really would be false
+ * reds. Either way the fix is a second source of truth, not a wider key list.
+ *
+ * It is named in `KNOWN_UNREAD_FIELDS`, so the pass line says it out loud on every
  * run, and a probe pins that it really is unread.
  *
  * ▶ THE DISCLOSURE IS NOW ONE STRING, READ BY THE PASS LINE AND BY THE SUITE.
@@ -996,9 +1005,15 @@ process.stdout.write(
       : `  all ${declared.length} relative artifact path(s) package.json declares are in the\n` +
         `  tarball npm would publish (net 3). That set excludes wildcard subpaths, absolute\n` +
         `  paths, browser-map keys, package.json itself, and leaves of exports, imports and\n` +
-        `  browser maps that do not begin with a dot; and it is presence, not resolution.\n` +
-        `  It does NOT cover every field that can name a file. Known-unread: ` +
-        `${KNOWN_UNREAD_FIELDS.join(", ")}.\n`) +
+        `  browser maps that do not begin with a dot; and it is presence, not resolution.\n`) +
+    // THE DISCLOSURE SITS OUTSIDE THE BRANCH ABOVE, SO IT PRINTS ON EVERY RUN, and
+    // that is not cosmetic. A package that declares everything through
+    // `publishConfig` overrides has no relative artifact path of its OWN and lands
+    // in the zero-declared branch, which is the run this sentence is most for. It
+    // sat inside the else-branch for one commit while the docblock claimed it
+    // printed every run.
+    `  The field set does NOT cover every field that can name a file. Known-unread: ` +
+    `${KNOWN_UNREAD_FIELDS.join(", ")}.\n` +
     (kinds.length === 0
       ? `  attw exited 0 and reported no problems.\n`
       : `  attw exited 0, but it REPORTED ${kinds.length} problem kind(s) that its exit code\n` +
