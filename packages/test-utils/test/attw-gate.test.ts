@@ -58,6 +58,16 @@
  *     all packed and whose types resolve wrongly still passes under such a config.
  *     That case is a test so a future draft of the prose cannot quietly widen the
  *     claim, which is a thing this file's docblock has already done twice.
+ * 10. NET 4, WHICH GRADES A DIFFERENT DOCUMENT AND NOT A WIDER FIELD SET. Nets 1
+ *     and 3 both read the manifest ON DISK; pnpm applies `publishConfig` as
+ *     publish-time overrides and publishes a REWRITTEN one, and `npm pack` does
+ *     not. This org publishes with pnpm. The block below pins the packer asymmetry
+ *     itself, the red-before against a copy of the gate with net 4 sliced out, the
+ *     `publishConfig.directory` case in BOTH directions (it is the one where a
+ *     wider field set would have produced false reds), the measured ground for
+ *     skipping the net when there is no `publishConfig`, the two long-path tar
+ *     escapes that would otherwise be false reds, and that an unrunnable `pnpm` is
+ *     REFUSED rather than skipped.
  *
  * The fixtures are minimal throwaway packages in a temp dir, nothing to do with
  * this package's own build, so the test does not need one and cannot race one.
@@ -74,6 +84,7 @@ import {
   copyFileSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   statSync,
@@ -82,6 +93,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { gunzipSync } from "node:zlib";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -1129,7 +1141,12 @@ describe("net 3: the DECLARED paths must be in the tarball", () => {
   beforeAll(() => {
     const src = readFileSync(WRAPPER, "utf8");
     const from = src.indexOf("// ---- Net 3:");
-    const to = src.indexOf("// WHAT THIS LINE MAY AND MAY NOT SAY.");
+    // A NAMED CLOSING MARKER, and it replaced a cut to the pass line's own comment.
+    // That older shape put everything added between net 3 and the pass line inside
+    // the slice: net 4 landed there and took a `let` declaration the pass line reads
+    // with it, and these three cases died on a ReferenceError that reads as a plain
+    // exit 1. The marker keeps the slice to net 3 whatever grows after it.
+    const to = src.indexOf("// ---- END Net 3");
     expect(from).toBeGreaterThan(-1);
     expect(to).toBeGreaterThan(from);
 
@@ -1286,10 +1303,10 @@ describe("net 3: the DECLARED paths must be in the tarball", () => {
   );
 });
 
-describe("the field set nets 1 and 3 share: `exports` is not the only field that names a file", () => {
-  // WHY THIS BLOCK EXISTS. Nets 1 and 3 ask their questions of ONE set, the one
+describe("the field set nets 1, 3 and 4 share: `exports` is not the only field that names a file", () => {
+  // WHY THIS BLOCK EXISTS. Nets 1, 3 and 4 ask their questions of ONE set, the one
   // `declaredArtifacts()` returns, so a declaring field missing from that set is a
-  // hole in BOTH at once and neither of them says a word. `typesVersions`,
+  // hole in ALL THREE at once and none of them says a word. `typesVersions`,
   // `imports`, `browser`, `man`, `unpkg` and `jsdelivr` all name files inside the
   // package and all six were walked past, so a path declared through any of them
   // could sit outside the tarball with the whole gate green. That is net 3's own
@@ -1506,17 +1523,11 @@ describe("the field set nets 1 and 3 share: `exports` is not the only field that
     directories: {
       directories: { bin: "./absent-bin", man: "./absent-man", lib: "./absent-lib" },
     },
-    // pnpm applies these as PUBLISH-TIME OVERRIDES and rewrites the manifest inside
-    // the tarball; `npm pack`, which is net 3's authority, does not. Measured on
-    // pnpm 11.20.0: `pnpm pack` writes a tarball whose manifest reads
-    // `main: "./absent-override.js"`, and the tarball does not carry that path.
-    publishConfig: {
-      publishConfig: {
-        main: "./absent-override.js",
-        exports: { ".": "./absent-override.js" },
-        bin: { x: "./absent-override-bin.js" },
-      },
-    },
+    // `publishConfig` WAS HERE AND CAME OFF WITH THE NAME. Net 4 grades the manifest
+    // pnpm would publish, so a path declared only through a `publishConfig` override
+    // is no longer unseen: leaving the probe would have reddened this suite rather
+    // than proving anything, which is the registry working as designed. The cases
+    // that used to live here are now "net 4" below, as reds instead of greens.
   };
 
   it(
@@ -1569,18 +1580,18 @@ describe("the field set nets 1 and 3 share: `exports` is not the only field that
     "THE DISCLOSURE PRINTS ON THE ZERO-DECLARED RUN TOO, WHICH IS THE RUN IT IS MOST FOR",
     () => {
       // The sentence sat inside the "all N paths are packed" branch for one commit
-      // while the docblock said it printed every run. A package that declares its
-      // entry point ONLY through a `publishConfig` override has no relative artifact
-      // path of its own, so it lands in the other branch: exactly the shape the
-      // known-unread sentence exists to warn about, and exactly where it went
-      // missing.
+      // while the docblock said it printed every run. A package that declares no
+      // path through a field `declaredArtifacts()` reads lands in the other branch,
+      // and that is exactly where a still-unread field could hide: this fixture
+      // declares its trees ONLY through `directories`, which is what the sentence
+      // now names.
       const dir = join(root, "zero-declared");
       writePkg(
         dir,
         {
           name: "attw-gate-fixture-zero-declared",
           version: "1.0.0",
-          publishConfig: { main: "./absent-override.js" },
+          directories: { lib: "./absent-lib" },
           files: ["index.js", "index.d.ts"],
         },
         {
@@ -1652,6 +1663,429 @@ describe("the field set nets 1 and 3 share: `exports` is not the only field that
       // Reading `directories` therefore needs a PREFIX test against the packed
       // list, a second grading rule and not a wider field set. That is out of this
       // slice deliberately, and the pass line says so.
+    },
+    SPAWN_TIMEOUT,
+  );
+});
+
+describe("net 4: the manifest PNPM would publish, which is not the manifest on disk", () => {
+  // WHY THIS BLOCK EXISTS, AND WHY IT IS NOT ANOTHER KEY IN `declaredArtifacts()`.
+  // Nets 1 and 3 grade the manifest ON DISK. pnpm honours `publishConfig` as
+  // PUBLISH-TIME OVERRIDES and rewrites the manifest inside the tarball; `npm pack`,
+  // which is net 3's authority, leaves it alone. THIS ORG PUBLISHES WITH pnpm. So
+  // before net 4 a package could pass the whole gate green and publish a manifest
+  // whose `main`, `exports` and `bin` all named a path the tarball does not carry.
+  //
+  // WIDENING THE FIELD SET WOULD HAVE BEEN THE WRONG FIX AND THE `directory` CASE IS
+  // WHY: for a plain override the target has to be packed anyway, so a
+  // `packed.files.has()` on it would be a TRUE red graded against the WRONG
+  // document; but under `publishConfig.directory` pnpm packs a different subtree
+  // entirely and publishes THAT subtree's manifest, so every path net 3 holds goes
+  // wrong at once. Both directions of that case are pinned below, and the green one
+  // is the false red a wider field set would have bought.
+
+  /** A well-formed dual ESM/CJS package plus whatever `fragment` adds. */
+  function overrideFixture(
+    label: string,
+    fragment: Record<string, unknown>,
+    extraFiles: Record<string, string> = {},
+    packAlso: string[] = [],
+  ): string {
+    const dir = join(root, `net4-${label}`);
+    writePkg(
+      dir,
+      {
+        name: `attw-gate-fixture-net4-${label}`,
+        version: "1.0.0",
+        type: "module",
+        exports: {
+          ".": {
+            import: { types: "./index.d.ts", default: "./index.js" },
+            require: { types: "./index.d.cts", default: "./index.cjs" },
+          },
+        },
+        ...fragment,
+        files: ["index.js", "index.d.ts", "index.cjs", "index.d.cts", ...packAlso],
+      },
+      {
+        "index.js": "export const a = 1;\n",
+        "index.d.ts": "export declare const a: number;\n",
+        "index.cjs": "module.exports.a = 1;\n",
+        "index.d.cts": "export declare const a: number;\n",
+        ...extraFiles,
+      },
+    );
+    return dir;
+  }
+
+  /**
+   * The raw tar headers of a gzipped archive.
+   *
+   * DELIBERATELY AN INDEPENDENT WALKER RATHER THAN THE GATE'S. The gate has one, and
+   * grading a reader with a copy of itself proves nothing: the point of the two
+   * long-path cases below is that the ARCHIVE really used the escape, which is a
+   * fact about the bytes pnpm wrote and not about how the gate reads them.
+   */
+  function tarHeaders(tgz: string): { name: string; prefix: string; type: string; body: string }[] {
+    const buf = gunzipSync(readFileSync(tgz));
+    const out: { name: string; prefix: string; type: string; body: string }[] = [];
+    const field = (h: Buffer, a: number, b: number): string =>
+      h
+        .subarray(a, b)
+        .toString("utf8")
+        .replace(/\0[\s\S]*$/, "");
+    let off = 0;
+    while (off + 512 <= buf.length) {
+      const header = buf.subarray(off, off + 512);
+      if (header.every((b) => b === 0)) break;
+      const size = Number.parseInt(field(header, 124, 136).trim() || "0", 8);
+      out.push({
+        name: field(header, 0, 100),
+        prefix: field(header, 345, 500),
+        type: String.fromCharCode(header[156] ?? 0),
+        body: buf.subarray(off + 512, off + 512 + size).toString("utf8"),
+      });
+      off += 512 + Math.ceil(size / 512) * 512;
+    }
+    return out;
+  }
+
+  /** Packs `dir` with `packer` into a scratch directory and returns the tarball path. */
+  function packInto(packer: "npm" | "pnpm", dir: string): { dest: string; tgz: string } {
+    const dest = mkdtempSync(join(tmpdir(), `attw-gate-${packer}-`));
+    const r = run(packer, ["pack", "--pack-destination", dest], dir);
+    expect(r.code, r.out).toBe(0);
+    const written = readdirSync(dest).filter((n) => n.endsWith(".tgz"));
+    expect(written, `${packer} pack wrote ${written.length} tarballs`).toHaveLength(1);
+    return { dest, tgz: join(dest, String(written[0])) };
+  }
+
+  /** The `package.json` inside a tarball, parsed. */
+  function packedManifest(tgz: string): Record<string, unknown> {
+    const entry = tarHeaders(tgz).find((e) => e.name.endsWith("package/package.json"));
+    expect(entry, "the tarball carries no package/package.json").toBeDefined();
+    return JSON.parse(entry?.body ?? "{}") as Record<string, unknown>;
+  }
+
+  /**
+   * The wrapper with NET 4 SLICED BACK OUT, derived from the shipped file at test
+   * time so the RED-BEFORE half cannot drift away from the thing it is the
+   * counterfactual for. Same construction as the two blocks above, and it inherits
+   * their documented residual unchanged: the reach of `node_modules/.bin/attw` from
+   * a temp tree is box-dependent.
+   */
+  let withoutNet4 = "";
+  let withoutNet4Root = "";
+
+  beforeAll(() => {
+    const src = readFileSync(WRAPPER, "utf8");
+    const from = src.indexOf("// ---- Net 4: the manifest PNPM would publish");
+    const to = src.indexOf("// ---- END Net 4");
+    // If either marker stops matching, this reds rather than silently testing a
+    // counterfactual identical to the shipped gate.
+    expect(from).toBeGreaterThan(-1);
+    expect(to).toBeGreaterThan(from);
+
+    withoutNet4Root = mkdtempSync(join(tmpdir(), "attw-gate-net4-base-"));
+    mkdirSync(join(withoutNet4Root, "scripts"), { recursive: true });
+    symlinkSync(join(PKG_ROOT, "node_modules"), join(withoutNet4Root, "node_modules"), "dir");
+    withoutNet4 = join(withoutNet4Root, "scripts", "attw.mjs");
+    writeFileSync(withoutNet4, src.slice(0, from) + src.slice(to));
+  });
+
+  afterAll(() => {
+    if (withoutNet4Root) rmSync(withoutNet4Root, { recursive: true, force: true });
+  });
+
+  it(
+    "THE PACKER ASYMMETRY THIS NET EXISTS FOR, measured on both packers rather than cited",
+    () => {
+      // The whole premise: the same directory, packed two ways, yields two different
+      // manifests. If npm ever starts applying publishConfig, or pnpm stops, this
+      // reds and net 4's reason for existing has changed.
+      const dir = overrideFixture("asymmetry", {
+        publishConfig: { main: "./absent-override.js" },
+      });
+      const byNpm = packInto("npm", dir);
+      const byPnpm = packInto("pnpm", dir);
+      try {
+        expect(packedManifest(byNpm.tgz)["main"]).toBeUndefined();
+        expect(packedManifest(byNpm.tgz)["publishConfig"]).toEqual({
+          main: "./absent-override.js",
+        });
+        expect(packedManifest(byPnpm.tgz)["main"]).toBe("./absent-override.js");
+        // And the path it now names is not in the tarball, which is the defect.
+        expect(tarHeaders(byPnpm.tgz).map((e) => e.name)).not.toContain(
+          "package/absent-override.js",
+        );
+      } finally {
+        rmSync(byNpm.dest, { recursive: true, force: true });
+        rmSync(byPnpm.dest, { recursive: true, force: true });
+      }
+    },
+    SPAWN_TIMEOUT,
+  );
+
+  it(
+    "RED BEFORE, GREEN AFTER: publishConfig main/exports/bin naming absent paths",
+    () => {
+      const dir = overrideFixture("overrides", {
+        publishConfig: {
+          main: "./absent-override.js",
+          exports: { ".": "./absent-override.js" },
+          bin: { x: "./absent-override-bin.js" },
+        },
+      });
+
+      // COUNTERFACTUAL. Without net 4 this exact tree passes the WHOLE gate: nets 1
+      // and 3 read the on-disk manifest, which promises nothing that is missing.
+      const before = run(process.execPath, [withoutNet4, ...OFFLINE], dir);
+      expect(before.code, before.out).toBe(0);
+      // LIVENESS, so a counterfactual that died before reaching attw can never be
+      // mistaken for one that ran and passed.
+      expect(before.out).toContain("attw gate:");
+      expect(before.out).not.toContain("./absent-override.js");
+
+      const after = runWrapper(dir);
+      expect(after.code).not.toBe(0);
+      expect(after.out).toContain("the manifest PNPM WOULD PUBLISH declares paths");
+      expect(after.out).toContain("./absent-override.js");
+      expect(after.out).toContain("./absent-override-bin.js");
+    },
+    SPAWN_TIMEOUT,
+  );
+
+  it(
+    "`publishConfig.directory`: RED when the subtree pnpm publishes names a path it does not carry",
+    () => {
+      // pnpm publishes `<directory>/package.json` VERBATIM and packs that subtree.
+      // Measured: the root's other overrides do not apply at all in this mode, which
+      // is exactly the rule a merge written inside the gate would have had to guess.
+      const dir = overrideFixture(
+        "directory-red",
+        { publishConfig: { directory: "sub", main: "./never-applied.js" } },
+        {},
+        ["sub"],
+      );
+      mkdirSync(join(dir, "sub"), { recursive: true });
+      writeFileSync(
+        join(dir, "sub", "package.json"),
+        JSON.stringify({
+          name: "attw-gate-fixture-net4-directory-red",
+          version: "1.0.0",
+          main: "./absent-in-subtree.js",
+          types: "./built.d.ts",
+          files: ["built.js", "built.d.ts"],
+        }),
+      );
+      writeFileSync(join(dir, "sub", "built.js"), "module.exports.a = 1;\n");
+      writeFileSync(join(dir, "sub", "built.d.ts"), "export declare const a: number;\n");
+
+      const r = runWrapper(dir);
+      expect(r.code).not.toBe(0);
+      expect(r.out).toContain("the manifest PNPM WOULD PUBLISH declares paths");
+      expect(r.out).toContain("./absent-in-subtree.js");
+      // The root's own override is NOT what reds: pnpm never applied it. Naming it
+      // here would be the gate claiming a catch it did not make.
+      expect(r.out).not.toContain("./never-applied.js");
+    },
+    SPAWN_TIMEOUT,
+  );
+
+  it(
+    "`publishConfig.directory`: GREEN when that subtree is correct, which is the false red a wider field set would have bought",
+    () => {
+      // THIS IS THE CASE THAT DECIDED THE SHAPE OF THE FIX. Reading `publishConfig`
+      // as more keys in `declaredArtifacts()` would grade the subtree's paths against
+      // the ROOT's `npm pack` listing, where none of them appear: a red on a package
+      // that is packed correctly. Net 4 grades pnpm's listing, so it is green.
+      const dir = overrideFixture("directory-green", { publishConfig: { directory: "sub" } }, {}, [
+        "sub",
+      ]);
+      mkdirSync(join(dir, "sub"), { recursive: true });
+      writeFileSync(
+        join(dir, "sub", "package.json"),
+        JSON.stringify({
+          name: "attw-gate-fixture-net4-directory-green",
+          version: "1.0.0",
+          main: "./built.js",
+          types: "./built.d.ts",
+          files: ["built.js", "built.d.ts"],
+        }),
+      );
+      writeFileSync(join(dir, "sub", "built.js"), "module.exports.a = 1;\n");
+      writeFileSync(join(dir, "sub", "built.d.ts"), "export declare const a: number;\n");
+
+      const r = runWrapper(dir);
+      expect(r.code, r.out).toBe(0);
+      // Two paths, and they are the SUBTREE's, not the root's four.
+      expect(r.out).toContain("all 2 relative artifact path(s) the manifest PNPM WOULD PUBLISH");
+      // Bounded in the same breath, exactly like net 3's half.
+      expect(r.out).toContain("presence, not resolution");
+    },
+    SPAWN_TIMEOUT,
+  );
+
+  it(
+    "NEGATIVE CONTROL: an override that names a path the tarball DOES carry stays green",
+    () => {
+      // A net that only ever fails is not a net, and this is the shape a real
+      // publishConfig override takes when it is correct.
+      const dir = overrideFixture("override-ok", {
+        publishConfig: { main: "./index.cjs", access: "public" },
+      });
+      const r = runWrapper(dir);
+      expect(r.code, r.out).toBe(0);
+      expect(r.out).toContain("the manifest PNPM WOULD PUBLISH");
+    },
+    SPAWN_TIMEOUT,
+  );
+
+  it(
+    "NO publishConfig: the net does not run, and the SKIP is measured rather than assumed",
+    () => {
+      // The skip is a cost decision: `pnpm pack` costs about a second and there is no
+      // override for it to grade. What makes it safe is a fact about pnpm, so the
+      // fact is measured here instead of being asserted in prose: with no
+      // publishConfig, the manifest in a real `pnpm pack` tarball declares exactly
+      // what the manifest on disk declares.
+      const dir = overrideFixture("no-publishconfig", {});
+      const onDisk = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as Record<
+        string,
+        unknown
+      >;
+      const byPnpm = packInto("pnpm", dir);
+      try {
+        const published = packedManifest(byPnpm.tgz);
+        for (const key of [
+          "main",
+          "module",
+          "types",
+          "typings",
+          "bin",
+          "man",
+          "unpkg",
+          "jsdelivr",
+          "browser",
+          "exports",
+          "imports",
+          "typesVersions",
+        ]) {
+          expect(published[key], `pnpm rewrote ${key} with no publishConfig present`).toEqual(
+            onDisk[key],
+          );
+        }
+      } finally {
+        rmSync(byPnpm.dest, { recursive: true, force: true });
+      }
+
+      const r = runWrapper(dir);
+      expect(r.code, r.out).toBe(0);
+      expect(r.out).toContain("package.json sets no publishConfig");
+      // The sentence must not claim pnpm would publish the same declarations. That
+      // is a claim this run did not make, and the measurement above is where it is
+      // made instead.
+      expect(r.out).not.toContain("the manifest PNPM WOULD PUBLISH declares");
+    },
+    SPAWN_TIMEOUT,
+  );
+
+  it(
+    "LONG PATHS, ustar `prefix` form: a packed path over 100 bytes is not a false red",
+    () => {
+      // A tar header's `name` is 100 bytes. Reading it alone puts a long path in the
+      // set under a name no manifest declares, which reds a correctly packed file.
+      const deep =
+        "aaaaaaaaaaaaaaaaaaaa/bbbbbbbbbbbbbbbbbbbb/cccccccccccccccccccc/dddddddddddddddddddd/eeeeeeeeeeeeeeeeeeee";
+      const dir = overrideFixture(
+        "longpath-ustar",
+        { publishConfig: { main: `./${deep}/deep.js` } },
+        {},
+        ["aaaaaaaaaaaaaaaaaaaa"],
+      );
+      mkdirSync(join(dir, deep), { recursive: true });
+      writeFileSync(join(dir, deep, "deep.js"), "export const a = 1;\n");
+
+      // THE ARCHIVE REALLY USES THE ESCAPE, asserted on pnpm's bytes with a walker
+      // that is not the gate's. Without this the green below could be green for the
+      // wrong reason.
+      const byPnpm = packInto("pnpm", dir);
+      try {
+        const split = tarHeaders(byPnpm.tgz).find((e) => e.name.endsWith("deep.js"));
+        expect(split, "no deep.js entry in the tarball").toBeDefined();
+        expect(split?.prefix, "pnpm did not use the ustar prefix field here").not.toBe("");
+      } finally {
+        rmSync(byPnpm.dest, { recursive: true, force: true });
+      }
+
+      const r = runWrapper(dir);
+      expect(r.code, r.out).toBe(0);
+      expect(r.out).toContain("the manifest PNPM WOULD PUBLISH");
+    },
+    SPAWN_TIMEOUT,
+  );
+
+  it(
+    "LONG PATHS, pax `x` form: a single filename over 100 bytes is not a false red",
+    () => {
+      // A path that cannot be split at a `/` gets a pax extended header instead, and
+      // MEASURED HERE: the real entry that follows is literally named `PaxHeader`.
+      // Skip the `x` record and the file is invisible to the gate.
+      const long = `${"l".repeat(120)}.js`;
+      const dir = overrideFixture("longpath-pax", { publishConfig: { main: `./${long}` } }, {}, [
+        long,
+      ]);
+      writeFileSync(join(dir, long), "export const a = 1;\n");
+
+      const byPnpm = packInto("pnpm", dir);
+      try {
+        const headers = tarHeaders(byPnpm.tgz);
+        const pax = headers.find((e) => e.type === "x" && e.body.includes(`path=package/${long}`));
+        expect(pax, "pnpm did not use a pax header here").toBeDefined();
+        // The entry the record describes carries no usable name of its own, which is
+        // the whole reason the record has to be read.
+        expect(headers.map((e) => e.name)).not.toContain(`package/${long}`);
+      } finally {
+        rmSync(byPnpm.dest, { recursive: true, force: true });
+      }
+
+      const r = runWrapper(dir);
+      expect(r.code, r.out).toBe(0);
+      expect(r.out).toContain("the manifest PNPM WOULD PUBLISH");
+    },
+    SPAWN_TIMEOUT,
+  );
+
+  it(
+    "FAILS CLOSED when `pnpm pack` cannot be read: refused, never skipped",
+    () => {
+      // An answer this net could not read is not a green one. The shim intercepts
+      // ONLY `pack` and delegates everything else, and it restores the original PATH
+      // before delegating for the same reason net 3's npm shim does: a version
+      // manager's shim re-resolves through PATH and would recurse into this file.
+      const shimDir = mkdtempSync(join(tmpdir(), "attw-gate-pnpmshim-"));
+      try {
+        const shim = join(shimDir, "pnpm");
+        writeFileSync(
+          shim,
+          `#!/bin/sh\n` +
+            `if [ "$1" = "pack" ]; then echo 'pnpm pack refused' >&2; exit 7; fi\n` +
+            `PATH=${JSON.stringify(process.env["PATH"] ?? "")}; export PATH\n` +
+            `exec pnpm "$@"\n`,
+        );
+        chmodSync(shim, 0o755);
+        const dir = overrideFixture("pnpm-unreadable", {
+          publishConfig: { access: "public" },
+        });
+        const r = runWrapper(dir, OFFLINE, {
+          PATH: `${shimDir}:${process.env["PATH"] ?? ""}`,
+        });
+        expect(r.code).not.toBe(0);
+        expect(r.out).toContain("could not read the manifest pnpm would publish");
+        expect(r.out).toContain("exited 7");
+      } finally {
+        rmSync(shimDir, { recursive: true, force: true });
+      }
     },
     SPAWN_TIMEOUT,
   );

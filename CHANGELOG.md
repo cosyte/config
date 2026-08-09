@@ -107,6 +107,82 @@ no package, so entries here are **dated** rather than versioned.
     must ship with no entries. The template's suite gains the two cases that need no override entry:
     `paths` mode reads every path it was given, and the footer no longer names the flag.
 
+- **`pnpm pack` APPLIES `publishConfig`, `npm pack` DOES NOT, and this org publishes with pnpm - so
+  the gate now grades the manifest pnpm WOULD PUBLISH, as a fourth net** (`CONFIG-SCAFFOLD-RESIDUALS`).
+  `#61` disclosed this as the sharpest field the gate did not read and said the fix could not be
+  another key in `declaredArtifacts()`, because net 3's authority (`npm pack --dry-run --json`) is
+  the wrong DOCUMENT for the question. It is closed here the way that reasoning pointed: a **second
+  source of truth**.
+  - **RE-MEASURED BEFORE ANYTHING WAS BUILT TO IT, BOTH HALVES, on the pnpm actually in use.** The
+    filed description has been wrong on inspection three slices running here, so neither half was
+    taken on description. (a) The packer asymmetry reproduces on **both** pnpm versions this repo
+    can run - `10.34.5`, its own `packageManager` pin, and `11.20.0`, the `mise` shim: with
+    `main: "./index.js"` and `publishConfig.main: "./absent-override.js"`, `npm pack` writes a
+    tarball manifest reading `./index.js` and `pnpm pack` writes one reading `./absent-override.js`,
+    which the tarball does not carry. (b) A fixture with `main`, `exports` AND `bin` all overridden
+    **exited 0 through the whole gate** at `260c765`.
+  - **IT ASKS pnpm RATHER THAN MODELLING IT, AND THAT WAS THE DESIGN DECISION.** Net 4 runs a real
+    `pnpm pack` into a temp directory outside the package and reads BOTH the manifest and the entry
+    list out of the tarball pnpm just wrote. Synthesising the merge in the gate was the alternative
+    and would have been **wrong in a way measurement caught and guessing would not**: under
+    `publishConfig.directory` pnpm does not apply the root's other overrides at all - it publishes
+    `<directory>/package.json` VERBATIM and packs that subtree. Measured with
+    `publishConfig: { directory: "dist", main: "./absent-in-dist.js" }` over a `dist/package.json`
+    saying `main: "./built.js"`: the published manifest reads `./built.js` and the root override
+    never appears.
+  - **THE `directory` CASE IS PINNED IN BOTH DIRECTIONS, BECAUSE THE GREEN ONE IS THE FALSE RED A
+    WIDER FIELD SET WOULD HAVE BOUGHT.** A correctly-packed `publishConfig.directory` package is
+    GREEN through net 4 and would have been RED through a widened `declaredArtifacts()`, which would
+    have graded the subtree's paths against the ROOT's `npm pack` listing. A subtree manifest naming
+    a path its own tarball lacks is RED, and the root's never-applied override is deliberately NOT
+    named in that failure - naming it would be the gate claiming a catch it did not make.
+  - **WHAT NET 4 DOES NOT COVER, WRITTEN DOWN RATHER THAN LEFT TO BE INFERRED.** It is presence, not
+    resolution, exactly like net 3. It grades what the pnpm **on `PATH`** would write, so a publish
+    driven by npm or yarn is a different document (net 3 grades npm's). It does not widen the field
+    set: the published manifest goes through the SAME `declaredArtifacts()`, so `directories` is
+    unread in it too. And **it does not run at all when there is no `publishConfig`** - a cost
+    decision, since a real `pnpm pack` costs 1.01-1.10 s on a fixture and 1.48-2.01 s on this repo's
+    own package. That skip is **measured, not assumed**: a test packs a `publishConfig`-less fixture
+    with a real `pnpm pack` and asserts the tarball manifest declares exactly what the disk manifest
+    declares.
+  - **A THIRD ROUND OF LIFECYCLE SCRIPTS, MEASURED THE WAY NET 3's WAS.** On a fixture logging each
+    hook with `ignore-scripts` off, `prepack`/`prepare`/`postpack` each fired TWICE through the gate
+    before this net and THREE times after, when `publishConfig` is present, and stay at TWO when it
+    is absent. `prepublishOnly` fires **0** times through `pnpm pack`, which is what keeps this net
+    from recursing into the gate `prepublishOnly` runs. `pnpm pack --dry-run` was measured and
+    REJECTED: it prints no manifest, only a file list, and it fires `prepack` and `prepare` while
+    SKIPPING `postpack`. It is not cheaper either (0.92-1.08 s dry, 1.01-1.10 s real).
+  - **TWO LONG-PATH TAR ESCAPES, BOTH REPRODUCED, BOTH FALSE REDS IF MISHANDLED.** A tar header's
+    `name` field is 100 bytes. A 121-byte path SPLIT at a `/` goes in the ustar `prefix` field; a
+    120-byte single filename cannot split and gets a **pax `x` record** instead, after which the
+    real entry is literally named `PaxHeader`. Read `name` alone and a correctly packed file is
+    invisible. Both are handled and pinned, with the ARCHIVE's own bytes asserted by a walker that
+    is not the gate's, so the green cannot be green for the wrong reason. A GNU `LongLink` record is
+    handled on the same terms and is named as a safeguard rather than a reproduction.
+  - **REFUSED, NEVER SKIPPED**: a `pnpm pack` that cannot be run or read reds, with the reason. An
+    answer this net could not read is not a green one.
+  - **`publishConfig` CAME OFF `KNOWN_UNREAD_FIELDS`, AND THE PROBE CAME OFF WITH IT.** That is the
+    `#61` machinery working rather than a special case: each probe asserts a path declared through
+    its name goes UNSEEN, so leaving the name after the gate learned to see it would have reddened
+    the suite. The disclosure is now `directories` alone, still derived from the gate rather than
+    pasted beside it, and still explicitly known-incomplete.
+  - **NET 3's COUNTERFACTUAL GAINED A NAMED CLOSING MARKER, AND IT HAD TO.** `attw-gate.test.ts`
+    sliced net 3 out by cutting to the pass line's own comment, so anything added between the two
+    left the counterfactual silently. Net 4 landed there and took a declaration the pass line reads
+    with it; the three net 3 cases died on a `ReferenceError` that reads as a plain exit 1. Caught
+    by those tests, fixed with an explicit `// ---- END Net 3` marker.
+  - **COST, MEASURED RATHER THAN ASSUMED:** `attw-gate.test.ts` goes 62 tests / 122.7 s -> 71 tests
+    / 150.3 s on this box. The slowest single case is 4.7 s, nowhere near the 120 s per-test
+    timeout.
+  - Both copies of the wrapper (`packages/test-utils/scripts/` and `scripts/parser-template/scripts/`)
+    stay byte-identical, so every newly scaffolded parser inherits this.
+  - **No changeset**, on `#61`'s, `#59`'s and `#55`'s precedent, re-verified rather than assumed:
+    `npm pack --dry-run --json` on `@cosyte/test-utils` lists 15 entries, none under `scripts/` or
+    `test/`, so nothing changed here is in its published tarball and a bump would republish
+    identical bytes.
+  - **NOT PORTED HERE:** the sibling repos carry their own already-divergent `scripts/attw.mjs`.
+    Porting is their work, not a widening of this slice.
+
 - **`man` is `bin`'s own sibling in the npm spec, `bin` is a hole this gate claims to have closed,
   and `man` was disclosed rather than read - so it is read now, with `unpkg` and `jsdelivr`**
   (`CONFIG-SCAFFOLD-RESIDUALS`). `#59` closed the `exports`-and-stop hole and then disclosed four
@@ -154,6 +230,12 @@ no package, so entries here are **dated** rather than versioned.
     and every path this net holds goes wrong at once. `PRE-EXISTING` (identical at `fe2f427`,
     whose four-name disclosure omitted it too), so it is named on every run and left as a slice of
     its own.
+    - **▶ SUPERSEDED WITHIN `[Unreleased]` BY THE ENTRY ABOVE, AND LEFT STANDING RATHER THAN
+      REWRITTEN.** `publishConfig` is READ at head, by net 4, and is **off** `KNOWN_UNREAD_FIELDS`;
+      the gate's known-unread set is `directories` alone. Everything else in this bullet held up
+      and is what the later slice was built from - including the reason it is a second source of
+      truth rather than a wider key list, which is why net 4 reads pnpm's tarball. This bullet is
+      history and reads as history; the entry above is what is true.
   - **AND IT PRINTS ON EVERY RUN, INCLUDING THE ZERO-DECLARED ONE.** The sentence sat inside the
     "all N paths are packed" branch for one commit while the docblock claimed it printed every
     run. A package that declares its entry point ONLY through a `publishConfig` override has no
@@ -215,7 +297,8 @@ no package, so entries here are **dated** rather than versioned.
       REWRITTEN.** The later slice read `man`, `unpkg` and `jsdelivr`, so "the four are still
       unread" and "a test pins that the four really are still unread" are **no longer true at
       head**: exactly one of those four (`directories`) is still unread, the gate's own
-      known-unread set is `directories` and `publishConfig`, and the test that pins it derives
+      known-unread set is `directories` alone (`publishConfig` was on it for one slice and
+      is read by net 4 now), and the test that pins it derives
       its names from the gate rather than from any sentence. The
       link-time reason quoted here is the one that slice retired, because `bin` is link-time too
       and is read. This bullet is history and reads as history; the entry above is what is true.

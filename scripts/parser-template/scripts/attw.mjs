@@ -49,7 +49,7 @@
  * `pnpm clean`, a half-finished build) gets the false green, and a gate has to be
  * able to say its own inputs were missing, whatever removed them.
  *
- * THREE NETS, AND THEY CATCH DIFFERENT THINGS. Keep all three.
+ * FOUR NETS, AND THEY CATCH DIFFERENT THINGS. Keep all four.
  *
  *   1. PREFLIGHT (structural, no string matching). Every relative artifact path
  *      `package.json` promises (the field set is enumerated once, under "THE
@@ -178,9 +178,83 @@
  *      was confirmed to be read at all by `{"profile": "bogus-profile"}`, which
  *      attw rejects outright.
  *
- * THE FIELDS THIS READS. Nets 1 and 3 both ask their question of ONE set, the one
+ *   4. THE MANIFEST pnpm WOULD PUBLISH (structural, and it does not consult attw
+ *      either). NETS 1 AND 3 BOTH GRADE THE MANIFEST ON DISK, AND THAT IS NOT THE
+ *      MANIFEST THIS ORG PUBLISHES. pnpm honours `publishConfig` as a set of
+ *      PUBLISH-TIME OVERRIDES and rewrites the manifest inside the tarball;
+ *      `npm pack`, which is net 3's authority, leaves it alone. Re-measured here on
+ *      BOTH pnpm versions this repo can run, `10.34.5` (its own `packageManager`
+ *      pin) and `11.20.0` (the `mise` shim), one package, both packers:
+ *
+ *          manifest: main "./index.js", publishConfig.main "./absent-override.js"
+ *          npm pack   -> tarball manifest main = "./index.js"          (NOT applied)
+ *          pnpm pack  -> tarball manifest main = "./absent-override.js" (APPLIED, and
+ *                        the tarball does not carry that path)
+ *
+ *      So before this net a package could pass the whole gate green and publish,
+ *      THROUGH pnpm, a manifest whose `main`, `exports` and `bin` all name a path
+ *      the tarball does not carry. Re-measured directly on this gate before the net
+ *      was written: that fixture exited 0.
+ *
+ *      SO THIS NET ASKS pnpm RATHER THAN MODELLING IT. It runs a real `pnpm pack`
+ *      into a temporary directory outside the package, reads `package/package.json`
+ *      AND the entry list out of the tarball pnpm just wrote, and runs
+ *      `declaredArtifacts()` over that manifest against that entry list. Both
+ *      documents are pnpm's own bytes, so nothing here has to predict which keys
+ *      pnpm merges, in which order, or what it does to them.
+ *
+ *      THAT CHOICE IS THE WHOLE DESIGN, AND SYNTHESISING THE MERGE WAS THE
+ *      ALTERNATIVE. Applying `publishConfig` over the manifest in this file would be
+ *      shorter, and it would have been WRONG in a way measurement caught and
+ *      guessing would not: under `publishConfig.directory` pnpm does NOT apply the
+ *      root's other overrides at all. It publishes `<directory>/package.json`
+ *      verbatim and packs that subtree. Measured on a package with
+ *      `publishConfig: { directory: "dist", main: "./absent-in-dist.js" }` whose
+ *      `dist/package.json` says `main: "./built.js"`: the published manifest reads
+ *      `./built.js`, and `./absent-in-dist.js` never appears. Reading the tarball
+ *      gets that for free; a merge in this file would have had to know it.
+ *
+ *      IT RUNS ONLY WHEN `publishConfig` IS PRESENT, and that is a cost decision
+ *      with a measured floor, not an optimisation. A real `pnpm pack` costs
+ *      1.01-1.10 s on a throwaway fixture here and 1.48-2.01 s on this repo's own
+ *      package, which lands as +0.9 s on the fixture's whole gate run and +1.7 s on
+ *      this package's; without a `publishConfig` there is no override to grade. What
+ *      the skip is NOT is a claim that pnpm and npm would otherwise pack
+ *      identically: see WHAT NET 4 DOES NOT COVER below.
+ *
+ *      THE COST IN LIFECYCLE SCRIPTS, MEASURED THE SAME WAY NET 3's WAS: this is a
+ *      THIRD round of them. On a fixture logging each hook, with `ignore-scripts`
+ *      off, `prepack`/`prepare`/`postpack` each fired TWICE through the gate before
+ *      this net (attw's own nested `npm pack`, then net 3's) and THREE times after,
+ *      when `publishConfig` is present. `prepublishOnly` fired 0 times through
+ *      `pnpm pack`, which is what keeps this net from recursing into the gate that
+ *      `prepublishOnly` runs. `pnpm pack --dry-run` was measured and REJECTED for
+ *      two reasons: it prints no manifest, only a file list, and it fires `prepack`
+ *      and `prepare` while SKIPPING `postpack`, so it leaves a package's own
+ *      bookkeeping half-run. It is not cheaper either, within the spread measured on
+ *      one fixture: 0.92-1.08 s dry, 1.01-1.10 s real.
+ *
+ *      WHAT NET 4 DOES NOT COVER, AND NONE OF THIS MAY BE READ AS COVERED.
+ *      (a) IT IS PRESENCE, NOT RESOLUTION, exactly like net 3.
+ *      (b) IT GRADES WHAT pnpm WOULD WRITE ON THE BOX IT RUNS ON. The merge rule is
+ *          read out of the pnpm on `PATH`; a publish driven by a different pnpm, or
+ *          by npm or yarn, is a different document. Net 3 is the one that grades
+ *          npm's.
+ *      (c) IT DOES NOT WIDEN THE FIELD SET. The published manifest goes through the
+ *          SAME `declaredArtifacts()`, so `directories` is unread in it too, and
+ *          `KNOWN_UNREAD_FIELDS` covers both manifests at once.
+ *      (d) IT DOES NOT RUN WITHOUT A `publishConfig`, so a difference between what
+ *          npm packs and what pnpm packs that `publishConfig` did not cause is
+ *          outside it. The suite measures the one case that matters here: on a
+ *          package with no `publishConfig`, the manifest in a real `pnpm pack`
+ *          tarball declares exactly what the manifest on disk declares.
+ *      (e) NETS 1 AND 3 STILL GRADE THE ON-DISK MANIFEST AGAINST THE ROOT TREE, so
+ *          under `publishConfig.directory` they are answering about a package that
+ *          is not the one published. Net 4 is the net that grades the published one.
+ *
+ * THE FIELDS THIS READS. Nets 1, 3 and 4 all ask their question of ONE set, the one
  * `declaredArtifacts()` returns, so a declaring field missing from that set is a
- * hole in BOTH of them at once and neither says anything. Until this was measured
+ * hole in ALL of them at once and none says anything. Until this was measured
  * the set was `main`, `module`, `types`, `typings`, `bin` and `exports`, and six
  * further fields that name files were walked past:
  *
@@ -275,39 +349,19 @@
  * a wider field set. It is out of this slice deliberately, and it is what the
  * KNOWN-UNREAD disclosure below now names.
  *
- * ▶ `publishConfig` IS THE SHARPEST UNREAD FIELD OF ALL, AND IT IS UNREAD FOR THE
- * SAME REASON `directories` IS: NET 3's AUTHORITY CANNOT SEE IT. pnpm honours
- * `publishConfig.{main,module,types,typings,exports,bin,browser,unpkg,...}` as
- * PUBLISH-TIME OVERRIDES and rewrites the manifest inside the tarball. Measured on
- * pnpm 11.20.0, one package, both packers:
- *
- *     manifest: main "./index.js", publishConfig.main "./absent-override.js"
- *     npm pack   -> tarball manifest main = "./index.js"          (NOT applied)
- *     pnpm pack  -> tarball manifest main = "./absent-override.js" (APPLIED, and
- *                   the tarball does not carry that path)
- *
- * So a package can pass this whole gate green and still publish, through pnpm, a
- * manifest whose `main`, `exports` and `bin` all name a path the tarball does not
- * carry. Measured directly: the fixture above exits 0 here with all three
- * overrides set. THIS ORG PUBLISHES WITH pnpm, so it is not hypothetical.
- *
- * It is NOT closed here, and the reason is the shape of the fix rather than its
- * size. Net 3 grades `npm pack --dry-run --json`, which is the wrong document for
- * this question: closing it means grading the manifest pnpm WOULD write, which is
- * a second source of truth for what the package declares, not another key in
- * `declaredArtifacts()`.
- *
- * BE PRECISE ABOUT WHY WIDENING IS THE WRONG MOVE, BECAUSE THE SHORT VERSION IS NOT
- * TRUE OF EVERY KEY. For a plain override (`publishConfig.main` and its friends) the
- * target has to be packed anyway, so a `packed.files.has()` on it would be a TRUE
- * red rather than a false one; what widening gets wrong THERE is the document it
+ * ▶ `publishConfig` IS NO LONGER ON THAT LIST, AND IT DID NOT GET THERE BY BECOMING
+ * A KEY IN `declaredArtifacts()`. It is read by NET 4, which is a SECOND SOURCE OF
+ * TRUTH rather than a wider field set, and the reasoning for that shape is worth
+ * keeping because the short version of it is not true of every key. For a plain
+ * override (`publishConfig.main` and its friends) the target has to be packed
+ * anyway, so a `packed.files.has()` on it would be a TRUE red rather than a false
+ * one; what widening `declaredArtifacts()` gets wrong THERE is the DOCUMENT it
  * grades, since the published manifest is not the one on disk. For
- * `publishConfig.directory` it is worse: pnpm packs a different subtree entirely, so
- * every path this net holds goes wrong at once, and that one really would be false
- * reds. Either way the fix is a second source of truth, not a wider key list.
- *
- * It is named in `KNOWN_UNREAD_FIELDS`, so the pass line says it out loud on every
- * run, and a probe pins that it really is unread.
+ * `publishConfig.directory` it is worse: pnpm packs a different subtree entirely and
+ * publishes that subtree's own manifest, so every path net 3 holds goes wrong at
+ * once, and THAT one really would be false reds. Net 4 answers both by reading
+ * pnpm's tarball instead of predicting it. See net 4 above for the measurements and
+ * for the five things it does not cover.
  *
  * ▶ THE DISCLOSURE IS NOW ONE STRING, READ BY THE PASS LINE AND BY THE SUITE.
  * `KNOWN_UNREAD_FIELDS` is the single copy; the pass line prints it, and
@@ -556,8 +610,11 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { readFileSync, statSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { gunzipSync } from "node:zlib";
 
 const ATTW_BIN = fileURLToPath(new URL("../node_modules/.bin/attw", import.meta.url));
 const args = process.argv.slice(2);
@@ -605,17 +662,26 @@ for (let i = 0; i < args.length; i++) {
  * on it so far compared one copy of the prose to another copy of the prose. A name
  * added here without the behaviour to match it now reds. It is still not a
  * completeness claim: see "AND THIS IS NOT AN ENUMERATION" in the docblock.
+ *
+ * `publishConfig` CAME OFF THIS LIST when net 4 was added, and the probe came off
+ * with it: the probe asserts a path declared through the name goes UNSEEN, so
+ * leaving the name here after the gate learned to see it would have reddened the
+ * suite. That is the machinery working, not a special case.
  */
-const KNOWN_UNREAD_FIELDS = ["directories", "publishConfig"];
+const KNOWN_UNREAD_FIELDS = ["directories"];
 
 /**
  * Every relative path `package.json` promises to ship, deduped and normalized to
  * a leading `./` so two spellings of one promise are not checked twice.
  *
- * THE FIELD SET IS THE WHOLE OF WHAT NETS 1 AND 3 CAN SEE, so a declaring field
- * missing from it is a hole in both at once, silently. See "THE FIELDS THIS READS"
- * in the docblock for which fields are here, which are deliberately not, and the
- * measurement behind each.
+ * THE FIELD SET IS THE WHOLE OF WHAT NETS 1, 3 AND 4 CAN SEE, so a declaring field
+ * missing from it is a hole in all three at once, silently. See "THE FIELDS THIS
+ * READS" in the docblock for which fields are here, which are deliberately not, and
+ * the measurement behind each.
+ *
+ * NET 4 CALLS THIS WITH A DIFFERENT MANIFEST: the one pnpm writes into the tarball,
+ * with `publishConfig` already applied. That is why `publishConfig` is not a key
+ * here even though the gate now reads it.
  */
 function declaredArtifacts(pkg) {
   const found = new Set();
@@ -690,12 +756,15 @@ function declaredArtifacts(pkg) {
   // path the tarball does not carry. Same reading `main` gets.
   for (const key of ["unpkg", "jsdelivr"]) addPath(pkg[key]);
   // `directories` and `publishConfig` are NOT here, and neither is skipped on a
-  // popularity ground. `directories` names DIRECTORIES while both nets grade FILES.
-  // `publishConfig` names publish-time OVERRIDES that pnpm applies and `npm pack`
-  // does not, so its targets are promises about a tarball net 3 never reads. Both
-  // need a second source of truth rather than another key here. See "`directories`
-  // STAYS UNREAD" and "`publishConfig` IS THE SHARPEST" in the docblock; together
-  // they are the whole of KNOWN_UNREAD_FIELDS, declared above this function.
+  // popularity ground. `directories` names DIRECTORIES while every net grades FILES,
+  // so reading it needs a PREFIX test against the packed list: a second grading rule.
+  // It is what KNOWN_UNREAD_FIELDS, declared above this function, now names on its
+  // own. `publishConfig` names publish-time OVERRIDES that pnpm applies and
+  // `npm pack` does not, so its targets are promises about a tarball net 3 never
+  // reads; NET 4 reads that tarball and hands the manifest out of it back to THIS
+  // function, which is why the answer was a second source of truth and not a key
+  // here. See "`directories` STAYS UNREAD" and "`publishConfig` IS NO LONGER ON THAT
+  // LIST" in the docblock.
   // ---- END BEYOND `exports` ---------------------------------------------------
   return [...found];
 }
@@ -801,6 +870,211 @@ function packedFiles(pkg, childEnv) {
     files.add(entry.path);
   }
   return { files };
+}
+
+/**
+ * The `path` a pax extended header sets for the entry after it, or `null`.
+ *
+ * A pax body is a run of `<byte-length> <key>=<value>\n` records. The length is
+ * counted in BYTES and includes itself, so the walk is done over the Buffer rather
+ * than over a decoded string: a multi-byte character in an earlier record would put
+ * a string-indexed walk one or more positions out and silently return the wrong
+ * path. Anything it cannot read returns `null`, and the caller then falls back to
+ * the header fields rather than inventing a path.
+ *
+ * @param {Buffer} body The pax record block.
+ * @returns {string | null}
+ */
+function paxPath(body) {
+  let at = 0;
+  while (at < body.length) {
+    const space = body.indexOf(0x20, at);
+    if (space < 0) return null;
+    const length = Number.parseInt(body.subarray(at, space).toString("ascii"), 10);
+    if (!Number.isSafeInteger(length) || length <= 0 || at + length > body.length) return null;
+    const record = body.subarray(space + 1, at + length).toString("utf8");
+    const equals = record.indexOf("=");
+    if (equals > 0 && record.slice(0, equals) === "path") {
+      return record.slice(equals + 1).replace(/\n$/, "");
+    }
+    at += length;
+  }
+  return null;
+}
+
+/**
+ * The REGULAR FILE entries of a gzipped tar archive, as a map of path to body.
+ *
+ * Net 4 needs two things out of the tarball pnpm wrote: the manifest inside it and
+ * the list of what is beside that manifest. Both come from the same read, so this
+ * walks the archive once rather than shelling out to `tar` twice: a system `tar` is
+ * one more thing that has to be on the box for a Node-only gate to work, and this
+ * gate is copied into every new parser repo.
+ *
+ * ONLY REGULAR FILES ARE KEPT. Directory records and symlinks are not files a
+ * package promises, and net 3's authority does not list directories either, so the
+ * two nets agree.
+ *
+ * A LONG PATH IS NOT IN THE HEADER'S `name` FIELD, AND BOTH ESCAPES pnpm USES ARE
+ * MEASURED RATHER THAN ASSUMED. `name` is 100 bytes, and a path longer than that is
+ * carried one of two ways. Both were reproduced against `pnpm pack` here, and
+ * MISHANDLING EITHER IS A FALSE RED ON A CORRECTLY PACKED FILE, which is the worst
+ * kind:
+ *
+ *   ustar `prefix`  A path that SPLITS at a `/` inside the last 155 bytes goes in
+ *                   two fields. Measured on a 121-byte path: `prefix` held
+ *                   `package/aaaa...` and `name` held the rest. Read `name` alone
+ *                   and the entry lands under a path no manifest declares.
+ *   pax `x` record  A path that cannot be split that way gets an extended header
+ *                   INSTEAD, and the real entry that follows is literally named
+ *                   `PaxHeader`. Measured on a 120-byte single filename: two
+ *                   entries, `x` then a regular file, both named `PaxHeader`, with
+ *                   `path=package/llll....js` in the `x` record's body. Skip the
+ *                   `x` record without reading it and the file is invisible.
+ *
+ * A GNU `L` (LongLink) record is handled on the same terms. `tar` as pnpm invokes it
+ * was not measured emitting one, so that branch is a safeguard rather than a
+ * reproduction, and this sentence says so rather than claiming a measurement.
+ *
+ * @param {Buffer} gz The gzipped archive.
+ * @returns {{ entries: Map<string, Buffer>, error?: undefined } | { error: string, entries?: undefined }}
+ */
+function tarEntries(gz) {
+  let buf;
+  try {
+    buf = gunzipSync(gz);
+  } catch (err) {
+    return { error: `the tarball pnpm wrote could not be decompressed: ${err.message}` };
+  }
+  const entries = new Map();
+  const field = (header, start, end) =>
+    header
+      .subarray(start, end)
+      .toString("utf8")
+      .replace(/\0[\s\S]*$/, "");
+  /** The path a pax or GNU record set for the entry that follows it, if any. */
+  let longPath = null;
+  let off = 0;
+  while (off + 512 <= buf.length) {
+    const header = buf.subarray(off, off + 512);
+    // A zero-filled block is the end-of-archive marker.
+    if (header.every((b) => b === 0)) break;
+    const size = Number.parseInt(field(header, 124, 136).trim() || "0", 8);
+    if (!Number.isSafeInteger(size) || size < 0) {
+      return {
+        error:
+          `the tarball pnpm wrote has a header at byte ${off} whose size field this gate\n` +
+          `  could not read, so the archive could not be walked.`,
+      };
+    }
+    const name = field(header, 0, 100);
+    const prefix = field(header, 345, 500);
+    const body = buf.subarray(off + 512, off + 512 + size);
+    // Typeflags are compared as BYTES rather than as decoded characters, so no
+    // string escape for a NUL has to survive being copied between two files.
+    // 0x30 "0" and 0x00 (the historical spelling) are a regular file; 0x78 "x" and
+    // 0x58 "X" are a pax extended header for the NEXT entry; 0x4c "L" is GNU's
+    // LongLink, whose whole body is that next entry's name.
+    const type = header[156];
+    if (type === 0x78 || type === 0x58) {
+      longPath = paxPath(body) ?? longPath;
+    } else if (type === 0x4c) {
+      longPath = body.toString("utf8").replace(/\0[\s\S]*$/, "");
+    } else {
+      if (type === 0x30 || type === 0x00) {
+        entries.set(longPath ?? (prefix === "" ? name : `${prefix}/${name}`), body);
+      }
+      // An extended header applies to ONE entry. Cleared after any other record so
+      // it can never be read as belonging to a later one.
+      longPath = null;
+    }
+    off += 512 + Math.ceil(size / 512) * 512;
+  }
+  return { entries };
+}
+
+/**
+ * The manifest pnpm WOULD PUBLISH and the paths beside it, read out of a tarball
+ * pnpm actually wrote.
+ *
+ * THIS ASKS pnpm RATHER THAN MODELLING IT, and the docblock's net 4 section records
+ * why: `publishConfig.directory` makes pnpm publish a DIFFERENT subtree's own
+ * manifest and drop the root's other overrides, which a merge written here would
+ * have had to know. Reading the tarball knows it for free.
+ *
+ * The tarball is written into a temporary directory OUTSIDE the package, so nothing
+ * lands in a tree someone may be about to publish and nothing a later pack could
+ * pick up; it is removed again whatever happens. `--pack-destination` is passed on
+ * ARGV for the same reason net 3 passes its flags there, and it is ABSOLUTE because
+ * pnpm resolves a relative one against the PUBLISH directory, which under
+ * `publishConfig.directory` is not the directory this gate is standing in
+ * (measured: `--pack-destination ./tb` wrote into `dist/tb`).
+ *
+ * Every shape this cannot read comes back as an error rather than as an empty set,
+ * because a partial answer graded as a whole one is the false green this whole file
+ * exists to refuse.
+ *
+ * @param {NodeJS.ProcessEnv} childEnv The environment to hand pnpm.
+ * @returns {{ manifest: Record<string, unknown>, files: Set<string>, error?: undefined } | { error: string, manifest?: undefined, files?: undefined }}
+ */
+function pnpmPublished(childEnv) {
+  let dest;
+  try {
+    dest = mkdtempSync(join(tmpdir(), "attw-gate-pnpm-"));
+  } catch (err) {
+    return { error: `could not create a temporary directory for \`pnpm pack\`: ${err.message}` };
+  }
+  try {
+    const res = spawnSync("pnpm", ["pack", "--pack-destination", dest], {
+      encoding: "utf8",
+      stdio: ["inherit", "pipe", "pipe"],
+      env: childEnv,
+      maxBuffer: MAX_OUTPUT_BYTES,
+    });
+    if (res.error) {
+      return {
+        error:
+          `could not run \`pnpm pack\`: ${res.error.message}\n` +
+          `  This net grades the manifest pnpm would publish, so it needs pnpm on PATH.\n` +
+          `  Refused rather than skipped: a check that cannot run is not a pass.`,
+      };
+    }
+    if (res.status !== 0) {
+      const why = (res.stderr ?? "").trim();
+      return { error: `\`pnpm pack\` exited ${res.status}.${why ? `\n${why}` : ``}` };
+    }
+    const written = readdirSync(dest).filter((entry) => entry.endsWith(".tgz"));
+    if (written.length !== 1) {
+      return {
+        error:
+          `\`pnpm pack\` wrote ${written.length} tarball(s) where this net can only grade\n` +
+          `  exactly one. Something changed what pnpm was asked to pack.`,
+      };
+    }
+    const read = tarEntries(readFileSync(join(dest, written[0])));
+    if (read.error) return { error: read.error };
+    const manifestEntry = read.entries.get("package/package.json");
+    if (manifestEntry === undefined) {
+      return { error: `the tarball pnpm wrote carries no package/package.json to grade.` };
+    }
+    let manifest;
+    try {
+      manifest = JSON.parse(manifestEntry.toString("utf8"));
+    } catch (err) {
+      return {
+        error: `the package.json inside the tarball pnpm wrote is not readable JSON: ${err.message}`,
+      };
+    }
+    const files = new Set();
+    for (const path of read.entries.keys()) {
+      if (path.startsWith("package/")) files.add(path.slice("package/".length));
+    }
+    return { manifest, files };
+  } catch (err) {
+    return { error: `could not read the tarball \`pnpm pack\` wrote: ${err.message}` };
+  } finally {
+    rmSync(dest, { recursive: true, force: true });
+  }
 }
 
 let pkg;
@@ -956,7 +1230,7 @@ if (types.kind !== "included") {
 // publish, which is the one place `files`/`.npmignore` can drop a declared path
 // while leaving it on disk for net 1 to find. It reads npm's own pack listing, so
 // nothing attw does, and nothing a committed `.attw.json` configures, changes the
-// answer. See "THREE NETS" in the docblock for why that independence is the point.
+// answer. See "FOUR NETS" in the docblock for why that independence is the point.
 const packed = packedFiles(pkg, env);
 if (packed.error) {
   die(
@@ -982,6 +1256,69 @@ if (notPacked.length > 0) {
       `  why this net reads npm's pack listing rather than attw's verdict.\n`,
   );
 }
+// ---- END Net 3 --------------------------------------------------------------
+// THE CLOSING MARKER IS EXPLICIT, and it was not always. `attw-gate.test.ts` used to
+// slice net 3 out by cutting to the pass line's own comment, which meant anything
+// added between the two silently left the counterfactual. Net 4 was added there and
+// took `net4`'s declaration with it, and the three net 3 cases died on a
+// ReferenceError that read as a plain exit 1. A named marker cannot do that.
+
+/**
+ * What net 4 concluded, in the three states the pass line has to tell apart:
+ * `null` means the net is not in this build of the gate at all (the suite's
+ * counterfactual deletes it), `{ skipped: true }` means there was no
+ * `publishConfig` for it to grade, and a count means it graded that many paths.
+ *
+ * It is declared OUTSIDE the marked block below so the counterfactual copy still
+ * parses, and so a deleted net prints NOTHING rather than a sentence about a check
+ * that did not happen.
+ *
+ * @type {null | { skipped: true } | { declared: number }}
+ */
+let net4 = null;
+
+// ---- Net 4: the manifest PNPM would publish ---------------------------------
+// COUNTERFACTUAL MARKER. `attw-gate.test.ts` rebuilds the pre-net-4 gate by deleting
+// from here to the closing marker, so the RED-BEFORE half of that suite is derived
+// from this file rather than pasted beside it. Keep both markers; the suite reds if
+// either stops matching.
+//
+// Nets 1 and 3 both graded the manifest ON DISK. pnpm publishes a DIFFERENT one: it
+// applies `publishConfig` as publish-time overrides and rewrites the manifest inside
+// the tarball, and `npm pack` does not. This net reads the manifest AND the entry
+// list out of a tarball pnpm actually wrote, so it grades pnpm's own bytes rather
+// than a model of them. See net 4 in the docblock for what it does not cover.
+if (pkg.publishConfig !== null && typeof pkg.publishConfig === "object") {
+  const published = pnpmPublished(env);
+  if (published.error) {
+    die(
+      `this gate could not read the manifest pnpm would publish, so it could not check\n` +
+        `  the paths that manifest declares. package.json sets publishConfig, which pnpm\n` +
+        `  applies as publish-time OVERRIDES, so the manifest nets 1 and 3 graded is not\n` +
+        `  the one that would be published. Refused rather than passed: an answer this\n` +
+        `  net could not read is not a green one. ${published.error}`,
+    );
+  }
+  const publishedDeclared = declaredArtifacts(published.manifest);
+  const missing = publishedDeclared.filter((rel) => !published.files.has(rel.replace(/^\.\//, "")));
+  if (missing.length > 0) {
+    die(
+      `the manifest PNPM WOULD PUBLISH declares paths its tarball would NOT carry:\n` +
+        missing.map((rel) => `    ${rel}\n`).join("") +
+        `\n  This is not net 3 repeating itself. package.json sets publishConfig, and pnpm\n` +
+        `  applies it as publish-time overrides while \`npm pack\` leaves it alone, so the\n` +
+        `  manifest above is not the manifest on disk. Both were read out of a tarball\n` +
+        `  \`pnpm pack\` just wrote, so nothing here is predicted.\n` +
+        `  THIS ORG PUBLISHES WITH pnpm, so this is the document that would ship: an\n` +
+        `  installer would get a package whose own manifest points at paths that are not\n` +
+        `  in it. Fix the publishConfig override, or pack what it names.\n`,
+    );
+  }
+  net4 = { declared: publishedDeclared.length };
+} else {
+  net4 = { skipped: true };
+}
+// ---- END Net 4 --------------------------------------------------------------
 
 // WHAT THIS LINE MAY AND MAY NOT SAY. `kind === "included"` is `containsTypes()`,
 // which is "some file in the tarball has a TypeScript extension" and NOT "the
@@ -1006,12 +1343,30 @@ process.stdout.write(
         `  tarball npm would publish (net 3). That set excludes wildcard subpaths, absolute\n` +
         `  paths, browser-map keys, package.json itself, and leaves of exports, imports and\n` +
         `  browser maps that do not begin with a dot; and it is presence, not resolution.\n`) +
-    // THE DISCLOSURE SITS OUTSIDE THE BRANCH ABOVE, SO IT PRINTS ON EVERY RUN, and
+    // THE DISCLOSURE SITS OUTSIDE EVERY BRANCH ABOVE, SO IT PRINTS ON EVERY RUN, and
     // that is not cosmetic. A package that declares everything through
-    // `publishConfig` overrides has no relative artifact path of its OWN and lands
-    // in the zero-declared branch, which is the run this sentence is most for. It
-    // sat inside the else-branch for one commit while the docblock claimed it
-    // printed every run.
+    // `publishConfig` overrides has no relative artifact path of its OWN and lands in
+    // net 3's zero-declared branch; net 4 grades that package now, but `directories`
+    // is unread in BOTH manifests, so the sentence still has work to do on exactly
+    // that run. It sat inside an else-branch for one commit while the docblock
+    // claimed it printed every run.
+    // NET 4's HALF IS BOUNDED THE SAME WAY, AND IT NAMES THE DOCUMENT IT READ,
+    // because "the manifest pnpm would publish" is a different claim from net 3's
+    // and a reader must not take one for the other. The skip sentence says only that
+    // there was no override to grade: it must NOT say pnpm would publish the same
+    // declarations, which is a claim this gate did not make on this run.
+    (net4 === null
+      ? ``
+      : "skipped" in net4
+        ? `  package.json sets no publishConfig, so there was no publish-time override for\n` +
+          `  net 4 to grade and it did not run pnpm.\n`
+        : net4.declared === 0
+          ? `  the manifest pnpm would publish declares no relative artifact paths, so net 4\n` +
+            `  had none to check.\n`
+          : `  all ${net4.declared} relative artifact path(s) the manifest PNPM WOULD PUBLISH declares\n` +
+            `  are in the tarball pnpm would write (net 4). Manifest and file list were both\n` +
+            `  read out of a tarball \`pnpm pack\` wrote, so publishConfig overrides are\n` +
+            `  applied; same exclusions as net 3, and it is presence, not resolution.\n`) +
     `  The field set does NOT cover every field that can name a file. Known-unread: ` +
     `${KNOWN_UNREAD_FIELDS.join(", ")}.\n` +
     (kinds.length === 0
