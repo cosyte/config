@@ -197,9 +197,9 @@ no package, so entries here are **dated** rather than versioned.
       publishConfig"**, which that manifest contradicts. It now says "declares no publishConfig
       OBJECT", which is true of both shapes, and it is accurate rather than narrower: measured,
       pnpm ignores a non-object `publishConfig`, so there really is no override to grade. Pinned.
-    - **The failure message named a cause it had not established under `publishConfig.directory`**,
-      where nothing is overridden and the fix is in the subtree. The message now has a second
-      shape for that case and the test pins both halves.
+    - **The failure message named a cause it had not established under `publishConfig.directory`.**
+      The remedy attempted for this one was itself refuted; see the pass 2 bullet below for what
+      was measured and what shipped.
     - **The "skip is measured" fixture was thin** - eleven of its twelve comparisons were
       `undefined` vs `undefined`, so it pinned that pnpm ADDS none of these and nothing about
       whether pnpm REWRITES one. The fixture now carries a real value in all twelve, with the
@@ -220,12 +220,15 @@ no package, so entries here are **dated** rather than versioned.
     (measured - `main: "./on-disk.js"` plus `publishConfig: { main: "./overridden-by-subtree.js" }`
     publishes `./overridden-by-subtree.js`). So the message denied the cause in exactly the
     configuration this item exists to catch, and a test pinned the false half.
-    - **The remedy is DELETION.** The second message shape and its assertions are gone; the single
-      surviving message **names no cause at all**, because the gate did not measure which level
-      produced the red. It says which document it read and points at `./package.json` as the one
-      net 3 graded. No third shape was added - that is the move ADR 0027 §"Why deletion-only" names.
+    - **The second message shape and its three assertions are DELETED.** The single surviving
+      message **names no cause at all**, because the gate did not measure which level produced the
+      red. It says which document it read and points at `./package.json` as the one net 3 graded.
+      **No third shape was added**, and none should be: recovering the pointer to `sub/package.json`
+      honestly means teaching the net to measure the level, which is a slice and not a message edit.
     - The two-level rule is now stated in the docblock **and pinned by a pack-only measurement**,
-      rather than asserted in prose that nothing compares to the tool.
+      rather than asserted in prose that nothing compares to the tool. **That measurement, this
+      bullet and the `CLAUDE.md` fix below are ADDITIONS, so this remedy is not deletion-only and
+      ADR 0027's route is NOT what landed it** - the slice converged on its own third pass.
     - Two minors, both also corrected rather than argued: the string-`publishConfig` test asserted
       `undefined` vs `undefined` (**the same vacuity it fixed four lines away**) and now compares a
       key the fixture declares; and the `LongLink` sentence contradicted its own correction 43 lines
