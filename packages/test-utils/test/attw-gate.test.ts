@@ -1612,7 +1612,7 @@ describe("the field set nets 1, 3 and 4 share: `exports` is not the only field t
     () => {
       // The reason the other five were retired on was "no user in this org". That
       // is not a reason to leave a hole open, and it is not the reason here.
-      // `directories` names DIRECTORIES and both nets grade FILES, so reading it
+      // `directories` names DIRECTORIES and every net grades FILES, so reading it
       // with the machinery that reads `bin` would be wrong in both directions at
       // once. Measured on a package whose `directories` trees are FULLY PACKED:
       const dir = join(root, "directories-grammar");
@@ -1888,6 +1888,13 @@ describe("net 4: the manifest PNPM would publish, which is not the manifest on d
       // The root's own override is NOT what reds: pnpm never applied it. Naming it
       // here would be the gate claiming a catch it did not make.
       expect(r.out).not.toContain("./never-applied.js");
+      // AND THE MESSAGE MUST NOT NAME THE OVERRIDE CAUSE EITHER. `directory` is not
+      // an override: the subtree's own manifest is published verbatim, so "fix the
+      // publishConfig override" sends the reader to the wrong file. The failure has
+      // a second shape for exactly this case, and this is what pins it.
+      expect(r.out).toContain("publishes sub/package.json VERBATIM");
+      expect(r.out).toContain("Fix it there");
+      expect(r.out).not.toContain("Fix the publishConfig override");
     },
     SPAWN_TIMEOUT,
   );
@@ -1949,28 +1956,68 @@ describe("net 4: the manifest PNPM would publish, which is not the manifest on d
       // fact is measured here instead of being asserted in prose: with no
       // publishConfig, the manifest in a real `pnpm pack` tarball declares exactly
       // what the manifest on disk declares.
-      const dir = overrideFixture("no-publishconfig", {});
-      const onDisk = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as Record<
+      // THE FIXTURE CARRIES A REAL VALUE IN EVERY KEY COMPARED, and that is not
+      // decoration. A fixture declaring only `exports` would make eleven of the
+      // twelve assertions below `undefined` vs `undefined`: it would pin that pnpm
+      // ADDS none of these and say nothing about whether pnpm REWRITES one, which is
+      // the half the skip actually rests on. This package is packed and never gated,
+      // so it does not have to satisfy attw to carry all twelve.
+      const fat = join(root, "net4-no-publishconfig-fat");
+      writePkg(
+        fat,
+        {
+          name: "attw-gate-fixture-net4-no-publishconfig-fat",
+          version: "1.0.0",
+          main: "./index.cjs",
+          module: "./index.js",
+          types: "./index.d.ts",
+          typings: "./index.d.ts",
+          bin: { tool: "./index.cjs" },
+          man: ["./extra.1"],
+          unpkg: "./index.js",
+          jsdelivr: "./index.js",
+          browser: { "./index.cjs": "./index.js" },
+          exports: { ".": { types: "./index.d.ts", default: "./index.js" } },
+          imports: { "#internal": "./index.cjs" },
+          typesVersions: { "*": { sub: ["./index.d.ts"] } },
+          files: ["index.js", "index.d.ts", "index.cjs", "extra.1"],
+        },
+        {
+          "index.js": "export const a = 1;\n",
+          "index.d.ts": "export declare const a: number;\n",
+          "index.cjs": "module.exports.a = 1;\n",
+          "extra.1": ".TH EXTRA 1\n",
+        },
+      );
+      const onDisk = JSON.parse(readFileSync(join(fat, "package.json"), "utf8")) as Record<
         string,
         unknown
       >;
-      const byPnpm = packInto("pnpm", dir);
+      const declaring = [
+        "main",
+        "module",
+        "types",
+        "typings",
+        "bin",
+        "man",
+        "unpkg",
+        "jsdelivr",
+        "browser",
+        "exports",
+        "imports",
+        "typesVersions",
+      ];
+      const byPnpm = packInto("pnpm", fat);
       try {
         const published = packedManifest(byPnpm.tgz);
-        for (const key of [
-          "main",
-          "module",
-          "types",
-          "typings",
-          "bin",
-          "man",
-          "unpkg",
-          "jsdelivr",
-          "browser",
-          "exports",
-          "imports",
-          "typesVersions",
-        ]) {
+        // NON-VACUITY FIRST: every key really is in the published manifest, so the
+        // comparison below cannot pass by matching twelve absences against twelve
+        // absences. That is the exact shape this test had before it was fattened.
+        expect(
+          declaring.filter((key) => published[key] === undefined),
+          "a compared key is absent from the published manifest, so its assertion is vacuous",
+        ).toEqual([]);
+        for (const key of declaring) {
           expect(published[key], `pnpm rewrote ${key} with no publishConfig present`).toEqual(
             onDisk[key],
           );
@@ -1979,13 +2026,72 @@ describe("net 4: the manifest PNPM would publish, which is not the manifest on d
         rmSync(byPnpm.dest, { recursive: true, force: true });
       }
 
+      const dir = overrideFixture("no-publishconfig", {});
       const r = runWrapper(dir);
       expect(r.code, r.out).toBe(0);
-      expect(r.out).toContain("package.json sets no publishConfig");
+      expect(r.out).toContain("declares no publishConfig OBJECT");
       // The sentence must not claim pnpm would publish the same declarations. That
       // is a claim this run did not make, and the measurement above is where it is
       // made instead.
       expect(r.out).not.toContain("the manifest PNPM WOULD PUBLISH declares");
+    },
+    SPAWN_TIMEOUT,
+  );
+
+  it(
+    "A NON-OBJECT publishConfig takes the skip path, and the sentence printed there is true of it",
+    () => {
+      // The guard is `typeof pkg.publishConfig === "object"`, so a STRING lands on the
+      // skip branch. An earlier draft of that branch said "package.json sets no
+      // publishConfig", which this manifest contradicts. The sentence now says "no
+      // publishConfig OBJECT", and it is accurate rather than merely narrower:
+      // measured, pnpm ignores a non-object publishConfig, so there really is no
+      // override to grade and the skip is the right behaviour.
+      const dir = overrideFixture("publishconfig-string", { publishConfig: "not-an-object" });
+      const byPnpm = packInto("pnpm", dir);
+      try {
+        // pnpm applied nothing: the published manifest still names the on-disk paths.
+        expect(packedManifest(byPnpm.tgz)["main"]).toBeUndefined();
+      } finally {
+        rmSync(byPnpm.dest, { recursive: true, force: true });
+      }
+
+      const r = runWrapper(dir);
+      expect(r.code, r.out).toBe(0);
+      expect(r.out).toContain("declares no publishConfig OBJECT");
+      expect(r.out).not.toContain("sets no publishConfig,");
+    },
+    SPAWN_TIMEOUT,
+  );
+
+  it(
+    "THE ZERO-DECLARED BRANCH OF NET 4's PASS LINE, which is the one branch no other case reaches",
+    () => {
+      // Every other pass-line branch is exercised above. This one is not reachable
+      // from any of them, and an unprinted branch is where a wrong sentence hides:
+      // #61 shipped the known-unread disclosure inside an else-branch for a commit
+      // for exactly that reason.
+      const dir = join(root, "net4-zero-declared");
+      writePkg(
+        dir,
+        {
+          name: "attw-gate-fixture-net4-zero-declared",
+          version: "1.0.0",
+          publishConfig: { access: "public" },
+          files: ["index.js", "index.d.ts"],
+        },
+        {
+          "index.js": "module.exports.a = 1;\n",
+          "index.d.ts": "export declare const a: number;\n",
+        },
+      );
+      const r = runWrapper(dir);
+      expect(r.code, r.out).toBe(0);
+      // Net 4 RAN here: `publishConfig` is an object, so this is not the skip line.
+      expect(r.out).toContain("the manifest pnpm would publish declares no relative artifact");
+      expect(r.out).not.toContain("declares no publishConfig OBJECT");
+      // And net 3's own zero-declared branch, so the two are not being confused.
+      expect(r.out).toContain("package.json declares no relative artifact paths");
     },
     SPAWN_TIMEOUT,
   );

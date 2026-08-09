@@ -153,9 +153,10 @@ no package, so entries here are **dated** rather than versioned.
     REJECTED: it prints no manifest, only a file list, and it fires `prepack` and `prepare` while
     SKIPPING `postpack`. It is not cheaper either (0.92-1.08 s dry, 1.01-1.10 s real).
   - **TWO LONG-PATH TAR ESCAPES, BOTH REPRODUCED, BOTH FALSE REDS IF MISHANDLED.** A tar header's
-    `name` field is 100 bytes. A 121-byte path SPLIT at a `/` goes in the ustar `prefix` field; a
-    120-byte single filename cannot split and gets a **pax `x` record** instead, after which the
-    real entry is literally named `PaxHeader`. Read `name` alone and a correctly packed file is
+    `name` field is 100 bytes. A 120-byte entry path that SPLITS at a `/` goes in the ustar `prefix`
+    field; a 123-byte single filename cannot split and gets a **pax `x` record** instead, after
+    which the real entry is literally named `PaxHeader`. Both lengths are the suite's own
+    fixtures. Read `name` alone and a correctly packed file is
     invisible. Both are handled and pinned, with the ARCHIVE's own bytes asserted by a walker that
     is not the gate's, so the green cannot be green for the wrong reason. A GNU `LongLink` record is
     handled on the same terms and is named as a safeguard rather than a reproduction.
@@ -171,8 +172,8 @@ no package, so entries here are **dated** rather than versioned.
     left the counterfactual silently. Net 4 landed there and took a declaration the pass line reads
     with it; the three net 3 cases died on a `ReferenceError` that reads as a plain exit 1. Caught
     by those tests, fixed with an explicit `// ---- END Net 3` marker.
-  - **COST, MEASURED RATHER THAN ASSUMED:** `attw-gate.test.ts` goes 62 tests / 122.7 s -> 71 tests
-    / 150.3 s on this box. The slowest single case is 4.7 s, nowhere near the 120 s per-test
+  - **COST, MEASURED RATHER THAN ASSUMED:** `attw-gate.test.ts` goes 62 tests / 122.7 s -> 73 tests
+    / 156.3 s on this box. The slowest single case is 7.9 s, nowhere near the 120 s per-test
     timeout.
   - Both copies of the wrapper (`packages/test-utils/scripts/` and `scripts/parser-template/scripts/`)
     stay byte-identical, so every newly scaffolded parser inherits this.
@@ -180,6 +181,32 @@ no package, so entries here are **dated** rather than versioned.
     `npm pack --dry-run --json` on `@cosyte/test-utils` lists 15 entries, none under `scripts/` or
     `test/`, so nothing changed here is in its published tarball and a bump would republish
     identical bytes.
+  - **WHAT THE GATE CAUGHT, AND IT WAS THIS ARC'S SIGNATURE DEFECT AGAIN.** `gate-refuter` pass 1
+    returned `NOT REFUTED` with eight `INTRODUCED` minors, no blocker and no major, and **every one
+    of them was a sentence promising slightly more than the code delivers.** All eight are answered
+    by making the code match the sentence:
+    - **Two quoted measurements did not match the fixtures they cited** (the ustar path was 120
+      bytes, not 121; the pax filename 123, not 120). Corrected to the suite's own fixtures.
+    - **A stale net count**: `directories` "and **both** nets grade FILES" survived in two places
+      while its sibling sentence was updated. Net 4 shares that field set, so it is `every net`.
+    - **A string `publishConfig` takes the skip path and the skip line said "sets no
+      publishConfig"**, which that manifest contradicts. It now says "declares no publishConfig
+      OBJECT", which is true of both shapes, and it is accurate rather than narrower: measured,
+      pnpm ignores a non-object `publishConfig`, so there really is no override to grade. Pinned.
+    - **The failure message named a cause it had not established under `publishConfig.directory`**,
+      where nothing is overridden and the fix is in the subtree. The message now has a second
+      shape for that case and the test pins both halves.
+    - **The "skip is measured" fixture was thin** - eleven of its twelve comparisons were
+      `undefined` vs `undefined`, so it pinned that pnpm ADDS none of these and nothing about
+      whether pnpm REWRITES one. The fixture now carries a real value in all twelve, with the
+      non-vacuity asserted first.
+    - **`net4.declared === 0` was the one pass-line branch no case reached.** It has one now.
+    - **`0x4c` was labelled GNU LongLink; it is LongName.** `K` is LongLink, and the walker now
+      skips it WITHOUT clearing a pending long name, because GNU may emit `K` beside an `L` for
+      the same entry and clearing there would hand it a truncated name.
+    - Also carried: the recursion argument covers `prepublishOnly` **and nothing else** -
+      `prepack`/`prepare`/`postpack` do fire, so the docblock now names the hook it settled
+      instead of implying it settled the question.
   - **NOT PORTED HERE:** the sibling repos carry their own already-divergent `scripts/attw.mjs`.
     Porting is their work, not a widening of this slice.
 

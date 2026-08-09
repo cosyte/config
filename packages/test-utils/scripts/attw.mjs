@@ -228,7 +228,11 @@
  *      this net (attw's own nested `npm pack`, then net 3's) and THREE times after,
  *      when `publishConfig` is present. `prepublishOnly` fired 0 times through
  *      `pnpm pack`, which is what keeps this net from recursing into the gate that
- *      `prepublishOnly` runs. `pnpm pack --dry-run` was measured and REJECTED for
+ *      `prepublishOnly` runs. THAT ARGUMENT COVERS `prepublishOnly` AND NOTHING
+ *      ELSE: `prepack`, `prepare` and `postpack` DO fire, so a repo that wired this
+ *      gate into one of those would recurse without bound. No repo here does, and
+ *      the sentence says which hook it settled rather than implying it settled the
+ *      question. `pnpm pack --dry-run` was measured and REJECTED for
  *      two reasons: it prints no manifest, only a file list, and it fires `prepack`
  *      and `prepare` while SKIPPING `postpack`, so it leaves a package's own
  *      bookkeeping half-run. It is not cheaper either, within the spread measured on
@@ -337,7 +341,7 @@
  * now read and the reason is retired rather than restated.
  *
  * ▶ `directories` STAYS UNREAD, AND ON A GRAMMAR GROUND THAT IS MEASURED RATHER
- * THAN A POPULARITY ONE. Its values name DIRECTORIES, and both nets grade FILES.
+ * THAN A POPULARITY ONE. Its values name DIRECTORIES, and every net grades FILES.
  * Measured on a package whose `directories.bin`/`directories.man` trees are fully
  * packed: `npm pack --dry-run --json` lists `binscripts/tool.js` and
  * `mandir/page.1` and NO directory entry at all, so net 3's `packed.files.has()`
@@ -922,19 +926,24 @@ function paxPath(body) {
  * kind:
  *
  *   ustar `prefix`  A path that SPLITS at a `/` inside the last 155 bytes goes in
- *                   two fields. Measured on a 121-byte path: `prefix` held
- *                   `package/aaaa...` and `name` held the rest. Read `name` alone
- *                   and the entry lands under a path no manifest declares.
+ *                   two fields. Measured on the suite's own fixture, whose entry
+ *                   path is 120 bytes: `prefix` held `package/aaaa...` (28 bytes)
+ *                   and `name` held the remaining 91. Read `name` alone and the
+ *                   entry lands under a path no manifest declares.
  *   pax `x` record  A path that cannot be split that way gets an extended header
  *                   INSTEAD, and the real entry that follows is literally named
- *                   `PaxHeader`. Measured on a 120-byte single filename: two
- *                   entries, `x` then a regular file, both named `PaxHeader`, with
+ *                   `PaxHeader`. Measured on the suite's own fixture, a 123-byte
+ *                   single filename (131 with the `package/` prefix): two entries,
+ *                   `x` then a regular file, both named `PaxHeader`, with
  *                   `path=package/llll....js` in the `x` record's body. Skip the
  *                   `x` record without reading it and the file is invisible.
  *
- * A GNU `L` (LongLink) record is handled on the same terms. `tar` as pnpm invokes it
- * was not measured emitting one, so that branch is a safeguard rather than a
- * reproduction, and this sentence says so rather than claiming a measurement.
+ * GNU's `L` (LongName) record is handled on the same terms, and `K` (LongLink) is
+ * ignored WITHOUT clearing a pending name, because `K` names a link TARGET and GNU
+ * may emit it beside an `L` for the same entry. Neither was measured coming out of
+ * `pnpm pack`, which packs through `tar-stream` and uses pax, so both are
+ * safeguards rather than reproductions and this sentence says so rather than
+ * claiming a measurement.
  *
  * @param {Buffer} gz The gzipped archive.
  * @returns {{ entries: Map<string, Buffer>, error?: undefined } | { error: string, entries?: undefined }}
@@ -974,12 +983,17 @@ function tarEntries(gz) {
     // string escape for a NUL has to survive being copied between two files.
     // 0x30 "0" and 0x00 (the historical spelling) are a regular file; 0x78 "x" and
     // 0x58 "X" are a pax extended header for the NEXT entry; 0x4c "L" is GNU's
-    // LongLink, whose whole body is that next entry's name.
+    // LongName, whose whole body is that next entry's PATH.
     const type = header[156];
     if (type === 0x78 || type === 0x58) {
       longPath = paxPath(body) ?? longPath;
     } else if (type === 0x4c) {
       longPath = body.toString("utf8").replace(/\0[\s\S]*$/, "");
+    } else if (type === 0x4b) {
+      // 0x4b "K" is GNU's LongLink, which carries a link TARGET rather than a path.
+      // It is skipped WITHOUT clearing `longPath`: GNU may emit `K` beside an `L`
+      // for the same entry, and clearing here would hand that entry its truncated
+      // 100-byte name instead. Nothing it carries is a file this net grades.
     } else {
       if (type === 0x30 || type === 0x00) {
         entries.set(longPath ?? (prefix === "" ? name : `${prefix}/${name}`), body);
@@ -1302,16 +1316,31 @@ if (pkg.publishConfig !== null && typeof pkg.publishConfig === "object") {
   const publishedDeclared = declaredArtifacts(published.manifest);
   const missing = publishedDeclared.filter((rel) => !published.files.has(rel.replace(/^\.\//, "")));
   if (missing.length > 0) {
+    // WHY THIS MESSAGE HAS TWO SHAPES. `publishConfig.directory` is not an override
+    // at all: pnpm publishes that subtree's OWN manifest verbatim and does not apply
+    // the root's other publishConfig keys. Printing the override wording there would
+    // name a cause this net did not establish and send the reader to the wrong file,
+    // which is the "sentence promising more than the code delivers" defect wearing a
+    // remedy. Both halves say only what was read out of the tarball.
+    const directory = pkg.publishConfig.directory;
     die(
       `the manifest PNPM WOULD PUBLISH declares paths its tarball would NOT carry:\n` +
         missing.map((rel) => `    ${rel}\n`).join("") +
-        `\n  This is not net 3 repeating itself. package.json sets publishConfig, and pnpm\n` +
-        `  applies it as publish-time overrides while \`npm pack\` leaves it alone, so the\n` +
-        `  manifest above is not the manifest on disk. Both were read out of a tarball\n` +
-        `  \`pnpm pack\` just wrote, so nothing here is predicted.\n` +
-        `  THIS ORG PUBLISHES WITH pnpm, so this is the document that would ship: an\n` +
-        `  installer would get a package whose own manifest points at paths that are not\n` +
-        `  in it. Fix the publishConfig override, or pack what it names.\n`,
+        `\n  This is not net 3 repeating itself. ` +
+        (typeof directory === "string"
+          ? `package.json sets publishConfig.directory, so pnpm\n` +
+            `  publishes ${directory}/package.json VERBATIM and packs that subtree instead of\n` +
+            `  this one. The root's other publishConfig keys are NOT applied in that mode, so\n` +
+            `  the manifest above is ${directory}/package.json and the tarball is ${directory}'s.\n` +
+            `  Fix it there, or pack what it names.\n`
+          : `package.json sets publishConfig, and pnpm\n` +
+            `  applies it as publish-time overrides while \`npm pack\` leaves it alone, so the\n` +
+            `  manifest above is not the manifest on disk.\n` +
+            `  Fix the publishConfig override, or pack what it names.\n`) +
+        `  Both documents were read out of a tarball \`pnpm pack\` just wrote, so nothing\n` +
+        `  here is predicted. THIS ORG PUBLISHES WITH pnpm, so that is the document that\n` +
+        `  would ship: an installer would get a package whose own manifest points at paths\n` +
+        `  that are not in it.\n`,
     );
   }
   net4 = { declared: publishedDeclared.length };
@@ -1358,8 +1387,13 @@ process.stdout.write(
     (net4 === null
       ? ``
       : "skipped" in net4
-        ? `  package.json sets no publishConfig, so there was no publish-time override for\n` +
-          `  net 4 to grade and it did not run pnpm.\n`
+        ? // "no publishConfig OBJECT", not "no publishConfig", and the difference is
+          // a measured one rather than pedantry: a STRING `publishConfig` takes this
+          // branch too, and pnpm ignores it (measured: the packed manifest is
+          // unchanged), so there really is no override to grade. The earlier wording
+          // said "sets no publishConfig", which that manifest contradicts.
+          `  package.json declares no publishConfig OBJECT, so there was no publish-time\n` +
+          `  override for net 4 to grade and it did not run pnpm.\n`
         : net4.declared === 0
           ? `  the manifest pnpm would publish declares no relative artifact paths, so net 4\n` +
             `  had none to check.\n`
