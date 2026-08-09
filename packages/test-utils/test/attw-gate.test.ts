@@ -76,6 +76,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -109,6 +110,13 @@ const PACK_PLACEMENT_CONFIG = /^npm_config_(dry[_-]run|pack[_-]destination)$/i;
 interface RunResult {
   code: number;
   out: string;
+  /**
+   * stdout ALONE. `out` folds stderr in because most cases here only ask "did this
+   * sentence appear anywhere", but a case that PARSES a subprocess's output must
+   * not read a warning line as part of the document. npm writes its warnings to
+   * stderr and its `--json` report to stdout.
+   */
+  stdout: string;
 }
 
 function run(
@@ -133,7 +141,11 @@ function run(
     timeout: 100_000,
     env: { ...base, ...extraEnv },
   });
-  return { code: r.status ?? -1, out: `${r.stdout ?? ""}${r.stderr ?? ""}` };
+  return {
+    code: r.status ?? -1,
+    out: `${r.stdout ?? ""}${r.stderr ?? ""}`,
+    stdout: r.stdout ?? "",
+  };
 }
 
 const runAttw = (cwd: string, extraEnv: Record<string, string> = {}): RunResult =>
@@ -1278,16 +1290,22 @@ describe("the field set nets 1 and 3 share: `exports` is not the only field that
   // WHY THIS BLOCK EXISTS. Nets 1 and 3 ask their questions of ONE set, the one
   // `declaredArtifacts()` returns, so a declaring field missing from that set is a
   // hole in BOTH at once and neither of them says a word. `typesVersions`,
-  // `imports` and `browser` all name files inside the package and all three were
-  // walked past, so a path declared through any of them could sit outside the
-  // tarball with the whole gate green. That is net 3's own defect shape arriving
-  // through a field net 3 did not read.
+  // `imports`, `browser`, `man`, `unpkg` and `jsdelivr` all name files inside the
+  // package and all six were walked past, so a path declared through any of them
+  // could sit outside the tarball with the whole gate green. That is net 3's own
+  // defect shape arriving through a field net 3 did not read.
+  //
+  // `man` IS THE ONE WORTH NAMING: it is `bin`'s own sibling in the npm spec, and
+  // `bin` is a hole this gate claims to have closed. It was disclosed rather than
+  // read on the ground that it is only a LINK-TIME promise, a reason equally true
+  // of `bin`, which is read, so the reason was retired instead of restated.
   //
   // THE HONEST BOUND, PINNED IN PROSE HERE BECAUSE NO TEST CAN CARRY IT: this
-  // closed a LATENT hole. `typesVersions` is the only one of the three any cosyte
+  // closed a LATENT hole. `typesVersions` is the only one of the six any cosyte
   // manifest uses (`ncpdp`, `@cosyte/test-utils`), and in both of them every
   // `typesVersions` target is already declared through `exports`, so the derived set
-  // does not move. Nothing shipped broken.
+  // does not move. `man`, `unpkg` and `jsdelivr` appear in NO cosyte manifest,
+  // re-derived over every one of them, not assumed. Nothing shipped broken.
 
   /**
    * A well-formed dual ESM/CJS package that packs everything EXCEPT one path, which
@@ -1317,9 +1335,13 @@ describe("the field set nets 1 and 3 share: `exports` is not the only field that
         "index.d.ts": "export declare const a: number;\n",
         "index.cjs": "module.exports.a = 1;\n",
         "index.d.cts": "export declare const a: number;\n",
-        // The one path that is on disk and NOT in `files`.
+        // The paths that are on disk and NOT in `files`. `extra.1` is here so the
+        // `man` cases can declare something with a man page's shape rather than
+        // borrowing a JS file; nothing enumerates the tree, so an extra unpacked
+        // file changes no other case.
         "extra.d.ts": "export declare const b: number;\n",
         "extra.mjs": "export const b = 2;\n",
+        "extra.1": ".TH EXTRA 1\n",
       },
     );
     return dir;
@@ -1369,6 +1391,16 @@ describe("the field set nets 1 and 3 share: `exports` is not the only field that
     ["browser-map-value", { browser: { "./index.js": "./extra.mjs" } }, "./extra.mjs"],
     // The string form, which is an entry point like `main` and is read like one.
     ["browser-string", { browser: "./extra.mjs" }, "./extra.mjs"],
+    // `man` takes a bare string or an array of them, and the `./` is optional on
+    // both: the same lenient grammar `bin` has. Both spellings are pinned, because
+    // the array form is the one npm's own documentation leads with and the lenient
+    // string is the one that would silently normalize wrongly.
+    ["man-string", { man: "extra.1" }, "./extra.1"],
+    ["man-array", { man: ["./extra.1"] }, "./extra.1"],
+    // CDN conventions with `main`'s grammar. A path the tarball does not carry is a
+    // 404 from the CDN, which is the same broken promise by a different consumer.
+    ["unpkg", { unpkg: "./extra.mjs" }, "./extra.mjs"],
+    ["jsdelivr", { jsdelivr: "./extra.mjs" }, "./extra.mjs"],
   ];
 
   for (const [label, fragment, missing] of cases) {
@@ -1449,27 +1481,117 @@ describe("the field set nets 1 and 3 share: `exports` is not the only field that
     SPAWN_TIMEOUT,
   );
 
+  /**
+   * The known-unread field names, PARSED OUT OF THE SHIPPED GATE rather than
+   * written here. `KNOWN_UNREAD_FIELDS` is the gate's single copy of that claim and
+   * the pass line prints it, so a name that appears in one appears in both.
+   */
+  function knownUnreadFields(): string[] {
+    const src = readFileSync(WRAPPER, "utf8");
+    const decl = /const KNOWN_UNREAD_FIELDS = \[([^\]]*)\];/.exec(src);
+    // If the constant is renamed or deleted, this reds rather than silently
+    // grading an empty list, which would pass vacuously.
+    expect(decl, "KNOWN_UNREAD_FIELDS is not declared in the shape this test reads").not.toBeNull();
+    const names = [...(decl?.[1] ?? "").matchAll(/"([^"]+)"/g)].flatMap((m) => m[1] ?? []);
+    expect(names.length).toBeGreaterThan(0);
+    return names;
+  }
+
+  /**
+   * One probe per known-unread name: a manifest fragment declaring, through THAT
+   * field only, paths that exist nowhere: not on disk and not in the tarball. If
+   * the gate read the field, net 1 would red before attw ever ran.
+   */
+  const UNREAD_PROBES: Record<string, Record<string, unknown>> = {
+    directories: {
+      directories: { bin: "./absent-bin", man: "./absent-man", lib: "./absent-lib" },
+    },
+  };
+
   it(
-    "THE FIELD SET IS KNOWN-INCOMPLETE, AND THE PASS LINE SAYS WHICH FIELDS IT SKIPS",
+    "THE KNOWN-UNREAD DISCLOSURE IS DERIVED FROM THE GATE, NOT PASTED BESIDE IT",
     () => {
-      // A completeness claim was written into a draft of this slice and was WRONG:
-      // `man` and `directories` also name files and are still unread, and `man` is
-      // `bin`'s own sibling in the npm spec while `bin` is a hole this gate closed.
-      // The remedy was to correct the claim rather than grow the guard, so what is
-      // pinned here is the DISCLOSURE, and the counterfactual is that the fields
-      // really are still unread. If a later slice reads them, this reds and the
-      // pass line has to be re-earned rather than quietly kept.
-      const dir = declaredOnlyVia("known-unread", {
-        man: ["./man/absent.1"],
-        directories: { bin: "./absent-bin", man: "./absent-man" },
-        unpkg: "./absent-unpkg.js",
-        jsdelivr: "./absent-jsdelivr.js",
-      });
+      // WHY THIS TEST HAS THIS SHAPE. The disclosure sentence has drifted ahead of
+      // `declaredArtifacts()` three rounds running, and every guard on it so far
+      // compared one COPY OF THE PROSE to another copy of the prose. The two
+      // wrapper files are held byte-identical, which catches a divergence between
+      // them and nothing at all about whether either is true. This compares the
+      // prose to the GATE: every name the pass line prints is measured to be really
+      // unread, and a name with no probe below cannot be added without one.
+      const names = knownUnreadFields();
+      expect(
+        Object.keys(UNREAD_PROBES).sort(),
+        "every KNOWN_UNREAD_FIELDS name needs a probe here, and every probe a name",
+      ).toEqual([...names].sort());
+
+      const dir = declaredOnlyVia(
+        "known-unread",
+        Object.assign({}, ...names.map((n) => UNREAD_PROBES[n])) as Record<string, unknown>,
+      );
       const r = runWrapper(dir);
+      // Green: every one of those absent paths went unseen, which is the claim.
       expect(r.code, r.out).toBe(0);
       expect(r.out).toContain("all 4 relative artifact path(s) package.json declares are in the");
-      expect(r.out).toContain("man, directories, unpkg and");
-      expect(r.out).toContain("known-unread");
+      // And the sentence says exactly which fields, in the gate's own words.
+      expect(r.out).toContain(`Known-unread: ${names.join(", ")}.`);
+      expect(r.out).toContain("It does NOT cover every field that can name a file");
+    },
+    SPAWN_TIMEOUT,
+  );
+
+  it(
+    "`directories` STAYS UNREAD ON A MEASURED GRAMMAR GROUND, NOT A POPULARITY ONE",
+    () => {
+      // The reason the other five were retired on was "no user in this org". That
+      // is not a reason to leave a hole open, and it is not the reason here.
+      // `directories` names DIRECTORIES and both nets grade FILES, so reading it
+      // with the machinery that reads `bin` would be wrong in both directions at
+      // once. Measured on a package whose `directories` trees are FULLY PACKED:
+      const dir = join(root, "directories-grammar");
+      writePkg(
+        dir,
+        {
+          name: "attw-gate-fixture-directories-grammar",
+          version: "1.0.0",
+          directories: { bin: "./binscripts", man: "./mandir" },
+          files: ["binscripts", "mandir"],
+        },
+        {},
+      );
+      mkdirSync(join(dir, "binscripts"), { recursive: true });
+      mkdirSync(join(dir, "mandir"), { recursive: true });
+      writeFileSync(join(dir, "binscripts", "tool.js"), "#!/usr/bin/env node\n");
+      writeFileSync(join(dir, "mandir", "page.1"), ".TH PAGE 1\n");
+
+      const packed = run("npm", ["pack", "--dry-run", "--json"], dir);
+      expect(packed.code, packed.out).toBe(0);
+      // stdout ALONE: npm writes config warnings to stderr on this box, and folding
+      // them into the document would make this parse fail for the wrong reason.
+      const report = (JSON.parse(packed.stdout) as { files: { path: string }[] }[])[0];
+      // npm reports an ARRAY of tarballs. One fixture, one entry: anything else and
+      // the assertions below would be graded against a document this test did not
+      // ask for, so it reds here instead.
+      expect(report, packed.stdout).toBeDefined();
+      const listed: string[] = (report?.files ?? []).map((f) => f.path);
+
+      // (a) NET 3 WOULD MISS ON A CORRECTLY PACKED PACKAGE. npm's listing carries
+      //     the files inside the directory and no entry for the directory itself,
+      //     so `packed.files.has("binscripts")` is false however well it packed:
+      //     a false red for the healthy case, which is the worst kind.
+      expect(listed).toContain("binscripts/tool.js");
+      expect(listed).toContain("mandir/page.1");
+      expect(listed).not.toContain("binscripts");
+      expect(listed).not.toContain("mandir");
+
+      // (b) NET 1 WOULD PASS IT BLIND, from the other side: its test is "missing or
+      //     zero bytes", and a directory stats non-zero without anything being in
+      //     it. So neither net grades what the field actually promises.
+      expect(statSync(join(dir, "binscripts")).size).toBeGreaterThan(0);
+      expect(statSync(join(dir, "binscripts")).isDirectory()).toBe(true);
+
+      // Reading `directories` therefore needs a PREFIX test against the packed
+      // list, a second grading rule and not a wider field set. That is out of this
+      // slice deliberately, and the pass line says so.
     },
     SPAWN_TIMEOUT,
   );
