@@ -208,12 +208,19 @@
  * MEASURED, NOT PREDICTED, on one throwaway package per field, each otherwise
  * identical to the well-formed dual ESM/CJS fixture: one path on disk, left out of
  * `files`, and declared ONLY through the field under test. Every one of them passed
- * the whole gate at the commit before its field was read (`95730a7` for the first
- * four, `fe2f427` for `man`, `unpkg` and `jsdelivr`): nets 1, 2 and 3 green, attw
- * exited 0 and reported nothing. That is the same false-green shape net 3 was
- * built for, arriving through a field net 3 did not read. The cases are pinned in
- * `attw-gate.test.ts` with the pre-fix field set derived from THIS file at test
- * time.
+ * the whole gate WITHOUT its field being read: nets 1, 2 and 3 green, attw exited 0
+ * and reported nothing. That is the same false-green shape net 3 was built for,
+ * arriving through a field net 3 did not read.
+ *
+ * SAY EXACTLY WHAT PRODUCED THAT RED-BEFORE, BECAUSE IT IS NOT A BASE COMMIT.
+ * `attw-gate.test.ts` reconstructs the gate by deleting the marked block below out
+ * of THIS file at test time and runs the fixtures against that, so the
+ * counterfactual is derived from the shipped source rather than pasted beside it.
+ * It rebuilds the pre-`#59` field set, which for these fixtures is equivalent to
+ * any later base, because each declares its one path through one field and nothing
+ * through the others. The literal-base reading is separate and coarser: at
+ * `fe2f427` a fixture naming absent paths through all four disclosed fields passed
+ * the whole gate.
  *
  * ▶ WHAT IT DID NOT CHANGE, AND THIS IS THE HONEST HALF: nothing in the org moves.
  * `typesVersions` is the only one of the six that any cosyte manifest uses today
@@ -267,6 +274,31 @@
  * needs a prefix test against the packed list, which is a second grading rule, not
  * a wider field set. It is out of this slice deliberately, and it is what the
  * KNOWN-UNREAD disclosure below now names.
+ *
+ * ▶ `publishConfig` IS THE SHARPEST UNREAD FIELD OF ALL, AND IT IS UNREAD FOR THE
+ * SAME REASON `directories` IS: NET 3's AUTHORITY CANNOT SEE IT. pnpm honours
+ * `publishConfig.{main,module,types,typings,exports,bin,browser,unpkg,...}` as
+ * PUBLISH-TIME OVERRIDES and rewrites the manifest inside the tarball. Measured on
+ * pnpm 11.20.0, one package, both packers:
+ *
+ *     manifest: main "./index.js", publishConfig.main "./absent-override.js"
+ *     npm pack   -> tarball manifest main = "./index.js"          (NOT applied)
+ *     pnpm pack  -> tarball manifest main = "./absent-override.js" (APPLIED, and
+ *                   the tarball does not carry that path)
+ *
+ * So a package can pass this whole gate green and still publish, through pnpm, a
+ * manifest whose `main`, `exports` and `bin` all name a path the tarball does not
+ * carry. Measured directly: the fixture above exits 0 here with all three
+ * overrides set. THIS ORG PUBLISHES WITH pnpm, so it is not hypothetical.
+ *
+ * It is NOT closed here, and the reason is the shape of the fix rather than its
+ * size. Net 3 grades `npm pack --dry-run --json`, which is the wrong document for
+ * this question: closing it means grading the manifest pnpm WOULD write, which is
+ * a second source of truth for what the package declares, not another key in
+ * `declaredArtifacts()`. Widening the field set would produce false reds instead,
+ * since an override target is resolved against a tarball this net never reads. It
+ * is named in `KNOWN_UNREAD_FIELDS`, so the pass line says it out loud on every
+ * run, and a probe pins that it really is unread.
  *
  * ▶ THE DISCLOSURE IS NOW ONE STRING, READ BY THE PASS LINE AND BY THE SUITE.
  * `KNOWN_UNREAD_FIELDS` is the single copy; the pass line prints it, and
@@ -565,7 +597,7 @@ for (let i = 0; i < args.length; i++) {
  * added here without the behaviour to match it now reds. It is still not a
  * completeness claim: see "AND THIS IS NOT AN ENUMERATION" in the docblock.
  */
-const KNOWN_UNREAD_FIELDS = ["directories"];
+const KNOWN_UNREAD_FIELDS = ["directories", "publishConfig"];
 
 /**
  * Every relative path `package.json` promises to ship, deduped and normalized to
@@ -648,11 +680,13 @@ function declaredArtifacts(pkg) {
   // is a path into this tarball with `main`'s grammar, and a CDN serves a 404 for a
   // path the tarball does not carry. Same reading `main` gets.
   for (const key of ["unpkg", "jsdelivr"]) addPath(pkg[key]);
-  // `directories` is NOT here, and the reason is a grammar one rather than a
-  // popularity one: its values name directories, npm's pack listing carries only
-  // file paths, and net 1's size test passes a directory without looking inside it.
-  // See "`directories` STAYS UNREAD" in the docblock; it is the whole of
-  // KNOWN_UNREAD_FIELDS, declared above this function.
+  // `directories` and `publishConfig` are NOT here, and neither is skipped on a
+  // popularity ground. `directories` names DIRECTORIES while both nets grade FILES.
+  // `publishConfig` names publish-time OVERRIDES that pnpm applies and `npm pack`
+  // does not, so its targets are promises about a tarball net 3 never reads. Both
+  // need a second source of truth rather than another key here. See "`directories`
+  // STAYS UNREAD" and "`publishConfig` IS THE SHARPEST" in the docblock; together
+  // they are the whole of KNOWN_UNREAD_FIELDS, declared above this function.
   // ---- END BEYOND `exports` ---------------------------------------------------
   return [...found];
 }

@@ -136,6 +136,20 @@ no package, so entries here are **dated** rather than versioned.
     `directories` needs a PREFIX test against the packed list, which is **a second grading rule, not
     a wider field set**. Out of this slice deliberately, and pinned as a test with both measurements
     in it.
+  - **`publishConfig` JOINS THE DISCLOSURE, AND IT IS THE SHARPEST UNREAD FIELD OF THE LOT.** Found
+    by the gate refuter and then measured on pnpm 11.20.0, one package, both packers: with
+    `publishConfig.main` set to `./absent-override.js`, `npm pack` writes a tarball whose manifest
+    still reads `./index.js` (**not applied**) while `pnpm pack` writes one reading
+    `./absent-override.js` (**applied**, and the tarball does not carry that path). So a package can
+    pass this whole gate green and still publish, through pnpm, a manifest whose `main`, `exports`
+    and `bin` all name a path that is not in the tarball. Measured directly: a fixture with all
+    three overrides set exits 0 here. **This org publishes with pnpm, so it is not hypothetical.**
+    Not closed in this slice, and the reason is the SHAPE of the fix: net 3's authority is
+    `npm pack`, which is the wrong document for this question. Closing it means grading the manifest
+    pnpm WOULD write, a **second source of truth**, not another key in `declaredArtifacts()`.
+    Widening the field set would buy false reds instead. `PRE-EXISTING` (identical at `fe2f427`,
+    whose four-name disclosure omitted it too), so it is named on every run and left as a slice of
+    its own.
   - **THE DISCLOSURE IS NOW ONE STRING, AND THE SUITE COMPARES IT TO THE GATE RATHER THAN TO ANOTHER
     COPY OF ITSELF.** `KNOWN_UNREAD_FIELDS` in `attw.mjs` is the single copy of that claim; the pass
     line prints it, and `attw-gate.test.ts` parses the literal out of the shipped file, builds a
@@ -187,6 +201,12 @@ no package, so entries here are **dated** rather than versioned.
     guard** (`man` is a link-time promise rather than a resolution-time one, and none of the four
     has a user in this org). A test pins the disclosure AND that the four really are still unread,
     so a later slice that reads them has to re-earn the pass line rather than quietly keep it.
+    - **▶ SUPERSEDED WITHIN `[Unreleased]` BY THE ENTRY ABOVE, AND LEFT STANDING RATHER THAN
+      REWRITTEN.** The later slice read `man`, `unpkg` and `jsdelivr`, so "the four are still
+      unread" and "a test pins that the four really are still unread" are **no longer true at
+      head**: one field is unread, and the test that pins it derives its names from the gate. The
+      link-time reason quoted here is the one that slice retired, because `bin` is link-time too
+      and is read. This bullet is history and reads as history; the entry above is what is true.
   - **THE `./` EXCLUSION IS A LEADING DOT, NOT A LEADING `./`, AND THE FIRST CORRECTION SAID `./`.**
     The gate refuter measured it on the second pass: `addTarget` tests `startsWith(".")`, so
     `.hidden.js` and `../outside.js` in `exports`/`imports`/`browser` maps are KEPT and reported.

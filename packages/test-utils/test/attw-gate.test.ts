@@ -1506,6 +1506,17 @@ describe("the field set nets 1 and 3 share: `exports` is not the only field that
     directories: {
       directories: { bin: "./absent-bin", man: "./absent-man", lib: "./absent-lib" },
     },
+    // pnpm applies these as PUBLISH-TIME OVERRIDES and rewrites the manifest inside
+    // the tarball; `npm pack`, which is net 3's authority, does not. Measured on
+    // pnpm 11.20.0: `pnpm pack` writes a tarball whose manifest reads
+    // `main: "./absent-override.js"`, and the tarball does not carry that path.
+    publishConfig: {
+      publishConfig: {
+        main: "./absent-override.js",
+        exports: { ".": "./absent-override.js" },
+        bin: { x: "./absent-override-bin.js" },
+      },
+    },
   };
 
   it(
@@ -1523,6 +1534,15 @@ describe("the field set nets 1 and 3 share: `exports` is not the only field that
         Object.keys(UNREAD_PROBES).sort(),
         "every KNOWN_UNREAD_FIELDS name needs a probe here, and every probe a name",
       ).toEqual([...names].sort());
+      // AND EACH PROBE MUST ACTUALLY DECLARE THROUGH ITS OWN FIELD. Key-set equality
+      // alone would let a future `foo: {}` pass green while proving nothing, which is
+      // the vacuous-guard shape this whole block exists to avoid.
+      for (const name of names) {
+        expect(
+          Object.keys(UNREAD_PROBES[name] ?? {}),
+          `the ${name} probe must set ${name}`,
+        ).toEqual([name]);
+      }
 
       const dir = declaredOnlyVia(
         "known-unread",
@@ -1585,7 +1605,10 @@ describe("the field set nets 1 and 3 share: `exports` is not the only field that
 
       // (b) NET 1 WOULD PASS IT BLIND, from the other side: its test is "missing or
       //     zero bytes", and a directory stats non-zero without anything being in
-      //     it. So neither net grades what the field actually promises.
+      //     it. So neither net grades what the field actually promises. This asserts
+      //     a FILESYSTEM property rather than the gate's, deliberately: on a
+      //     filesystem that reported 0-byte directories it would red, and it should,
+      //     because half the reason `directories` stays unread would have changed.
       expect(statSync(join(dir, "binscripts")).size).toBeGreaterThan(0);
       expect(statSync(join(dir, "binscripts")).isDirectory()).toBe(true);
 
