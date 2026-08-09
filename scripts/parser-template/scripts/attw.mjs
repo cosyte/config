@@ -109,9 +109,9 @@
  *      Both are invalid `exports`/`imports` targets to Node itself, so reporting
  *      them is right; what would be wrong is a sentence here implying they are
  *      dropped. That exclusion is field-conditional and the pass line says so: in
- *      `main`, `module`, `types`, `typings`, `bin`, `typesVersions` and the STRING
- *      form of `browser` the prefix is optional, so a bare leaf there IS read as a
- *      path. The pass line names those exclusions rather
+ *      `main`, `module`, `types`, `typings`, `bin`, `man`, `unpkg`, `jsdelivr`,
+ *      `typesVersions` and the STRING form of `browser` the prefix is optional, so
+ *      a bare leaf there IS read as a path. The pass line names those exclusions rather
  *      than printing a count that reads like a total. The list comes from
  *      `npm pack --dry-run --json` run in this directory, so nothing a committed
  *      `.attw.json` sets can change the answer.
@@ -181,7 +181,7 @@
  * THE FIELDS THIS READS. Nets 1 and 3 both ask their question of ONE set, the one
  * `declaredArtifacts()` returns, so a declaring field missing from that set is a
  * hole in BOTH of them at once and neither says anything. Until this was measured
- * the set was `main`, `module`, `types`, `typings`, `bin` and `exports`, and three
+ * the set was `main`, `module`, `types`, `typings`, `bin` and `exports`, and six
  * further fields that name files were walked past:
  *
  *   `typesVersions`   `{ <range>: { <subpath>: [ <path>, ... ] } }`. The values are
@@ -198,22 +198,38 @@
  *                     the other way means deciding WHICH declarations are load
  *                     bearing, and this gate does not resolve anything.
  *   `browser`         A string entry point, or a replacement map.
+ *   `man`             A bare string, or an ARRAY of them. `bin`'s own sibling in
+ *                     the npm spec, with the same lenient path grammar, so it is
+ *                     read exactly the way `bin` is.
+ *   `unpkg`           A string, same grammar as `main`. CDN conventions rather than
+ *   `jsdelivr`        npm ones, but a path this manifest promises either way, and
+ *                     one the CDN 404s on if the tarball does not carry it.
  *
- * MEASURED, NOT PREDICTED, on four throwaway packages that are otherwise identical
- * to the well-formed dual ESM/CJS fixture: one path on disk, left out of `files`,
- * and declared ONLY through the field under test. All four passed the whole gate at
- * `95730a7` (nets 1, 2 and 3 green, attw exited 0 and reported nothing), which is
- * the same false-green shape net 3 was built for, arriving through a field net 3
- * did not read. The cases are pinned in `attw-gate.test.ts` with the pre-fix field
- * set derived from THIS file at test time.
+ * MEASURED, NOT PREDICTED, on one throwaway package per field, each otherwise
+ * identical to the well-formed dual ESM/CJS fixture: one path on disk, left out of
+ * `files`, and declared ONLY through the field under test. Every one of them passed
+ * the whole gate WITHOUT its field being read: nets 1, 2 and 3 green, attw exited 0
+ * and reported nothing. That is the same false-green shape net 3 was built for,
+ * arriving through a field net 3 did not read.
+ *
+ * SAY EXACTLY WHAT PRODUCED THAT RED-BEFORE, BECAUSE IT IS NOT A BASE COMMIT.
+ * `attw-gate.test.ts` reconstructs the gate by deleting the marked block below out
+ * of THIS file at test time and runs the fixtures against that, so the
+ * counterfactual is derived from the shipped source rather than pasted beside it.
+ * It rebuilds the pre-`#59` field set, which for these fixtures is equivalent to
+ * any later base, because each declares its one path through one field and nothing
+ * through the others. The literal-base reading is separate and coarser: at
+ * `fe2f427` a fixture naming absent paths through all four disclosed fields passed
+ * the whole gate.
  *
  * ▶ WHAT IT DID NOT CHANGE, AND THIS IS THE HONEST HALF: nothing in the org moves.
- * `typesVersions` is the only one of the three that any cosyte manifest uses today
+ * `typesVersions` is the only one of the six that any cosyte manifest uses today
  * (`ncpdp` and `@cosyte/test-utils`), and in BOTH of them every `typesVersions`
  * target is already declared through `exports`, so the derived set is byte-for-byte
- * what it was. `imports` and `browser` have no users here at all. This closes a
- * LATENT hole, exactly like the `.attw.json` class above, and the claim is not that
- * anything shipped broken.
+ * what it was. `imports`, `browser`, `man`, `unpkg` and `jsdelivr` have no users
+ * here at all, re-derived over every manifest in the org rather than assumed. This closes
+ * a LATENT hole, exactly like the `.attw.json` class above, and the claim is not
+ * that anything shipped broken.
  *
  * ▶ `browser` MAP KEYS ARE DELIBERATELY NOT READ, and it is the only exclusion here
  * that is a judgement rather than a grammar. A value is what a browser build LOADS;
@@ -231,21 +247,76 @@
  * packed. Both are new false reds, both were measured, and neither has a user in
  * this org. They are written down here instead of being special-cased, because a
  * per-field exception to net 1's non-empty rule is a bigger surface than the two
- * cases it would buy.
+ * cases it would buy. THE SAME NON-EMPTY RULE NOW REACHES `man`, `unpkg` AND
+ * `jsdelivr`, on the same terms and for the same reason: a 0-byte man page or CDN
+ * bundle reds, and that stays one rule rather than becoming three exceptions.
  *
  * ▶ AND THIS IS NOT AN ENUMERATION THAT BUYS ONE EVASION PER ROUND, which is the
  * shape this file has retired twice: the question is schema-sized and bounded by
  * `package.json` rather than by attw's option surface, so nothing a caller passes
  * and nothing an attw release adds can extend it. BUT IT IS NOT COMPLETE, AND AN
- * EARLIER DRAFT OF THIS PARAGRAPH SAID IT WAS. Measured after that draft: `man`,
- * `directories`, `unpkg` and `jsdelivr` also name files and are still unread, at
- * base and at head alike. `man` is the sharpest of them, being `bin`'s own sibling
- * in the npm spec, and `bin` is a hole this same docblock claims to have closed.
- * They are left unread because none has a user in this org and because `man` is a
- * LINK-TIME promise rather than a resolution-time one, so a lost `man` page is not
- * the broken-publish class these nets are for. That is a reason, not a proof of
- * completeness, and the difference is the point: this list is KNOWN-INCOMPLETE and
- * says which fields it knows it skips.
+ * EARLIER DRAFT OF THIS PARAGRAPH SAID IT WAS. That draft was corrected to disclose
+ * four fields it did not read (`man`, `directories`, `unpkg`, `jsdelivr`), with
+ * the reason given as "none has a user in this org, and `man` is a LINK-TIME
+ * promise rather than a resolution-time one". THAT REASON DOES NOT SURVIVE BEING
+ * READ NEXT TO `bin`, WHICH IS ALSO LINK-TIME AND IS READ, so three of the four are
+ * now read and the reason is retired rather than restated.
+ *
+ * ▶ `directories` STAYS UNREAD, AND ON A GRAMMAR GROUND THAT IS MEASURED RATHER
+ * THAN A POPULARITY ONE. Its values name DIRECTORIES, and both nets grade FILES.
+ * Measured on a package whose `directories.bin`/`directories.man` trees are fully
+ * packed: `npm pack --dry-run --json` lists `binscripts/tool.js` and
+ * `mandir/page.1` and NO directory entry at all, so net 3's `packed.files.has()`
+ * would miss on every user of the field: a false red for the correctly-packed
+ * case, which is the worst kind. Net 1 is no better in the other direction:
+ * `statSync("./mandir").size` is 60 here, non-zero, so its "missing or empty" test
+ * passes a directory without looking inside it. Reading `directories` therefore
+ * needs a prefix test against the packed list, which is a second grading rule, not
+ * a wider field set. It is out of this slice deliberately, and it is what the
+ * KNOWN-UNREAD disclosure below now names.
+ *
+ * ▶ `publishConfig` IS THE SHARPEST UNREAD FIELD OF ALL, AND IT IS UNREAD FOR THE
+ * SAME REASON `directories` IS: NET 3's AUTHORITY CANNOT SEE IT. pnpm honours
+ * `publishConfig.{main,module,types,typings,exports,bin,browser,unpkg,...}` as
+ * PUBLISH-TIME OVERRIDES and rewrites the manifest inside the tarball. Measured on
+ * pnpm 11.20.0, one package, both packers:
+ *
+ *     manifest: main "./index.js", publishConfig.main "./absent-override.js"
+ *     npm pack   -> tarball manifest main = "./index.js"          (NOT applied)
+ *     pnpm pack  -> tarball manifest main = "./absent-override.js" (APPLIED, and
+ *                   the tarball does not carry that path)
+ *
+ * So a package can pass this whole gate green and still publish, through pnpm, a
+ * manifest whose `main`, `exports` and `bin` all name a path the tarball does not
+ * carry. Measured directly: the fixture above exits 0 here with all three
+ * overrides set. THIS ORG PUBLISHES WITH pnpm, so it is not hypothetical.
+ *
+ * It is NOT closed here, and the reason is the shape of the fix rather than its
+ * size. Net 3 grades `npm pack --dry-run --json`, which is the wrong document for
+ * this question: closing it means grading the manifest pnpm WOULD write, which is
+ * a second source of truth for what the package declares, not another key in
+ * `declaredArtifacts()`.
+ *
+ * BE PRECISE ABOUT WHY WIDENING IS THE WRONG MOVE, BECAUSE THE SHORT VERSION IS NOT
+ * TRUE OF EVERY KEY. For a plain override (`publishConfig.main` and its friends) the
+ * target has to be packed anyway, so a `packed.files.has()` on it would be a TRUE
+ * red rather than a false one; what widening gets wrong THERE is the document it
+ * grades, since the published manifest is not the one on disk. For
+ * `publishConfig.directory` it is worse: pnpm packs a different subtree entirely, so
+ * every path this net holds goes wrong at once, and that one really would be false
+ * reds. Either way the fix is a second source of truth, not a wider key list.
+ *
+ * It is named in `KNOWN_UNREAD_FIELDS`, so the pass line says it out loud on every
+ * run, and a probe pins that it really is unread.
+ *
+ * ▶ THE DISCLOSURE IS NOW ONE STRING, READ BY THE PASS LINE AND BY THE SUITE.
+ * `KNOWN_UNREAD_FIELDS` is the single copy; the pass line prints it, and
+ * `attw-gate.test.ts` parses it out of this file and builds a fixture declaring an
+ * absent path through each name, proving each really is unread. The sentence has
+ * drifted ahead of the behaviour three rounds running because every guard on it so
+ * far compared one copy of the prose to another copy of the prose. This one
+ * compares the prose to the gate. It still is NOT a completeness proof: the list
+ * is KNOWN-INCOMPLETE and says so, but a name on it can no longer be false.
  *
  * WHAT THE PREFLIGHT CANNOT CONCLUDE, AND WHY IT NO LONGER TRIES. This script
  * used to end its preflight failure with a sentence naming the exit code `attw`
@@ -524,6 +595,20 @@ for (let i = 0; i < args.length; i++) {
   }
 }
 /**
+ * The fields that CAN name a file and that `declaredArtifacts()` deliberately does
+ * not read. THIS IS THE ONLY COPY OF THAT CLAIM: the pass line prints it, and
+ * `attw-gate.test.ts` parses this literal out of this file and proves, per name,
+ * that the gate really is blind to a path declared only through it.
+ *
+ * That is deliberate machinery for one recurring defect. The disclosure sentence
+ * has drifted ahead of `declaredArtifacts()` three rounds running, and every guard
+ * on it so far compared one copy of the prose to another copy of the prose. A name
+ * added here without the behaviour to match it now reds. It is still not a
+ * completeness claim: see "AND THIS IS NOT AN ENUMERATION" in the docblock.
+ */
+const KNOWN_UNREAD_FIELDS = ["directories", "publishConfig"];
+
+/**
  * Every relative path `package.json` promises to ship, deduped and normalized to
  * a leading `./` so two spellings of one promise are not checked twice.
  *
@@ -534,9 +619,9 @@ for (let i = 0; i < args.length; i++) {
  */
 function declaredArtifacts(pkg) {
   const found = new Set();
-  // `main`, `module`, `types`, `typings`, `bin`, the string form of `browser` and
-  // every `typesVersions` target are ALWAYS paths, never package specifiers, and
-  // the `./` prefix is optional on all of them. Only an absolute path (not ours to
+  // `main`, `module`, `types`, `typings`, `bin`, `man`, `unpkg`, `jsdelivr`, the
+  // string form of `browser` and every `typesVersions` target are ALWAYS paths,
+  // never package specifiers, and the `./` prefix is optional on all of them. Only an absolute path (not ours to
   // promise) or a pattern is skipped.
   const addPath = (v) => {
     if (typeof v !== "string" || v === "") return;
@@ -577,7 +662,7 @@ function declaredArtifacts(pkg) {
     else if (node && typeof node === "object") for (const v of Object.values(node)) walk(v, add);
   };
   walk(pkg.exports, addTarget);
-  // ---- BEYOND `exports`: the three fields net 3 was blind to ------------------
+  // ---- BEYOND `exports`: the six fields net 3 was blind to --------------------
   // COUNTERFACTUAL MARKER. `attw-gate.test.ts` rebuilds the pre-fix field set by
   // deleting from here to the closing marker, so the RED-BEFORE half of that suite
   // is derived from this file rather than pasted beside it. Keep both markers; the
@@ -594,6 +679,23 @@ function declaredArtifacts(pkg) {
   if (typeof pkg.browser === "string") addPath(pkg.browser);
   else if (pkg.browser && typeof pkg.browser === "object")
     for (const v of Object.values(pkg.browser)) addTarget(v);
+  // `man` is `bin`'s own SIBLING in the npm spec: a bare string, or an array of
+  // them, with the same lenient `./`-optional path grammar and never a specifier.
+  // It is read exactly the way `bin` is, because the "it is only a LINK-TIME
+  // promise" reason for skipping it is equally true of `bin`, which is read.
+  if (typeof pkg.man === "string") addPath(pkg.man);
+  else if (Array.isArray(pkg.man)) for (const v of pkg.man) addPath(v);
+  // `unpkg` and `jsdelivr` are CDN conventions rather than npm ones, but the value
+  // is a path into this tarball with `main`'s grammar, and a CDN serves a 404 for a
+  // path the tarball does not carry. Same reading `main` gets.
+  for (const key of ["unpkg", "jsdelivr"]) addPath(pkg[key]);
+  // `directories` and `publishConfig` are NOT here, and neither is skipped on a
+  // popularity ground. `directories` names DIRECTORIES while both nets grade FILES.
+  // `publishConfig` names publish-time OVERRIDES that pnpm applies and `npm pack`
+  // does not, so its targets are promises about a tarball net 3 never reads. Both
+  // need a second source of truth rather than another key here. See "`directories`
+  // STAYS UNREAD" and "`publishConfig` IS THE SHARPEST" in the docblock; together
+  // they are the whole of KNOWN_UNREAD_FIELDS, declared above this function.
   // ---- END BEYOND `exports` ---------------------------------------------------
   return [...found];
 }
@@ -903,9 +1005,15 @@ process.stdout.write(
       : `  all ${declared.length} relative artifact path(s) package.json declares are in the\n` +
         `  tarball npm would publish (net 3). That set excludes wildcard subpaths, absolute\n` +
         `  paths, browser-map keys, package.json itself, and leaves of exports, imports and\n` +
-        `  browser maps that do not begin with a dot; and it is presence, not resolution.\n` +
-        `  It does NOT cover every field that can name a file: man, directories, unpkg and\n` +
-        `  jsdelivr are known-unread.\n`) +
+        `  browser maps that do not begin with a dot; and it is presence, not resolution.\n`) +
+    // THE DISCLOSURE SITS OUTSIDE THE BRANCH ABOVE, SO IT PRINTS ON EVERY RUN, and
+    // that is not cosmetic. A package that declares everything through
+    // `publishConfig` overrides has no relative artifact path of its OWN and lands
+    // in the zero-declared branch, which is the run this sentence is most for. It
+    // sat inside the else-branch for one commit while the docblock claimed it
+    // printed every run.
+    `  The field set does NOT cover every field that can name a file. Known-unread: ` +
+    `${KNOWN_UNREAD_FIELDS.join(", ")}.\n` +
     (kinds.length === 0
       ? `  attw exited 0 and reported no problems.\n`
       : `  attw exited 0, but it REPORTED ${kinds.length} problem kind(s) that its exit code\n` +

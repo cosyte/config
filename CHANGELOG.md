@@ -107,6 +107,80 @@ no package, so entries here are **dated** rather than versioned.
     must ship with no entries. The template's suite gains the two cases that need no override entry:
     `paths` mode reads every path it was given, and the footer no longer names the flag.
 
+- **`man` is `bin`'s own sibling in the npm spec, `bin` is a hole this gate claims to have closed,
+  and `man` was disclosed rather than read - so it is read now, with `unpkg` and `jsdelivr`**
+  (`CONFIG-SCAFFOLD-RESIDUALS`). `#59` closed the `exports`-and-stop hole and then disclosed four
+  more file-declaring fields it did not read (`man`, `directories`, `unpkg`, `jsdelivr`), on the
+  ground that `man` is a LINK-TIME promise rather than a resolution-time one and that none of the
+  four has a user here. **That reason does not survive being read next to `bin`, which is also
+  link-time and IS read**, so three of the four are now in the set and the reason is retired rather
+  than restated.
+  - **RE-MEASURED BEFORE ANYTHING WAS BUILT TO IT, BOTH HALVES.** (a) The four really were still
+    unread at `fe2f427`: a fixture declaring absent paths through all four passes the whole gate,
+    green. (b) The "no user in this org" half was re-derived over **every** manifest in the umbrella
+    rather than remembered - `man`, `directories`, `unpkg` and `jsdelivr` appear in none of them, and
+    the only `publishConfig` keys in use are `access` and `provenance`, so no field override reaches
+    the set either. This closes a **LATENT** hole; nothing shipped broken.
+  - **RED BEFORE, GREEN AFTER, one throwaway package per field** on the existing counterfactual
+    harness: `man` as a bare string with no `./` (the lenient spelling `bin` accepts), `man` as an
+    array, `unpkg`, and `jsdelivr`. Each passed the WHOLE gate at `fe2f427` - `attw` exited 0
+    reporting nothing, nets 1, 2 and 3 green - and each exits 1 at head naming the path. `man` gets
+    `bin`'s reading exactly; `unpkg` and `jsdelivr` get `main`'s.
+  - **`directories` STAYS UNREAD, AND ON A MEASURED GRAMMAR GROUND RATHER THAN A POPULARITY ONE.**
+    Its values name DIRECTORIES and both nets grade FILES. Measured on a package whose
+    `directories.bin`/`directories.man` trees are FULLY packed: `npm pack --dry-run --json` lists
+    `binscripts/tool.js` and `mandir/page.1` and **no directory entry at all**, so net 3's
+    `packed.files.has()` would miss on every user of the field - a false red for the correctly
+    packed case, which is the worst kind. Net 1 fails from the other side: `statSync("./mandir").size`
+    is non-zero, so its "missing or empty" test passes a directory without looking inside it. Reading
+    `directories` needs a PREFIX test against the packed list, which is **a second grading rule, not
+    a wider field set**. Out of this slice deliberately, and pinned as a test with both measurements
+    in it.
+  - **`publishConfig` JOINS THE DISCLOSURE, AND IT IS THE SHARPEST UNREAD FIELD OF THE LOT.** Found
+    by the gate refuter and then measured on pnpm 11.20.0, one package, both packers: with
+    `publishConfig.main` set to `./absent-override.js`, `npm pack` writes a tarball whose manifest
+    still reads `./index.js` (**not applied**) while `pnpm pack` writes one reading
+    `./absent-override.js` (**applied**, and the tarball does not carry that path). So a package can
+    pass this whole gate green and still publish, through pnpm, a manifest whose `main`, `exports`
+    and `bin` all name a path that is not in the tarball. Measured directly: a fixture with all
+    three overrides set exits 0 here. **This org publishes with pnpm, so it is not hypothetical.**
+    Not closed in this slice, and the reason is the SHAPE of the fix: net 3's authority is
+    `npm pack`, which is the wrong document for this question. Closing it means grading the manifest
+    pnpm WOULD write, a **second source of truth**, not another key in `declaredArtifacts()`.
+    Widening the field set is the wrong move for a reason worth stating precisely, because the
+    short version is not true of every key: for a plain override the target has to be packed
+    anyway, so a `packed.files.has()` on it would be a TRUE red and what widening gets wrong is
+    the DOCUMENT it grades; for `publishConfig.directory` pnpm packs a different subtree entirely
+    and every path this net holds goes wrong at once. `PRE-EXISTING` (identical at `fe2f427`,
+    whose four-name disclosure omitted it too), so it is named on every run and left as a slice of
+    its own.
+  - **AND IT PRINTS ON EVERY RUN, INCLUDING THE ZERO-DECLARED ONE.** The sentence sat inside the
+    "all N paths are packed" branch for one commit while the docblock claimed it printed every
+    run. A package that declares its entry point ONLY through a `publishConfig` override has no
+    relative artifact path of its own, so it lands in the other branch: exactly the shape the
+    disclosure exists to warn about, and exactly where it was missing. Moved out of the branch and
+    pinned by a test on a fixture of that shape.
+  - **THE DISCLOSURE IS NOW ONE STRING, AND THE SUITE COMPARES IT TO THE GATE RATHER THAN TO ANOTHER
+    COPY OF ITSELF.** `KNOWN_UNREAD_FIELDS` in `attw.mjs` is the single copy of that claim; the pass
+    line prints it, and `attw-gate.test.ts` parses the literal out of the shipped file, builds a
+    probe declaring absent paths through each name, and proves the gate really is blind to each. A
+    name added there without the behaviour to match it reds, and a name with no probe reds too.
+    **The prose has drifted ahead of `declaredArtifacts()` three rounds running, and every guard on
+    it so far compared prose to prose** - the two wrapper copies are held byte-identical, which
+    catches a divergence between them and nothing about whether either is true.
+  - **Net 1's non-empty rule now reaches `man`, `unpkg` and `jsdelivr`** on the same terms as the
+    `browser` shim case `#59` named: a 0-byte man page or CDN bundle reds. Named rather than
+    special-cased, for the same reason - a per-field exception to net 1 is a bigger surface than the
+    cases it buys. No user in this org.
+  - Both copies of the wrapper (`packages/test-utils/scripts/` and `scripts/parser-template/scripts/`)
+    stay byte-identical, so every newly scaffolded parser inherits this.
+  - **No changeset**, on `#59`'s and `#55`'s precedent: `packages/test-utils` packs only `dist`,
+    `README.md` and `CHANGELOG.md`, so `scripts/attw.mjs` is not in its published tarball and a bump
+    would republish identical bytes.
+  - **NOT PORTED HERE, AND IT IS THE SAME REAL RESIDUAL `#59` LEFT:** the sibling repos carry their
+    own `scripts/attw.mjs`, already divergent at different stages of the porting campaign. Porting
+    is their work, not a widening of this slice.
+
 - **The `attw` gate's declared-artifact set read `exports` and stopped, so a path declared through
   `typesVersions`, `imports` or `browser` was invisible to nets 1 AND 3 at once**
   (`CONFIG-SCAFFOLD-RESIDUALS`). Both nets ask their question of the one set
@@ -137,6 +211,14 @@ no package, so entries here are **dated** rather than versioned.
     guard** (`man` is a link-time promise rather than a resolution-time one, and none of the four
     has a user in this org). A test pins the disclosure AND that the four really are still unread,
     so a later slice that reads them has to re-earn the pass line rather than quietly keep it.
+    - **▶ SUPERSEDED WITHIN `[Unreleased]` BY THE ENTRY ABOVE, AND LEFT STANDING RATHER THAN
+      REWRITTEN.** The later slice read `man`, `unpkg` and `jsdelivr`, so "the four are still
+      unread" and "a test pins that the four really are still unread" are **no longer true at
+      head**: exactly one of those four (`directories`) is still unread, the gate's own
+      known-unread set is `directories` and `publishConfig`, and the test that pins it derives
+      its names from the gate rather than from any sentence. The
+      link-time reason quoted here is the one that slice retired, because `bin` is link-time too
+      and is read. This bullet is history and reads as history; the entry above is what is true.
   - **THE `./` EXCLUSION IS A LEADING DOT, NOT A LEADING `./`, AND THE FIRST CORRECTION SAID `./`.**
     The gate refuter measured it on the second pass: `addTarget` tests `startsWith(".")`, so
     `.hidden.js` and `../outside.js` in `exports`/`imports`/`browser` maps are KEPT and reported.
