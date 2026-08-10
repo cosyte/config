@@ -1,0 +1,115 @@
+name: PERF-P2 window (O-P2-2)
+
+# Manual only. This is NOT a gate and must never become one, for the same reason
+# perf-calibration.yml is not: it takes the better part of an hour, it asserts nothing, and its
+# whole output is a dataset plus one figure.
+#
+# WHAT IT ANSWERS. `PERF-P2`'s open question is not the false-alarm RATE. It is whether any constant
+# ceiling can sit between the worst false alarm and the weakest genuine O(n^2) signal, on the runner
+# class the gate would actually run on. Three readings exist and none of them was taken there:
+#
+#   * `#34`'s own calibration, a 2-CPU container    window 1.33x
+#   * the 2026-08-05 re-measurement, a 12-CPU one   window 1.07x, and a false NEGATIVE at 1000 -> 4000
+#   * PERF-P0's GitHub leg, this runner class       window 2.54x, but the noise side was measured
+#                                                   under P0's fixed-count warmup, not the shipped
+#                                                   time-budgeted one, and P0 sampled 10 per signal
+#                                                   cell rather than enough to see a tail
+#
+# So the decisive experiment is this one: both sides, under the SHIPPED warmup rule, on a quiet
+# GitHub-hosted 2-vCPU runner with nothing else on the box. That is O-P2-2.
+#
+# WHY IT MUST NOT BE WIRED INTO CI, restated here because this file is where someone would do it.
+# `test:perf` is deliberately out of `ci.yml` and out of the umbrella's verify policy, and no
+# package may wire its gate in until the ceiling question is settled. Nothing here changes that: a
+# `workflow_dispatch` job that records a dataset is the opposite of a gate. If the window this
+# produces is at or below 1.0, the answer is a sampling-shape change (ADR 0001 section 3), which is
+# a founder call and an ADR revision, not a new constant and not a job trigger.
+#
+# QUIET IS PART OF THE MEASUREMENT. A GitHub-hosted runner is a fresh VM per job, so the job below
+# is the only workload on it. The 2026-08-05 sweep D was discarded precisely for the opposite: it
+# was taken with another agent live in the same cgroup, and contention can only make fires more
+# likely, so a clean result under contention is not evidence of quiet. Do not add steps to this job
+# that run alongside the sweep, and do not add a matrix.
+on:
+  workflow_dispatch:
+    inputs:
+      noise_runs:
+        description: "Runs of the linear workload (the acceptance clause is 200)"
+        type: string
+        default: "200"
+      signal_runs:
+        description: "Runs of the quadratic workload per fixture size (each writes 2 rows)"
+        type: string
+        default: "30"
+      signal_sizes:
+        description: "Base OBX line counts, space separated"
+        type: string
+        default: "250 500 1000"
+      allow_any_box:
+        description: "Record a window even if the runner is not 2 vCPU (then it is NOT O-P2-2)"
+        type: boolean
+        default: false
+
+# Serialise rather than cancel. A cancelled sweep is 40 minutes of runner time and no dataset, and
+# `cancel-in-progress: true` would let a second dispatch destroy the first one's work silently.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  window:
+    # The standard GitHub-hosted Linux runner: 2 vCPU, 7.75 GB. That IS the experiment. run.sh
+    # refuses to take the measurement on a box of any other size unless told to, so swapping this
+    # label for a larger runner does not silently produce a number labelled O-P2-2.
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      # Node 22 specifically. ADR 0001's constants are calibrated on 22.23.1 / V8 12.4 and its
+      # review trigger 4 is "Node's major version moves", so a sweep on 24 answers a different
+      # question. run.sh refuses on any other major rather than trusting this line.
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Record the runner build and shape
+        run: |
+          node -p "'node ' + process.versions.node + ' / v8 ' + process.versions.v8"
+          echo "nproc: $(nproc)"
+          echo "cgroup cpu.max: $(cat /sys/fs/cgroup/cpu.max 2>/dev/null || echo 'not readable')"
+          free -m || true
+
+      - name: Sweep both sides of the window
+        env:
+          NOISE_RUNS: ${{ inputs.noise_runs }}
+          SIGNAL_RUNS: ${{ inputs.signal_runs }}
+          SIGNAL_SIZES: ${{ inputs.signal_sizes }}
+          ALLOW_ANY_BOX: ${{ inputs.allow_any_box && '1' || '0' }}
+        run: experiments/perf-p2-window/run.sh
+
+      # Derived again rather than scraped out of the step above, so the summary is a function of the
+      # committed rows and can be re-derived by anyone who downloads the artifact.
+      - name: The separation figure
+        run: |
+          {
+            echo '```'
+            node experiments/perf-p2-window/window.mjs \
+              --noise experiments/perf-p2-window/data/noise.jsonl \
+              --signal experiments/perf-p2-window/data/signal.jsonl
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # The raw rows, never pre-reduced. Both preceding sweeps are only re-analysable because they
+      # kept full sample vectors, and this one has to survive the same way: the figure above is one
+      # extreme-value statistic over the distribution, and a future reader may want a different one.
+      - uses: actions/upload-artifact@v5
+        with:
+          name: perf-p2-window-data
+          path: experiments/perf-p2-window/data/
+          if-no-files-found: error
