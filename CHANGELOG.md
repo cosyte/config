@@ -16,6 +16,56 @@ no package, so entries here are **dated** rather than versioned.
 
 ### Added
 
+- **`experiments/perf-p2-window/`, the O-P2-2 measurement, so `PERF-P2`'s open question can be
+  ANSWERED on the runner class the gate would actually run on** rather than read off a third box
+  again. The question was never the false-alarm rate: it is whether any constant `RATIO_CEILING`
+  sits above every false alarm and below every genuine O(n^2) signal, which is one number,
+  `weakest signal / worst false alarm`. Three windows had been read (2.54x, 1.33x, 1.07x) and not
+  one of them came from a quiet GitHub-hosted 2-vCPU runner.
+  - **`window.mjs` derives the figure from the raw rows.** It was previously computed by hand in
+    prose, over columns that mislead in the direction that reads as "it separates": a ratio above
+    the ceiling makes `scalingGate` THROW, so it has no measured row at all, and taking the measured
+    column's `max` as the worst false alarm reads the worst NON-FIRING run and drops every fire. The
+    measured and censored populations are pooled, and a row whose firing axis was inferred rather
+    than read out of the gate's diagnostic is reported as unattributed rather than filed under a
+    guess. Re-run against the `perf-p2-measurements-2026-08-05` branch, each of the six figures it
+    prints for that dataset appears in that branch's own README, which is the check that makes a new
+    number from it worth anything.
+    Its own pooled separation figure is a NEW definition and is not corroborated by that branch;
+    the tool says so where it prints it.
+  - **It narrows nothing on its own.** `--fixture-floor` defaults to 0, so every measured fixture
+    size decides the pooled figure. The first cut defaulted it to 500 on the stated basis that
+    `assertScalingGateFires` refuses a smaller fixture; it does not (it has no fixture-size rule at
+    all), and ADR 0001 section 5 blesses `250 -> 1000` at a 1.22x window. On the archive rows that
+    exclusion moved the figure from 0.7247x to 0.8515x, toward "it separates".
+  - **The signal leg's warmup is PERF-P0's fixed-count rule, not the shipped time-budgeted one**,
+    and the workflow and README both say so where the figures are read. It is unchanged on purpose,
+    because that is what keeps these rows comparable with P0's and the archive's, but it means
+    ADR 0001 section 2's "re-check on both sides" is satisfied on the noise side only.
+  - **`run.sh` takes both sides on ONE box, back to back**, because a window is a difference and two
+    sides from two machines are not one. Neither test file is copied or modified: it launches
+    `../perf-p2-false-alarm/false-alarm.test.ts` and `../perf-calibration/signal-check.test.ts`
+    through their own vitest configs. What is duplicated is a `for` loop, not a measurement.
+  - **It REFUSES to run on the wrong box**, which is the failure this arc actually paid for. The
+    container class moved 6x underneath the experiment and two readers in one session got the wrong
+    answer from `nproc`. The census reads the cgroup quota when one is set and the host count
+    otherwise, so it is right inside a container (where `nproc` reports the host) AND on a
+    GitHub-hosted VM (where there is no quota and `nproc` is the only answer). Both raw values land
+    in the provenance.
+  - **🛑 IT HAS NOT BEEN RUN, AND THE BOX CENSUS IS WHY.** O-P2-2 names a quiet GitHub-hosted
+    **2-vCPU** runner. Measured 2026-08-10 by dispatching `perf-calibration.yml --mode bc-only`
+    (run `31399946419`): `ubuntu-latest` is **4 vCPU / 15.6 GiB**, AMD EPYC 9V74, and PERF-P0's own
+    GitHub leg recorded `"cpuCount": 4` a fortnight earlier on an EPYC 7763, so the host generation
+    moved underneath an unchanged image string. `run.sh` therefore exits 66 before measuring
+    anything. That is the guard working: it caught the mismatch before a figure could be labelled
+    O-P2-2 and filed against a box it was never taken on. **Which box settles the ceiling is a
+    founder call**, not a constant to edit, so `EXPECT_CPUS` is left at 2 and the workflow is left
+    refusing.
+  - **`.github/workflows/perf-p2-window.yml` is `workflow_dispatch` only and is NOT a gate**, the
+    same posture as `perf-calibration.yml`. Nothing here wires `test:perf` into CI or touches the
+    umbrella's verify policy: the founder decision of 2026-08-07 merged the kit with the gate
+    deliberately out of CI, and settling the ceiling is the CONDITION on adoption, not something
+    adoption can precede.
 - **`@cosyte/script-utils`**, a new zero-dependency, zero-build package, so that the entry-point
   guard every cosyte gate script needs lands **once** rather than being respelled per repo
   (`ENTRYPOINT-STRING-COMPARE`). It ships `isCliEntrypoint(import.meta.url)`. `website` (3 CLIs) and
