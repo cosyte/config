@@ -1307,10 +1307,12 @@ describe("the field set nets 1, 3 and 4 share: `exports` is not the only field t
   // WHY THIS BLOCK EXISTS. Nets 1, 3 and 4 ask their questions of ONE set, the one
   // `declaredArtifacts()` returns, so a declaring field missing from that set is a
   // hole in ALL THREE at once and none of them says a word. `typesVersions`,
-  // `imports`, `browser`, `man`, `unpkg` and `jsdelivr` all name files inside the
-  // package and all six were walked past, so a path declared through any of them
-  // could sit outside the tarball with the whole gate green. That is net 3's own
-  // defect shape arriving through a field net 3 did not read.
+  // `imports`, `browser`, `man`, `unpkg`, `jsdelivr` and the `SEE LICEN[CS]E IN`
+  // form of `license` all name files inside the package and every one of them was
+  // walked past, so a path declared through any of them could sit outside the
+  // tarball with the whole gate green. That is net 3's own defect shape arriving
+  // through a field net 3 did not read. No count is written here: the list has grown
+  // twice already and a total in a comment is what goes stale.
   //
   // `man` IS THE ONE WORTH NAMING: it is `bin`'s own sibling in the npm spec, and
   // `bin` is a hole this gate claims to have closed. It was disclosed rather than
@@ -1318,11 +1320,16 @@ describe("the field set nets 1, 3 and 4 share: `exports` is not the only field t
   // of `bin`, which is read, so the reason was retired instead of restated.
   //
   // THE HONEST BOUND, PINNED IN PROSE HERE BECAUSE NO TEST CAN CARRY IT: this
-  // closed a LATENT hole. `typesVersions` is the only one of the six any cosyte
+  // closed a LATENT hole. `typesVersions` is the only one any cosyte
   // manifest uses (`ncpdp`, `@cosyte/test-utils`), and in both of them every
   // `typesVersions` target is already declared through `exports`, so the derived set
   // does not move. `man`, `unpkg` and `jsdelivr` appear in NO cosyte manifest,
   // re-derived over every one of them, not assumed. Nothing shipped broken.
+  //
+  // `license` IS THE EXCEPTION TO THE SHAPE OF THAT SENTENCE AND MUST NOT BE FOLDED
+  // INTO IT: the FIELD is present in nearly every manifest here, and the file-naming
+  // FORM is present in none of them, so the derived set still does not move. Those
+  // are two different claims and only the second one is about this change.
 
   /**
    * A well-formed dual ESM/CJS package that packs everything EXCEPT one path, which
@@ -1356,16 +1363,27 @@ describe("the field set nets 1, 3 and 4 share: `exports` is not the only field t
         // `man` cases can declare something with a man page's shape rather than
         // borrowing a JS file; nothing enumerates the tree, so an extra unpacked
         // file changes no other case.
+        //
+        // `EULA.txt` is here for the `license` cases and its NAME is load-bearing.
+        // npm force-packs the stem `license` or `licence` with an OPTIONAL dot
+        // extension, at the ROOT, whatever `files` says: NOT a `*` suffix. Measured
+        // with `npm pack --dry-run --json` rather than read off the glob: `LICENSE`,
+        // `LICENSE.md` and `licence` pack; `LICENSE-COMMERCIAL.md`, `licenses.md`,
+        // `LICENSE.md~` and `legal/LICENSE.md` do not. A fixture spelled with a
+        // force-packed name would make the case below FAIL, not pass quietly, since
+        // it asserts a red. `EULA.txt` is outside the set, so it stays unpacked like
+        // the rest.
         "extra.d.ts": "export declare const b: number;\n",
         "extra.mjs": "export const b = 2;\n",
         "extra.1": ".TH EXTRA 1\n",
+        "EULA.txt": "All rights reserved.\n",
       },
     );
     return dir;
   }
 
   /**
-   * The wrapper with the three fields SLICED BACK OUT, derived from the shipped file
+   * The wrapper with those fields SLICED BACK OUT, derived from the shipped file
    * at test time so the RED-BEFORE half cannot drift away from the thing it is the
    * counterfactual for. Same throwaway-tree-plus-symlinked-`node_modules`
    * construction as the net 3 block above, and it inherits that block's documented
@@ -1418,6 +1436,14 @@ describe("the field set nets 1, 3 and 4 share: `exports` is not the only field t
     // 404 from the CDN, which is the same broken promise by a different consumer.
     ["unpkg", { unpkg: "./extra.mjs" }, "./extra.mjs"],
     ["jsdelivr", { jsdelivr: "./extra.mjs" }, "./extra.mjs"],
+    // `license` names a file in exactly one form, and this is it. It names
+    // a file npm does NOT resolve, warn about, or pack. Both npm spellings are
+    // pinned because both are npm's (`/^SEE LICEN[CS]E IN ./`), and the bare
+    // remainder is pinned rather than a `./`-prefixed one because the bare spelling
+    // is the one npm's own documentation writes and the one that would normalize
+    // wrongly if it were read the strict `exports` way.
+    ["license-see-license-in", { license: "SEE LICENSE IN EULA.txt" }, "./EULA.txt"],
+    ["license-see-licence-in", { license: "SEE LICENCE IN ./EULA.txt" }, "./EULA.txt"],
   ];
 
   for (const [label, fragment, missing] of cases) {
@@ -1484,6 +1510,12 @@ describe("the field set nets 1, 3 and 4 share: `exports` is not the only field t
           // A replacement that is a dependency, not a file.
           "./index.cjs": "some-polyfill-package",
         },
+        // An ORDINARY SPDX expression, which is what `license` holds in almost every
+        // manifest in this org. It names no file, so it must add nothing: read as a
+        // path it would be `./MIT`, which is neither on disk nor packed, and net 1
+        // would red before attw ran. This is the control that keeps reading
+        // `license` from becoming "read `license`".
+        license: "MIT",
       });
 
       const r = runWrapper(dir);
@@ -1494,6 +1526,91 @@ describe("the field set nets 1, 3 and 4 share: `exports` is not the only field t
       // claim above is bounded in the same breath it is made.
       expect(r.out).toContain("browser-map keys");
       expect(r.out).toContain("presence, not resolution");
+    },
+    SPAWN_TIMEOUT,
+  );
+
+  /**
+   * A package whose ONLY unpacked-but-declared path is whatever `license` names.
+   * `licenseFile` is written at the root and left out of `files`, so whether the
+   * gate reds is decided by two things and nothing else: whether the field is read,
+   * and whether npm force-packs a file of that NAME.
+   */
+  function licensedOnly(label: string, license: string, licenseFile: string): string {
+    const dir = join(root, `license-${label}`);
+    writePkg(
+      dir,
+      {
+        name: `attw-gate-fixture-license-${label}`,
+        version: "1.0.0",
+        type: "module",
+        license,
+        exports: {
+          ".": {
+            import: { types: "./index.d.ts", default: "./index.js" },
+            require: { types: "./index.d.cts", default: "./index.cjs" },
+          },
+        },
+        files: ["index.js", "index.d.ts", "index.cjs", "index.d.cts"],
+      },
+      {
+        "index.js": "export const a = 1;\n",
+        "index.d.ts": "export declare const a: number;\n",
+        "index.cjs": "module.exports.a = 1;\n",
+        "index.d.cts": "export declare const a: number;\n",
+        [licenseFile]: "All rights reserved.\n",
+      },
+    );
+    return dir;
+  }
+
+  it(
+    "WHERE READING `license` STOPS: npm force-packs the `license` stem, so those stay green",
+    () => {
+      // THIS IS THE BOUND ON THE WIDENING, AND IT IS MEASURED RATHER THAN ARGUED.
+      // npm-packlist force-includes `/readme`, `/copying`, `/license` and `/licence`
+      // with an optional extension at the ROOT, whatever `files` says. So the
+      // conventional spelling ships on its own and reading the field cannot red a
+      // package that relies on that, while a name outside the force-include set is a
+      // real dangling promise. Both fixtures are identical but for the filename, so
+      // the difference between them IS npm's rule and nothing else.
+      const conventional = licensedOnly("force-packed", "SEE LICENSE IN LICENSE.md", "LICENSE.md");
+      const green = runWrapper(conventional);
+      expect(green.code, green.out).toBe(0);
+      // Non-vacuous: the path really is in the derived set, so this is a pass that
+      // looked, not a pass that skipped. Four packed paths from `exports`, plus one.
+      expect(green.out).toContain(
+        "all 5 relative artifact path(s) package.json declares are in the",
+      );
+
+      // The same shape with a name npm does NOT force-pack reds, which is what makes
+      // the green above a boundary rather than a blanket exemption.
+      const outside = licensedOnly("not-force-packed", "SEE LICENSE IN EULA.txt", "EULA.txt");
+      const red = runWrapper(outside);
+      expect(red.code).not.toBe(0);
+      expect(red.out).toContain("./EULA.txt");
+    },
+    SPAWN_TIMEOUT,
+  );
+
+  it(
+    "NEGATIVE CONTROL: the `license` forms that are NOT a filename derive no path",
+    () => {
+      // The prefix match is npm's own, CASE SENSITIVE. A lowercase spelling is not
+      // this form to npm, which rejects it as an invalid license, so treating it as a
+      // path here would be inventing a grammar. The fixture points the lowercase
+      // string at a file that IS on disk and IS unpacked, so if the case were folded
+      // this would red immediately rather than passing quietly.
+      const lower = licensedOnly("lowercase", "see license in EULA.txt", "EULA.txt");
+      const r1 = runWrapper(lower);
+      expect(r1.code, r1.out).toBe(0);
+      expect(r1.out).not.toContain("./EULA.txt");
+
+      // `UNLICENSED` is npm's other reserved string and names no file at all.
+      const unlicensed = licensedOnly("unlicensed", "UNLICENSED", "EULA.txt");
+      const r2 = runWrapper(unlicensed);
+      expect(r2.code, r2.out).toBe(0);
+      expect(r2.out).not.toContain("./EULA.txt");
     },
     SPAWN_TIMEOUT,
   );

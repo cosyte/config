@@ -28,6 +28,58 @@ no package, so entries here are **dated** rather than versioned.
 
 ### Fixed
 
+- **The attw gate was SILENTLY blind to the one form of `license` that names a file**
+  (`CONFIG-SCAFFOLD-RESIDUALS`). `license` names a file in exactly one form, npm's own
+  `SEE LICEN[CS]E IN <filename>`, whose remainder is a file inside the package. The string
+  `license` did not occur anywhere in `scripts/attw.mjs`, so a path declared only through it could
+  sit outside the published tarball with nets 1, 3 and 4 green and nothing said.
+  - **RE-MEASURED THE FILED DEFECT FIRST, AND IT WAS WRONG A FIFTH TIME.** The item files
+    `directories` and `license` together as "still unread". Those are two different states.
+    `directories` is DISCLOSED unread: named in `KNOWN_UNREAD_FIELDS`, printed by the pass line,
+    and carrying a per-name probe in `attw-gate.test.ts` that proves the gate really is blind to
+    it. `license` was in no list, had no probe and no sentence. The machinery that keeps those two
+    honest could not have caught it, and that is structural rather than an oversight: it proves
+    every NAMED field is really unread, and says nothing about a field nobody named.
+  - **`directories` STAYS UNREAD, and the contrast is the whole argument for reading `license`.**
+    `directories` needs a second GRADING rule (a prefix test against the packed list, because it
+    names directories while every net grades files). The `SEE LICEN[CS]E IN` remainder needs a
+    second PARSING rule and then grades as a FILE through the same `packed.files.has()` as every
+    other field, so it costs one prefix match and adds no grading surface. Different costs, so
+    different answers.
+  - **The grammar is npm's, read off npm on this box rather than recalled.**
+    `@npmcli/package-json/lib/license.js` accepts `/^SEE LICEN[CS]E IN ./`, so both spellings are
+    npm's. The match here is CASE-SENSITIVE because npm's is: a lowercase `see license in x` is not
+    this form to npm, and reading it would be inventing a grammar. The remainder is taken VERBATIM,
+    because npm defines no trimming and resolves the filename nowhere.
+  - **Where it stops being vacuous, measured with `npm pack --dry-run --json` rather than argued.**
+    npm force-packs `/readme`, `/copying`, `/license` and `/licence` with an optional extension at
+    the ROOT whatever `files` says, so `SEE LICENSE IN LICENSE.md` ships on its own and stays green
+    here. In the same tarball `EULA.txt`, `LICENSE-COMMERCIAL.md` and `legal/terms.md` were all left
+    OUT, and npm printed no warning about the manifest naming them. That is this gate's own
+    false-green shape arriving on a consumer-facing legal promise instead of a types one.
+  - **The honest bound.** Re-derived over every `package.json` in every submodule rather than
+    assumed: no manifest in the org uses the `SEE LICEN[CS]E IN` form, so no derived set moves
+    anywhere. This closes a LATENT hole; the claim is not that anything shipped broken. `license`
+    is also the first field read here that is PRESENT in nearly every manifest, so the "no users in
+    this org" sentence the other fields carry must NOT be extended to it: the FIELD has users, the
+    file-naming FORM has none.
+  - The guard is two counterfactual cases (one per npm spelling) deriving their RED-BEFORE half
+    from the shipped file through the existing markers; a boundary case pinning the force-included
+    name GREEN against an otherwise identical fixture that reds on a name outside npm's set, so the
+    green is a measured boundary and not a blanket exemption; and negative controls pinning `MIT`,
+    `UNLICENSED` and a lowercase `see license in` as deriving no path.
+  - Counts were DELETED rather than corrected wherever they described this field set ("the six
+    fields net 3 was blind to", "the three fields sliced back out"). The list has grown twice now,
+    and a total written into prose is the thing that goes stale. No replacement count is given here
+    either, for the same reason.
+  - **NO COMPLETENESS CLAIM, AND A SUPERLATIVE WAS CUT TO KEEP IT THAT WAY.** `style`, `svelte`,
+    `react-native`, `source` and the array form of `sideEffects` all name files inside a package on
+    the same tool-convention ground `unpkg` and `jsdelivr` are read on; none is read by
+    `declaredArtifacts()` and none is on `KNOWN_UNREAD_FIELDS`. They are named as disclosure, not as
+    a plan: "one more field per round" is the enumeration shape this file has already retired twice.
+  - **OWED, NOT DONE HERE:** all 13 parser repos carry their own vendored `scripts/attw.mjs`
+    without this read. The template copy is updated so no FUTURE parser is born with the hole.
+
 - **A scaffolded parser was handed a file no formatter in it would ever read, and that file was not
   prettier-clean** (`CONFIG-SCAFFOLD-RESIDUALS`). `#57` made the generator format the tree it emits
   and derive what to format from the emitted `package.json`'s own `format` script, so the set
