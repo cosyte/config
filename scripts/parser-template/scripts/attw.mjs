@@ -110,8 +110,9 @@
  *      them is right; what would be wrong is a sentence here implying they are
  *      dropped. That exclusion is field-conditional and the pass line says so: in
  *      `main`, `module`, `types`, `typings`, `bin`, `man`, `unpkg`, `jsdelivr`,
- *      `typesVersions` and the STRING form of `browser` the prefix is optional, so
- *      a bare leaf there IS read as a path. The pass line names those exclusions rather
+ *      `typesVersions`, the STRING form of `browser` and the `SEE LICEN[CS]E IN`
+ *      remainder of `license` the prefix is optional, so a bare leaf there IS read
+ *      as a path. The pass line names those exclusions rather
  *      than printing a count that reads like a total. The list comes from
  *      `npm pack --dry-run --json` run in this directory, so nothing a committed
  *      `.attw.json` sets can change the answer.
@@ -269,8 +270,9 @@
  * THE FIELDS THIS READS. Nets 1, 3 and 4 all ask their question of ONE set, the one
  * `declaredArtifacts()` returns, so a declaring field missing from that set is a
  * hole in ALL of them at once and none says anything. Until this was measured
- * the set was `main`, `module`, `types`, `typings`, `bin` and `exports`, and six
- * further fields that name files were walked past:
+ * the set was `main`, `module`, `types`, `typings`, `bin` and `exports`, and
+ * further fields that name files were walked past. No count is written here: this
+ * list has grown twice and a total in the prose is the thing that goes stale.
  *
  *   `typesVersions`   `{ <range>: { <subpath>: [ <path>, ... ] } }`. The values are
  *                     paths with an OPTIONAL `./`, so they are read the lenient way
@@ -292,6 +294,24 @@
  *   `unpkg`           A string, same grammar as `main`. CDN conventions rather than
  *   `jsdelivr`        npm ones, but a path this manifest promises either way, and
  *                     one the CDN 404s on if the tarball does not carry it.
+ *   `license`         NAMES A FILE IN EXACTLY ONE FORM, and that form is
+ *                     `SEE LICEN[CS]E IN <filename>`, whose remainder is a file
+ *                     inside this package with `main`'s lenient grammar. It was
+ *                     SILENTLY blind here, which is a DIFFERENT state from
+ *                     `directories`: it was in no disclosure list and had no probe.
+ *                     The machinery that keeps `KNOWN_UNREAD_FIELDS` honest could
+ *                     not have caught that, and the reason is structural rather than
+ *                     an oversight: it proves every NAMED field really is unread and
+ *                     says nothing about a field nobody named. THIS IS NOT A
+ *                     COMPLETENESS CLAIM AND NO SUPERLATIVE IS MEANT: it is not
+ *                     "the last" such field, because nothing establishes that.
+ *                     `style`, `svelte`, `react-native`, `source` and the array form
+ *                     of `sideEffects` all name files inside a package on the same
+ *                     tool-convention ground `unpkg` and `jsdelivr` are read on;
+ *                     none is read by `declaredArtifacts()` and none is on
+ *                     `KNOWN_UNREAD_FIELDS`. Naming them is not a plan to read them:
+ *                     see "AND THIS IS NOT AN ENUMERATION" below, which is the shape
+ *                     this file has retired twice.
  *
  * MEASURED, NOT PREDICTED, on one throwaway package per field, each otherwise
  * identical to the well-formed dual ESM/CJS fixture: one path on disk, left out of
@@ -311,13 +331,25 @@
  * the whole gate.
  *
  * ▶ WHAT IT DID NOT CHANGE, AND THIS IS THE HONEST HALF: nothing in the org moves.
- * `typesVersions` is the only one of the six that any cosyte manifest uses today
+ * `typesVersions` is the only one that any cosyte manifest uses today
  * (`ncpdp` and `@cosyte/test-utils`), and in BOTH of them every `typesVersions`
  * target is already declared through `exports`, so the derived set is byte-for-byte
  * what it was. `imports`, `browser`, `man`, `unpkg` and `jsdelivr` have no users
  * here at all, re-derived over every manifest in the org rather than assumed. This closes
  * a LATENT hole, exactly like the `.attw.json` class above, and the claim is not
  * that anything shipped broken.
+ *
+ * `license` IS THE FIRST FIELD READ HERE THAT IS PRESENT ALMOST EVERYWHERE, so the
+ * "no users" sentence above must NOT be extended to it and the distinction is the
+ * point: the FIELD has users, the file-naming FORM has none. Re-derived over every
+ * `package.json` in every submodule rather than assumed: what `license` holds here
+ * is an ordinary SPDX expression, npm's reserved `UNLICENSED` (which is NOT an SPDX
+ * expression), or nothing at all, and NOT ONE manifest carries `SEE LICEN[CS]E IN`,
+ * so the derived set does not move anywhere in the org.
+ * NO TALLY IS WRITTEN DOWN, deliberately: a count here would be reader-dependent
+ * (a stray worktree under the umbrella changes it) and would go stale, and the
+ * load-bearing half is the ZERO, which needs no numbers. Re-derive it, which is one
+ * `grep` over the tracked manifests.
  *
  * ▶ `browser` MAP KEYS ARE DELIBERATELY NOT READ, and it is the only exclusion here
  * that is a judgement rather than a grammar. A value is what a browser build LOADS;
@@ -335,9 +367,10 @@
  * packed. Both are new false reds, both were measured, and neither has a user in
  * this org. They are written down here instead of being special-cased, because a
  * per-field exception to net 1's non-empty rule is a bigger surface than the two
- * cases it would buy. THE SAME NON-EMPTY RULE NOW REACHES `man`, `unpkg` AND
- * `jsdelivr`, on the same terms and for the same reason: a 0-byte man page or CDN
- * bundle reds, and that stays one rule rather than becoming three exceptions.
+ * cases it would buy. THE SAME NON-EMPTY RULE NOW REACHES `man`, `unpkg`,
+ * `jsdelivr` AND the `license` remainder, on the same terms and for the same
+ * reason: a 0-byte man page, CDN bundle or licence file reds, and that stays one
+ * rule rather than becoming four exceptions.
  *
  * ▶ AND THIS IS NOT AN ENUMERATION THAT BUYS ONE EVASION PER ROUND, which is the
  * shape this file has retired twice: the question is schema-sized and bounded by
@@ -362,6 +395,42 @@
  * needs a prefix test against the packed list, which is a second grading rule, not
  * a wider field set. It is out of this slice deliberately, and it is what the
  * KNOWN-UNREAD disclosure below now names.
+ *
+ * ▶ `license` IS READ, IN EXACTLY ONE FORM, AND THE CONTRAST WITH `directories` IS
+ * THE WHOLE ARGUMENT FOR READING IT. `directories` needs a SECOND GRADING RULE (a
+ * prefix test, because it names directories and every net grades files). The
+ * `SEE LICEN[CS]E IN <filename>` remainder needs a second PARSING rule and then
+ * grades as a FILE against the same `packed.files.has()` every other field uses, so
+ * it costs one prefix match and adds no grading surface. Those are different costs
+ * and they get different answers.
+ *
+ * THE GRAMMAR IS NPM'S, READ OFF NPM ON THIS BOX, NOT RECALLED:
+ * `@npmcli/package-json/lib/license.js` accepts `/^SEE LICEN[CS]E IN ./`. Both
+ * spellings are npm's. The match here is CASE-SENSITIVE because npm's is: a
+ * lowercase `see license in x` is not this form, npm rejects it as an invalid
+ * license, and reading it as a path would be inventing a grammar npm does not have.
+ *
+ * WHY IT IS NOT VACUOUS, AND WHERE IT STOPS, MEASURED WITH
+ * `npm pack --dry-run --json` ON ONE THROWAWAY PACKAGE. npm force-packs `/readme`,
+ * `/copying`, `/license` and `/licence` with an optional extension AT THE ROOT,
+ * whatever `files` says. So `SEE LICENSE IN LICENSE.md` and `SEE LICENCE IN
+ * licence.txt` ship on their own and stay green here, which is what keeps this from
+ * reddening packages that rely on npm's auto-include. `EULA.txt`,
+ * `LICENSE-COMMERCIAL.md` and `legal/terms.md` were all left OUT of the same
+ * tarball, and npm printed no warning about the manifest naming them. THAT is the
+ * catch: a published package whose stated license points at a file the tarball does
+ * not carry, with every net green, which is this gate's own false-green shape
+ * arriving on a consumer-facing legal promise rather than a types one.
+ *
+ * THE REMAINDER IS TAKEN VERBATIM, NOT TRIMMED. npm defines no trimming and
+ * resolves the filename nowhere, so trimming would be a grammar of OURS. A trailing
+ * space makes the declaration malformed rather than making it name a different
+ * file, and naming the path it actually spells is more use to a reader than quietly
+ * repairing it. NO TEST PINS THIS, and that is disclosed rather than fixed: adding
+ * `.trim()` here keeps the whole suite green, so it is a stated decision and not a
+ * guarded one. It stays disclosed because the only input that separates the two is
+ * a filename with trailing whitespace, and a fixture whose entire content is that
+ * is a worse thing to maintain than this sentence.
  *
  * ▶ `publishConfig` IS NO LONGER ON THAT LIST, AND IT DID NOT GET THERE BY BECOMING
  * A KEY IN `declaredArtifacts()`. It is read by NET 4, which is a SECOND SOURCE OF
@@ -700,7 +769,8 @@ const KNOWN_UNREAD_FIELDS = ["directories"];
 function declaredArtifacts(pkg) {
   const found = new Set();
   // `main`, `module`, `types`, `typings`, `bin`, `man`, `unpkg`, `jsdelivr`, the
-  // string form of `browser` and every `typesVersions` target are ALWAYS paths,
+  // string form of `browser`, every `typesVersions` target and the `SEE LICEN[CS]E
+  // IN` remainder of `license` are ALWAYS paths,
   // never package specifiers, and the `./` prefix is optional on all of them. Only an absolute path (not ours to
   // promise) or a pattern is skipped.
   const addPath = (v) => {
@@ -742,7 +812,7 @@ function declaredArtifacts(pkg) {
     else if (node && typeof node === "object") for (const v of Object.values(node)) walk(v, add);
   };
   walk(pkg.exports, addTarget);
-  // ---- BEYOND `exports`: the six fields net 3 was blind to --------------------
+  // ---- BEYOND `exports`: the fields net 3 was blind to -------------------------
   // COUNTERFACTUAL MARKER. `attw-gate.test.ts` rebuilds the pre-fix field set by
   // deleting from here to the closing marker, so the RED-BEFORE half of that suite
   // is derived from this file rather than pasted beside it. Keep both markers; the
@@ -769,6 +839,21 @@ function declaredArtifacts(pkg) {
   // is a path into this tarball with `main`'s grammar, and a CDN serves a 404 for a
   // path the tarball does not carry. Same reading `main` gets.
   for (const key of ["unpkg", "jsdelivr"]) addPath(pkg[key]);
+  // `license` NAMES A FILE IN EXACTLY ONE FORM, npm's own
+  // `SEE LICEN[CS]E IN <filename>`. No other value names a path, and the forms that
+  // do not are deliberately NOT enumerated here: npm does not enforce the value set,
+  // so an enumeration would be a claim this gate cannot keep and does not need.
+  // The remainder of the one form is a file in this package
+  // with `main`'s lenient grammar, so it takes `addPath`. The regex mirrors npm's
+  // (`@npmcli/package-json/lib/license.js`, `/^SEE LICEN[CS]E IN ./`) including its
+  // CASE SENSITIVITY: a lowercase spelling is not this form to npm, so reading it
+  // here would be a grammar of ours. The remainder is NOT trimmed, for the same
+  // reason. See "`license` IS READ, IN EXACTLY ONE FORM" in the docblock for the
+  // npm-pack measurement that says where this stops being vacuous.
+  if (typeof pkg.license === "string") {
+    const seeLicenseIn = /^SEE LICEN[CS]E IN (.+)$/.exec(pkg.license);
+    if (seeLicenseIn) addPath(seeLicenseIn[1]);
+  }
   // `directories` and `publishConfig` are NOT here, and neither is skipped on a
   // popularity ground. `directories` names DIRECTORIES while every net grades FILES,
   // so reading it needs a PREFIX test against the packed list: a second grading rule.
