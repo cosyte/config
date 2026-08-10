@@ -6,7 +6,8 @@ name: PERF-P2 window (O-P2-2)
 #
 # WHAT IT ANSWERS. `PERF-P2`'s open question is not the false-alarm RATE. It is whether any constant
 # ceiling can sit between the worst false alarm and the weakest genuine O(n^2) signal, on the runner
-# class the gate would actually run on. Three readings exist and none of them was taken there:
+# class the gate would actually run on. Three readings exist. Two were taken on the wrong box, and
+# the one taken on the right box is disqualified another way:
 #
 #   * `#34`'s own calibration, a 2-CPU container    window 1.33x
 #   * the 2026-08-05 re-measurement, a 12-CPU one   window 1.07x, and a false NEGATIVE at 1000 -> 4000

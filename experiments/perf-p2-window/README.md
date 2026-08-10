@@ -39,8 +39,9 @@ on clean code is annoying; a gate that passes a real quadratic regression is sil
 of the same constant at the same time.
 
 **What this experiment does NOT fix, stated before the method rather than after it.** P0's row above
-is fixed-count on **both** sides (`ratio-calibration.test.ts` warms `hl7`-shaped, `signal-check.ts`
-warms three fixed passes), and this sweep removes that caveat on the **noise** side only. The
+is fixed-count on **both** sides (`ratio-calibration.test.ts` warms `hl7`-shaped,
+`signal-check.test.ts` warms three fixed passes), and this sweep removes that caveat on the
+**noise** side only. The
 **signal** leg here is PERF-P0 Experiment C unchanged, and its warmup is those same three fixed
 passes: not the kit's `warmUp()`, not `assertScalingGateFires`, and with no warmup-stability
 refusal. ADR 0001 section 2 requires the ceiling to be re-checked "on both sides" when the warmup

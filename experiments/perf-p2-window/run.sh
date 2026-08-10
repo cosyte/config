@@ -135,9 +135,15 @@ if [ "$EFFECTIVE_CPUS" != "$EXPECT_CPUS" ]; then
 fi
 
 # Provenance. A perf number without its machine is not a claim (roadmap section 7), and the two
-# preceding sweeps are unreadable without theirs. This file is gitignored, but `format:check` globs
-# the FILESYSTEM and `.prettierignore` does not list this path, so an unformatted local copy reds it
-# anyway. Normalise here rather than leave a re-run to turn a working tree red on whitespace.
+# preceding sweeps are unreadable without theirs.
+#
+# The sibling sweeps follow this with `prettier --write` on the file they just wrote, because THEIR
+# provenance file is committed and `format:check` would red on its whitespace. This one does not,
+# and the difference is not a style choice: prettier 3's default `--ignore-path` is
+# `[.gitignore, .prettierignore]` (the same mechanism `scripts/parser-template/.prettierignore`
+# records, measured), and `data/` here is gitignored, so `format:check` never opens this file. A
+# normalise step whose stated reason is false is worse than no step, so it is gone rather than
+# rewritten. `JSON.stringify(..., null, 2)` below is the formatting.
 # shellcheck disable=SC2016  # the ${...} below are JS template literals, expanded by node not bash
 node -e '
 const os = require("node:os");
@@ -172,7 +178,6 @@ process.stdout.write(JSON.stringify({
     : null,
 }, null, 2) + "\n");
 ' "$CPU_JSON" "$NOISE_RUNS" "$SIGNAL_RUNS" "$SIGNAL_SIZES" "$BOX_AS_EXPECTED" "$EXPECT_CPUS" > "$ENV_OUT"
-"$REPO/node_modules/.bin/prettier" --write --log-level warn "$ENV_OUT" >/dev/null 2>&1 || true
 
 # Truncate rather than archive, which is the OPPOSITE of the sibling's rule and is deliberate: this
 # directory ships no committed dataset, so there is nothing here an archive would protect. The

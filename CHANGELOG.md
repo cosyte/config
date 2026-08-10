@@ -20,8 +20,9 @@ no package, so entries here are **dated** rather than versioned.
   ANSWERED on the runner class the gate would actually run on** rather than read off a third box
   again. The question was never the false-alarm rate: it is whether any constant `RATIO_CEILING`
   sits above every false alarm and below every genuine O(n^2) signal, which is one number,
-  `weakest signal / worst false alarm`. Three windows had been read (2.54x, 1.33x, 1.07x) and not
-  one of them came from a quiet GitHub-hosted 2-vCPU runner.
+  `weakest signal / worst false alarm`. Three windows had been read (2.54x, 1.33x, 1.07x): two on
+  the wrong box, and the one on a GitHub-hosted 2-vCPU runner (PERF-P0's 2.54x) disqualified instead
+  by its warmup rule and its sample depth.
   - **`window.mjs` derives the figure from the raw rows.** It was previously computed by hand in
     prose, over columns that mislead in the direction that reads as "it separates": a ratio above
     the ceiling makes `scalingGate` THROW, so it has no measured row at all, and taking the measured
