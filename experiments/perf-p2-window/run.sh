@@ -125,6 +125,8 @@ if [ "$EFFECTIVE_CPUS" != "$EXPECT_CPUS" ]; then
   if [ "${ALLOW_ANY_BOX:-}" != "1" ]; then
     echo >&2
     echo "run.sh: REFUSING. This box has $EFFECTIVE_CPUS effective CPUs, expected $EXPECT_CPUS." >&2
+    echo "  MEASURED 2026-08-10: GitHub-hosted 'ubuntu-latest' is 4 vCPU / 15.6 GiB, not 2. So this" >&2
+    echo "  refusal is EXPECTED there, and which box settles the ceiling is a founder call." >&2
     echo "  O-P2-2 is a question about ONE runner class: the quiet GitHub-hosted 2-vCPU runner the" >&2
     echo "  gate would actually run on. A window taken on another box does not transfer, and this" >&2
     echo "  project has already produced three readings on three classes for exactly that reason." >&2
@@ -137,8 +139,8 @@ fi
 # Provenance. A perf number without its machine is not a claim (roadmap section 7), and the two
 # preceding sweeps are unreadable without theirs.
 #
-# The sibling sweeps follow this with `prettier --write` on the file they just wrote, because THEIR
-# provenance file is committed and `format:check` would red on its whitespace. This one does not,
+# `../perf-p2-false-alarm/run.sh` follows this with `prettier --write` on the file it just wrote,
+# because ITS provenance file is committed and `format:check` reaches it. This one does not,
 # and the difference is not a style choice: prettier 3's default `--ignore-path` is
 # `[.gitignore, .prettierignore]` (the same mechanism `scripts/parser-template/.prettierignore`
 # records, measured), and `data/` here is gitignored, so `format:check` never opens this file. A

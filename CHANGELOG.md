@@ -20,9 +20,8 @@ no package, so entries here are **dated** rather than versioned.
   ANSWERED on the runner class the gate would actually run on** rather than read off a third box
   again. The question was never the false-alarm rate: it is whether any constant `RATIO_CEILING`
   sits above every false alarm and below every genuine O(n^2) signal, which is one number,
-  `weakest signal / worst false alarm`. Three windows had been read (2.54x, 1.33x, 1.07x): two on
-  the wrong box, and the one on a GitHub-hosted 2-vCPU runner (PERF-P0's 2.54x) disqualified instead
-  by its warmup rule and its sample depth.
+  `weakest signal / worst false alarm`. Three windows had been read (2.54x, 1.33x, 1.07x) and not
+  one of them came from a quiet GitHub-hosted 2-vCPU runner.
   - **`window.mjs` derives the figure from the raw rows.** It was previously computed by hand in
     prose, over columns that mislead in the direction that reads as "it separates": a ratio above
     the ceiling makes `scalingGate` THROW, so it has no measured row at all, and taking the measured
@@ -53,6 +52,15 @@ no package, so entries here are **dated** rather than versioned.
     otherwise, so it is right inside a container (where `nproc` reports the host) AND on a
     GitHub-hosted VM (where there is no quota and `nproc` is the only answer). Both raw values land
     in the provenance.
+  - **🛑 IT HAS NOT BEEN RUN, AND THE BOX CENSUS IS WHY.** O-P2-2 names a quiet GitHub-hosted
+    **2-vCPU** runner. Measured 2026-08-10 by dispatching `perf-calibration.yml --mode bc-only`
+    (run `31399946419`): `ubuntu-latest` is **4 vCPU / 15.6 GiB**, AMD EPYC 9V74, and PERF-P0's own
+    GitHub leg recorded `"cpuCount": 4` a fortnight earlier on an EPYC 7763, so the host generation
+    moved underneath an unchanged image string. `run.sh` therefore exits 66 before measuring
+    anything. That is the guard working: it caught the mismatch before a figure could be labelled
+    O-P2-2 and filed against a box it was never taken on. **Which box settles the ceiling is a
+    founder call**, not a constant to edit, so `EXPECT_CPUS` is left at 2 and the workflow is left
+    refusing.
   - **`.github/workflows/perf-p2-window.yml` is `workflow_dispatch` only and is NOT a gate**, the
     same posture as `perf-calibration.yml`. Nothing here wires `test:perf` into CI or touches the
     umbrella's verify policy: the founder decision of 2026-08-07 merged the kit with the gate

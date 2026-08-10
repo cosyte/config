@@ -1,5 +1,21 @@
 # PERF-P2 / O-P2-2: the window between signal and noise
 
+> **🛑 NOT YET RUN. The box this experiment names does not exist, and that is a founder call, not a
+> constant to edit.** O-P2-2 says "a quiet GitHub-hosted **2-vCPU** runner". **Measured 2026-08-10**
+> by dispatching `perf-calibration.yml --mode bc-only` (run `31399946419`): `ubuntu-latest` is
+> **4 vCPU / 15.6 GiB**, AMD EPYC 9V74. PERF-P0's own GitHub leg recorded `"cpuCount": 4` on an AMD
+> EPYC 7763 a fortnight earlier
+> (`../perf-calibration/data/github-hosted/environment.json`, and `ANALYSIS.md` section 7 tabulates
+> it), so the host generation moved underneath an unchanged image string.
+>
+> `run.sh` defaults `EXPECT_CPUS=2` and therefore **exits 66 before measuring anything**. That is the
+> box census doing its job: it caught the mismatch before a number could be labelled O-P2-2 and
+> filed against a box it was never taken on, which is the exact failure this whole arc paid for.
+>
+> **Do not raise `EXPECT_CPUS` to make it green.** Measuring `ubuntu-latest` as it actually is
+> answers "the class `config`'s CI really uses", which may well be the better question, but it is a
+> different experiment from the one that was authorised.
+
 A **throwaway-but-committed experiment**, the same shape as `../perf-calibration/` and
 `../perf-p2-false-alarm/`. Nothing here is exported from `@cosyte/test-utils`, nothing here runs in
 `pnpm test` or `pnpm test:perf`, and nothing else in the repo imports it.
@@ -24,14 +40,14 @@ separates them. That is not a tuning problem, and the remedy is not a different 
 change to the sampling shape (ADR 0001 section 3), which is an **ADR revision and a founder call**,
 not an edit to this directory.
 
-Three windows had been read before this experiment existed. Two were taken on the wrong box, and the
-one taken on the right box is disqualified another way:
+Three windows had been read before this experiment existed, and **not one of them was taken on a
+quiet 2-vCPU box under the shipped warmup rule**:
 
-| reading                       | box                                 | window    |
-| ----------------------------- | ----------------------------------- | --------- |
-| PERF-P0, GitHub-hosted        | 2 vCPU, but P0's fixed-count warmup | **2.54x** |
-| `#34`'s own calibration       | 2-CPU container                     | 1.33x     |
-| the 2026-08-05 re-measurement | **12**-CPU container                | **1.07x** |
+| reading                       | box                                   | window    |
+| ----------------------------- | ------------------------------------- | --------- |
+| PERF-P0, GitHub-hosted        | 4 vCPU (measured), fixed-count warmup | **2.54x** |
+| `#34`'s own calibration       | 2-CPU container                       | 1.33x     |
+| the 2026-08-05 re-measurement | **12**-CPU container                  | **1.07x** |
 
 The 12-CPU sweep also turned up the finding that reframed the whole item: at `1000 -> 4000`, 1 of 20
 genuine O(n^2) runs scored **6.9568**, which a ceiling of 8 would have **passed**. A gate that fires
@@ -90,8 +106,8 @@ different measurement wearing the same file names.
 
 ## Running it
 
-The real run is `.github/workflows/perf-p2-window.yml`, dispatched by hand. It is the only place the
-2-vCPU box exists, and it is not a gate.
+The real run is `.github/workflows/perf-p2-window.yml`, dispatched by hand. It is not a gate, and as
+dispatched today it **refuses**: see the note at the top of this file.
 
 ```bash
 gh workflow run "PERF-P2 window (O-P2-2)" --ref main

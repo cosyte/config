@@ -6,12 +6,11 @@ name: PERF-P2 window (O-P2-2)
 #
 # WHAT IT ANSWERS. `PERF-P2`'s open question is not the false-alarm RATE. It is whether any constant
 # ceiling can sit between the worst false alarm and the weakest genuine O(n^2) signal, on the runner
-# class the gate would actually run on. Three readings exist. Two were taken on the wrong box, and
-# the one taken on the right box is disqualified another way:
+# class the gate would actually run on. Three readings exist and none of them was taken there:
 #
 #   * `#34`'s own calibration, a 2-CPU container    window 1.33x
 #   * the 2026-08-05 re-measurement, a 12-CPU one   window 1.07x, and a false NEGATIVE at 1000 -> 4000
-#   * PERF-P0's GitHub leg, this runner class       window 2.54x, but BOTH its sides were measured
+#   * PERF-P0's GitHub leg, GitHub-hosted           window 2.54x, but BOTH its sides were measured
 #                                                   under P0's fixed-count warmup rather than the
 #                                                   time-budgeted one the kit ships, and P0 sampled
 #                                                   10 per signal cell rather than enough to see a
@@ -72,9 +71,20 @@ permissions:
 
 jobs:
   window:
-    # The standard GitHub-hosted Linux runner: 2 vCPU, 7.75 GB. That IS the experiment. run.sh
-    # refuses to take the measurement on a box of any other size unless told to, so swapping this
-    # label for a larger runner does not silently produce a number labelled O-P2-2.
+    # 🛑 THIS JOB WILL REFUSE AS DISPATCHED, AND THAT IS THE GUARD WORKING, NOT A BUG.
+    #
+    # O-P2-2 names "a quiet GitHub-hosted 2-vCPU runner". MEASURED 2026-08-10 on this very workflow
+    # file's runner label, via a `bc-only` dispatch of perf-calibration.yml (run 31399946419):
+    # `ubuntu-latest` is **4 vCPU / 15.6 GiB**, AMD EPYC 9V74. PERF-P0's own GitHub leg recorded the
+    # same core count a fortnight earlier (`experiments/perf-calibration/data/github-hosted/
+    # environment.json`: `"cpuCount": 4`, AMD EPYC 7763; `ANALYSIS.md` section 7 tabulates it). The
+    # host generation moved between those two readings at an unchanged image string.
+    #
+    # So the 2-vCPU box the item names is NOT what this label gives, and `run.sh` (EXPECT_CPUS=2)
+    # will exit 66 before measuring anything. WHICH BOX SETTLES THE CEILING IS A FOUNDER CALL, not a
+    # constant to edit here: measuring `ubuntu-latest` as it actually is answers "the class config's
+    # CI really uses", which may be the better question, but it is a different experiment from the
+    # one that was authorised. Do not raise EXPECT_CPUS to make this green.
     runs-on: ubuntu-latest
     timeout-minutes: 240
     steps:
