@@ -5,7 +5,7 @@ the committed datasets under `data/`. Read `ANALYSIS.md` first; this file is how
 
 This is a **throwaway-but-committed experiment**, not a published API. Nothing here is exported from
 `@cosyte/test-utils`, nothing here runs in `pnpm test`, and nothing else in the repo imports it. It
-exists because the roadmap (`operations/roadmaps/config-perf.md` §8/P0) will not let P1 freeze the
+exists because the roadmap (`operations/roadmaps/config/perf.md` §8/P0) will not let P1 freeze the
 kit's constants on judgement when they can be measured.
 
 ## What it answers
