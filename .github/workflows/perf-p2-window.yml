@@ -10,7 +10,7 @@ name: PERF-P2 window (O-P2-2)
 #
 #   * `#34`'s own calibration, a 2-CPU container    window 1.33x
 #   * the 2026-08-05 re-measurement, a 12-CPU one   window 1.07x, and a false NEGATIVE at 1000 -> 4000
-#   * PERF-P0's GitHub leg, this runner class       window 2.54x, but its NOISE side was measured
+#   * PERF-P0's GitHub leg, this runner class       window 2.54x, but BOTH its sides were measured
 #                                                   under P0's fixed-count warmup rather than the
 #                                                   time-budgeted one the kit ships, and P0 sampled
 #                                                   10 per signal cell rather than enough to see a
@@ -26,7 +26,7 @@ name: PERF-P2 window (O-P2-2)
 # ceiling must be re-checked "on both sides" when the warmup rule moves, and this re-checks one.
 # Running the signal leg unchanged is what makes these rows comparable with P0's and with the
 # 2026-08-05 archive; changing it is an ADR 0001 question, not a workflow edit. Read the resulting
-# signal figures as "under P0's warmup rule", the same caveat this file puts on P0's own leg above.
+# signal figures as "under P0's warmup rule", which is the caveat on P0's own signal side too.
 #
 # WHY IT MUST NOT BE WIRED INTO CI, restated here because this file is where someone would do it.
 # `test:perf` is deliberately out of `ci.yml` and out of the umbrella's verify policy, and no
@@ -120,10 +120,12 @@ jobs:
       # extreme-value statistic over the distribution, and a future reader may want a different one.
       #
       # `if: always()` is load-bearing and is the same argument as `cancel-in-progress: false`
-      # above. Every refusal in `run.sh` fires AFTER all the measuring is done (the row-count assert
-      # is the last thing it does), and the noise loop deliberately tolerates a flaky vitest exit,
-      # so the failure mode this guards is "90 minutes of runner time, red step, zero rows kept".
-      # A dataset from a run that ended badly is still a dataset; the provenance records the box.
+      # above. `run.sh` has refusals on both sides of the measuring: the ones that check the box and
+      # the toolchain fire before any of it, and the row-count assert fires after ALL of it. The
+      # second kind is what this guards, because the failure mode there is "90 minutes of runner
+      # time, red step, zero rows kept". A dataset from a run that ended badly is still a dataset,
+      # and the provenance records the box. When the early refusals fire there is nothing to upload
+      # and `if-no-files-found: error` reds a job that had already failed, which costs nothing.
       - uses: actions/upload-artifact@v5
         if: always()
         with:

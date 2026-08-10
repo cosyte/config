@@ -24,23 +24,24 @@ separates them. That is not a tuning problem, and the remedy is not a different 
 change to the sampling shape (ADR 0001 section 3), which is an **ADR revision and a founder call**,
 not an edit to this directory.
 
-Three windows had been read before this experiment existed, and **not one of them was taken on the
-runner the gate would run on**:
+Three windows had been read before this experiment existed. Two were taken on the wrong box, and the
+one taken on the right box is disqualified another way:
 
-| reading                       | box                                         | window    |
-| ----------------------------- | ------------------------------------------- | --------- |
-| PERF-P0, GitHub-hosted        | 2 vCPU, noise under P0's fixed-count warmup | **2.54x** |
-| `#34`'s own calibration       | 2-CPU container                             | 1.33x     |
-| the 2026-08-05 re-measurement | **12**-CPU container                        | **1.07x** |
+| reading                       | box                                 | window    |
+| ----------------------------- | ----------------------------------- | --------- |
+| PERF-P0, GitHub-hosted        | 2 vCPU, but P0's fixed-count warmup | **2.54x** |
+| `#34`'s own calibration       | 2-CPU container                     | 1.33x     |
+| the 2026-08-05 re-measurement | **12**-CPU container                | **1.07x** |
 
 The 12-CPU sweep also turned up the finding that reframed the whole item: at `1000 -> 4000`, 1 of 20
 genuine O(n^2) runs scored **6.9568**, which a ceiling of 8 would have **passed**. A gate that fires
 on clean code is annoying; a gate that passes a real quadratic regression is silent. Both were true
 of the same constant at the same time.
 
-**What this experiment does NOT fix, stated before the method rather than after it.** The warmup
-caveat on P0's row above applies to the **noise** side only, and this sweep removes it only on the
-noise side. The **signal** leg here is PERF-P0 Experiment C unchanged, and its warmup is three fixed
+**What this experiment does NOT fix, stated before the method rather than after it.** P0's row above
+is fixed-count on **both** sides (`ratio-calibration.test.ts` warms `hl7`-shaped, `signal-check.ts`
+warms three fixed passes), and this sweep removes that caveat on the **noise** side only. The
+**signal** leg here is PERF-P0 Experiment C unchanged, and its warmup is those same three fixed
 passes: not the kit's `warmUp()`, not `assertScalingGateFires`, and with no warmup-stability
 refusal. ADR 0001 section 2 requires the ceiling to be re-checked "on both sides" when the warmup
 rule moves, and this re-checks one. It is left unchanged deliberately, because that is what makes

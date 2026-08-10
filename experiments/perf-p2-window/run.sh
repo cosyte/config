@@ -135,8 +135,9 @@ if [ "$EFFECTIVE_CPUS" != "$EXPECT_CPUS" ]; then
 fi
 
 # Provenance. A perf number without its machine is not a claim (roadmap section 7), and the two
-# preceding sweeps are unreadable without theirs. The committed file is covered by the repo's
-# `format:check` glob, so normalise it here rather than leave a re-run to turn CI red on whitespace.
+# preceding sweeps are unreadable without theirs. This file is gitignored, but `format:check` globs
+# the FILESYSTEM and `.prettierignore` does not list this path, so an unformatted local copy reds it
+# anyway. Normalise here rather than leave a re-run to turn a working tree red on whitespace.
 # shellcheck disable=SC2016  # the ${...} below are JS template literals, expanded by node not bash
 node -e '
 const os = require("node:os");

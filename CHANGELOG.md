@@ -28,8 +28,9 @@ no package, so entries here are **dated** rather than versioned.
     column's `max` as the worst false alarm reads the worst NON-FIRING run and drops every fire. The
     measured and censored populations are pooled, and a row whose firing axis was inferred rather
     than read out of the gate's diagnostic is reported as unattributed rather than filed under a
-    guess. Re-run against the `perf-p2-measurements-2026-08-05` branch it reproduces every figure
-    that branch computed by hand, which is the check that makes a new number from it worth anything.
+    guess. Re-run against the `perf-p2-measurements-2026-08-05` branch, each of the six figures it
+    prints for that dataset appears in that branch's own README, which is the check that makes a new
+    number from it worth anything.
     Its own pooled separation figure is a NEW definition and is not corroborated by that branch;
     the tool says so where it prints it.
   - **It narrows nothing on its own.** `--fixture-floor` defaults to 0, so every measured fixture
