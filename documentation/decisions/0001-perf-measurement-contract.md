@@ -3,7 +3,7 @@
 - **Status:** Accepted (2026-07-26)
 - **Scope:** `@cosyte/test-utils/perf` (the throughput gate, the memory gate, the reporting benchmark)
   and every `@cosyte/*` package that consumes it.
-- **Relates to:** the perf roadmap (`operations/roadmaps/config-perf.md` §8/P1) · the PERF-P0
+- **Relates to:** the perf roadmap (`operations/roadmaps/config/perf.md` §8/P1) · the PERF-P0
   calibration, `experiments/perf-calibration/ANALYSIS.md` + `README.md` (config#32, `1952b37`) ·
   umbrella `documentation/conventions.md` (perf-gate standard, corrected 2026-07-25) · umbrella
   ADR 0001 (the `0.0.x` ladder).
