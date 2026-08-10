@@ -28,9 +28,19 @@ no package, so entries here are **dated** rather than versioned.
     column's `max` as the worst false alarm reads the worst NON-FIRING run and drops every fire. The
     measured and censored populations are pooled, and a row whose firing axis was inferred rather
     than read out of the gate's diagnostic is reported as unattributed rather than filed under a
-    guess. Re-run against the `perf-p2-measurements-2026-08-05` branch it reproduces that branch's
-    hand-computed figures exactly, which is the check that makes a new number from it worth
-    anything.
+    guess. Re-run against the `perf-p2-measurements-2026-08-05` branch it reproduces every figure
+    that branch computed by hand, which is the check that makes a new number from it worth anything.
+    Its own pooled separation figure is a NEW definition and is not corroborated by that branch;
+    the tool says so where it prints it.
+  - **It narrows nothing on its own.** `--fixture-floor` defaults to 0, so every measured fixture
+    size decides the pooled figure. The first cut defaulted it to 500 on the stated basis that
+    `assertScalingGateFires` refuses a smaller fixture; it does not (it has no fixture-size rule at
+    all), and ADR 0001 section 5 blesses `250 -> 1000` at a 1.22x window. On the archive rows that
+    exclusion moved the figure from 0.7247x to 0.8515x, toward "it separates".
+  - **The signal leg's warmup is PERF-P0's fixed-count rule, not the shipped time-budgeted one**,
+    and the workflow and README both say so where the figures are read. It is unchanged on purpose,
+    because that is what keeps these rows comparable with P0's and the archive's, but it means
+    ADR 0001 section 2's "re-check on both sides" is satisfied on the noise side only.
   - **`run.sh` takes both sides on ONE box, back to back**, because a window is a difference and two
     sides from two machines are not one. Neither test file is copied or modified: it launches
     `../perf-p2-false-alarm/false-alarm.test.ts` and `../perf-calibration/signal-check.test.ts`

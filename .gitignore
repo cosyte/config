@@ -8,3 +8,10 @@ coverage/
 # and the parser-template regression test's scratch dir.
 .cosyte-doc-snippets*/
 .cosyte-template-check/
+
+# PERF-P2 / O-P2-2 sweep output. Unlike its two sibling experiments, this directory ships NO
+# committed dataset: the box it must be measured on is a GitHub-hosted runner, so the rows arrive as
+# a workflow artifact and a run worth keeping goes onto its own measurement branch (`git add -f`).
+# Ignored so a local harness run cannot be swept into a commit and read later as evidence from the
+# runner class it was never taken on.
+experiments/perf-p2-window/data/

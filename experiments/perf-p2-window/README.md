@@ -27,16 +27,26 @@ not an edit to this directory.
 Three windows had been read before this experiment existed, and **not one of them was taken on the
 runner the gate would run on**:
 
-| reading                       | box                                 | window    |
-| ----------------------------- | ----------------------------------- | --------- |
-| PERF-P0, GitHub-hosted        | 2 vCPU, but P0's fixed-count warmup | **2.54x** |
-| `#34`'s own calibration       | 2-CPU container                     | 1.33x     |
-| the 2026-08-05 re-measurement | **12**-CPU container                | **1.07x** |
+| reading                       | box                                         | window    |
+| ----------------------------- | ------------------------------------------- | --------- |
+| PERF-P0, GitHub-hosted        | 2 vCPU, noise under P0's fixed-count warmup | **2.54x** |
+| `#34`'s own calibration       | 2-CPU container                             | 1.33x     |
+| the 2026-08-05 re-measurement | **12**-CPU container                        | **1.07x** |
 
 The 12-CPU sweep also turned up the finding that reframed the whole item: at `1000 -> 4000`, 1 of 20
 genuine O(n^2) runs scored **6.9568**, which a ceiling of 8 would have **passed**. A gate that fires
 on clean code is annoying; a gate that passes a real quadratic regression is silent. Both were true
 of the same constant at the same time.
+
+**What this experiment does NOT fix, stated before the method rather than after it.** The warmup
+caveat on P0's row above applies to the **noise** side only, and this sweep removes it only on the
+noise side. The **signal** leg here is PERF-P0 Experiment C unchanged, and its warmup is three fixed
+passes: not the kit's `warmUp()`, not `assertScalingGateFires`, and with no warmup-stability
+refusal. ADR 0001 section 2 requires the ceiling to be re-checked "on both sides" when the warmup
+rule moves, and this re-checks one. It is left unchanged deliberately, because that is what makes
+these signal rows comparable with P0's and with the 2026-08-05 archive, and changing it is an
+ADR 0001 question rather than an edit to this directory. So read every signal figure this produces
+as "under P0's warmup rule", including the ones that decide the window.
 
 ## Why the two sides have to be taken on one box, in one session
 
@@ -116,14 +126,17 @@ Two traps, and both make the naive answer wrong in the direction that reads as "
    printed under an axis heading. `../perf-p2-false-alarm/analyze.mjs` suppresses the same rows for
    the same reason.
 
-It also states its one judgement instead of folding it into the arithmetic. The pooled figure is
-taken over fixture sizes **at or above `--fixture-floor` (default 500**, `hl7`'s own fixture and the
-smallest any package ships against). Smaller fixtures are still measured and printed, because how
-signal degrades with size is half of why this sweep exists, but they do not decide the shared
-constant: ADR 0001 section 5 makes fixture size a per-package calibration parameter, and
-`assertScalingGateFires` refuses a fixture whose signal does not clear the ceiling, so an under-sized
-fixture is rejected by the shipped kit before the gate ever runs. Pass `--fixture-floor 0` to pool
-everything.
+A third thing it does is refuse to narrow the population on its own. `--fixture-floor` defaults to
+**0**, so **every measured size decides the pooled figure**. An earlier cut of this file defaulted it
+to 500 and justified that with "`assertScalingGateFires` refuses a fixture this small". **That was
+false**, and it is recorded here rather than quietly corrected, because the arithmetic it changed is
+the headline: `self-check.ts` has no fixture-size rule at all (it refuses an output mismatch, a base
+phase under `MIN_PHASE_MS`, an unsettled warmup, and a signal that does not clear the ceiling, which
+is a per-run refusal rather than a size rule), and ADR 0001 section 5's table blesses `250 -> 1000`
+at a 1.22x window while ruling out only `125 -> 500`. On the archive rows that exclusion moved the
+figure from **0.7247x to 0.8515x**, which is toward "it separates". The flag remains, because "what
+would this be if only fixtures of at least N were allowed" is a real question; it is now one the
+caller asks, with the floor and the excluded sizes printed in the output.
 
 ## Re-deriving the earlier readings with the same tool
 
@@ -140,9 +153,14 @@ node window.mjs --noise /tmp/runs-sweepE.jsonl --noise /tmp/runs-sweepF.jsonl \
 
 It prints worst false alarm **8.1700** (the fire, censored out of the measured column), worst
 non-firing 7.6342, count-axis max 5.0354, weakest signal 8.7376 at `500 -> 2000` and 6.9568 at
-`1000 -> 4000`, a per-size window of **1.07x** at `hl7`'s fixture, and a pooled separation figure of
-**0.8515x**: no ceiling separates them. Every one of those matches that branch's own README, which
-is the point of running it.
+`1000 -> 4000`, and a per-size window of **1.07x** at `hl7`'s fixture. **Each of those six figures
+appears in that branch's own README**, which is the point of running it.
+
+The pooled separation figure it also prints (**0.7247x** at the default floor of 0, or 0.8515x with
+`--fixture-floor 500`) is **not** in that README and is not a reproduction: the branch reported
+per-size windows only, and pooling across sizes is this tool's own definition. Do not cite it as
+corroborated by the archive. What it says is the same thing the branch said in prose: on that box no
+ceiling separates signal from noise.
 
 Sweep D is left out above on purpose. It was taken with another agent live in the same cgroup, and
 contention can only make fires more likely, so its 0 fires is one sample that happened not to stall
@@ -159,6 +177,15 @@ rather than evidence of quiet.
   means the noise tail is explored much harder than the signal tail. That is the conservative
   direction for a "no ceiling separates" finding and the **unsafe** direction for a "it separates"
   one, so a positive result here deserves more signal runs before anything is wired into CI.
+- **The noise leg does not sweep fixture size, and the signal leg does.** `false-alarm.test.ts` runs
+  the shipped gate at one fixture (`hl7`'s: 1,000 ADT messages on the count axis, 10 ORU messages at
+  500 OBX on the size axis), so `worst noise` is a single population repeated down the per-size
+  window table rather than a per-size measurement. `window.mjs` says so in its output. The pairing is
+  conservative for larger fixtures and optimistic for smaller ones.
+- **The signal leg's warmup is not the shipped one.** Three fixed passes, PERF-P0's rule, not
+  `warmUp()` and not `assertScalingGateFires`. See the note under the comparison table above: it is
+  unchanged on purpose, for comparability, and it means ADR 0001 section 2's "on both sides" is
+  satisfied on one side here.
 - **This directory ships no committed dataset**, unlike its two siblings, and `run.sh` truncates
   rather than archives for that reason. The real datasets live where the sweep was taken: the
   workflow uploads `perf-p2-window-data` as an artifact, and a run worth keeping goes onto its own

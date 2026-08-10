@@ -18,7 +18,7 @@
  *
  * Usage:
  *   node window.mjs --noise <file.jsonl> [--noise ...] --signal <file.jsonl> [--signal ...]
- *                   [--ceiling 8] [--fixture-floor 500]
+ *                   [--ceiling 8] [--fixture-floor 0]
  *
  * Exit codes:
  *   0  a window was derived
@@ -45,18 +45,23 @@ const DEFAULT_CEILING = 8;
 /**
  * The smallest base fixture the pooled figure is allowed to be decided by, in OBX lines.
  *
- * 500 is `hl7`'s own fixture and P0 Experiment A's, so it is the smallest size any package ships
- * against today. Smaller fixtures are still measured and printed, because how signal degrades with
- * size is the reason this sweep exists at all (P0 read 4.69, 8.09, 8.84 climbing with size). They
- * are kept OUT of the pooled figure because ADR 0001 section 5 makes fixture size a per-package
- * calibration parameter and `assertScalingGateFires` REFUSES a fixture whose signal does not clear
- * the ceiling: an under-sized fixture is rejected by the shipped kit before the gate ever runs, so
- * grading the shared constant on one would grade it on a configuration that cannot exist.
+ * THE DEFAULT IS 0: every measured size decides the figure, and narrowing that population is
+ * something a caller has to ask for and name.
  *
- * This is a judgement, which is why it is a named flag with its value printed rather than a
- * constant folded into the arithmetic. Pass `--fixture-floor 0` to pool everything.
+ * An earlier cut of this file defaulted the floor to 500 and justified it with
+ * "`assertScalingGateFires` refuses a fixture this small". THAT IS FALSE, and it is recorded here
+ * rather than quietly deleted because the arithmetic it changed is the headline. `self-check.ts`
+ * has NO fixture-size rule at all: it refuses an output mismatch, a base phase under
+ * `MIN_PHASE_MS`, an unsettled warmup, and a signal that does not clear the ceiling. That last one
+ * is a per-RUN refusal, not a size rule, and ADR 0001 section 5's own table blesses `250 -> 1000`
+ * at a 1.22x window (it rules out only `125 -> 500`, "signal inside the noise"). So a 250-line
+ * fixture is a configuration the contract permits, and excluding it moved the archive's figure from
+ * 0.7247x to 0.8515x: toward "it separates", by an argument that was not true.
+ *
+ * The flag stays, because "what would the figure be if only fixtures of at least N were allowed"
+ * is a real question. It is now a question the caller asks, with the floor printed in the output.
  */
-const DEFAULT_FIXTURE_FLOOR = 500;
+const DEFAULT_FIXTURE_FLOOR = 0;
 
 /** Pooled across phases: the archive's own tables are per fixture size, cold and warm together. */
 const SIGNAL_KEY = "baseObx";
@@ -256,6 +261,16 @@ function main() {
 
   say(`## The window`);
   say();
+  // The noise column is ONE population repeated down the table, not a per-size measurement. The
+  // signal leg sweeps fixture size; the noise leg does not, because `false-alarm.test.ts` runs the
+  // shipped gate at one fixture (the sizes `hl7` ships). So a row's "worst noise" is the worst false
+  // alarm this box produced at THAT fixture, read against a signal measured at another. That is
+  // conservative for the larger sizes and optimistic for the smaller ones, and it is stated here
+  // rather than left for a reader to infer from three identical numbers.
+  say(
+    `worst noise is ONE population (the noise leg does not sweep fixture size), repeated per row.`,
+  );
+  say();
   say(`base -> 4x        worst noise   weakest signal    window   a ceiling exists?`);
   for (const cell of s.sizes) {
     const window = cell.weakest / n.worst.ratio;
@@ -268,9 +283,10 @@ function main() {
   }
   say();
 
-  // The decisive figure pools the shippable fixture sizes. A package chooses its own fixture size
-  // (ADR 0001 section 5), so a ceiling that separates at one size and not another does not
-  // separate: the constant is shared across every package that adopts the gate.
+  // The decisive figure pools the measured fixture sizes at or above the floor (0 by default, so
+  // all of them). A package chooses its own fixture size (ADR 0001 section 5), so a ceiling that
+  // separates at one size and not another does not separate: the constant is shared across every
+  // package that adopts the gate.
   const pooled = s.sizes.filter((c) => c.base >= fixtureFloor);
   if (pooled.length === 0) {
     throw new Error(
@@ -283,15 +299,25 @@ function main() {
   const pooledWindow = weakestAnywhere.weakest / n.worst.ratio;
   const anyCeiling = n.worst.ratio < weakestAnywhere.weakest;
 
-  say(`POOLED OVER THE SHIPPABLE FIXTURE SIZES, the figure that decides the shared constant:`);
+  say(
+    excluded.length > 0
+      ? `POOLED OVER THE FIXTURE SIZES AT OR ABOVE THE FLOOR (a NARROWED population, see below):`
+      : `POOLED OVER EVERY MEASURED FIXTURE SIZE, the figure that decides the shared constant:`,
+  );
   say();
   say(
     `pooled sizes              ${pooled.map((c) => `${String(c.base)} -> ${String(c.base * 4)}`).join(", ")}`,
   );
   if (excluded.length > 0) {
     say(
-      `excluded, under the floor ${excluded.map((c) => `${String(c.base)} -> ${String(c.base * 4)}`).join(", ")}  ` +
-        `(measured above, and printed there; assertScalingGateFires refuses a fixture this small)`,
+      `EXCLUDED by --fixture-floor ${String(fixtureFloor)}: ` +
+        `${excluded.map((c) => `${String(c.base)} -> ${String(c.base * 4)}`).join(", ")}`,
+    );
+    say(
+      `  These are measured and printed above. Nothing in the shipped kit rules them out: ` +
+        `self-check.ts has no fixture-size rule, and ADR 0001 section 5 rules out only 125 -> 500. ` +
+        `Excluding a size moves the figure toward "it separates", so this narrowing is the caller's ` +
+        `and must be defended by the caller.`,
     );
   }
   say(`worst false alarm         ${fmt(n.worst.ratio)}`);

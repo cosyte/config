@@ -10,13 +10,23 @@ name: PERF-P2 window (O-P2-2)
 #
 #   * `#34`'s own calibration, a 2-CPU container    window 1.33x
 #   * the 2026-08-05 re-measurement, a 12-CPU one   window 1.07x, and a false NEGATIVE at 1000 -> 4000
-#   * PERF-P0's GitHub leg, this runner class       window 2.54x, but the noise side was measured
-#                                                   under P0's fixed-count warmup, not the shipped
-#                                                   time-budgeted one, and P0 sampled 10 per signal
-#                                                   cell rather than enough to see a tail
+#   * PERF-P0's GitHub leg, this runner class       window 2.54x, but its NOISE side was measured
+#                                                   under P0's fixed-count warmup rather than the
+#                                                   time-budgeted one the kit ships, and P0 sampled
+#                                                   10 per signal cell rather than enough to see a
+#                                                   tail
 #
-# So the decisive experiment is this one: both sides, under the SHIPPED warmup rule, on a quiet
-# GitHub-hosted 2-vCPU runner with nothing else on the box. That is O-P2-2.
+# So what this adds over P0's GitHub leg is: the noise side under the SHIPPED warmup rule, a deeper
+# sample on both sides, and both sides taken on the same box in one session, on a quiet
+# GitHub-hosted 2-vCPU runner with nothing else on it. That is O-P2-2.
+#
+# WHAT IT DOES NOT FIX, and it must not be read as fixing: the SIGNAL leg is PERF-P0 Experiment C
+# unchanged (`experiments/perf-calibration/signal-check.test.ts`), whose warmup is three fixed
+# passes, NOT the kit's `warmUp()` and NOT `assertScalingGateFires`. ADR 0001 section 2 says the
+# ceiling must be re-checked "on both sides" when the warmup rule moves, and this re-checks one.
+# Running the signal leg unchanged is what makes these rows comparable with P0's and with the
+# 2026-08-05 archive; changing it is an ADR 0001 question, not a workflow edit. Read the resulting
+# signal figures as "under P0's warmup rule", the same caveat this file puts on P0's own leg above.
 #
 # WHY IT MUST NOT BE WIRED INTO CI, restated here because this file is where someone would do it.
 # `test:perf` is deliberately out of `ci.yml` and out of the umbrella's verify policy, and no
@@ -108,7 +118,14 @@ jobs:
       # The raw rows, never pre-reduced. Both preceding sweeps are only re-analysable because they
       # kept full sample vectors, and this one has to survive the same way: the figure above is one
       # extreme-value statistic over the distribution, and a future reader may want a different one.
+      #
+      # `if: always()` is load-bearing and is the same argument as `cancel-in-progress: false`
+      # above. Every refusal in `run.sh` fires AFTER all the measuring is done (the row-count assert
+      # is the last thing it does), and the noise loop deliberately tolerates a flaky vitest exit,
+      # so the failure mode this guards is "90 minutes of runner time, red step, zero rows kept".
+      # A dataset from a run that ended badly is still a dataset; the provenance records the box.
       - uses: actions/upload-artifact@v5
+        if: always()
         with:
           name: perf-p2-window-data
           path: experiments/perf-p2-window/data/
