@@ -90,9 +90,17 @@ const EXIT_CODES = { clean: 0, hits: 1, refuse: 2 } as const;
  * both remedies are worse than narrow roots, widening the allowed email domain
  * weakens the floor on the commit-blocking route, and excluding the file leaves
  * it with no verdict at all. FIVE more measured that copying a sibling's narrow
- * roots silently DROPPED tracked files their index union had been reading: 18,
- * 19 and 49 files in three of them. Derive this for THIS repo, and measure what
- * a narrowing stops reading rather than assuming it stops reading nothing.
+ * roots silently DROPPED tracked files their index union had been reading.
+ * Derive this for THIS repo, and measure what a narrowing stops reading rather
+ * than assuming it stops reading nothing. NO FILE COUNT IS QUOTED HERE: a draft
+ * carried per-repo counts with no attribution, and a reader in another repo
+ * reasonably mistook one for their own.
+ *
+ * 🛑 BEFORE NARROWING, CHECK `unionScope`. The walk and the index union are two
+ * axes. Six repos walk a narrow corpus while their index half was already
+ * repository-wide, so narrowing `SCAN_ROOTS` alone silently stops reading
+ * tracked files. `unionScope: "repository"` keeps the narrow walk and unions the
+ * whole index, which is usually what a narrow-corpus repo actually wants.
  *
  * A root that is a regular FILE says so, and is then read regardless of the
  * read filter: naming a file as a root is the same explicit act as naming it on

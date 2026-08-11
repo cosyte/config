@@ -114,7 +114,9 @@ a summary.
   owns walking, reading, enumeration, the union, completeness, reporting, the exit codes, the
   refusals and the process TAIL (`runPhiScanCli`). **Which parameters the engine REQUIRES is the
   design**: `exitCodes` and `scanRoots` have no default, because the siblings genuinely disagree and
-  a default would be the porting mistake the gate exists to catch. 🛑 **Never port an exit code in or
+  a default would be the porting mistake the gate exists to catch. **`unionScope` decides whether
+  the index half is bounded by those roots or reads the whole repository**, because the walk and the
+  union are two axes and one root list collapsed them. 🛑 **Never port an exit code in or
   out.** 🛑 **An exclusion is a LITERAL PATH, never a class**. A sibling measured that a "binary
   blob" predicate would have dropped two of its own hand-written sources, which embed NUL bytes as
   HMAC domain separators.
@@ -131,13 +133,15 @@ a summary.
   🛑 **THIS AXIS HAS NO SAFE DEFAULT IN EITHER DIRECTION AND BOTH FAILURES ARE MEASURED.** Five repos
   need the whole repository; **two measured that it makes them exit on their own `package.json`
   author address**, and both remedies are worse than narrow roots. Five more measured that copying a
-  sibling's narrow roots silently DROPPED tracked files their index union had been reading, 18, 19
-  and 49 files in three of them. "The whole repository" is the ROOT half of scope, never a claim that
-  every tracked file is read: `EXCLUDED_PATHS` and `unreadablePrefixes` still subtract, and both are
-  ANNOUNCED on every run. **NO COUNT OF WHAT A FRESH SCAFFOLD READS IS WRITTEN HERE**: a figure that
-  stood in this bullet was invalidated by the read filter's default changing, and it read as current
-  the whole time. If you narrow the roots, **measure what the narrowing STOPS reading** rather than
-  assuming it stops reading nothing.
+  sibling's narrow roots silently DROPPED tracked files their index union had been reading.
+  "The whole repository" is the ROOT half of scope, never a claim that every tracked file is read:
+  `EXCLUDED_PATHS` and `unreadablePrefixes` still subtract, and both are ANNOUNCED on every run.
+  **NO COUNT IS WRITTEN HERE, AND THAT IS DELIBERATE TWICE OVER**: a figure that stood in this
+  bullet was invalidated by the read filter's default changing and read as current the whole time,
+  and a draft carried per-repo file counts with no attribution, which a reader in another repo
+  reasonably mistook for their own. A count belongs beside the repo and revision that measured it.
+  If you narrow the roots, **measure what the narrowing STOPS reading** rather than assuming it
+  stops reading nothing.
 - **THE `--allow-fixture` BYPASS CANNOT REACH A CLEAN RUN, SO EVERY DETECTOR YOU ADD MUST CONSULT
   `ctx.allow`.** A target the run enumerated and never read REFUSES, in every mode, so the flag is
   recorded and then refused. That means a detector that checks nothing leaves a developer with a hit
@@ -149,10 +153,11 @@ a summary.
   labelled `(as git carries it)`. The engine fills that locus in, so a hit cannot be reported against
   a path a developer would open and find clean.
 - **THE EXIT CONTRACT IS DEFINED IN THIS REPO'S OWN SCANNER, NOT INHERITED**: 0 clean, 1 hits, 2
-  every state the engine RAISES in which the scan cannot account for something. **`1` is reserved but
-  NOT exclusive**, and the engine names the escapes it does not close rather than claiming there are
-  none: an allow-list, or an override log, that exists but cannot be READ throws a plain `Error` and
-  takes node's own exit 1, which a caller reads as "hits found".
+  every state the engine RAISES in which the scan cannot account for something. An allow-list or an
+  override log that exists but cannot be READ is a **refusal (2)**, not exit 1: that used to escape
+  as a plain `Error` and take node's own exit 1, which a caller reads as "hits found", and four
+  repos measured seven instances of the shape. **A misconfigured scanner still throws a `TypeError`
+  before any scan begins**, which is loud and lands on the author's first run.
 - **This file and `scripts/attw.mjs` arrive from `cosyte/config`'s `scripts/parser-template/`.** Fix
   a gate there, never only here, or the next scaffolded parser is born with the defect again.
   `scripts/phi-scan.ts` arrives from there too, but its MACHINERY does not: that is

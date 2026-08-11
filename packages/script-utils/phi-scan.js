@@ -13,13 +13,21 @@
 // declares roots, exclusions, allow-list conventions, views and detector vocabularies. It runs none
 // of the above.
 //
-// THE DESIGN RULE THIS FILE IS BUILT ON, and it comes from a measurement rather than a taste. Twelve
-// repos derived against 0.0.2 and every defect they found made the gate WEAKER THAN DECLARED and
-// said nothing: not one produced a false alarm, all produced false confidence. A parameterised
-// engine makes that worse, because thirteen repos inherit each default. So: WHEREVER A PARAMETER CAN
-// BE MISDECLARED, MISPARSED, UNSUPPORTED OR IGNORED, THIS ENGINE REFUSES RATHER THAN PROCEEDING
-// QUIETLY. A silent `default: break`, a dropped tag, an unread root, an undecoded view and a
-// declared format that failed to parse are all the same bug.
+// THE DESIGN RULE THIS FILE IS BUILT ON, and it comes from a measurement rather than a taste. All
+// thirteen consuming repos derived against 0.0.2, all thirteen were blocked, and every defect they
+// found made the gate WEAKER THAN DECLARED and said nothing: not one produced a false alarm, all
+// produced false confidence. A parameterised engine makes that worse, because thirteen repos
+// inherit each default.
+//
+// So the rule is: WHERE THIS ENGINE CAN TELL that a parameter was misdeclared, misparsed or is
+// unsupported, IT REFUSES rather than proceeding quietly. An unknown allow-list tag, an unknown key
+// in a detector spec, a root that is not the shape it declares, a root it cannot stat, a declared
+// root that yielded nothing read, and a declared format it cannot parse are all refusals.
+//
+// 🛑 IT IS NOT A CLAIM THAT EVERY MISDECLARATION IS CAUGHT, and an earlier draft said "WHEREVER",
+// which a reviewer falsified in four ways in one pass. A parameter that is well-typed and WRONG is
+// not detectable here: a `recordIdLength` of 2 against a three-character record id matches nothing,
+// and the engine cannot know that was not intended. What is closed is the class the engine can see.
 //
 // ZERO DEPENDENCIES, NO BUILD STEP. `git` is the only subprocess, always `execFileSync` with array
 // args, never shell-form.
@@ -45,6 +53,33 @@ class InvocationError extends Error {
     this.name = "InvocationError";
   }
 }
+
+/**
+ * Scrub the process-global `RegExp` statics.
+ *
+ * 🛑 THIS IS A PHI CONTAINMENT, NOT A TIDY-UP, AND IT IS MEASURED. V8 keeps the last successful
+ * match on the `RegExp` CONSTRUCTOR: `RegExp.input`, `RegExp.lastMatch`, `RegExp.$1` and friends are
+ * process globals, and every `matchAll`, `exec`, `replace`, `split` and `test` this engine runs over
+ * a target's content writes to them. A sibling measured the consequence THROUGH `runPhiScan`: after
+ * the run returned, `RegExp.input` held a 153,954-code-unit scanned file and `RegExp.lastMatch` held
+ * the matched identifier, both reachable by anything later in the same process and by any crash
+ * dump. That sibling had closed the same residual twice in its own hand-written scanner, so adopting
+ * this engine would have REINTRODUCED it.
+ *
+ * Subclassing `RegExp` does not avoid it (measured on Node 24: the legacy statics are written for a
+ * subclassed pattern too), so the containment is to overwrite them with engine-owned constants. It
+ * runs after every target and again on every exit path, so the statics never hold payload once a
+ * target is finished, and hold nothing at all once the run returns.
+ *
+ * NO PARAMETER CAN RESTORE THIS. It is a property of the engine or it is absent.
+ */
+function scrubRegExpStatics() {
+  SCRUB_PATTERN.exec(SCRUB_SUBJECT);
+}
+
+/** Engine-owned, identifier-free, and deliberately short: what the statics hold after a scrub. */
+const SCRUB_SUBJECT = "phi-scan";
+const SCRUB_PATTERN = /^(phi)-(scan)$/;
 
 /** git's file modes for a regular blob. Every other mode names something with no bytes to read. */
 const DEFAULT_REGULAR_BLOB_MODES = new Set(["100644", "100755"]);
@@ -82,7 +117,10 @@ const DEFAULT_ALLOW_LIST_TAGS = [
   { tag: "ZIP", bucket: "zips", fold: "none", arity: 1 },
   { tag: "PHONE", bucket: "phones", fold: "digits", arity: 1 },
   { tag: "EMAIL", bucket: "emails", fold: "lower", arity: 1 },
-  { tag: "EMAIL", bucket: "scopedEmails", fold: "lower", arity: 2 },
+  // ITS OWN TAG, RATHER THAN A SECOND ARITY OF `EMAIL`. Choosing the arity from the field count was
+  // a heuristic and a reviewer broke it: `EMAIL <address> # a note` has two fields, so it was read
+  // as path-scoped, the address became a path, and the declaration silently did nothing.
+  { tag: "EMAILAT", bucket: "scopedEmails", fold: "lower", arity: 2 },
   { tag: "EMAILDOMAIN", bucket: "emailDomains", fold: "lower", arity: 1 },
 ];
 
@@ -97,6 +135,8 @@ const ALLOW_BUCKETS = [
   "phones",
   "emails",
   "scopedEmails",
+  /** Every path-scoped address, unscoped. Read ONLY when the target is the allow-list itself. */
+  "scopedEmailValues",
   "emailDomains",
 ];
 
@@ -135,7 +175,14 @@ const RESERVED_SPACES = {
       area === 0 || area === 666 || area >= 900 || d.slice(3, 5) === "00" || d.slice(5) === "0000"
     );
   },
-  /** Domains RFC 2606 and RFC 6761 reserve for documentation and testing. */
+  /**
+   * The second-level domains RFC 2606 s3 reserves for documentation (and RFC 6761 s6.5 repeats),
+   * plus the reserved top-level domains from RFC 2606 s2.
+   *
+   * `example.edu` IS NOT AMONG THEM and was cut after a reviewer checked the citation: neither RFC
+   * reserves it, so accepting it would have cleared an address at a domain that can really exist.
+   * A reserved space is only a provenance marker if every member of it is genuinely reserved.
+   */
   "reserved-domain": (value) => {
     const at = value.lastIndexOf("@");
     const domain = (at < 0 ? value : value.slice(at + 1)).toLowerCase();
@@ -143,7 +190,6 @@ const RESERVED_SPACES = {
       domain === "example.com" ||
       domain === "example.net" ||
       domain === "example.org" ||
-      domain === "example.edu" ||
       domain === "invalid" ||
       domain === "test" ||
       domain === "localhost" ||
@@ -500,6 +546,11 @@ function normalizeConfig(config) {
     throw new TypeError('runPhiScan: `partialExit` must be "clean" or "refuse".');
   }
 
+  const unionScope = config.unionScope ?? "scanRoots";
+  if (unionScope !== "scanRoots" && unionScope !== "repository") {
+    throw new TypeError('runPhiScan: `unionScope` must be "scanRoots" or "repository".');
+  }
+
   const vanished = config.vanishedUntrackedWalkTarget ?? "refuse";
   if (vanished !== "refuse" && vanished !== "report-unobserved") {
     throw new TypeError(
@@ -513,6 +564,7 @@ function normalizeConfig(config) {
     exitCodes: { clean: codes.clean, hits: codes.hits, refuse: codes.refuse },
     scanRoots,
     stagedRoots,
+    unionScope,
     excludedPaths,
     excludedRoutes,
     detectorExemptPaths,
@@ -595,9 +647,11 @@ function normalizeAllowListTags(raw) {
     if (arity !== 1 && arity !== 2) {
       throw new TypeError(`runPhiScan: allowListTags entry ${tag} must have arity 1 or 2.`);
     }
-    if (out.some((e) => e.tag === tag && e.arity === arity)) {
+    if (out.some((e) => e.tag === tag)) {
       throw new TypeError(
-        `runPhiScan: allowListTags declares ${tag} twice at arity ${String(arity)}.`,
+        `runPhiScan: allowListTags declares ${tag} more than once. One tag has one arity and one ` +
+          `bucket; choosing between them by counting a line's fields is a heuristic, and one that ` +
+          `guesses wrong declares nothing while looking like a declaration.`,
       );
     }
     out.push({ tag, bucket, fold, arity });
@@ -812,6 +866,8 @@ class PhiScan {
     this.cfg = cfg;
     /** Does any scan root name the repository root itself? Then everything is in scope. */
     this.wholeRepo = cfg.scanRoots.some((r) => r.rel === ".");
+    /** Roots declared as regular files. Read on every route, whatever the read filter says. */
+    this.fileRoots = new Set(cfg.scanRoots.filter((r) => r.shape === "file").map((r) => r.rel));
     /** @type {Map<string, { objects: number, bytes: number, reasons: Set<string> }>} */
     this.partials = new Map();
   }
@@ -886,6 +942,12 @@ class PhiScan {
    * @returns {boolean}
    */
   isReadable(relPath) {
+    // A DECLARED FILE ROOT IS READ ON EVERY ROUTE, and this short-circuit is what makes that true
+    // rather than merely claimed. It used to hold on the walk alone, so the same declaration that
+    // read a Markdown file root off disk reported clean at exit 0 over the bytes GIT carries at it,
+    // and clean over the same file STAGED. Naming a file as a root is the same explicit act as
+    // naming it on the command line, and the read filter is not entitled to overrule either.
+    if (this.fileRoots.has(relPath)) return true;
     for (const prefix of this.cfg.unreadablePrefixes) {
       if (relPath === prefix || relPath.startsWith(`${prefix}/`)) return false;
     }
@@ -1036,18 +1098,20 @@ class PhiScan {
         unknown.push(`  - line ${String(i + 1)}: ${tag}`);
         continue;
       }
-      // Arity 2 is the path-scoped form and wins when the line carries enough fields: an address
-      // never contains whitespace, and a path plus an address always does.
-      const chosen =
-        candidates.find((c) => c.arity === 2 && rest.length >= 2) ??
-        candidates.find((c) => c.arity === 1);
-      if (chosen === undefined || rest.length === 0) {
-        unknown.push(`  - line ${String(i + 1)}: ${tag} (no value)`);
+      // ONE TAG, ONE ARITY. Choosing between arities by counting fields was a heuristic, and a
+      // heuristic that guesses wrong here declares nothing while looking like a declaration.
+      const chosen = candidates[0];
+      if (chosen === undefined || rest.length < chosen.arity) {
+        unknown.push(
+          `  - line ${String(i + 1)}: ${tag} (expects ${String(chosen?.arity ?? 1)} field(s))`,
+        );
         continue;
       }
       if (chosen.arity === 2) {
         const scopePath = this.normalizePath(rest[0] ?? "");
-        allow[chosen.bucket].add(`${scopePath} ${fold(rest.slice(1).join(" "), chosen.fold)}`);
+        const scopedValue = fold(rest.slice(1).join(" "), chosen.fold);
+        allow[chosen.bucket].add(`${scopePath} ${scopedValue}`);
+        allow.scopedEmailValues.add(scopedValue);
       } else {
         allow[chosen.bucket].add(fold(rest.join(" "), chosen.fold));
       }
@@ -1316,12 +1380,22 @@ class PhiScan {
 
     for (const root of this.cfg.scanRoots) {
       const abs = this.absoluteRoot(root.rel);
-      const stats = lstatOrNull(abs);
-      if (stats === null) {
-        // A missing or unreadable root is skipped HERE and caught by `require` below, which is the
-        // tier that can tell "declared and yielded nothing" from "not declared".
+      const probe = lstatOrReason(abs);
+      if (probe.stats === null) {
+        // 🛑 ABSENT AND UNREADABLE ARE DIFFERENT ANSWERS AND THIS USED TO CONFLATE THEM. Both came
+        // back `null` and both were skipped, so a root behind an EACCES or an ELOOP contributed
+        // nothing and the run could still report clean: fail-open, on the axis that decides what the
+        // corpus IS. An ABSENT root is skipped here and caught by `require` below, which is the tier
+        // that can tell "declared and yielded nothing" from "not declared". Anything else REFUSES.
+        if (probe.code !== "ENOENT") {
+          unscannable.push({
+            path: root.rel,
+            kind: `a root this scan cannot stat (${probe.code})`,
+          });
+        }
         continue;
       }
+      const stats = probe.stats;
       const actual = stats.isDirectory() ? "directory" : stats.isFile() ? "file" : null;
       if (actual === null) {
         unscannable.push({ path: root.rel, kind: statsKind(stats) });
@@ -1479,11 +1553,15 @@ class PhiScan {
    * @returns {string[]}
    */
   unionCandidatePaths(index) {
+    const inScope =
+      this.cfg.unionScope === "repository"
+        ? () => true
+        : /** @param {string} p */ (p) => this.isUnderScanRoot(p);
     return [...index]
       .filter(
         ([p, e]) =>
           this.cfg.regularBlobModes.has(e.mode) &&
-          this.isUnderScanRoot(p) &&
+          inScope(p) &&
           this.isReadable(p) &&
           !this.isExcluded(p, "index"),
       )
@@ -1786,9 +1864,15 @@ class PhiScan {
       for (const m of content.matchAll(/\b[A-Za-z0-9._%+-]+@([A-Za-z0-9.-]+\.[A-Za-z]{2,})\b/g)) {
         const value = m[0];
         const domain = (m[1] ?? "").toLowerCase();
+        const lower = value.toLowerCase();
         if (allow.emailDomains.has(domain)) continue;
-        if (allow.emails.has(value.toLowerCase())) continue;
-        if (allow.scopedEmails.has(`${relPath} ${value.toLowerCase()}`)) continue;
+        if (allow.emails.has(lower)) continue;
+        if (allow.scopedEmails.has(`${relPath} ${lower}`)) continue;
+        // THE DECLARATION FILE CLEARS ITS OWN DECLARATIONS. A path-scoped entry necessarily writes
+        // the address into the allow-list, and under whole-repository roots that file is itself
+        // scanned, so the remedy reported itself as a hit and the footer sent the developer to
+        // declare a value they had just declared. Scope still governs everywhere else.
+        if (relPath === this.relAllowList() && allow.scopedEmailValues.has(lower)) continue;
         if (email.spaces.some((s) => RESERVED_SPACES[s](value))) continue;
         hits.push({ path: locus, segment: "(email)", value, reason: "email with non-test domain" });
       }
@@ -1867,6 +1951,7 @@ class PhiScan {
           locus,
           relPath: target.path,
           text: view.text,
+          viewId: view.id,
           allow,
           hits: viewHits,
         });
@@ -1901,6 +1986,8 @@ class PhiScan {
     }
 
     for (const h of collected) hits.push(h);
+    // Every regex this target's content went through has left it on the RegExp constructor.
+    scrubRegExpStatics();
     return buf;
   }
 
@@ -2057,6 +2144,17 @@ class PhiScan {
    * @returns {number}
    */
   run() {
+    try {
+      return this.runInner();
+    } finally {
+      // ON EVERY EXIT PATH, including a refusal thrown from inside the sweep. `scanTarget` scrubs
+      // per target, so this is what covers a run that ended between targets.
+      scrubRegExpStatics();
+    }
+  }
+
+  /** @returns {number} */
+  runInner() {
     const { clean: EXIT_CLEAN, hits: EXIT_HITS, refuse: EXIT_REFUSE } = this.cfg.exitCodes;
 
     /** @type {any} */
@@ -2275,10 +2373,24 @@ const RAW_RECORD = /^:(?:\d{6}) (\d{6}) [0-9a-f]+ [0-9a-f]+ ([A-Z]\d*)$/;
  * @returns {any}
  */
 function lstatOrNull(path) {
+  return lstatOrReason(path).stats;
+}
+
+/**
+ * `lstatSync`, with ABSENT distinguished from UNREADABLE.
+ *
+ * The engine used to have one answer for both and skipped either, so a root behind an EACCES or an
+ * ELOOP silently contributed nothing. `code` is an errno name from the operating system, never text
+ * derived from a scanned file, so it is safe to print.
+ *
+ * @param {string} path
+ * @returns {{ stats: any, code: string | undefined }}
+ */
+function lstatOrReason(path) {
   try {
-    return lstatSync(path);
-  } catch {
-    return null;
+    return { stats: lstatSync(path), code: undefined };
+  } catch (err) {
+    return { stats: null, code: errorCode(err) ?? "unknown" };
   }
 }
 
@@ -2590,6 +2702,13 @@ const VALUE_RULES = {
 class FormatParseError extends Error {}
 
 /**
+ * 🛑 A PARSE DIAGNOSTIC CARRIES NO TEXT OFF THE DOCUMENT. V8's `JSON.parse` message embeds a window
+ * of the input, so interpolating it put a patient's given name on stderr, which is CI logs. The
+ * refusal names the locus, the detector and the grammar, all of which the caller declared, and
+ * nothing else. This engine prints only a repo-relative path and a token from a closed set.
+ */
+
+/**
  * Validate the declared detectors.
  *
  * 🛑 THE BOUNDARY, DRAWN EXPLICITLY BECAUSE IT IS THE THING THIS SURFACE COULD MOST EASILY GET
@@ -2610,6 +2729,56 @@ class FormatParseError extends Error {}
  * @param {unknown} raw
  * @returns {any[]}
  */
+const DETECTOR_KEYS = new Set(["id", "grammar", "appliesTo", "fields", "regionEndsAt"]);
+const GRAMMAR_KEYS = new Set([
+  "kind",
+  "headerRecordIds",
+  "recordIdLength",
+  "fieldSeparatorOffset",
+  "componentSeparatorOffset",
+  "repetitionSeparator",
+  "fallback",
+  "minRecordLength",
+]);
+const FIELD_KEYS = new Set([
+  "record",
+  "field",
+  "component",
+  "attr",
+  "guard",
+  "kind",
+  "bucket",
+  "reservedSpaces",
+  "pattern",
+  "minDigits",
+  "maxDigits",
+  "digitsOnly",
+  "noise",
+  "id",
+  "reason",
+]);
+
+/**
+ * Refuse a key this engine does not read.
+ *
+ * A MISSPELLED KEY IS A VOCABULARY ENTRY THAT JUDGES NOTHING, and it looks exactly like one that
+ * judges something. A reviewer typed `guards` for `guard` and the entry fired unguarded; `headerRecordIDs`
+ * for `headerRecordIds` and the delimiters silently fell back.
+ *
+ * @param {Record<string, unknown>} obj
+ * @param {Set<string>} known
+ * @param {string} what
+ */
+function refuseUnknownKeys(obj, known, what) {
+  const unknown = Object.keys(obj).filter((k) => !known.has(k));
+  if (unknown.length > 0) {
+    throw new TypeError(
+      `runPhiScan: ${what} declares ${unknown.map((k) => JSON.stringify(k)).join(", ")}, which ` +
+        `this engine does not read. Known keys: ${[...known].sort().join(", ")}.`,
+    );
+  }
+}
+
 function normalizeDetectors(raw) {
   if (raw === undefined) return [];
   if (!Array.isArray(raw)) throw new TypeError("runPhiScan: `detectors` must be an array.");
@@ -2617,6 +2786,7 @@ function normalizeDetectors(raw) {
     if (!isPlainObject(d)) {
       throw new TypeError(`runPhiScan: detectors[${String(i)}] must be an object.`);
     }
+    refuseUnknownKeys(d, DETECTOR_KEYS, `detectors[${String(i)}]`);
     const id = d.id;
     if (typeof id !== "string" || id === "") {
       throw new TypeError(`runPhiScan: detectors[${String(i)}] needs a non-empty \`id\`.`);
@@ -2629,6 +2799,7 @@ function normalizeDetectors(raw) {
           `${Object.keys(GRAMMARS).join(", ")}.`,
       );
     }
+    refuseUnknownKeys(grammar, GRAMMAR_KEYS, `detector ${id}'s grammar`);
     const appliesTo = normalizeAppliesTo(d.appliesTo, id);
     // A GRAMMAR THAT CAN REFUSE MUST BE SELECTIVE. Because a parse failure is now a refusal rather
     // than a downgrade, a strict grammar with no `appliesTo` would refuse on every file in the
@@ -2652,6 +2823,7 @@ function normalizeDetectors(raw) {
       if (!isPlainObject(f)) {
         throw new TypeError(`runPhiScan: detector ${id} field ${String(j)} must be an object.`);
       }
+      refuseUnknownKeys(f, FIELD_KEYS, `detector ${id} field ${String(j)}`);
       if (!Object.hasOwn(VALUE_RULES, String(f.kind))) {
         throw new TypeError(
           `runPhiScan: detector ${id} field ${String(j)} declares kind ${JSON.stringify(f.kind)}; ` +
@@ -2760,18 +2932,59 @@ const GRAMMARS = {
     const repetitionSep = grammar.repetitionSeparator ?? fallback.repetition;
 
     const lines = stripped.split(/\r\n|\r|\n/);
+    const minLength = grammar.minRecordLength ?? 4;
+
+    /**
+     * How many lines this file would admit as records under a candidate field separator. It is the
+     * evidence a candidate is really the document's delimiter rather than a coincidence.
+     *
+     * @param {string} sep
+     * @returns {number}
+     */
+    const admitCount = (sep) => {
+      let n = 0;
+      for (const line of lines) {
+        const trimmed = line.replace(/\s+$/, "");
+        if (trimmed.length < minLength) continue;
+        if (!/^[A-Za-z][A-Za-z0-9]*$/.test(trimmed.slice(0, idLength))) continue;
+        if (trimmed.charAt(idLength) === sep) n += 1;
+      }
+      return n;
+    };
+
+    // 🛑 THE CANDIDATE THAT ADMITS THE MOST RECORDS WINS, AND TAKING THE FIRST ONE WAS A MEASURED
+    // WHOLE-FILE FALSE NEGATIVE. Delimiter discovery used to accept the first line whose opening
+    // characters matched a header id, with any punctuation at the separator offset. One line of
+    // ordinary English prose naming a field (`MSH-9`, the commonest way an HL7 field is spelled in
+    // documentation) therefore set the separator to `-`, after which every real `MSH|` and `PID|`
+    // record failed the admission test and the whole file scanned clean at exit 0. Counting what
+    // each candidate would actually admit makes prose lose to the document, because a prose line
+    // admits itself and nothing else.
+    //
+    // WHAT THIS DOES NOT FIX, STATED RATHER THAN LEFT TO BE FOUND: a file carrying two messages with
+    // DIFFERENT encoding characters is still read under one set, the winner's. Discovery is
+    // per-file here, not per-message.
+    /** @type {{ sep: string, comp: string, admits: number } | null} */
+    let best = null;
     for (const line of lines) {
       if (!headerIds.has(line.slice(0, idLength))) continue;
       const declared = line.charAt(grammar.fieldSeparatorOffset ?? idLength);
-      // A delimiter is a punctuation character. Reading a letter, a digit or a space as one turns a
-      // prose line beginning with the header's letters into a record.
-      if (declared.length === 1 && !/[\p{L}\p{N}\s]/u.test(declared)) fieldSep = declared;
+      // A delimiter is a punctuation character. A letter, a digit or a space is prose.
+      if (declared.length !== 1 || /[\p{L}\p{N}\s]/u.test(declared)) continue;
+      let comp = componentSep;
       const compOffset = grammar.componentSeparatorOffset;
       if (typeof compOffset === "number") {
         const c = line.charAt(compOffset);
-        if (c.length === 1 && !/[\p{L}\p{N}\s]/u.test(c)) componentSep = c;
+        if (c.length === 1 && !/[\p{L}\p{N}\s]/u.test(c)) comp = c;
       }
-      break;
+      const admits = admitCount(declared);
+      if (best === null || admits > best.admits) best = { sep: declared, comp, admits };
+    }
+    // A candidate that admits nothing is no evidence at all, so the declared fallback is kept: it is
+    // what a document with no header at all is read under.
+    if (best !== null && best.admits > 0) {
+      fieldSep = best.sep;
+      componentSep = best.comp;
     }
 
     /** @type {any[]} */
@@ -2852,7 +3065,10 @@ const GRAMMARS = {
     /** @type {unknown} */
     let doc;
     try {
-      doc = JSON.parse(text);
+      // A leading BOM is permitted in front of a JSON text and `JSON.parse` rejects it, so a
+      // legitimate fixture would have refused. Stripping it is liberal-on-parse, which is this
+      // ecosystem's own convention.
+      doc = JSON.parse(text.replace(/^\ufeff/, ""));
     } catch (err) {
       throw new FormatParseError(err instanceof Error ? err.message : String(err));
     }
@@ -2864,7 +3080,17 @@ const GRAMMARS = {
      */
     const visit = (node, path) => {
       if (Array.isArray(node)) {
-        for (const item of node) visit(item, path);
+        for (const item of node) {
+          // 🛑 A PRIMITIVE INSIDE AN ARRAY IS A VALUE AT THE PARENT'S PATH, and dropping it is not a
+          // gap in an edge case: FHIR R4 declares `HumanName.given` and `Address.line` as arrays of
+          // strings, so a patient's given name and street line ALWAYS arrive this way. Recursing
+          // without emitting made both invisible and the run reported clean at exit 0.
+          if (typeof item === "string" || typeof item === "number" || typeof item === "boolean") {
+            out.push({ record: path, index: out.length, fields: [[[String(item)]]], attrs: {} });
+          } else {
+            visit(item, path);
+          }
+        }
         return;
       }
       if (!isPlainObject(node)) return;
@@ -2914,6 +3140,12 @@ function safeCodePoint(code) {
  * @param {any} ctx
  */
 function runDetector(detector, ctx) {
+  // 🛑 A STRICT GRAMMAR RUNS ON THE RAW VIEW ONLY, so a declared view stays STRICTLY ADDITIVE. A
+  // `source-literals` view decodes escapes, and a decoded `\n` inside a JSON string literal makes
+  // the decoded text invalid JSON: running the strict grammar over it turned a CLEAN run into a
+  // refusal on a file whose real bytes parse fine. A view may add a finding; it must not be able to
+  // subtract a verdict.
+  if (ctx.viewId !== "raw" && STRICT_GRAMMARS.has(String(detector.grammar.kind))) return;
   const lower = ctx.relPath.toLowerCase();
   const { pathSuffixes, pathPrefixes, contentMarker } = detector.appliesTo;
   const anyPath = pathSuffixes.length === 0 && pathPrefixes.length === 0;
@@ -2932,10 +3164,12 @@ function runDetector(detector, ctx) {
     if (err instanceof FormatParseError) {
       throw new InvocationError(
         `refusing ${ctx.locus}: detector ${detector.id} selected it as ` +
-          `\`${String(detector.grammar.kind)}\` and could not parse it (${err.message}). A run ` +
-          `that could not read a format it declared has no verdict to give about that file, and ` +
-          `falling back to the cross-cutting floor alone would report a fragmentary document as ` +
-          `clean. Fix the file, or narrow this detector's \`appliesTo\`.`,
+          `\`${String(detector.grammar.kind)}\` and could not parse it. A run that could not read ` +
+          `a format it declared has no verdict to give about that file, and falling back to the ` +
+          `cross-cutting floor alone would report a fragmentary document as clean. Fix the file, ` +
+          `or narrow this detector's \`appliesTo\`. The parser's own message is NOT printed: it ` +
+          `embeds a window of the document, which would put the bytes this gate exists to contain ` +
+          `into CI logs.`,
       );
     }
     throw err;

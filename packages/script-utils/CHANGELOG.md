@@ -19,10 +19,12 @@ the **`0.0.x`-until-first-alpha** ladder.
   bookkeeping, reporting, exit codes, refusals, **and the process tail**. None of it remains in a
   consumer.
 
-  **The design rule, and it comes from a measurement.** Eleven repos derived against `0.0.2` and
-  every defect they found made the gate **weaker than declared and said nothing**: not one produced
-  a false alarm, all produced false confidence. So wherever a parameter can be misdeclared,
-  misparsed, unsupported or ignored, the engine now **refuses** rather than proceeding quietly.
+  **The design rule, and it comes from a measurement.** All thirteen consuming repos derived
+  against `0.0.2`, all thirteen were blocked, and every defect they found made the gate **weaker
+  than declared and said nothing**: not one produced a false alarm, all produced false confidence.
+  So where the engine **can tell** that a parameter was misdeclared, misparsed or is unsupported, it
+  now **refuses** rather than proceeding quietly. That is not a claim every misdeclaration is
+  caught: a well-typed but wrong value is not detectable here.
 
   **This BREAKS the `0.0.2` surface, deliberately and without a compatibility shim.** No repo had
   adopted, all thirteen were verified unadopted, and an additive surface would have preserved the
@@ -37,6 +39,13 @@ the **`0.0.x`-until-first-alpha** ladder.
   that they needed the exemption gone. `exemptsMarkdown` is still exported for a repo that declares
   it deliberately, and a `shape: "file"` root **bypasses the read filter entirely**, which is what
   makes the defect unreachable by construction rather than by remembering an override.
+
+- **`unionScope: "scanRoots" | "repository"` splits the walk from the index union.** Bounding both
+  by one root set collapsed two axes: six repos walk a narrow corpus while their index half was
+  already repository-wide, so a literal rename of their roots silently stopped reading tracked
+  files, while two others need a narrow union because a whole-repository read hits their own
+  manifest's author address and, in one case, a vendored archive whose compressed bytes decode to an
+  email shape. Those were never in conflict; they are two parameters.
 
 - **`ScanRootSpec` replaces seven live root spellings with one type:**
   `string | { rel, shape?, walk?, require? }`. `shape` is **declared and checked**, deriving it let

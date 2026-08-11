@@ -6,9 +6,11 @@
  * and its bookkeeping, reporting, exit codes, refusals, and the process TAIL. A consuming repo
  * declares roots, exclusions, allow-list conventions, views and detector vocabularies.
  *
- * THE DESIGN RULE, from a measurement rather than a taste: twelve repos derived against 0.0.2 and
- * every defect they found made the gate WEAKER THAN DECLARED and said nothing. So wherever a
- * parameter can be misdeclared, misparsed, unsupported or ignored, the engine REFUSES.
+ * THE DESIGN RULE, from a measurement rather than a taste: all thirteen consuming repos derived
+ * against 0.0.2, all thirteen were blocked, and every defect they found made the gate WEAKER THAN
+ * DECLARED and said nothing. So where the engine CAN TELL that a parameter was misdeclared,
+ * misparsed or is unsupported, it REFUSES. It is not a claim that every misdeclaration is caught:
+ * a well-typed but wrong value is not detectable here.
  */
 
 /** A reported PHI finding. `path` is the LOCUS the engine chose, never a path the caller invents. */
@@ -49,14 +51,24 @@ export interface AllowList {
   zips: Set<string>;
   /** Synthetic telephone numbers, reduced to digits. */
   phones: Set<string>;
-  /** Whole synthetic mailboxes, lowercased. */
+  /** Whole synthetic mailboxes, lowercased. Declared with `EMAIL <address>`. */
   emails: Set<string>;
   /**
-   * Path-scoped mailboxes, keyed `<repo-relative path> <lowercased address>`. Widening a whole
-   * domain to clear one address is a real subtraction on the commit-blocking route, and one repo
-   * correctly refused to take it.
+   * Path-scoped mailboxes, keyed `<repo-relative path> <lowercased address>`, declared with
+   * `EMAILAT <path> <address>`. Widening a whole domain to clear one address is a real subtraction
+   * on the commit-blocking route, and one repo correctly refused to take it.
+   *
+   * IT HAS ITS OWN TAG rather than being a second arity of `EMAIL`, because choosing the arity from
+   * a line's field count is a heuristic: `EMAIL <address> # a note` has two fields, so it was read
+   * as path-scoped, the address became a path, and the declaration silently did nothing.
    */
   scopedEmails: Set<string>;
+  /**
+   * Every path-scoped address with its scope removed. Consulted ONLY when the target is the
+   * allow-list itself: a scoped declaration necessarily writes the address into that file, and
+   * under whole-repository roots the file is scanned, so the remedy used to report itself as a hit.
+   */
+  scopedEmailValues: Set<string>;
   /** Allowed email domains, lowercased. Anything else is a hit. */
   emailDomains: Set<string>;
 }
@@ -111,8 +123,10 @@ export type ScanRootSpec =
        * replaced by a one-line file through, where the sweep read the file, the per-root observation
        * rule saw something read, and a run went from refusing to clean. A mismatch REFUSES.
        *
-       * A `"file"` root BYPASSES the read filter, because naming a file as a root is the same
-       * explicit act as naming it on the command line.
+       * A `"file"` root BYPASSES the read filter ON EVERY ROUTE, because naming a file as a root
+       * is the same explicit act as naming it on the command line. It used to hold on the walk
+       * alone, so the same declaration that read a Markdown file root off disk reported clean at
+       * exit 0 over the bytes GIT carries at it, and clean over the same file STAGED.
        *
        * @default "directory"
        */
@@ -190,6 +204,17 @@ export type DetectFn = (ctx: DetectContext) => void;
  */
 export type ReservedSpace = "nanp-fictional" | "ssa-never-issued" | "reserved-domain";
 
+/**
+ * A tag the allow-list parser understands. One tag has ONE arity and ONE bucket; a tag declared
+ * twice is a configuration error.
+ */
+export interface AllowListTag {
+  tag: string;
+  bucket: AllowBucket;
+  fold?: "none" | "upper" | "lower" | "digits";
+  arity?: 1 | 2;
+}
+
 /** The buckets an allow-list tag can fill. */
 export type AllowBucket = keyof AllowList;
 
@@ -266,14 +291,35 @@ export interface DetectorSpec {
   grammar:
     | {
         kind: "delimited-record";
-        /** Records whose id declares the delimiters. @default ["MSH"] */
+        /**
+         * Records whose id declares the delimiters. Of the candidates, the one admitting the MOST
+         * records wins: taking the first was a measured whole-file false negative, because one line
+         * of prose naming a field set the separator and every real record then failed admission.
+         *
+         * @default ["MSH"]
+         */
         headerRecordIds?: string[];
         /** @default 3 */
         recordIdLength?: number;
         /** @default recordIdLength */
         fieldSeparatorOffset?: number;
         componentSeparatorOffset?: number;
-        fallback?: { field: string; component: string };
+        /**
+         * The separator between REPETITIONS of one field. A field is a list of repetitions, each a
+         * list of components, and the level is not optional: HL7 v2 puts a medical-record number
+         * and a national identifier in two repetitions of one field, told apart only by a sibling
+         * component, so without it a guard on that component matches neither.
+         *
+         * @default `fallback.repetition`
+         */
+        repetitionSeparator?: string;
+        /**
+         * The delimiters used when no header declares them. DECLARING THIS REPLACES ALL THREE, so a
+         * `fallback` that omits `repetition` turns repetition splitting off.
+         *
+         * @default { field: "|", component: "^", repetition: "~" }
+         */
+        fallback?: { field: string; component: string; repetition?: string };
         /** @default 4 */
         minRecordLength?: number;
       }
@@ -314,6 +360,23 @@ export interface PhiScanConfig {
    * 49 files in three of them. DERIVE it; never port it.
    */
   scanRoots: readonly ScanRootSpec[];
+
+  /**
+   * Whether the index union is bounded by `scanRoots`, or reads the whole repository.
+   *
+   * 🛑 THE WALK AND THE UNION ARE TWO AXES AND BOUNDING BOTH BY ONE ROOT SET COLLAPSES THEM. Six
+   * repos walk a narrow corpus while their index half was already repository-wide; a literal
+   * rename of their roots silently stopped reading tracked files, because the engine keyed both
+   * halves off the same list. Two other repos genuinely need a narrow union, because a
+   * whole-repository read hits their own manifest's author address and, in one case, a vendored
+   * archive whose compressed bytes decode to an email shape.
+   *
+   * Those are not in conflict once they are two parameters: a repo can keep a narrow walk and still
+   * union the whole index, without widening `scanRoots` to buy it.
+   *
+   * @default "scanRoots"
+   */
+  unionScope?: "scanRoots" | "repository";
 
   /**
    * AXIS 3: the roots `--staged` reads, which is what a COMMIT is blocked on.
@@ -417,7 +480,16 @@ export interface PhiScanConfig {
   /** The declared vocabularies. A repo may declare several; one repo carries three. */
   detectors?: readonly DetectorSpec[];
 
-  /** The closed table of reasons `ctx.partial` may name. @default [] */
+  /**
+   * The closed table of reasons `ctx.partial` may name.
+   *
+   * CLOSED RATHER THAN FREE TEXT, and the reason is not tidiness: free text hands the payload a vote
+   * on how many classes there are, which destroys the memory bound, and it is a route by which
+   * document bytes reach a diagnostic. A detector may call `partial` MORE THAN ONCE per target; the
+   * tally aggregates per locus.
+   *
+   * @default []
+   */
   partialReasons?: readonly string[];
 
   /**
@@ -445,7 +517,7 @@ export interface PhiScanConfig {
   vanishedUntrackedWalkTarget?: "refuse" | "report-unobserved";
 
   /** The allow-list tag namespace. An undeclared tag REFUSES. @default the nine canonical tags */
-  allowListTags?: readonly { tag: string; bucket: AllowBucket; fold?: string; arity?: 1 | 2 }[];
+  allowListTags?: readonly AllowListTag[];
 
   /** @default process.cwd() */
   repoRoot?: string;
@@ -486,7 +558,18 @@ export declare function runPhiScan(config: PhiScanConfig): number;
  * the report is delivered in full when the reader drains, and the run still terminates when it does
  * not, with the same status on every path.
  */
-export declare function runPhiScanCli(config: PhiScanConfig & { drainGraceMs?: number }): void;
+export declare function runPhiScanCli(
+  config: PhiScanConfig & {
+    /**
+     * How long to let the write queues drain before forcing termination, in milliseconds. `0`
+     * disables the bound entirely, which reintroduces the measured hang against a reader that holds
+     * the pipe open and never reads it.
+     *
+     * @default 2000
+     */
+    drainGraceMs?: number;
+  },
+): void;
 
 /** The read filter that reads everything, and the default value of `isReadable`. */
 export declare function readsEverything(relPath: string): boolean;

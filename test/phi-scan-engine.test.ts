@@ -25,7 +25,7 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { exemptsMarkdown, runPhiScan } from "@cosyte/script-utils/phi-scan";
+import { RESERVED_SPACES, exemptsMarkdown, runPhiScan } from "@cosyte/script-utils/phi-scan";
 
 /** The engine's own file URL, so a subprocess can import exactly the copy this suite drives. */
 const ENGINE_URL = new URL("../packages/script-utils/phi-scan.js", import.meta.url).href;
@@ -1027,5 +1027,289 @@ describe("declared detectors: the vocabulary is data, and the boundary is delibe
     const segs = new Set(segmentsOf(r.out));
     expect(segs).toContain("PID-5");
     expect(segs).toContain("name.family");
+  });
+});
+
+describe("pass-2 repairs: each of these was a live escape a reviewer measured", () => {
+  it("leaves NO scanned bytes in the process-global RegExp statics", () => {
+    // 🛑 THE MOST SERIOUS FINDING OF THE ADOPTION RUN, and no per-repo parameter could restore it.
+    // V8 keeps the last successful match on the RegExp CONSTRUCTOR, so every `matchAll` the floor
+    // runs over a target writes the file and the matched identifier into process globals. A sibling
+    // measured, through `runPhiScan`, that a 153,954-code-unit scanned file and the matched
+    // identifier both survived the return: reachable by anything later in the same process and by
+    // any crash dump. That sibling had closed the same residual twice by hand, so adopting the
+    // engine would have REINTRODUCED it.
+    //
+    // Subclassing `RegExp` does not avoid it (measured on this runner), so the containment is to
+    // overwrite the statics with engine-owned constants.
+    write("test/fixtures/bad.txt", `ssn ${SSN} and mail person@clinic.invalid\n`);
+    commitAll();
+
+    // The premise, so a green below cannot come from the statics never having been written: a plain
+    // match over the same payload DOES leave it there.
+    /\b\d{3}-\d{2}-\d{4}\b/.exec(`ssn ${SSN}`);
+    expect(RegExp.lastMatch).toBe(SSN);
+
+    expect(run().code).toBe(1);
+    expect(RegExp.lastMatch).not.toBe(SSN);
+    expect(RegExp.input).not.toContain(SSN);
+    expect(RegExp.input.length).toBeLessThan(64);
+
+    // ...and on a refusal path too, which exits between targets rather than after one.
+    expect(run({ scanRoots: ["does-not-exist"] }).code).toBe(2);
+    expect(RegExp.input).not.toContain(SSN);
+  });
+
+  it("reads a primitive inside a JSON array, which is where FHIR keeps given names and street lines", () => {
+    // FHIR R4 declares `HumanName.given` and `Address.line` as arrays of STRINGS, so a patient's
+    // given name and street line always arrive this way. The walk recursed into the array and then
+    // required an object, so both were invisible and the run reported clean at exit 0.
+    write(
+      "test/fixtures/p.json",
+      '{"resourceType":"Patient","name":[{"given":["ROWAN","T"],"family":"QUINCE"}],' +
+        '"address":[{"line":["742 EVERGREEN TER"]}]}',
+    );
+    commitAll();
+    const r = run({
+      detectors: [
+        {
+          id: "fhir",
+          grammar: { kind: "json" },
+          appliesTo: { pathSuffixes: [".json"] },
+          fields: [
+            { record: "name.given", kind: "name", id: "given" },
+            { record: "address.line", kind: "address", id: "line" },
+          ],
+        },
+      ],
+    });
+    expect(r.code, r.out).toBe(1);
+    expect(r.out).toContain("segment=given");
+    expect(r.out).toContain("segment=line");
+  });
+
+  it("does not let one line of PROSE disable a delimited detector for the whole file", () => {
+    // Delimiter discovery took the FIRST line whose opening characters matched a header id, with any
+    // punctuation at the separator offset. `MSH-9`, the commonest way an HL7 field is spelled in
+    // documentation, therefore set the separator to `-`, after which every real record failed the
+    // admission test and the file scanned clean at exit 0. The candidate admitting the MOST records
+    // now wins, so prose loses to the document: a prose line admits itself and nothing else.
+    const message =
+      "MSH|^~\\&|A|B|C|D|20240101||ADT^A01|1|P|2.5\n" +
+      "PID|1||900001^^^HOSP^MR||QUINCE^ROWAN||19850211\n";
+    const detector = {
+      id: "hl7v2",
+      grammar: { kind: "delimited-record", headerRecordIds: ["MSH"] },
+      appliesTo: { pathPrefixes: ["test/"] },
+      fields: [{ record: "PID", field: 5, kind: "name", id: "PID-5" }],
+    };
+
+    write("test/notes.md", `MSH-9 carries the message type.\n${message}`);
+    commitAll();
+    const withProse = run({ detectors: [detector] });
+    expect(withProse.code, withProse.out).toBe(1);
+    expect(withProse.out).toContain("segment=PID-5");
+
+    // ANTI-VACUITY, AND IT IS THE PROPERTY THE OLD PUNCTUATION TEST WAS PROTECTING: prose ALONE must
+    // still not manufacture a record.
+    write("test/notes.md", "MSH-9 carries the message type, and MSH-10 the control id.\n");
+    commitAll();
+    expect(run({ detectors: [detector] }).code).toBe(0);
+  });
+
+  it("never prints the parser's own message, which embeds a window of the document", () => {
+    // A refuter measured a patient's given name reaching stderr verbatim through `JSON.parse`'s
+    // "Unexpected token" text. Everywhere else this engine prints only a repo-relative path and a
+    // token from a closed set; this was a second, engine-owned exception and a consumer could not
+    // fix it.
+    write("test/fixtures/broken.json", '{"name":[{"family":"QUINCE","given":["ROWAN"]},}');
+    commitAll();
+    const r = run({
+      detectors: [
+        {
+          id: "fhir",
+          grammar: { kind: "json" },
+          appliesTo: { pathSuffixes: [".json"] },
+          fields: [{ record: "name.family", kind: "name" }],
+        },
+      ],
+    });
+    expect(r.code, r.out).toBe(2);
+    expect(r.out).toContain("could not parse it");
+    expect(r.out).not.toContain("QUINCE");
+    expect(r.out).not.toContain("ROWAN");
+  });
+
+  it("reads a BOM-prefixed JSON document instead of refusing a legitimate one", () => {
+    // RFC 8259 section 8.1 permits a parser to ignore a byte-order mark, and `JSON.parse` rejects
+    // one. Refusing there is a false red on a conformant fixture, against this ecosystem's own
+    // liberal-on-parse convention.
+    write("test/fixtures/bom.json", '﻿{"name":[{"family":"QUINCE"}]}');
+    commitAll();
+    const r = run({
+      detectors: [
+        {
+          id: "fhir",
+          grammar: { kind: "json" },
+          appliesTo: { pathSuffixes: [".json"] },
+          fields: [{ record: "name.family", kind: "name", id: "family" }],
+        },
+      ],
+    });
+    expect(r.code, r.out).toBe(1);
+    expect(r.out).toContain("segment=family");
+  });
+
+  it("keeps a declared VIEW strictly additive: it can add a finding, never subtract a verdict", () => {
+    // A `source-literals` view decodes escapes, and a decoded newline inside a JSON string literal
+    // makes the decoded text invalid JSON. Running a REFUSING grammar over it turned a clean run
+    // into a refusal on a file whose real bytes parse fine, so a strict grammar now runs on the raw
+    // view only.
+    write("test/fixtures/ok.json", '{"note":"line one\\nline two"}');
+    commitAll();
+    const r = run({
+      textViews: [{ kind: "source-literals", appliesTo: [".json"] }],
+      detectors: [
+        {
+          id: "fhir",
+          grammar: { kind: "json" },
+          appliesTo: { pathSuffixes: [".json"] },
+          fields: [{ record: "name.family", kind: "name" }],
+        },
+      ],
+    });
+    expect(r.code, r.out).toBe(0);
+  });
+
+  it("REFUSES a root it cannot stat, where absent is skipped and caught by `require`", () => {
+    // Absent and unreadable both came back `null` and both were skipped, so a root the scan cannot
+    // stat contributed nothing and the run could still report clean: fail-open, on the axis that
+    // decides what the corpus IS. A root UNDER A REGULAR FILE is the portable way to reach a
+    // non-ENOENT errno (`ENOTDIR`) without a chmod, which is a no-op for a privileged uid.
+    write("src/index.ts", "export const x = 1;\n");
+    commitAll();
+    const r = run({ scanRoots: ["src", "src/index.ts/nested"] });
+    expect(r.code, r.out).toBe(2);
+    expect(r.out).toContain("src/index.ts/nested");
+    expect(r.out).toContain("cannot stat");
+    expect(r.out).not.toContain("OK: no hits");
+
+    // ...and an ABSENT root is still the OTHER tier, with its own sentence, so the two answers are
+    // told apart rather than merged back together.
+    const absent = run({ scanRoots: ["src", "not-there"] });
+    expect(absent.code, absent.out).toBe(2);
+    expect(absent.out).toContain("yielded");
+    expect(absent.out).not.toContain("cannot stat");
+  });
+
+  it("unions the whole index when `unionScope` says so, without widening the walk", () => {
+    // 🛑 THE WALK AND THE UNION ARE TWO AXES. Six repos walk a narrow corpus while their index half
+    // was already repository-wide, so a literal rename of their roots silently stopped reading
+    // tracked files; two others need a narrow union because a whole-repository read hits their own
+    // manifest's author address. One root list collapsed the two, and made those look like a
+    // conflict when they are not.
+    write("src/index.ts", "export const x = 1;\n");
+    write("elsewhere/leak.txt", `ssn ${SSN}\n`);
+    commitAll();
+
+    expect(run({ scanRoots: ["src"] }).code).toBe(0);
+
+    const wide = run({ scanRoots: ["src"], unionScope: "repository" });
+    expect(wide.code, wide.out).toBe(1);
+    expect(wide.out).toContain("elsewhere/leak.txt (as git carries it)");
+    // ...and the WALK is still narrow: an UNTRACKED file outside the roots is not read.
+    write("elsewhere/untracked.txt", `ssn ${SSN}\n`);
+    const still = run({ scanRoots: ["src"], unionScope: "repository" });
+    expect(still.out).not.toContain("elsewhere/untracked.txt\n");
+  });
+
+  it("reads a declared FILE root on the union and staged routes, not only on the walk", () => {
+    // The bypass held on the walk alone, so the same declaration that read a Markdown file root off
+    // disk reported clean at exit 0 over the bytes GIT carries at it, and clean over the same file
+    // STAGED. Both routes applied the read filter the walk had been told to skip.
+    const roots = [{ rel: "README.md", shape: "file" as const }, "src"];
+
+    // THE UNION HALF: git carries the identifier, the working tree is clean.
+    write("README.md", `ssn ${SSN}\n`);
+    write("src/index.ts", "export const x = 1;\n");
+    commitAll();
+    writeFileSync(join(repo, "README.md"), "clean on disk now\n", "utf8");
+    const union = run({ scanRoots: roots, isReadable: exemptsMarkdown });
+    expect(union.code, union.out).toBe(1);
+    expect(union.out).toContain("README.md (as git carries it)");
+
+    // THE COMMIT-BLOCKING ROUTE: commit a clean file, then STAGE one carrying the identifier.
+    git(["add", "-A"]);
+    expect(git(["commit", "-qm", "clean readme", "--no-verify"]).code).toBe(0);
+    writeFileSync(join(repo, "README.md"), `ssn ${SSN}\n`, "utf8");
+    git(["add", "README.md"]);
+    const staged = run({ argv: ["--staged"], scanRoots: roots, isReadable: exemptsMarkdown });
+    expect(staged.code, staged.out).toBe(1);
+    expect(staged.out).toContain("README.md");
+  });
+
+  it("lets a path-scoped mail declaration clear the file it is declared in", () => {
+    // A scoped entry necessarily writes the address into the allow-list, and under whole-repository
+    // roots that file is scanned, so the remedy reported itself as a hit and the footer sent the
+    // developer to declare a value they had just declared.
+    write("src/x.ts", "const contact = 'nurse.jane@clinic.invalid';\n");
+    write(
+      "scripts/phi-allow-list.txt",
+      "EMAILDOMAIN example.com\nEMAILAT src/x.ts nurse.jane@clinic.invalid\n",
+    );
+    commitAll();
+    const r = run();
+    expect(r.code, r.out).toBe(0);
+
+    // ...and the scope still governs everywhere else: the same address in another file is a hit.
+    write("src/y.ts", "const contact = 'nurse.jane@clinic.invalid';\n");
+    commitAll();
+    const elsewhere = run();
+    expect(elsewhere.code, elsewhere.out).toBe(1);
+    expect(elsewhere.out).toContain("src/y.ts");
+  });
+
+  it("REFUSES a key it does not read, in a detector, a grammar or a field", () => {
+    // A misspelled key is a vocabulary entry that judges nothing and looks exactly like one that
+    // judges something. A reviewer typed `guards` for `guard` and the entry fired unguarded, and
+    // `headerRecordIDs` for `headerRecordIds` and the delimiters silently fell back.
+    const base = { repoRoot: repo, argv: [], exitCodes: CODES, scanRoots: ["."] };
+    expect(() =>
+      runPhiScan({
+        ...base,
+        detectors: [
+          {
+            id: "d",
+            grammar: { kind: "delimited-record", headerRecordIDs: ["MSH"] },
+            fields: [{ record: "PID", field: 5, kind: "name" }],
+          },
+        ],
+      } as never),
+    ).toThrow(/"headerRecordIDs"/);
+    expect(() =>
+      runPhiScan({
+        ...base,
+        detectors: [
+          {
+            id: "d",
+            grammar: { kind: "delimited-record" },
+            fields: [{ record: "PID", field: 5, kind: "name", guards: [] }],
+          },
+        ],
+      } as never),
+    ).toThrow(/"guards"/);
+  });
+
+  it("does not accept a domain the cited RFCs do not reserve", () => {
+    // A reserved space is only a provenance marker if every member is genuinely reserved. RFC 2606
+    // section 3 reserves example.com, .net and .org; `example.edu` is in neither cited RFC, so
+    // accepting it cleared an address at a domain that can really exist.
+    expect(RESERVED_SPACES["reserved-domain"]("a@example.com")).toBe(true);
+    expect(RESERVED_SPACES["reserved-domain"]("a@example.edu")).toBe(false);
+    // The other two members, checked in both directions.
+    expect(RESERVED_SPACES["nanp-fictional"]("212-555-0134")).toBe(true);
+    expect(RESERVED_SPACES["nanp-fictional"]("212-555-0200")).toBe(false);
+    expect(RESERVED_SPACES["ssa-never-issued"]("900-12-3456")).toBe(true);
+    expect(RESERVED_SPACES["ssa-never-issued"]("899-12-3456")).toBe(false);
   });
 });
