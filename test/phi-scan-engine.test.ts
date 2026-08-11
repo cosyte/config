@@ -50,9 +50,10 @@ function write(rel: string, content: string): void {
  * Run the engine and collect everything it wrote. The engine returns its code rather than exiting,
  * which is the whole reason this suite can exist in process.
  */
-function run(
-  config: Partial<Parameters<typeof runPhiScan>[0]> & { argv?: string[] } = {},
-): { code: number; out: string } {
+function run(config: Partial<Parameters<typeof runPhiScan>[0]> & { argv?: string[] } = {}): {
+  code: number;
+  out: string;
+} {
   let out = "";
   const sink = (chunk: unknown): boolean => {
     out += String(chunk);
@@ -213,7 +214,11 @@ describe("a per-standard detector is handed the locus, and cannot take down the 
     // is now the only path a caller can reach: `ctx.hit` fills the locus in.
     write("test/fixtures/tracked.txt", "the tracked bytes\n");
     commitAll();
-    writeFileSync(join(repo, "test", "fixtures", "tracked.txt"), "the working-tree bytes\n", "utf8");
+    writeFileSync(
+      join(repo, "test", "fixtures", "tracked.txt"),
+      "the working-tree bytes\n",
+      "utf8",
+    );
 
     const seen: string[] = [];
     const r = run({

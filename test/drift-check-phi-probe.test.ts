@@ -64,10 +64,7 @@ function tamper(source: string, subs: [string, string][]): string {
 
 function probe(
   scannerSource: string,
-  {
-    spec = {},
-    engine,
-  }: { spec?: Record<string, unknown>; engine?: string } = {},
+  { spec = {}, engine }: { spec?: Record<string, unknown>; engine?: string } = {},
 ): {
   status: string;
   detail: string;

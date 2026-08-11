@@ -102,63 +102,51 @@ a summary.
   **A test that shells out to `attw --pack` against a throwaway fixture in a temp directory is a
   different act and is fine**, because `scripts/attw.mjs` strips `dry-run` and `pack-destination`
   from the environment of the `attw` child. Read that file's docblock before touching it.
-- **`scripts/phi-scan.ts` REFUSES (exit 2) an in-scope entry that is not a regular file, on BOTH
-  enumerating routes.** A symbolic link under a scan root read clean on both, so a link pointing at a
-  PHI-bearing file passed the commit gate twice over: `walk()` enumerates `Dirent.isFile()` (an lstat
-  answer, so a link is neither file nor directory) and `--staged` reads content with
-  `git show :<path>`, which for a link hands back its TARGET PATH under mode 120000. Neither route
-  follows a link, and a refusal never prints the target, which is working-tree text that can itself
-  carry PHI. **There are two scope predicates and collapsing them reopens the hole:**
-  `isUnderScanRoot` decides whether an entry is the scan's business (every non-regular check keys on
-  it), and the read filters decide whether a regular file's bytes are read. The full statement is in
-  that file's docblock; this bullet is a pointer.
-- **`scripts/phi-scan.ts` ALSO REFUSES (exit 2) A TARGET IT ENUMERATED AND NEVER READ, IN EVERY
-  MODE.** Four argv shapes used to print `OK: no hits` and exit 0 over a corpus carrying a live hit,
-  because `--allow-fixture` withdrew a file after enumeration and the empty result read as clean:
-  with a positional path present the flag was a **silent no-op** (the seed was
-  `paths.length > 0 ? paths : [...allowFixtures]`, so it seeded the list only when there was no
-  positional), and with none present it selected `paths` mode over exactly the file it then withdrew.
-  The rule compares the enumerated set against the read set **by DIFFERENCE and names the paths,
-  never by size**: a count counts the targets that DID get read, so the arithmetic hides precisely
-  the ones that did not. **A bypass therefore cannot reach exit 0 in any mode** (it is recorded, then
-  refused), a bypass naming a path the run does not enumerate refuses too, and the hit footer no
-  longer advertises the flag as a remedy, because following a printed remedy into exit 2 is the same
-  defect as following one into a false green. **The exit contract is DEFINED in that file, not
-  inherited: 0 clean, 1 hits, 2 every state this file RAISES in which the scan cannot account for
-  something. `1` is reserved but NOT exclusive, and the file names escapes it does not close rather
-  than claiming there is one: an allow-list, or an override log, that exists but cannot be READ
-  throws a plain `Error` and takes node's own exit 1, which a caller reads as "hits found". Siblings
-  do not agree on these numbers. Never port an exit code in or out.** Read the docblock, not this
-  bullet.
-- **`scripts/phi-scan.ts`'s `all` mode READS THE BYTES GIT CARRIES AS A UNION WITH THE WALK.** The
-  walk answers "what is on disk under the scan roots", which is not the question "what does this
-  repository carry", and where the two disagree the walk was the only voice: three states were
-  measured in which the sweep printed `OK: no hits` at exit 0 over a TRACKED file carrying a live
-  hit: the path occupied by a **directory** (a path-set reconciliation cannot see this one, because
-  the path IS present: only reading the OBJECT closes it), the working tree **short** of a tracked
-  file, and the two copies simply **differing**. `git ls-files -s -z` is read for the whole index and
-  every in-scope tracked path the walk did not already read verbatim is scanned through
-  `git cat-file blob <sha>`. **Deduplication is BY CONTENT** under git's own `blob <len>\0` framing,
-  so a clean checkout adds zero reads and where the two copies differ **both** are scanned, which is
-  what makes it correct under **EOL normalization** rather than merely untested by it. A union hit is
-  labelled `(as git carries it)`, because a hit naming the bare path sends a developer to open a file
-  that is clean or not there. 🛑 **The union is keyed on the ABSENCE OF STAGE 0, and that axis must be
-  re-derived, never ported from `--staged`:** `ls-files -s` reports an unmerged path at stages 1/2/3
-  with ORDINARY blob modes, so the mode rule cannot see it, and a sibling's draft that took the first
-  record scanned the **merge base** and printed clean over a marker living only in stage 3.
-  **`all` mode refuses when git cannot name the index or names it EMPTY**, so `git init` and a commit
-  come before `pnpm phi-scan` means anything in a fresh scaffold.
-- **The five things a PORT re-derives are declared in one block** at the top of `scripts/phi-scan.ts`
-  (`THE FIVE PER-REPO AXES`): exit codes, roots + exclusions, `--staged` scope, gitlinks, and EOL
-  normalization. The machinery under that block is shared; the **standard-specific field detection**
-  is the other half and has its own fenced TODO inside `scanTarget`. 🛑 **An exclusion is a LITERAL
-  PATH, never a class**. A sibling measured that a "binary blob" predicate would have dropped two of
-  its own hand-written sources, which embed NUL bytes as HMAC domain separators.
-- **This file, `scripts/attw.mjs` and `scripts/phi-scan.ts` all arrive from `cosyte/config`'s
-  `scripts/parser-template/`.** Fix a gate there, never only here, or the next scaffolded parser is
-  born with the defect again. **`cosyte/config`'s drift check RUNS your `phi-scan.ts` (a capability
-  probe, not a regex) and reports drift when it does not refuse over a target it enumerated and never
-  read.**
+- **`scripts/phi-scan.ts` IS A THIN CALLER. THE MACHINERY IS `@cosyte/script-utils/phi-scan`, A
+  devDependency.** Read that module's docblock; this bullet is a pointer and restates none of it.
+  `scripts/parser-template/` is a SCAFFOLD rather than a dependency, so the scanner used to be
+  COPIED into every parser repo: **thirteen repos, thirteen byte-distinct copies**, and each escape
+  closed so far cost one pull request and one adversarial review PER REPO. Fixing the engine now
+  fixes every consumer through a version bump. **It is a devDependency, never a runtime one**: the
+  zero-dep rule governs what ships, and a dev-time gate does not ship.
+- **WHAT STAYS IN THIS FILE IS THE FIVE PER-REPO AXES AND THE FENCED DETECTOR.** The axes are
+  `exitCodes`, `scanRoots` + `excludedPaths`, `isStagedReadable`, gitlinks and EOL normalization, and
+  **which ones the engine REQUIRES is the design**: `exitCodes`, `scanRoots` and `isStagedReadable`
+  have no default, because the siblings genuinely disagree on them and a default would be the porting
+  mistake the gate exists to catch. `excludedPaths`, the `.md` read exemption and the regular-blob
+  modes ARE defaulted, so moving one of those shared boundaries is one change in `cosyte/config` plus
+  a version bump. 🛑 **Never port an exit code in or out.** 🛑 **An exclusion is a LITERAL PATH, never
+  a class**. A sibling measured that a "binary blob" predicate would have dropped two of its own
+  hand-written sources, which embed NUL bytes as HMAC domain separators.
+- **THE SCAN ROOTS ARE THE WHOLE REPOSITORY (`["."]`), AND NARROWING THEM IS A MEASURED DECISION.**
+  This template shipped `["test/fixtures", "src"]` and it was measured against a fresh scaffold: **35
+  tracked files, ONE in scope**, so a tracked `test/leak.test.ts` carrying a dashed SSN exited 0 on
+  the sweep and on the pre-commit route. The engine prunes gitignored directories during descent and
+  skips `.git` by name, so a whole-repository root costs nothing on a fresh tree. If you narrow it,
+  **measure what the narrowing STOPS reading** rather than assuming it stops reading nothing.
+- **THE `--allow-fixture` BYPASS CANNOT REACH A CLEAN RUN, SO EVERY DETECTOR YOU ADD MUST CONSULT
+  `ctx.allow`.** A target the run enumerated and never read REFUSES, in every mode, so the flag is
+  recorded and then refused. That means a detector that checks nothing leaves a developer with a hit
+  and **no remedy at all**: a sibling shipped a phone detector and a dashed-SSN branch in that state
+  while its footer claimed the token allow-list was the only remedy, and its reviewer caught the
+  claim as false. The engine's own floor consults the allow-list on both branches.
+- **RAISE HITS THROUGH `ctx.hit`, NEVER BY BUILDING A PATH.** The sweep reads the bytes git carries
+  as a union with the working-tree walk, and a hit found in a tracked blob whose disk copy differs is
+  labelled `(as git carries it)`. The engine fills that locus in, so a hit cannot be reported against
+  a path a developer would open and find clean.
+- **THE EXIT CONTRACT IS DEFINED IN THIS REPO'S OWN SCANNER, NOT INHERITED**: 0 clean, 1 hits, 2
+  every state the engine RAISES in which the scan cannot account for something. **`1` is reserved but
+  NOT exclusive**, and the engine names the escapes it does not close rather than claiming there are
+  none: an allow-list, or an override log, that exists but cannot be READ throws a plain `Error` and
+  takes node's own exit 1, which a caller reads as "hits found".
+- **This file and `scripts/attw.mjs` arrive from `cosyte/config`'s `scripts/parser-template/`.** Fix
+  a gate there, never only here, or the next scaffolded parser is born with the defect again.
+  `scripts/phi-scan.ts` arrives from there too, but its MACHINERY does not: that is
+  `@cosyte/script-utils/phi-scan`, so an engine fix is a version bump here rather than a re-port.
+  **`cosyte/config`'s drift check RUNS your `phi-scan.ts` (a capability probe, not a regex) and
+  reports drift when it does not refuse over a target it enumerated and never read.** It plants the
+  version of the shared package THIS repo has installed, so the probe is an adoption check: a repo
+  pinned behind a fix is graded on what it actually has.
 
 ## Standing disciplines (every change)
 
