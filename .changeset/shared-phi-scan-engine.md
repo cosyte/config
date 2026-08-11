@@ -51,3 +51,15 @@ one of them declares `{ rel, shape }` with a single file among them; deriving ex
 the richer type. An earlier draft crashed on such a root with an uncaught `ENOTDIR`, taking node's
 exit 1. What deriving gives up is that a declaration could notice a root is not the kind it was
 meant to be, and derivation cannot.
+
+DISCLOSED UNGRADED DELTA. Two docblock sentences in `phi-scan.js` landed AT the adversarial-review
+cap and were therefore not themselves graded: the note that a root spelling matching no index path
+is normalised away rather than refused, and the change of the index-entry reading from an
+enumeration to an "at least" form that also names a gitlink. Both assert only what the fourth pass
+had already measured, both are comments, and the code is byte-identical after comment stripping.
+That is the basis, and it does not make them graded. What remains open and is filed rather than
+fixed: a directory root replaced by a regular file between the `lstat` and the `readdirSync` throws
+an uncaught `ENOTDIR`, which lands on node's exit 1, the code this contract reserves for HITS FOUND
+(pre-existing for non-root directories, narrowed but not closed here, and it fails loud with a stack
+rather than green); and `direntKind` and `statsKind` are duplicate closed sets with nothing pinning
+that they agree.

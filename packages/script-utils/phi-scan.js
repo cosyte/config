@@ -348,11 +348,11 @@ class PhiScan {
    * entitled to assume about a link.
    *
    * A bare root name is in scope because git records no index entry for a directory. A scan root
-   * appearing as an index entry therefore means either that the root itself has been replaced by a
-   * blob or a link, or that it is a FILE ROOT, which this engine admits: `scanRoots` derives a
-   * root's kind from the filesystem, so a root naming a regular file is an ordinary tracked blob and
-   * an ordinary index entry. An earlier draft of this sentence predated file roots and said the
-   * first reading was the only one.
+   * appearing as an index entry therefore means it is not a directory, and AT LEAST these readings
+   * exist: the root has been replaced by a blob or a link; it is a FILE ROOT, which this engine
+   * admits, since `scanRoots` derives a root's kind from the filesystem; or it is a gitlink, a
+   * nested repository, which the index refusal names in those words. No enumeration is attempted.
+   * An earlier draft predated file roots and said the first reading was the only one.
    *
    * @param {string} relPath
    * @returns {boolean}
@@ -754,8 +754,9 @@ class PhiScan {
    * as unscannable and refused, exactly as an entry inside one would be.
    *
    * A MISSING ROOT IS SKIPPED, AND THAT IS UNCHANGED FROM THE COPIED SCANNERS rather than chosen
-   * here. Two root states ARE refused in `normalizeConfig` (a spelling that matches no index path,
-   * and a root outside the repository), and this one is not.
+   * here. Two root states are refused or normalised away in `normalizeConfig` (a spelling that
+   * matches no index path is normalised away and the run proceeds; a root outside the repository
+   * throws), and this one is neither.
    *
    * NO CLAIM IS MADE THAT IT IS THE LAST SUCH STATE, and a draft of this paragraph said it was. At
    * least two others are known: a file root the read filter drops, described above and created by
