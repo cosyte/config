@@ -477,6 +477,49 @@ describe("whole-repository scan roots, which is what a fresh scaffold needs", ()
     }
   });
 
+  it("SCANS a root that names a regular FILE, instead of crashing on it", () => {
+    // THE SHAPE ONE SIBLING DECLARES AND THIS PARAMETER DERIVES. It lists its roots as
+    // `{ rel, shape: "directory" | "file" }` with a single file among them, which a plain `string[]`
+    // can express only if the engine looks at what is actually there. It could not: every root went
+    // straight to `readdirSync`, so a file root threw `ENOTDIR`, uncaught, and the run took node's
+    // exit 1, the code this contract reserves for HITS FOUND. Measured, then fixed.
+    write("README.md", `ssn ${SSN}\n`);
+    write("src/index.ts", "export const x = 1;\n");
+    commitAll();
+
+    const r = run({ scanRoots: ["README.md"], isWalkReadable: () => true });
+    expect(r.code, r.out).toBe(1);
+    expect(r.out).toContain("README.md");
+
+    // ...and the root half of scope really is just that file: a violator elsewhere is out of scope.
+    write("src/leak.ts", `const ssn = "${SSN}";\n`);
+    const scoped = run({ scanRoots: ["README.md"], isWalkReadable: () => true });
+    expect(scoped.out).not.toContain("src/leak.ts");
+  });
+
+  it("REFUSES a root that names a symbolic link, rather than following it", () => {
+    // A root is the one place a link could have been followed by construction, because the walk
+    // STARTS there rather than meeting it as a directory entry. It is refused with the same closed
+    // set of tokens, and the target is never printed.
+    const outside = join(repo, "..", "phi-scan-engine-root-link-target");
+    mkdirSync(outside, { recursive: true });
+    writeFileSync(join(outside, "leak.txt"), `ssn ${SSN}\n`, "utf8");
+    try {
+      write("src/index.ts", "export const x = 1;\n");
+      commitAll();
+      symlinkSync(outside, join(repo, "corpus"));
+
+      const r = run({ scanRoots: ["corpus"] });
+      expect(r.code, r.out).toBe(2);
+      expect(r.out).toContain("corpus");
+      expect(r.out).toContain("a symbolic link");
+      expect(r.out).not.toContain(SSN);
+      expect(r.out).not.toContain("phi-scan-engine-root-link-target");
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
   it("EXCLUDES a literal path on every route, and only the one named", () => {
     // The subtractive half of the roots axis. An entry here is a file the scan has NO verdict about,
     // which is why it is a literal path rather than a predicate over content.

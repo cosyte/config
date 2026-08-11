@@ -44,3 +44,10 @@ other path is, with one resolving outside the repository refused (`["./src"]` us
 while matching no index path, emptying every index-keyed rule in silence). The optional axes are
 shape-checked too, because `excludedPaths` given as an array used to throw from inside enumeration
 and take node's exit 1, the code reserved for HITS FOUND.
+
+`scanRoots` is a plain `string[]` and a root may name a regular FILE, with the kind derived from the
+filesystem rather than declared. The thirteen live copies declare roots in at least six shapes and
+one of them declares `{ rel, shape }` with a single file among them; deriving expresses that without
+the richer type. An earlier draft crashed on such a root with an uncaught `ENOTDIR`, taking node's
+exit 1. What deriving gives up is that a declaration could notice a root is not the kind it was
+meant to be, and derivation cannot.

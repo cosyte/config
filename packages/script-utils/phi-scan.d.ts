@@ -112,6 +112,20 @@ export interface PhiScanConfig {
    * used to walk correctly while matching no index path, which emptied the union, the index
    * non-blob refusal and the unmerged refusal in silence. A root resolving OUTSIDE the repository
    * is refused for the same reason.
+   *
+   * A ROOT MAY NAME A REGULAR FILE, AND THE KIND IS DERIVED FROM THE FILESYSTEM RATHER THAN
+   * DECLARED. This parameter is a plain `string[]` on purpose. One sibling declares its roots as
+   * `{ rel, shape: "directory" | "file" }` and lists a single file among them, and that shape is
+   * expressible here without the richer type: such a root is scanned as one target. It is a
+   * measured decision rather than a preference, because an earlier draft fed every root to
+   * `readdirSync` and a file root threw `ENOTDIR`, uncaught, taking node's exit 1, the code this
+   * contract reserves for HITS FOUND.
+   *
+   * WHAT DERIVING GIVES UP: a declaration can notice that a root is not the KIND it was meant to be
+   * and derivation cannot, so a root that changes kind is silently treated as what it now is. A root
+   * that is NEITHER a file nor a directory is still refused, and a root naming a symbolic link is
+   * refused rather than followed. A MISSING root is skipped, which is unchanged from the copied
+   * scanners and is the one remaining way a root can contribute nothing without saying so.
    */
   scanRoots: readonly string[];
 

@@ -39,7 +39,7 @@
 // repository reads its own `node_modules` copy of this file only if it is not gitignored, and a
 // diagnostic ABOUT a PHI leak is itself a PHI surface. Describe the shape; never write one down.
 
-import { readFileSync, statSync, existsSync, readdirSync } from "node:fs";
+import { readFileSync, statSync, lstatSync, existsSync, readdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { join, resolve, relative, sep, isAbsolute } from "node:path";
@@ -729,6 +729,26 @@ class PhiScan {
    * than the corpus, git does not report it ignored, and the union already reads what the repository
    * carries. This is a literal name, never a predicate over content.
    *
+   * A SCAN ROOT MAY NAME A REGULAR FILE, AND THE KIND IS DERIVED FROM THE FILESYSTEM RATHER THAN
+   * DECLARED. That is a deliberate API decision, and it was made against a measurement rather than a
+   * preference: one sibling declares its roots as `{ rel, shape: "directory" | "file" }` and lists a
+   * single file (`README.md`) among them, and an earlier draft of this walk fed every root straight
+   * to `readdirSync`, so such a root threw `ENOTDIR` from here, uncaught, and the run took node's own
+   * exit 1, which this contract reserves for HITS FOUND. Deriving the kind keeps the parameter a
+   * plain `string[]` and still expresses that shape.
+   *
+   * WHAT DERIVING GIVES UP, STATED RATHER THAN LEFT TO BE FOUND: a declaration can notice that a root
+   * is not the KIND it was meant to be, and derivation cannot. A root that was a file and became a
+   * directory is descended, and one that was a directory and became a file is read as a file, in both
+   * cases silently. What is NOT given up is the non-regular case: a root that is neither is collected
+   * as unscannable and refused, exactly as an entry inside one would be.
+   *
+   * A MISSING ROOT IS SKIPPED, AND THAT IS UNCHANGED FROM THE COPIED SCANNERS rather than chosen
+   * here. It is the one remaining way a root can contribute nothing without saying so; it is named
+   * here because the two other silently-empty root states (a spelling that matches no index path, and
+   * a root outside the repository) are now refused in `normalizeConfig`, and a reader would otherwise
+   * assume the class was closed.
+   *
    * The result is SORTED by repo-relative path, so a report and a refusal read the same way twice.
    *
    * @returns {{ files: string[], unscannable: import("./phi-scan.js").Unscannable[] }}
@@ -739,9 +759,24 @@ class PhiScan {
     /** @type {import("./phi-scan.js").Unscannable[]} */
     const unscannable = [];
 
-    let frontier = this.cfg.scanRoots.map((root) =>
-      root === "." ? this.cfg.repoRoot : join(this.cfg.repoRoot, ...root.split("/")),
-    );
+    // Split the roots by what is actually THERE, before the descent. A root naming a regular file is
+    // one target; a root naming a directory is a frontier; a root naming anything else is refused
+    // through the same unscannable path an entry inside one would take.
+    /** @type {string[]} */
+    const rootDirs = [];
+    for (const root of this.cfg.scanRoots) {
+      const abs = root === "." ? this.cfg.repoRoot : join(this.cfg.repoRoot, ...root.split("/"));
+      const stats = lstatOrNull(abs);
+      if (stats === null) continue; // A missing root, skipped. See the docblock above.
+      if (stats.isDirectory()) rootDirs.push(abs);
+      else if (stats.isFile()) {
+        if (this.cfg.isWalkReadable(this.normalizePath(abs))) files.push(abs);
+      } else {
+        unscannable.push({ path: this.normalizePath(abs), kind: statsKind(stats) });
+      }
+    }
+
+    let frontier = rootDirs;
     const visited = new Set(frontier);
 
     while (frontier.length > 0) {
@@ -1430,6 +1465,38 @@ class PhiScan {
 
 /** `:<srcmode> <dstmode> <srcsha> <dstsha> <status>`: the info half of a `--raw -z` record. */
 const RAW_RECORD = /^:(?:\d{6}) (\d{6}) [0-9a-f]+ [0-9a-f]+ [A-Z]\d*$/;
+
+/**
+ * `lstatSync` that reports a missing path as `null` rather than throwing. LSTAT, not stat, so a
+ * symbolic link named as a scan root is seen as a link rather than as whatever it points at: the
+ * walk refuses such an entry everywhere else and a root must not be the one place it follows one.
+ *
+ * @param {string} path
+ * @returns {import("node:fs").Stats | null}
+ */
+function lstatOrNull(path) {
+  try {
+    return lstatSync(path);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Closed-set, engine-owned description of a `Stats` kind, for a scan root that is neither a
+ * directory nor a regular file. Same closed set as `direntKind`, off the same predicates.
+ *
+ * @param {import("node:fs").Stats} s
+ * @returns {string}
+ */
+function statsKind(s) {
+  if (s.isSymbolicLink()) return "a symbolic link";
+  if (s.isFIFO()) return "a FIFO";
+  if (s.isSocket()) return "a socket";
+  if (s.isBlockDevice()) return "a block device";
+  if (s.isCharacterDevice()) return "a character device";
+  return "not a regular file";
+}
 
 /**
  * Closed-set, engine-owned description of a directory entry's kind. Nothing off the other side of a

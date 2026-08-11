@@ -37,6 +37,16 @@ the **`0.0.x`-until-first-alpha** ladder.
   reported against a working-tree copy a developer would open and find clean. That used to be a
   sentence in a comment; it is now the only path a caller can reach.
 
+- **A scan root may name a regular FILE, and the kind is DERIVED from the filesystem rather than
+  declared**, which is what keeps the parameter a plain `string[]`. Measured against the thirteen
+  live copies: they declare roots in at least six different shapes, and one declares
+  `{ rel, shape: "directory" | "file" }` with a single file among them. An earlier draft fed every
+  root to `readdirSync`, so such a root threw `ENOTDIR`, uncaught, and the run took node's exit 1,
+  the code this contract reserves for HITS FOUND. **What deriving gives up is stated rather than
+  left to be found**: a declaration can notice a root is not the KIND it was meant to be and
+  derivation cannot. A root that is neither a file nor a directory is still refused, a root naming a
+  symbolic link is refused rather than followed, and a MISSING root is skipped, which is unchanged
+  from the copied scanners and is named as the one remaining silently-empty root state.
 - **A scan root of `"."` means the whole repository**, with gitignored directories pruned during
   descent and `.git` skipped by literal name, which is what makes a whole-repository root usable at
   all rather than a walk through `node_modules`. Pruning is equivalent to filtering afterwards
