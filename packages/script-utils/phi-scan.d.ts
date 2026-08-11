@@ -125,7 +125,10 @@ export interface PhiScanConfig {
    * and derivation cannot, so a root that changes kind is silently treated as what it now is. A root
    * that is NEITHER a file nor a directory is still refused, and a root naming a symbolic link is
    * refused rather than followed. A MISSING root is skipped, which is unchanged from the copied
-   * scanners and is the one remaining way a root can contribute nothing without saying so.
+   * scanners. It is not the last state in which a root contributes nothing without saying so, and
+   * two others are known: a file root the read filter drops (a `.md` file root reads nothing under
+   * the default `isWalkReadable`, so porting one means overriding that filter too), and an
+   * UNREADABLE root, which is reported the same way a missing one is.
    */
   scanRoots: readonly string[];
 

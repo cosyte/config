@@ -347,8 +347,12 @@ class PhiScan {
    * of it, which is exactly what a read filter is entitled to assume about a file and is not
    * entitled to assume about a link.
    *
-   * A bare root name is in scope because git records no index entry for a directory, so a scan root
-   * appearing as an index entry can only mean the root itself has been replaced by a blob or a link.
+   * A bare root name is in scope because git records no index entry for a directory. A scan root
+   * appearing as an index entry therefore means either that the root itself has been replaced by a
+   * blob or a link, or that it is a FILE ROOT, which this engine admits: `scanRoots` derives a
+   * root's kind from the filesystem, so a root naming a regular file is an ordinary tracked blob and
+   * an ordinary index entry. An earlier draft of this sentence predated file roots and said the
+   * first reading was the only one.
    *
    * @param {string} relPath
    * @returns {boolean}
@@ -737,6 +741,12 @@ class PhiScan {
    * exit 1, which this contract reserves for HITS FOUND. Deriving the kind keeps the parameter a
    * plain `string[]` and still expresses that shape.
    *
+   * THAT PARTICULAR ROOT READS NOTHING UNDER THE DEFAULT `isWalkReadable`, and the example is
+   * caveated rather than left to be copied. A file root goes through the same read filter every
+   * other file does, so with the shared Markdown exemption in place `scanRoots: ["README.md"]` was
+   * measured returning `OK: no hits` at exit 0 over a live dashed identifier. A repo porting a `.md`
+   * root has to override that filter as well.
+   *
    * WHAT DERIVING GIVES UP, STATED RATHER THAN LEFT TO BE FOUND: a declaration can notice that a root
    * is not the KIND it was meant to be, and derivation cannot. A root that was a file and became a
    * directory is descended, and one that was a directory and became a file is read as a file, in both
@@ -744,10 +754,15 @@ class PhiScan {
    * as unscannable and refused, exactly as an entry inside one would be.
    *
    * A MISSING ROOT IS SKIPPED, AND THAT IS UNCHANGED FROM THE COPIED SCANNERS rather than chosen
-   * here. It is the one remaining way a root can contribute nothing without saying so; it is named
-   * here because the two other silently-empty root states (a spelling that matches no index path, and
-   * a root outside the repository) are now refused in `normalizeConfig`, and a reader would otherwise
-   * assume the class was closed.
+   * here. Two root states ARE refused in `normalizeConfig` (a spelling that matches no index path,
+   * and a root outside the repository), and this one is not.
+   *
+   * NO CLAIM IS MADE THAT IT IS THE LAST SUCH STATE, and a draft of this paragraph said it was. At
+   * least two others are known: a file root the read filter drops, described above and created by
+   * the same change that added file roots; and an UNREADABLE root, which `lstatOrNull`'s bare catch
+   * reports the same way it reports a missing one, so the word MISSING there covers a state that is
+   * not missing (an `EACCES` on a parent directory, or an `ELOOP`). Both contribute nothing without
+   * saying so. The set is not enumerated because nothing here has measured it to be complete.
    *
    * The result is SORTED by repo-relative path, so a report and a refusal read the same way twice.
    *
