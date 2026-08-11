@@ -81,6 +81,77 @@ exits 0, which is silent. Those are not symmetric, so the tie goes to running.
 It throws a `TypeError` rather than returning `false` when handed something that is not a non-empty
 string, for the same reason.
 
+## `runPhiScan(config)`
+
+`@cosyte/script-utils/phi-scan` is the shared machinery of the `@cosyte/*` PHI commit-gate.
+
+```ts
+import { exemptsMarkdown, runPhiScan } from "@cosyte/script-utils/phi-scan";
+
+process.exit(
+  runPhiScan({
+    exitCodes: { clean: 0, hits: 1, refuse: 2 },
+    scanRoots: ["."],
+    isStagedReadable: exemptsMarkdown,
+    detect: (ctx) => {
+      // Your standard's field-level detection. Check every PHI-bearing field
+      // against ctx.allow, and raise findings with ctx.hit(...).
+    },
+  }),
+);
+```
+
+It returns an exit code rather than calling `process.exit`, so a test can drive it in process.
+
+### Why it is a dependency and not a template file
+
+`scripts/parser-template/` is a **scaffold**, not a dependency: the scaffolder copies it, so fixing
+the template fixes no existing repo. That produced thirteen byte-distinct copies of one scanner, and
+a newly-found escape therefore cost one pull request and one adversarial review **per repo**. Three
+escape classes were paid for that way before this package existed. Here it is one pull request and a
+version bump.
+
+### What it owns
+
+Argument parsing and the three modes (`--staged`, explicit paths, and the `all`-mode sweep); the
+allow-list and the override log; target enumeration; the union of the working-tree walk with the
+bytes git carries, deduplicated **by content** under git's own `blob <len>\0` framing; the
+completeness rule (a target the run enumerated and never read refuses, naming the paths); every
+refusal; and a cross-cutting floor that detects a dashed SSN shape and an email at an undeclared
+domain.
+
+It does **not** own per-standard field detection: names, DOB, MRN / member id, address, phone.
+Those differ per healthcare standard and are supplied through `detect`.
+
+### The five per-repo axes
+
+Which ones are required is the design, not an oversight.
+
+| Axis                | Option                            | Required?                                                       |
+| ------------------- | --------------------------------- | --------------------------------------------------------------- |
+| 1 Exit codes        | `exitCodes`                       | **Required.** The siblings disagree; a default would be a port. |
+| 2 Roots             | `scanRoots`                       | **Required.** `["."]` is the whole repository.                  |
+| 2 Roots (subtract)  | `excludedPaths`, `isWalkReadable` | Defaulted. Moving the shared boundary is one change here.       |
+| 3 `--staged` scope  | `isStagedReadable`                | **Required.** It decides what a commit is blocked on.           |
+| 4 Gitlinks          | `regularBlobModes`                | Defaulted to git's two regular-blob modes.                      |
+| 5 EOL normalization | none                              | Machinery. A port must check it, not set it.                    |
+
+A required axis has no default **because** it is the thing a port gets wrong: carrying an exit code
+across a repo boundary is how a caller ends up branching on a meaning that repo never assigned.
+A defaulted axis is the opposite case: every repo wants the same answer, so the answer lives here
+and reaches all of them through a version bump.
+
+### Two things worth knowing before you adopt
+
+**A detector that consults nothing has no remedy.** The whole-file `--allow-fixture` bypass is
+recorded and then refused, so it cannot reach a clean run. Check every PHI-bearing field against
+`ctx.allow`, or a developer meeting your detector has nowhere to go. The engine's own floor does
+this on both branches.
+
+**`all` mode needs a git index.** It refuses when git cannot name the index or names it empty,
+because without it the sweep is the working-tree walk's word alone. A freshly scaffolded repo has to
+`git init` and commit before an `all`-mode run means anything.
+
 ## License
 
 MIT

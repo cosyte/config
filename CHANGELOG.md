@@ -16,6 +16,77 @@ no package, so entries here are **dated** rather than versioned.
 
 ### Added
 
+- **The parser template's PHI scanner is now a THIN CALLER of `@cosyte/script-utils/phi-scan`, and
+  the scaffold's own `SCAN_ROOTS` hole is closed** (`PHI-SCAN`). A founder architecture decision:
+  "I should not have to continually update the PHI scan. That defeats the purpose."
+  - **THE PROBLEM, MEASURED.** `scripts/parser-template/` is a **SCAFFOLD, not a dependency**:
+    `scripts/scaffold-parser.mjs` COPIES it, so **fixing the template fixes no existing repo**. The
+    drift check DETECTS divergence; it does not PROPAGATE a fix. Thirteen repos carry thirteen
+    byte-distinct copies of one scanner, so each of the three escape classes closed so far cost
+    **13 pull requests with 13 refuter runs**.
+  - **THE MACHINERY MOVED, PARAMETERISED.** `runPhiScan(config)` in `@cosyte/script-utils` owns
+    argument parsing, the allow-list and override log, enumeration on all three routes, the index
+    union, content deduplication, the completeness rule, every refusal and the cross-cutting
+    SSN/email floor. The template's `scripts/phi-scan.ts` keeps the **five per-repo axes** and the
+    fenced **standard-specific detector**, and nothing else. **A devDependency, never a runtime
+    one**: the zero-dep rule governs what ships, and a dev-time gate does not.
+  - **WHICH AXES ARE REQUIRED IS THE DESIGN.** `exitCodes`, `scanRoots` and `isStagedReadable` have
+    no defaults, because the siblings genuinely disagree and a default would be the porting mistake
+    the gate exists to catch. `excludedPaths`, `isWalkReadable` (the Markdown exemption) and
+    `regularBlobModes` ARE defaulted, so moving one of those shared boundaries is **one change plus a
+    version bump** rather than thirteen edits. That is the whole point of the split.
+  - **THE FRESH-SCAFFOLD HOLE IS CLOSED, AND IT WAS MEASURED FIRST**: a scaffolded repo has **35
+    tracked files and had ONE in scope**, so a tracked `test/leak.test.ts` carrying a dashed SSN
+    exited 0 on the sweep **and** on the pre-commit route. `SCAN_ROOTS` is now `["."]`, the whole
+    repository, with gitignored directories **pruned during descent** and `.git` skipped by literal
+    name. Pruning is equivalent to filtering afterwards because `git check-ignore` is **index-aware
+    at directory granularity**, measured both ways on git 2.39.5: with nothing tracked underneath, a
+    gitignored directory is reported ignored and pruned; with one file force-added underneath it is
+    reported NOT ignored, so the walk descends and still reads it. `--staged` is widened to match,
+    which is normally a separate hook decision and is taken here only because a repo being created
+    has no commit flow to change. **After the widening the sweep reads 23 of the 35 tracked files**:
+    the other twelve are eleven `.md` files the shared read exemption drops on both sweeping routes,
+    plus the one exclusion. "The whole repository" is the ROOT half of scope, not a claim that every
+    tracked file is read.
+    Two consequences are disclosed rather than glossed: `EMAILDOMAIN cosyte.com` is declared (the
+    manifest's own `author` field is now read on every run), and `test/scripts/phi-scan.test.ts` is
+    the template's **one** `EXCLUDED_PATHS` entry, because the scanner's own unit test must carry
+    violator-shaped values to prove the floor catches them.
+  - **TWO CORRECTIONS, NOT PORTS.** The floor's dashed-SSN branch now consults `allow.ids` in either
+    rendering: with the whole-file bypass closed, a detector that consults nothing leaves a developer
+    with a hit and **no remedy at all**, and a sibling shipped a footer claiming otherwise. And a
+    fatal partway through the sweep now prints the hits already found **before** the refusal; the old
+    ordering produced a refusal with zero `HIT:` lines over a corpus containing a real hit.
+  - **THE CAPABILITY PROBE STILL PROBES, AND NOW PROVES ADOPTION MORE SHARPLY.** `scripts/drift-check.js`
+    still RUNS each repo's scanner; what is new is that it PLANTS the shared package into its
+    throwaway repository first. **Which copy gets planted is the adoption check**: the controls plant
+    this workspace's engine, and a target repo is graded against the version THAT repo has installed.
+    The positive control now deletes the completeness rule **from the engine**, which is the only
+    place it exists. A repo with no `node_modules` yields a scanner that cannot start, prints no
+    marker, and lands on `inconclusive`, never on a pass. `gradeProbeControls` is deliberately
+    generic and names no capability, because `phi-scan` is the first of several such consolidations.
+  - **WHAT MOVED IN THE SUITES.** A previously-passing cell changed answer and is re-measured rather
+    than deleted: under narrow roots an **untracked link at the corpus root was FOLLOWED** and the
+    sweep reported on bytes no commit carries; under `["."]` the walk refuses it. The index's own
+    mode-120000 refusal keeps a dedicated pin (a tracked link removed from disk), and
+    `test/phi-scan-engine.test.ts` adds the configuration contract, the detector-throw refusal, the
+    hit-ordering guarantee and the pruning.
+  - **TWO CONTAINMENTS THE FIRST DRAFT ASSERTED ARE NOW ENFORCED**, both falsified by this slice's
+    adversarial review, both reproducible against the pre-consolidation scanner, and both now
+    regression-pinned with the reviewer's own reproductions. A staged path `isStagedReadable` admits
+    that no scan root covers is REFUSED: with roots at `["src"]` and the filter at the shared
+    Markdown exemption, a STAGED mode-120000 entry under `test/fixtures/` was outside every scan root,
+    so the non-regular refusal never saw it, and the route enumerated it, READ it, handed the link's
+    TARGET PATH to the detector as content and printed `OK: no hits` at exit 0. And a scan root is
+    normalised the way every other path is, with one resolving outside the repository refused:
+    `["./src"]` walked correctly while matching no index path, emptying the union, the index non-blob
+    refusal and the unmerged refusal in silence. **These two are the first checks any sibling
+    migration should run**, because both predate the consolidation.
+  - **DISCLOSED, NOT CLOSED.** The template names `@cosyte/script-utils@^0.0.2`, which does not exist
+    on the registry until this changeset is released; under caret-on-`0.0.x` semantics `^0.0.1`
+    cannot resolve it. A scaffold's `pnpm install` therefore needs that release first, which is a
+    human gate. **No sibling repo is migrated here**: each switch is its own unit with its own gate.
+
 - **The parser template's PHI scanner now reads THE BYTES GIT CARRIES as a UNION with the walk, and
   the drift check RUNS it rather than reading it** (`PHI-SCAN`). Two halves of one enabler: the six
   remaining per-repo adoptions should each be one mechanical port, not five judgement calls.

@@ -6,6 +6,7 @@
     "cli",
     "entrypoint",
     "import-meta",
+    "phi",
     "scripts",
     "cosyte"
   ],
@@ -24,11 +25,17 @@
     ".": {
       "types": "./index.d.ts",
       "default": "./index.js"
+    },
+    "./phi-scan": {
+      "types": "./phi-scan.d.ts",
+      "default": "./phi-scan.js"
     }
   },
   "files": [
     "index.js",
     "index.d.ts",
+    "phi-scan.js",
+    "phi-scan.d.ts",
     "README.md",
     "CHANGELOG.md"
   ],

@@ -36,15 +36,40 @@
 // AND IT CANNOT VOUCH FOR WHAT IT COULD NOT REACH. If the planted payload is
 // not detected, or the bypass never gets past the repo's own override-log gate,
 // the probe returns `inconclusive` rather than a verdict. `main` runs a POSITIVE
-// CONTROL (the template's scanner with the rule removed, which MUST come back
-// `drift`) and a NEGATIVE CONTROL (the shipped template, which MUST come back
-// `ok`) before it grades a single repo, and refuses to report at all if either
-// control misbehaves: an assertion nobody has seen fail is indistinguishable
-// from one that cannot.
+// CONTROL (the rule removed, which MUST come back `drift`) and a NEGATIVE
+// CONTROL (the shipped implementation, which MUST come back `ok`) before it
+// grades a single repo, and refuses to report at all if either control
+// misbehaves: an assertion nobody has seen fail is indistinguishable from one
+// that cannot.
+//
+// THE RULE NOW LIVES IN `@cosyte/script-utils/phi-scan` RATHER THAN IN THIRTEEN
+// COPIES, AND WHAT THE PROBE ASKS IS UNCHANGED BECAUSE OF IT. It still RUNS a
+// repo's own `scripts/phi-scan.ts`; what is new is that it PLANTS the shared
+// package into the throwaway repository first, so a scanner that imports its
+// machinery can resolve it. WHICH copy gets planted is what makes this an
+// ADOPTION check: the controls plant this workspace's engine, and a target repo
+// is graded against the version THAT repo has installed. A repo that has not
+// adopted carries a self-contained scanner and needs nothing planted; one that
+// HAS adopted but has no `node_modules` produces a scanner that cannot start,
+// which prints no marker and lands on `inconclusive` rather than on a pass.
+//
+// `gradeProbeControls` IS DELIBERATELY GENERIC, and nothing in it mentions PHI.
+// `phi-scan` is the first of several scripts every parser repo carries in a
+// byte-distinct copy, and the next consolidation needs the same shape: run the
+// real thing, break the one line that carries the property, and refuse to report
+// if breaking it did not RED.
 // ===========================================================================
 
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -64,6 +89,15 @@ const TEMPLATE_ALLOW_LIST = join(
   "scripts",
   "phi-allow-list.txt",
 );
+
+/**
+ * The workspace copy of the package a scanner now imports its machinery from. The probe plants a
+ * copy of THIS directory inside its throwaway repository, because a scanner that resolves
+ * `@cosyte/script-utils/phi-scan` cannot run in a directory with no `node_modules`.
+ */
+const SHARED_PACKAGE = join(configRoot, "packages", "script-utils");
+const SHARED_PACKAGE_SPECIFIER = "@cosyte/script-utils";
+const SHARED_PHI_SCAN = join(SHARED_PACKAGE, "phi-scan.js");
 
 /**
  * Node runs TypeScript by stripping types: required on 22, default from 23,
@@ -120,6 +154,86 @@ function runGit(dir, args, input) {
 }
 
 /**
+ * Plant a copy of a shared `@cosyte/*` package inside the probe's throwaway repository, so a
+ * scanner that imports its machinery by bare specifier resolves.
+ *
+ * A COPY RATHER THAN A SYMLINK OR AN INSTALL. An install needs a network and a lockfile the probe
+ * does not have; a symlink into the source tree would let a probe run mutate the workspace. Copying
+ * is also what makes the SOURCE an input: the controls plant `config`'s own working copy, so a
+ * change to the engine is graded before it is published, while a target repo is graded against the
+ * version THAT repo has installed, which is what "has this repo adopted the fix" actually means.
+ *
+ * IT IS SILENT WHEN THERE IS NOTHING TO PLANT, AND THAT FAILS SAFE. A repo that has not adopted the
+ * shared engine has a self-contained scanner and needs no dependency; one that HAS adopted it but
+ * has no `node_modules` produces a scanner that cannot start, which prints no marker and lands the
+ * probe on `inconclusive`. Neither route can produce a pass.
+ *
+ * @param {string} dir The throwaway repository.
+ * @param {string | undefined} from The package directory to copy, if any.
+ * @param {Record<string, string> | undefined} overrides Files to rewrite after copying, keyed by
+ *   the package-relative path. This is how a control weakens the SHARED half rather than the
+ *   subject's own scanner.
+ */
+function plantSharedPackage(dir, from, overrides) {
+  if (from === undefined || !existsSync(from)) return;
+  const dest = join(dir, "node_modules", ...SHARED_PACKAGE_SPECIFIER.split("/"));
+  mkdirSync(dirname(dest), { recursive: true });
+  // `dereference` because pnpm's `node_modules` entry for a workspace package is a symlink, and a
+  // copied symlink would point back out of the throwaway tree.
+  cpSync(from, dest, { recursive: true, dereference: true });
+  for (const [rel, text] of Object.entries(overrides ?? {})) {
+    writeFileSync(join(dest, ...rel.split("/")), text, "utf8");
+  }
+}
+
+/**
+ * Grade a capability probe against two scenarios whose answers are known, and return a list of
+ * problems (empty when both controls behaved).
+ *
+ * THE POSITIVE CONTROL IS THE POINT. A probe that has never been seen to RED is indistinguishable
+ * from one that cannot, and this whole campaign exists because a gate that could not fail reported
+ * green over an unopened corpus.
+ *
+ * THIS IS THE REUSABLE HALF, AND IT IS WRITTEN GENERICALLY ON PURPOSE. `phi-scan` is the first of
+ * several scripts every parser repo carries in a byte-distinct copy, and the next one to be
+ * consolidated will need exactly this shape: run the real thing, break the one line that carries the
+ * property, and refuse to report if breaking it did not RED.
+ *
+ * @param {{
+ *   capability: string,
+ *   shipped: () => { status: string, detail: string },
+ *   weakened: () => { status: string, detail: string } | null,
+ *   vacuous: string,
+ * }} scenarios `weakened` returns `null` when the weakening could not be applied, which makes the
+ *   control VACUOUS rather than passing.
+ * @returns {string[]}
+ */
+export function gradeProbeControls({ capability, shipped, weakened, vacuous }) {
+  const problems = [];
+
+  const negative = shipped();
+  if (negative.status !== "ok") {
+    problems.push(
+      `NEGATIVE CONTROL (${capability}): the shipped implementation should carry the rule, got ` +
+        `${negative.status}: ${negative.detail}`,
+    );
+  }
+
+  const positive = weakened();
+  if (positive === null) {
+    problems.push(`POSITIVE CONTROL (${capability}) is vacuous: ${vacuous}`);
+    return problems;
+  }
+  if (positive.status !== "drift") {
+    problems.push(
+      `POSITIVE CONTROL (${capability}): the weakened implementation should RED as drift, got ` +
+        `${positive.status}: ${positive.detail}`,
+    );
+  }
+  return problems;
+}
+
+/**
  * The override-log entry the probe writes.
  *
  * IT CARRIES BOTH SHAPES ON PURPOSE. Some siblings honour any `### <path>`
@@ -157,7 +271,13 @@ function overrideLog(paths) {
  * avoid. So the weaker discriminator is deliberate, and the wording of every
  * verdict is kept inside what was observed.
  */
-export function probePhiScanCompleteness({ scannerSource, allowList, spec }) {
+export function probePhiScanCompleteness({
+  scannerSource,
+  allowList,
+  spec,
+  sharedPackageDir,
+  sharedOverrides,
+}) {
   const dir = mkdtempSync(join(tmpdir(), "phi-scan-probe-"));
   try {
     const write = (rel, text) => {
@@ -167,6 +287,10 @@ export function probePhiScanCompleteness({ scannerSource, allowList, spec }) {
     };
     write("scripts/phi-scan.ts", scannerSource);
     write("scripts/phi-allow-list.txt", allowList);
+    // Untracked and unwalked, so planting the dependency cannot change what the corpus is. Written
+    // BEFORE `git add -A`, or the copied package would be committed into the probe's own repository.
+    write(".gitignore", "node_modules/\n");
+    plantSharedPackage(dir, sharedPackageDir, sharedOverrides);
     for (const rel of spec.scaffoldFiles ?? []) write(rel, spec.clean);
     write(spec.violator, spec.payload);
     write(spec.decoy, spec.clean);
@@ -288,53 +412,68 @@ export function templateScannerSource() {
   return text;
 }
 
-/** The line whose removal removes the completeness rule, and nothing else. */
+/** The shared engine's source, as `config` currently carries it. */
+export function sharedPhiScanSource() {
+  return readFileSync(SHARED_PHI_SCAN, "utf8");
+}
+
+/**
+ * The line whose removal removes the completeness rule, and nothing else.
+ *
+ * IT NOW LIVES IN THE SHARED ENGINE RATHER THAN IN THE TEMPLATE'S SCANNER, which is the whole
+ * point of the consolidation: the property is implemented once. So the control weakens the PLANTED
+ * COPY of the engine and leaves the subject scanner untouched, which is also the shape a target
+ * repo is graded in.
+ */
 const COMPLETENESS_LINE = "const unread = [...enumerated].filter((p) => !read.has(p));";
 
 /**
- * Run the probe against two scanners whose answers are known, and return a list
- * of problems (empty when both controls behaved).
- *
- * THE POSITIVE CONTROL IS THE POINT. A probe that has never been seen to RED is
- * indistinguishable from one that cannot, and this whole campaign exists
- * because a gate that could not fail reported green over an unopened corpus. So
- * the shipped template must come back `ok`, and the same template with the
- * completeness rule DELETED must come back `drift`. The deletion is asserted to
- * have landed, so the control cannot go vacuous if the scanner is reworded.
+ * The phi-scan probe's two controls: the shipped template scanner over the shipped engine must come
+ * back `ok`, and the same scanner over an engine with the completeness rule DELETED must come back
+ * `drift`. The deletion is asserted to have landed, so the control cannot go vacuous if the engine
+ * is reworded.
  */
 export function phiScanProbeControls() {
-  const problems = [];
   const spec = phiScanProbeSpec("__control__");
   const allowList = readFileSync(TEMPLATE_ALLOW_LIST, "utf8");
-  const shipped = templateScannerSource();
+  const scannerSource = templateScannerSource();
+  const engine = sharedPhiScanSource();
 
-  const negative = probePhiScanCompleteness({ scannerSource: shipped, allowList, spec });
-  if (negative.status !== "ok") {
-    problems.push(
-      `NEGATIVE CONTROL: the shipped parser-template scanner should carry the rule, got ` +
-        `${negative.status}: ${negative.detail}`,
-    );
-  }
-
-  if (!shipped.includes(COMPLETENESS_LINE)) {
-    problems.push(
-      `POSITIVE CONTROL is vacuous: the parser-template scanner no longer contains the line the ` +
-        `control removes (${COMPLETENESS_LINE}). Re-derive it before trusting this probe.`,
-    );
-    return problems;
-  }
-  const withoutRule = shipped.replace(COMPLETENESS_LINE, "const unread = [];");
-  const positive = probePhiScanCompleteness({ scannerSource: withoutRule, allowList, spec });
-  if (positive.status !== "drift") {
-    problems.push(
-      `POSITIVE CONTROL: a scanner with the completeness rule removed should RED as drift, got ` +
-        `${positive.status}: ${positive.detail}`,
-    );
-  }
-  return problems;
+  return gradeProbeControls({
+    capability: "phi-scan completeness",
+    shipped: () =>
+      probePhiScanCompleteness({
+        scannerSource,
+        allowList,
+        spec,
+        sharedPackageDir: SHARED_PACKAGE,
+      }),
+    weakened: () => {
+      if (!engine.includes(COMPLETENESS_LINE)) return null;
+      return probePhiScanCompleteness({
+        scannerSource,
+        allowList,
+        spec,
+        sharedPackageDir: SHARED_PACKAGE,
+        sharedOverrides: {
+          "phi-scan.js": engine.replace(COMPLETENESS_LINE, "const unread = [];"),
+        },
+      });
+    },
+    vacuous:
+      `${SHARED_PACKAGE_SPECIFIER}/phi-scan no longer contains the line the control removes ` +
+      `(${COMPLETENESS_LINE}). Re-derive it before trusting this probe.`,
+  });
 }
 
-/** The probe, applied to one target repo's own scanner. `null` when it has none. */
+/**
+ * The probe, applied to one target repo's own scanner. `null` when it has none.
+ *
+ * THE REPO'S OWN INSTALLED COPY OF THE SHARED PACKAGE IS WHAT GETS PLANTED, never this workspace's.
+ * That is what makes the probe an ADOPTION check rather than a claim about `config`: a repo pinned
+ * to a version of the engine that predates a fix is graded on the version it actually has, and a
+ * repo that has not adopted at all carries a self-contained scanner and needs nothing planted.
+ */
 function checkRepoPhiScan(name, repoDir) {
   const scanner = join(repoDir, "scripts", "phi-scan.ts");
   const allowListPath = join(repoDir, "scripts", "phi-allow-list.txt");
@@ -344,6 +483,7 @@ function checkRepoPhiScan(name, repoDir) {
     scannerSource: readFileSync(scanner, "utf8"),
     allowList,
     spec: phiScanProbeSpec(name),
+    sharedPackageDir: join(repoDir, "node_modules", ...SHARED_PACKAGE_SPECIFIER.split("/")),
   });
   if (result.status === "ok") return null;
   return `phi-scan completeness probe (${result.status}): ${result.detail}`;

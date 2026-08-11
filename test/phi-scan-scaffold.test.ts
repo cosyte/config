@@ -25,6 +25,27 @@
  * runs the same source with no transform, so it stands in. If a future edit uses
  * syntax the stripper rejects, this suite reds loudly rather than skipping.
  *
+ * WHERE THE MACHINERY LIVES NOW, AND WHAT THAT CHANGES HERE. The engine is
+ * `@cosyte/script-utils/phi-scan`, a devDependency, rather than a thousand lines
+ * copied into every parser repo. Two consequences for this suite, and neither
+ * weakens it:
+ *
+ *   1. The scaffold gets this workspace's copy of that package PLANTED into its
+ *      `node_modules` (a copy, not an install: there is no network and no
+ *      lockfile here). So what is exercised is the engine as this branch carries
+ *      it, which is the version a reviewer is reading.
+ *   2. A COUNTERFACTUAL MAY NOW HAVE TO WEAKEN THE ENGINE RATHER THAN THE
+ *      SCANNER, so `weakenedAll` looks in BOTH and writes a private copy of the
+ *      engine beside the weakened scanner, wired up by relative path. Every
+ *      substitution is still asserted to have landed in one of the two, so a
+ *      counterfactual still cannot go vacuous if either source is reworded.
+ *
+ * THE SCAN ROOTS ARE NOW THE WHOLE REPOSITORY, which is what closes the hole a
+ * fresh scaffold was born with: `["test/fixtures", "src"]` put ONE of a new
+ * repo's 35 tracked files in scope, so a tracked `test/leak.test.ts` carrying a
+ * dashed SSN exited 0 on the sweep and on the pre-commit route. Cases below that
+ * used to depend on a narrow root are marked where the answer moved.
+ *
  * THE SECOND DEFECT, INDEPENDENT OF THE FIRST. `--allow-fixture` withdrew a file
  * from the read set AFTER enumeration, and the empty remainder reported
  * `OK: no hits` and exit 0. Four argv shapes did it, including one with no
@@ -48,7 +69,15 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -57,6 +86,12 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 const REPO_ROOT = process.cwd();
 const TEMPLATE = join(REPO_ROOT, "scripts", "parser-template");
 const SCAFFOLDER = join(REPO_ROOT, "scripts", "scaffold-parser.mjs");
+
+/** The shared engine, as this workspace carries it, and where a scaffold resolves it from. */
+const SHARED_PACKAGE_SRC = join(REPO_ROOT, "packages", "script-utils");
+const ENGINE_REL = join("node_modules", "@cosyte", "script-utils", "phi-scan.js");
+/** The specifier a weakened scanner has repointed at its own private copy of the engine. */
+const ENGINE_SPECIFIER = '"@cosyte/script-utils/phi-scan"';
 
 /**
  * Node runs TypeScript by stripping types. The flag is required on 22 and the
@@ -115,17 +150,46 @@ function scan(
  * Write a WEAKENED copy of the emitted scanner beside it, and prove the
  * weakening actually landed. A counterfactual that silently failed to apply
  * would pass every assertion below for the wrong reason.
+ *
+ * A SUBSTITUTION MAY TARGET EITHER HALF, because the machinery is now a
+ * dependency: most of these lines live in `@cosyte/script-utils/phi-scan` and a
+ * few (the five per-repo axes) live in the emitted scanner. Each one is looked
+ * for in both and asserted to have been found in one, so a counterfactual reds
+ * loudly rather than silently applying to nothing.
+ *
+ * When the engine is what got weakened, a PRIVATE COPY of it is written beside
+ * the weakened scanner and the scanner's import is repointed at it by relative
+ * path. The planted `node_modules` copy is never mutated, so the shipped scanner
+ * keeps running against the shipped engine in the very same test.
  */
 function weakenedAll(name: string, subs: [string, string][]): string {
-  let source = readFileSync(join(scaffold, "scripts", "phi-scan.ts"), "utf8");
+  const base = name.replace(/\.ts$/, "");
+  let scanner = readFileSync(join(scaffold, "scripts", "phi-scan.ts"), "utf8");
+  let engine = readFileSync(join(scaffold, ENGINE_REL), "utf8");
+
   for (const [from, to] of subs) {
-    expect(source, `counterfactual "${name}" no longer matches the shipped scanner`).toContain(
-      from,
-    );
-    source = source.replace(from, to);
+    const inScanner = scanner.includes(from);
+    const inEngine = engine.includes(from);
+    expect(
+      inScanner || inEngine,
+      `counterfactual "${name}" matches neither the shipped scanner nor the shipped engine: ${from}`,
+    ).toBe(true);
+    if (inScanner) scanner = scanner.replace(from, to);
+    else engine = engine.replace(from, to);
   }
+
+  const engineRel = join("scripts", `${base}.engine.js`);
+  writeFileSync(join(scaffold, engineRel), engine, "utf8");
+
   const rel = join("scripts", name);
-  writeFileSync(join(scaffold, rel), source, "utf8");
+  expect(scanner, "the emitted scanner no longer imports the shared engine").toContain(
+    ENGINE_SPECIFIER,
+  );
+  writeFileSync(
+    join(scaffold, rel),
+    scanner.replace(ENGINE_SPECIFIER, `"./${base}.engine.js"`),
+    "utf8",
+  );
   return rel;
 }
 
@@ -238,7 +302,20 @@ beforeAll(() => {
   expect(scaffolded.status, `${scaffolded.stdout ?? ""}${scaffolded.stderr ?? ""}`).toBe(0);
   scaffold = join(root, "demo");
 
-  // The scan roots the emitted scanner walks. The template ships neither.
+  // PLANT THE SHARED ENGINE, exactly where `pnpm install` would put it. A copy rather
+  // than a symlink: a symlink into this workspace would let a test mutate the source
+  // tree, and `dereference` is needed anyway because pnpm's own entry is a symlink.
+  // The template's `.gitignore` already carries `node_modules/`, so this is untracked,
+  // is pruned by the walk, and survives `git clean -ffd` (which does not touch ignored
+  // paths) between cases.
+  cpSync(SHARED_PACKAGE_SRC, join(scaffold, "node_modules", "@cosyte", "script-utils"), {
+    recursive: true,
+    dereference: true,
+  });
+
+  // A corpus directory the template does not ship, plus a fixture to have something
+  // ordinary in it. `src/index.ts` is overwritten with a trivial module so that no case
+  // below depends on the archetype stubs.
   mkdirSync(join(scaffold, "test", "fixtures"), { recursive: true });
   mkdirSync(join(scaffold, "src"), { recursive: true });
   writeFileSync(join(scaffold, "src", "index.ts"), "export const x = 1;\n", "utf8");
@@ -268,11 +345,17 @@ describe("controls: the suite is exercising the emitted scanner, and it can stil
     expect(source).toContain("{{PKG}}");
     expect(emitted).not.toContain("{{PKG}}");
     expect(emitted).toContain("@cosyte/demo");
+    expect(emitted).not.toContain("{{");
+
     // Byte identity is the wrong assertion for a TOKENIZED file, and re-deriving
     // the scaffolder's token map here would couple this control to a
-    // substitution it is not testing. Pin the load-bearing lines instead: these
-    // are exactly what the cases below depend on, and each is a line whose loss
-    // reopens a measured hole.
+    // substitution it is not testing. Pin the load-bearing lines instead.
+    //
+    // THEY ARE NOW IN TWO PLACES, AND THE SPLIT IS THE POINT OF THIS SLICE. What
+    // the emitted scanner still has to carry is the FIVE PER-REPO AXES and the
+    // wiring to the engine; the rules themselves are implemented once, in
+    // `@cosyte/script-utils/phi-scan`, and are pinned against that file instead.
+    // A rule that reappeared in a copy here would be the defect coming back.
     //
     // COMPARED WITH WHITESPACE SQUASHED, WHICH IS NOT A CONVENIENCE. The two
     // copies are formatted by two different prettier invocations (this repo's
@@ -281,15 +364,33 @@ describe("controls: the suite is exercising the emitted scanner, and it can stil
     // lands exactly on the 100-column limit. A control that reds on a line
     // BREAK teaches the next reader to relax the control, which is the last
     // thing a pin like this should teach.
-    expect(emitted).not.toContain("{{");
     for (const line of [
-      "function isUnderScanRoot",
-      "isUnderScanRoot(s.path) && !REGULAR_BLOB_MODES.has(s.mode)",
+      'from "@cosyte/script-utils/phi-scan"',
+      "const EXIT_CODES = { clean: 0, hits: 1, refuse: 2 } as const;",
+      'const SCAN_ROOTS: readonly string[] = ["."];',
+      "function isStagedReadable(relPath: string): boolean {",
+      "return exemptsMarkdown(relPath);",
+      "process.exit(",
+      "runPhiScan({",
+    ]) {
+      expect(squash(source)).toContain(squash(line));
+      expect(squash(emitted)).toContain(squash(line));
+    }
+
+    // The engine's own load-bearing lines. Each is a line whose loss reopens a
+    // measured hole, and each is what the counterfactuals below substitute on.
+    const engine = readFileSync(join(scaffold, ENGINE_REL), "utf8");
+    const shipped = readFileSync(join(SHARED_PACKAGE_SRC, "phi-scan.js"), "utf8");
+    // The scaffold is running the engine this branch carries, not some other one.
+    expect(engine).toBe(shipped);
+    for (const line of [
+      "isUnderScanRoot(relPath) {",
+      "this.isUnderScanRoot(s.path) &&",
       '["diff", "--cached", "--raw", "-z", "--no-renames", "--diff-filter=d"]',
-      "unscannable.push({ path: normalizePath(full), kind: direntKind(e) });",
+      "unscannable.push({ path: this.normalizePath(full), kind: direntKind(e) });",
       // The completeness rule. Each of these is a line whose loss reopens a
       // measured exit-0-over-an-unopened-corpus hole.
-      'const scanPaths = mode === "paths" ? dedupeByRepoPath([...paths, ...allowFixtures]) : paths;',
+      'const scanPaths = mode === "paths" ? this.dedupeByRepoPath(seed) : paths;',
       "const unmatched = [...allowed].filter((p) => !enumerated.has(p));",
       "const unread = [...enumerated].filter((p) => !read.has(p));",
       // THE UNION. The sweep reads the bytes git carries, keyed on STAGE 0, and
@@ -298,10 +399,9 @@ describe("controls: the suite is exercising the emitted scanner, and it can stil
       'if (stage === "0") entries.set(path, { mode, oid });',
       "if (readOids.get(path) === entry.oid) continue;",
       '["cat-file", "blob", entry.oid]',
-      "if (index !== null) for (const p of unionCandidatePaths(index)) enumerated.add(p);",
+      "if (index !== null) for (const p of this.unionCandidatePaths(index)) enumerated.add(p);",
     ]) {
-      expect(squash(source)).toContain(squash(line));
-      expect(squash(emitted)).toContain(squash(line));
+      expect(squash(engine)).toContain(squash(line));
     }
   });
 
@@ -330,8 +430,8 @@ describe("controls: the suite is exercising the emitted scanner, and it can stil
     // first), and the uncaught InvocationError takes node's exit 1 again.
     const unhandled = weakened(
       "allow-list-unhandled.ts",
-      "  let allow: AllowList;\n",
-      "  let allow: AllowList = loadAllowList();\n",
+      "    let allow;\n",
+      "    let allow = this.loadAllowList();\n",
     );
     const before = scan(unhandled, [], REPO_ROOT);
     expect(before.code).toBe(1);
@@ -380,7 +480,25 @@ describe("all mode refuses a non-regular entry under a scan root", () => {
     // longer reported ignored. That is the only reason `git add -f` cannot buy a
     // bypass, and nothing else states it.
     git(["add", "-f", "test/fixtures/ignored.txt"]);
-    expect(scan("scripts/phi-scan.ts").code).toBe(2);
+    const forced = scan("scripts/phi-scan.ts");
+    expect(forced.code, forced.out).toBe(2);
+    // AND THE NOUN, which pins WHICH rule fired. It is the WALK's, because
+    // `check-ignore` being index-aware means the entry stops being reported
+    // ignored the moment it is tracked, so the walk's own exemption stands down
+    // and the walk meets an unexempted link.
+    expect(forced.out).toContain("entry is not a regular file");
+    expect(forced.out).toContain("a symbolic link");
+
+    // ...and REMOVE IT FROM DISK, leaving the mode-120000 record in the index
+    // alone. Now the walk has nothing to object to and only the INDEX rule can
+    // see it. That is the cell that keeps the index's own non-blob refusal
+    // pinned for a symbolic link, which matters because the walk otherwise gets
+    // there first under whole-repository scan roots.
+    rmSync(join(scaffold, "test", "fixtures", "ignored.txt"));
+    const indexOnly = scan("scripts/phi-scan.ts");
+    expect(indexOnly.code, indexOnly.out).toBe(2);
+    expect(indexOnly.out).toContain("index entry is not a regular blob");
+    expect(indexOnly.out).toContain("a symbolic link");
   });
 
   it("leaves the .md READ exemption alone: a regular .md file is still not read", () => {
@@ -411,9 +529,17 @@ describe("--staged refuses a non-regular entry, and keys on the ROOT half of sco
 
   it("refuses a .md-named link under src/ on BOTH routes, where a shared predicate would not", () => {
     // The disagreement two sibling ports shipped: `src/notes.md` is a link, and
-    // the READ filter (`src/**.ts`) drops it while the walk refuses it. Keying
-    // the refusal on the read filter makes the pre-commit route pass a
-    // mode-120000 blob green over a corpus all-mode refuses.
+    // the READ filter drops it while the walk refuses it. Keying the refusal on
+    // the read filter instead makes the pre-commit route pass a mode-120000 blob
+    // green over a corpus all-mode refuses.
+    //
+    // WHICH READ FILTER, STATED CURRENTLY RATHER THAN FROM MEMORY: this template's
+    // `isStagedReadable` is now the shared Markdown exemption, so what drops
+    // `src/notes.md` is its `.md` name. It used to be `src/**.ts`, and an earlier
+    // version of this comment still said so after the axis moved. The point is
+    // unchanged and is about the SHAPE of the two predicates, not about either
+    // one's current body: a link's NAME is no evidence about what is on the other
+    // side of it, which is exactly what a read filter may assume about a FILE.
     resetToBaseline();
     symlinkSync(payload, join(scaffold, "src", "notes.md"));
     git(["add", "src/notes.md"]);
@@ -425,8 +551,8 @@ describe("--staged refuses a non-regular entry, and keys on the ROOT half of sco
 
     const collapsed = weakened(
       "collapsed-predicate.ts",
-      "isUnderScanRoot(s.path) && !REGULAR_BLOB_MODES.has(s.mode)",
-      "isStagedReadable(s.path) && !REGULAR_BLOB_MODES.has(s.mode)",
+      "this.isUnderScanRoot(s.path) &&",
+      "this.cfg.isStagedReadable(s.path) &&",
     );
     expect(scan(collapsed, ["--staged"]).code).toBe(0); // the defect, reproduced
   });
@@ -562,24 +688,36 @@ describe("--staged refuses a non-regular entry, and keys on the ROOT half of sco
     // below a real discrimination rather than two spellings of one refusal.
     expect(r.out).toContain("entry is not a regular file");
 
-    // AND `all` MODE NOW REFUSES IT TOO, which is a CHANGE the union brought.
-    // Before the index was read, the walk FOLLOWED the link and scanned
-    // whatever was on the other side; once the link is TRACKED it is a
-    // mode-120000 INDEX ENTRY and the index rule refuses. The noun is asserted,
-    // not just the exit code: it is the only thing that says WHICH rule fired,
-    // and the docblock clause this pins distinguishes them.
+    // AND `all` MODE REFUSES IT TOO, ON ALL THREE CELLS, WHICH IS WHERE THIS
+    // CASE MOVED WHEN THE SCAN ROOTS BECAME THE WHOLE REPOSITORY. Before that,
+    // `test/fixtures` WAS a scan root, so the walk STARTED there: `existsSync`
+    // and `readdirSync` both follow, and the walk read whatever was on the other
+    // side, which left the INDEX rule as the only thing that could refuse. With
+    // `["."]` the same path is an ordinary directory ENTRY, `Dirent.isFile()`
+    // and `isDirectory()` are both false for a link, and the WALK refuses it
+    // first. The noun is asserted, not just the exit code: it is the only thing
+    // that says WHICH rule fired.
+    //
+    // THAT IS A STRENGTHENING AND NOT A SWAP, AND THE DIFFERENCE IS CELL 3.
+    // Under the narrow roots, an UNTRACKED link at the corpus root was FOLLOWED
+    // and the sweep reported on bytes the enumeration did not control and no
+    // commit carries. Now it is refused. The index rule is not left untested by
+    // the move: the gitlink case below reaches it (a nested repository is a real
+    // directory, so the walk has nothing to object to), and so does the
+    // force-added gitignored link above, where the walk's own filter stands down.
     const swept = scan("scripts/phi-scan.ts");
     expect(swept.code, swept.out).toBe(2);
     expect(swept.out).toContain("test/fixtures");
     expect(swept.out).toContain("a symbolic link");
-    expect(swept.out).toContain("index entry is not a regular blob");
+    expect(swept.out).toContain("entry is not a regular file");
     expect(swept.out).not.toContain("OK: no hits");
 
     // CELL 2, THE ONE THREE DRAFTS OF THE DOCBLOCK GOT WRONG: COMMIT the link
     // and the staged delta is EMPTY, so `--staged` has no record to read and
-    // reports a clean commit, while `all` still refuses off the index. The two
-    // routes split on DIFFERENT AXES (staged delta vs index), which is why
-    // neither "tracked" nor "untracked" was ever the right word for the pair.
+    // reports a clean commit, while `all` still refuses. The two routes split on
+    // DIFFERENT AXES (the staged delta vs the working tree and the index), which
+    // is why neither "tracked" nor "untracked" was ever the right word for the
+    // pair.
     expect(git(["commit", "-qm", "root link", "--no-verify"]).code).toBe(0);
     expect(git(["diff", "--cached", "--raw", "--no-renames", "--diff-filter=d"]).out.trim()).toBe(
       "",
@@ -588,30 +726,33 @@ describe("--staged refuses a non-regular entry, and keys on the ROOT half of sco
     expect(committedStaged.code, committedStaged.out).toBe(0);
     const committedAll = scan("scripts/phi-scan.ts");
     expect(committedAll.code, committedAll.out).toBe(2);
-    expect(committedAll.out).toContain("index entry is not a regular blob");
+    expect(committedAll.out).toContain("test/fixtures");
+    expect(committedAll.out).toContain("a symbolic link");
 
-    // CELL 3: the link NOT IN THE INDEX. `--staged` reports clean (a commit
-    // carries no bytes at that path) and the walk FOLLOWS the link, scanning
-    // what is on the other side and reporting it under the IN-REPO path, which
-    // is asserted rather than just the value: the locus is the whole reason a
-    // developer can find it.
+    // CELL 3: the link NOT IN THE INDEX. `--staged` reports clean, and rightly,
+    // because a commit carries no bytes at that path. `all` REFUSES rather than
+    // following, and the payload on the other side is never read: that is the
+    // measured change, and it is asserted in both directions so it cannot be
+    // read as a coincidence.
     //
     // BE EXACT ABOUT WHICH INDEX THIS IS. The fixture reaches the state by
     // REMOVING the entry, and the root's other entries went with it (cell 1
-    // staged their deletion, cell 2 committed it), so nothing is left under
-    // that root here: the assertion is the empty string, which is the strongest
-    // true one. A link that was NEVER ADDED is a different index (the sibling
-    // entries remain, and the union still reads them) and this cell does not
-    // execute it.
+    // staged their deletion, cell 2 committed it), so nothing is left under that
+    // root here. A link that was NEVER ADDED is a different index and this cell
+    // does not execute it.
     git(["rm", "-q", "--cached", "--", "test/fixtures"]);
     expect(git(["ls-files", "-s", "--", "test/fixtures"]).out.trim()).toBe("");
     const untrackedStaged = scan("scripts/phi-scan.ts", ["--staged"]);
     expect(untrackedStaged.code, untrackedStaged.out).toBe(0);
     writeFileSync(join(root, "elsewhere", "leak.txt"), "patient ssn 123-45-6789\n", "utf8");
     const untrackedAll = scan("scripts/phi-scan.ts");
-    expect(untrackedAll.code, untrackedAll.out).toBe(1);
-    expect(untrackedAll.out).toContain("test/fixtures/leak.txt");
-    expect(untrackedAll.out).toContain("123-45-6789");
+    expect(untrackedAll.code, untrackedAll.out).toBe(2);
+    expect(untrackedAll.out).toContain("test/fixtures");
+    expect(untrackedAll.out).toContain("a symbolic link");
+    // The bytes behind the link are never read, and the refusal never names the
+    // target: it is working-tree text that can itself carry PHI.
+    expect(untrackedAll.out).not.toContain("123-45-6789");
+    expect(untrackedAll.out).not.toContain("elsewhere");
   });
 
   it("still scans, and still catches, an ordinary staged fixture", () => {
@@ -683,16 +824,13 @@ describe("a target enumerated but never read refuses, in every mode", () => {
     // point of having two: this is what the pre-fix scanner did.
     const pre = weakenedAll("pre-completeness-rule.ts", [
       [
-        'const scanPaths = mode === "paths" ? dedupeByRepoPath([...paths, ...allowFixtures]) : paths;',
+        'const scanPaths = mode === "paths" ? this.dedupeByRepoPath(seed) : paths;',
         "const scanPaths = paths.length > 0 ? paths : [...allowFixtures];",
       ],
-      [
-        "const unread = [...enumerated].filter((p) => !read.has(p));",
-        "const unread: string[] = [];",
-      ],
+      ["const unread = [...enumerated].filter((p) => !read.has(p));", "const unread = [];"],
       [
         "const unmatched = [...allowed].filter((p) => !enumerated.has(p));",
-        "const unmatched: string[] = [];",
+        "const unmatched = [];",
       ],
     ]);
 
@@ -723,7 +861,7 @@ describe("a target enumerated but never read refuses, in every mode", () => {
 
     const oldSeed = weakened(
       "old-conditional-seed.ts",
-      'const scanPaths = mode === "paths" ? dedupeByRepoPath([...paths, ...allowFixtures]) : paths;',
+      'const scanPaths = mode === "paths" ? this.dedupeByRepoPath(seed) : paths;',
       "const scanPaths = paths.length > 0 ? paths : [...allowFixtures];",
     );
     const r = scan(oldSeed, ["README.md", "--allow-fixture", VIOLATOR]);
@@ -800,8 +938,8 @@ describe("a target enumerated but never read refuses, in every mode", () => {
     // the same SSN is reported twice, which is a scanner that cannot count.
     const noDedupe = weakened(
       "no-dedupe.ts",
-      'const scanPaths = mode === "paths" ? dedupeByRepoPath([...paths, ...allowFixtures]) : paths;',
-      'const scanPaths = mode === "paths" ? [...paths, ...allowFixtures] : paths;',
+      'const scanPaths = mode === "paths" ? this.dedupeByRepoPath(seed) : paths;',
+      'const scanPaths = mode === "paths" ? seed : paths;',
     );
     const doubled = scan(noDedupe, [VIOLATOR, `./${VIOLATOR}`]);
     expect(doubled.code, doubled.out).toBe(1);
@@ -898,12 +1036,12 @@ describe("all mode reads the bytes git carries as a UNION with the walk", () => 
   function withoutUnion(name = "no-union.ts"): string {
     return weakenedAll(name, [
       [
-        "    const unionFailure = sweep(buildTargetsForGitIndex(index, readOids));",
-        "    const unionFailure = sweep([]);",
+        "const unionFailure = sweep(this.buildTargetsForGitIndex(index, readOids));",
+        "const unionFailure = sweep([]);",
       ],
       [
-        "  if (index !== null) for (const p of unionCandidatePaths(index)) enumerated.add(p);",
-        '  if (index !== null && false) enumerated.add("");',
+        "if (index !== null) for (const p of this.unionCandidatePaths(index)) enumerated.add(p);",
+        'if (index !== null && false) enumerated.add("");',
       ],
     ]);
   }
@@ -919,8 +1057,8 @@ describe("all mode reads the bytes git carries as a UNION with the walk", () => 
 
     const half = weakened(
       "half-ported-union.ts",
-      "    const unionFailure = sweep(buildTargetsForGitIndex(index, readOids));",
-      "    const unionFailure = sweep([]);",
+      "const unionFailure = sweep(this.buildTargetsForGitIndex(index, readOids));",
+      "const unionFailure = sweep([]);",
     );
     const r = scan(half);
     expect(r.code, r.out).toBe(2);
@@ -1086,7 +1224,7 @@ describe("all mode reads the bytes git carries as a UNION with the walk", () => 
     // in stage 3. The working tree copy is clean here, so nothing else covers it.
     const firstRecord = weakened(
       "stage-blind.ts",
-      'if (stage === "0") entries.set(path, { mode, oid });\n    else higherStages.add(path);',
+      'if (stage === "0") entries.set(path, { mode, oid });\n      else higherStages.add(path);',
       "if (!entries.has(path)) entries.set(path, { mode, oid });",
     );
     const blind = scan(firstRecord);

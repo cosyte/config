@@ -13,10 +13,17 @@
 #   ID <value>            synthetic id matching an SSN / MRN / member-id shape
 #   EMAILDOMAIN <domain>  reserved / test email domain that is allowed to appear
 #
-# NOTE: the STARTER scanner only actively consumes EMAILDOMAIN (its floor is
-# SSN + email shapes). NAME / DOB / ID entries are loaded and ready for the
-# structured, field-level detectors you MUST add to scripts/phi-scan.ts before
-# relying on this as a real PHI gate: see the STARTER banner in that file.
+# NOTE: the STARTER scanner's floor consumes EMAILDOMAIN and ID (its two shapes
+# are an email and a dashed SSN, and the SSN branch checks the value both as
+# written and with its separators removed, so ONE `ID` entry covers both
+# renderings). NAME / DOB entries are loaded and ready for the structured,
+# field-level detectors you MUST add to scripts/phi-scan.ts before relying on
+# this as a real PHI gate: see the STARTER banner in that file.
+#
+# 🛑 EVERY DETECTOR YOU ADD MUST CONSULT THIS FILE. `--allow-fixture` is recorded
+# and then REFUSED, so it cannot reach a clean run: a detector that checks
+# nothing here leaves a hit with no remedy at all, which is how a gate gets
+# routed around rather than answered.
 #
 # To add a new synthetic fixture: reuse the tokens below, or append new ones here
 # and commit. Adding a token is a reviewed, intentional act: never silent.
@@ -26,6 +33,14 @@ EMAILDOMAIN example.com
 EMAILDOMAIN example.org
 EMAILDOMAIN example.net
 EMAILDOMAIN example.test
+
+# --- The vendor's own contact address ---
+# `package.json`'s `author` field carries hello@<this domain>, and the scan roots
+# are the whole repository, so the sweep reads it on every run. It is the
+# publisher's public contact address, not a patient's, and it is present in every
+# @cosyte/* manifest. Declared rather than excluding package.json, because the
+# manifest is otherwise worth scanning.
+EMAILDOMAIN cosyte.com
 
 # --- Synthetic person-name tokens (example, extend for your fixtures) ---
 # NAME DOE
