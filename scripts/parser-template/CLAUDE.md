@@ -130,9 +130,35 @@ a summary.
   throws a plain `Error` and takes node's own exit 1, which a caller reads as "hits found". Siblings
   do not agree on these numbers. Never port an exit code in or out.** Read the docblock, not this
   bullet.
+- **`scripts/phi-scan.ts`'s `all` mode READS THE BYTES GIT CARRIES AS A UNION WITH THE WALK.** The
+  walk answers "what is on disk under the scan roots", which is not the question "what does this
+  repository carry", and where the two disagree the walk was the only voice: three states were
+  measured in which the sweep printed `OK: no hits` at exit 0 over a TRACKED file carrying a live
+  hit: the path occupied by a **directory** (a path-set reconciliation cannot see this one, because
+  the path IS present: only reading the OBJECT closes it), the working tree **short** of a tracked
+  file, and the two copies simply **differing**. `git ls-files -s -z` is read for the whole index and
+  every in-scope tracked path the walk did not already read verbatim is scanned through
+  `git cat-file blob <sha>`. **Deduplication is BY CONTENT** under git's own `blob <len>\0` framing,
+  so a clean checkout adds zero reads and where the two copies differ **both** are scanned, which is
+  what makes it correct under **EOL normalization** rather than merely untested by it. A union hit is
+  labelled `(as git carries it)`, because a hit naming the bare path sends a developer to open a file
+  that is clean or not there. 🛑 **The union is keyed on the ABSENCE OF STAGE 0, and that axis must be
+  re-derived, never ported from `--staged`:** `ls-files -s` reports an unmerged path at stages 1/2/3
+  with ORDINARY blob modes, so the mode rule cannot see it, and a sibling's draft that took the first
+  record scanned the **merge base** and printed clean over a marker living only in stage 3.
+  **`all` mode refuses when git cannot name the index or names it EMPTY**, so `git init` and a commit
+  come before `pnpm phi-scan` means anything in a fresh scaffold.
+- **The five things a PORT re-derives are declared in one block** at the top of `scripts/phi-scan.ts`
+  (`THE FIVE PER-REPO AXES`): exit codes, roots + exclusions, `--staged` scope, gitlinks, and EOL
+  normalization. The machinery under that block is shared; the **standard-specific field detection**
+  is the other half and has its own fenced TODO inside `scanTarget`. 🛑 **An exclusion is a LITERAL
+  PATH, never a class**. A sibling measured that a "binary blob" predicate would have dropped two of
+  its own hand-written sources, which embed NUL bytes as HMAC domain separators.
 - **This file, `scripts/attw.mjs` and `scripts/phi-scan.ts` all arrive from `cosyte/config`'s
   `scripts/parser-template/`.** Fix a gate there, never only here, or the next scaffolded parser is
-  born with the defect again.
+  born with the defect again. **`cosyte/config`'s drift check RUNS your `phi-scan.ts` (a capability
+  probe, not a regex) and reports drift when it does not refuse over a target it enumerated and never
+  read.**
 
 ## Standing disciplines (every change)
 

@@ -52,6 +52,25 @@
     "esbuild@>=0.27.3 <0.28.1": "0.28.1",
     "js-yaml@>=4.0.0 <4.3.0": "4.3.0"
   },
+  "phiScanProbeComment": "Parameters for the one BEHAVIOURAL check in scripts/drift-check.js: it RUNS each repo's scripts/phi-scan.ts against a throwaway corpus and asks whether it refuses over a target it enumerated and never read. It is a capability probe, never a regex over the scanner's source: this class has produced six defects that lived in a prose carrier while the code was right, so matching prose would grade the comment. NOTHING HERE NAMES AN EXIT CODE, deliberately. The siblings do not agree on their codes, so the probe derives each repo's HITS code from a control run and treats only exit 0 as `reported clean`. A perRepo entry exists for a repo whose scanner does not read the default fixture (dicom tiers by EXTENSION), and the probe answers `inconclusive` rather than passing when it cannot ground its own premise.",
+  "phiScanProbe": {
+    "default": {
+      "violator": "test/fixtures/phi-scan-probe-violator.txt",
+      "decoy": "test/fixtures/phi-scan-probe-decoy.txt",
+      "payload": "patient ssn 123-45-6789 on file\n",
+      "marker": "123-45-6789",
+      "clean": "nothing to see here\n",
+      "scaffoldFiles": ["src/index.ts", "README.md"]
+    },
+    "perRepo": {
+      "dicom": {
+        "$why": "dicom's text pass detects DICOM's own shapes (a PN token, a recent date), not a dashed SSN, so the default payload scanned CLEAN there and the probe answered `inconclusive` rather than passing. The payload below is a synthetic PN. Measured 2026-08-11.",
+        "payload": "PatientName: RIVERA^JORDAN\n",
+        "marker": "RIVERA^JORDAN",
+        "scaffoldFiles": ["src/index.ts", "README.md", "docs-content/intro.md"]
+      }
+    }
+  },
   "requiredCosyteConfigDeps": [
     "@cosyte/tsconfig",
     "@cosyte/eslint-config",

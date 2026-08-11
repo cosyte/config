@@ -93,13 +93,19 @@ function git(args: string[], cwd = scaffold): RunResult {
 }
 
 /** Run a scanner inside the emitted repo. `scanner` is repo-relative. */
-function scan(scanner: string, args: string[] = [], cwd = scaffold): RunResult {
+function scan(
+  scanner: string,
+  args: string[] = [],
+  cwd = scaffold,
+  env: NodeJS.ProcessEnv = process.env,
+): RunResult {
   const r = spawnSync(
     process.execPath,
     [...STRIP, "--no-warnings", join(scaffold, scanner), ...args],
     {
       cwd,
       encoding: "utf8",
+      env,
     },
   );
   return { code: r.status ?? -1, out: `${r.stdout ?? ""}${r.stderr ?? ""}` };
@@ -127,6 +133,62 @@ function weakened(name: string, from: string, to: string): string {
   return weakenedAll(name, [[from, to]]);
 }
 
+/** Collapse every run of whitespace, so a line BREAK cannot fail a content pin. */
+function squash(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+/** Write a file into the scaffold, `git add` it, and commit. Returns its repo path. */
+function commitFile(rel: string, content: string): string {
+  writeFileSync(join(scaffold, ...rel.split("/")), content, "utf8");
+  git(["add", "--", rel]);
+  const c = git(["commit", "-qm", `add ${rel}`, "--no-verify"]);
+  expect(c.code, c.out).toBe(0);
+  return rel;
+}
+
+/** `git hash-object -w --stdin`: write a blob and return its object id. */
+function hashObject(content: string): string {
+  const r = spawnSync("git", ["hash-object", "-w", "--stdin"], {
+    cwd: scaffold,
+    input: content,
+    encoding: "utf8",
+  });
+  expect(r.status, `${r.stdout ?? ""}${r.stderr ?? ""}`).toBe(0);
+  return (r.stdout ?? "").trim();
+}
+
+/**
+ * Put `path` into the index at stages 1/2/3 with the given contents, exactly as
+ * a modify/modify conflict does.
+ *
+ * FABRICATED RATHER THAN MERGED, AND THE PREMISE IS ASSERTED RATHER THAN
+ * ARGUED. A real `git merge` writes the conflicted BOTH-SIDES text into the
+ * working tree, which the walk then reads, so the stage the INDEX route picks
+ * could not be observed in isolation. Fabricating the stages leaves the working
+ * tree under this test's control; the caller checks `git ls-files -s` reports
+ * the three stages, so the fixture cannot go vacuous.
+ */
+function fabricateStages(rel: string, sides: { base: string; ours: string; theirs: string }): void {
+  const rm = spawnSync("git", ["update-index", "--force-remove", "--", rel], {
+    cwd: scaffold,
+    encoding: "utf8",
+  });
+  expect(rm.status, `${rm.stdout ?? ""}${rm.stderr ?? ""}`).toBe(0);
+  const info = [
+    `100644 ${hashObject(sides.base)} 1\t${rel}`,
+    `100644 ${hashObject(sides.ours)} 2\t${rel}`,
+    `100644 ${hashObject(sides.theirs)} 3\t${rel}`,
+    "",
+  ].join("\n");
+  const r = spawnSync("git", ["update-index", "--index-info"], {
+    cwd: scaffold,
+    input: info,
+    encoding: "utf8",
+  });
+  expect(r.status, `${r.stdout ?? ""}${r.stderr ?? ""}`).toBe(0);
+}
+
 /**
  * Log a `--allow-fixture` bypass in the scaffold's own override log, so the
  * argument-tier gate admits it and the run reaches the completeness tiers.
@@ -149,10 +211,17 @@ function writeViolator(rel = VIOLATOR): string {
   return rel;
 }
 
-/** Reset the emitted repo to its baseline commit. */
+/**
+ * Reset the emitted repo to its baseline commit.
+ *
+ * `-ff` rather than `-f`: a single `-f` leaves a NESTED GIT REPOSITORY in place,
+ * and one case below plants one deliberately. Left behind, its `.git/logs`
+ * carry the committer identity of whoever ran the suite, which the email floor
+ * then reports as a hit in every later case. Measured, not anticipated.
+ */
 function resetToBaseline(): void {
   git(["reset", "-q", "--hard", "baseline"]);
-  git(["clean", "-qfd"]);
+  git(["clean", "-qffd"]);
 }
 
 beforeAll(() => {
@@ -204,6 +273,14 @@ describe("controls: the suite is exercising the emitted scanner, and it can stil
     // substitution it is not testing. Pin the load-bearing lines instead: these
     // are exactly what the cases below depend on, and each is a line whose loss
     // reopens a measured hole.
+    //
+    // COMPARED WITH WHITESPACE SQUASHED, WHICH IS NOT A CONVENIENCE. The two
+    // copies are formatted by two different prettier invocations (this repo's
+    // check runs over the template; the scaffolder formats the emitted tree),
+    // and they were measured to disagree about where to break a line that
+    // lands exactly on the 100-column limit. A control that reds on a line
+    // BREAK teaches the next reader to relax the control, which is the last
+    // thing a pin like this should teach.
     expect(emitted).not.toContain("{{");
     for (const line of [
       "function isUnderScanRoot",
@@ -215,9 +292,16 @@ describe("controls: the suite is exercising the emitted scanner, and it can stil
       'const scanPaths = mode === "paths" ? dedupeByRepoPath([...paths, ...allowFixtures]) : paths;',
       "const unmatched = [...allowed].filter((p) => !enumerated.has(p));",
       "const unread = [...enumerated].filter((p) => !read.has(p));",
+      // THE UNION. The sweep reads the bytes git carries, keyed on STAGE 0, and
+      // deduplicated against the walk BY CONTENT.
+      '["ls-files", "-s", "-z"]',
+      'if (stage === "0") entries.set(path, { mode, oid });',
+      "if (readOids.get(path) === entry.oid) continue;",
+      '["cat-file", "blob", entry.oid]',
+      "if (index !== null) for (const p of unionCandidatePaths(index)) enumerated.add(p);",
     ]) {
-      expect(source).toContain(line);
-      expect(emitted).toContain(line);
+      expect(squash(source)).toContain(squash(line));
+      expect(squash(emitted)).toContain(squash(line));
     }
   });
 
@@ -727,5 +811,374 @@ describe("a target enumerated but never read refuses, in every mode", () => {
     const r = scan("scripts/phi-scan.ts");
     expect(r.code, r.out).toBe(0);
     expect(r.out).toContain("OK: no hits");
+  });
+});
+
+/**
+ * `all` MODE READS THE BYTES GIT CARRIES AS A UNION WITH THE WALK.
+ *
+ * The walk answers "what is on disk under the scan roots", which is not the same
+ * question as "what does this repository carry". Where the two disagree the walk
+ * was the only voice, so the sweep printed `OK: no hits` at exit 0 over TRACKED
+ * bytes it never opened. Every state below is reproduced on a weakened copy of
+ * the shipped scanner (the union removed, nothing else), so each case measures a
+ * defect rather than asserting a feature.
+ *
+ * The payload is the same synthetic dashed SSN the rest of this file uses.
+ */
+describe("all mode reads the bytes git carries as a UNION with the walk", () => {
+  /**
+   * The pre-union scanner, rebuilt out of the emitted one: the union sweep AND
+   * the enumeration of its candidates, which is the shape this file shipped
+   * before. Nothing else changes.
+   *
+   * BOTH SUBSTITUTIONS ARE REQUIRED, AND THAT IS A FINDING RATHER THAN A
+   * MECHANICAL DETAIL: with only the sweep removed, the completeness rule
+   * refuses (exit 2) over the tracked paths the run enumerated and then never
+   * read. The two halves are not redundant - one widens what the sweep reads,
+   * the other refuses when something enumerated goes unread - and a half-ported
+   * union is caught by the second rather than reported clean. That is pinned in
+   * its own case below.
+   */
+  function withoutUnion(name = "no-union.ts"): string {
+    return weakenedAll(name, [
+      [
+        "    const unionFailure = sweep(buildTargetsForGitIndex(index, readOids));",
+        "    const unionFailure = sweep([]);",
+      ],
+      [
+        "  if (index !== null) for (const p of unionCandidatePaths(index)) enumerated.add(p);",
+        '  if (index !== null && false) enumerated.add("");',
+      ],
+    ]);
+  }
+
+  it("A HALF-PORTED UNION IS REFUSED, NOT REPORTED CLEAN", () => {
+    // The interlock between the two rules, measured. Remove the union's READ
+    // half and leave its enumeration in place - the shape a hurried port
+    // produces - and the completeness rule names every tracked path that went
+    // unread instead of letting the sweep report on a corpus it did not open.
+    resetToBaseline();
+    const rel = commitFile("test/fixtures/half-ported.txt", "patient ssn 123-45-6789 on file\n");
+    rmSync(join(scaffold, ...rel.split("/")));
+
+    const half = weakened(
+      "half-ported-union.ts",
+      "    const unionFailure = sweep(buildTargetsForGitIndex(index, readOids));",
+      "    const unionFailure = sweep([]);",
+    );
+    const r = scan(half);
+    expect(r.code, r.out).toBe(2);
+    expect(r.out).toContain("enumerated and never read");
+    expect(r.out).toContain(rel);
+    expect(r.out).not.toContain("OK: no hits");
+  });
+
+  it("STATE 1: the path is occupied by a DIRECTORY, and only reading the OBJECT sees it", () => {
+    // The decoy-contents shape. `git ls-files` still names the path, the walk
+    // finds a DIRECTORY there and descends into it, and a path-SET
+    // reconciliation cannot see it either, because the path IS present.
+    resetToBaseline();
+    const rel = commitFile("test/fixtures/decoy.txt", "patient ssn 123-45-6789 on file\n");
+    rmSync(join(scaffold, ...rel.split("/")));
+    mkdirSync(join(scaffold, ...rel.split("/")), { recursive: true });
+    writeFileSync(join(scaffold, ...rel.split("/"), "inside.txt"), "nothing to see\n", "utf8");
+
+    const r = scan("scripts/phi-scan.ts");
+    expect(r.code, r.out).toBe(1);
+    expect(r.out).toContain("123-45-6789");
+    expect(r.out).toContain("as git carries it");
+
+    // THE DEFECT, REPRODUCED: without the union the same tree reports clean.
+    const before = scan(withoutUnion(), []);
+    expect(before.code, before.out).toBe(0);
+    expect(before.out).toContain("OK: no hits");
+  });
+
+  it("STATE 2: the working tree is SHORT, and no count can notice", () => {
+    // A tracked fixture deleted from the working tree but not from the index.
+    // Other files still exist, so a floor-of-one and a count both stay happy.
+    resetToBaseline();
+    const rel = commitFile("test/fixtures/gone.txt", "patient ssn 123-45-6789 on file\n");
+    rmSync(join(scaffold, ...rel.split("/")));
+
+    const r = scan("scripts/phi-scan.ts");
+    expect(r.code, r.out).toBe(1);
+    expect(r.out).toContain(rel);
+    expect(r.out).toContain("as git carries it");
+
+    const before = scan(withoutUnion(), []);
+    expect(before.code, before.out).toBe(0);
+  });
+
+  it("STATE 3: the two copies DIFFER, and BOTH are read", () => {
+    // The index carries the violator; the working tree carries a clean file of
+    // the same name. The walk answers with the disk copy and nothing else asked
+    // git what it was carrying.
+    resetToBaseline();
+    const rel = commitFile("test/fixtures/differs.txt", "patient ssn 123-45-6789 on file\n");
+    writeFileSync(join(scaffold, ...rel.split("/")), "nothing to see\n", "utf8");
+
+    const r = scan("scripts/phi-scan.ts");
+    expect(r.code, r.out).toBe(1);
+    expect(r.out).toContain("as git carries it");
+
+    const before = scan(withoutUnion(), []);
+    expect(before.code, before.out).toBe(0);
+  });
+
+  it("THE EOL AXIS: an index normalized to LF beside a CRLF working tree scans BOTH", () => {
+    // The measured mechanism, not an argument from the code: with a `text`
+    // attribute git stores LF and checks out (here: leaves) CRLF, so the two
+    // object ids differ and the content dedupe cannot collapse them. BOTH forms
+    // are scanned, which is what makes the union correct under EOL
+    // normalization rather than merely untested by it.
+    resetToBaseline();
+    writeFileSync(join(scaffold, ".gitattributes"), "*.txt text eol=lf\n", "utf8");
+    const rel = "test/fixtures/crlf.txt";
+    writeFileSync(join(scaffold, ...rel.split("/")), "patient ssn 123-45-6789 on file\r\n", "utf8");
+    git(["add", "--", ".gitattributes", rel]);
+    expect(git(["commit", "-qm", "crlf", "--no-verify"]).code).toBe(0);
+
+    // The git premise first: the blob git carries is LF, the file on disk is not.
+    const stored = git(["cat-file", "blob", `:${rel}`]);
+    expect(stored.out).not.toContain("\r\n");
+    expect(readFileSync(join(scaffold, ...rel.split("/")), "utf8")).toContain("\r\n");
+
+    const r = scan("scripts/phi-scan.ts");
+    expect(r.code, r.out).toBe(1);
+    // Two loci for one path: the disk copy and the copy git carries.
+    expect(r.out).toContain(`HIT: ${rel}\n`);
+    expect(r.out).toContain(`HIT: ${rel} (as git carries it)`);
+  });
+
+  it("DEDUPE IS BY CONTENT: a clean checkout reads each file ONCE", () => {
+    // The cost half of the union, pinned on the one observable dedupe has: the
+    // hit count. On a checkout where the two copies agree, the union adds no
+    // read at all and the same SSN is reported once.
+    resetToBaseline();
+    commitFile("test/fixtures/tracked-violator.txt", "patient ssn 123-45-6789 on file\n");
+
+    const r = scan("scripts/phi-scan.ts");
+    expect(r.code, r.out).toBe(1);
+    expect(r.out.split("segment=").length - 1).toBe(1);
+    expect(r.out).not.toContain("as git carries it");
+
+    // The defect, reproduced: with the dedupe disabled every tracked file is
+    // read twice and the same SSN is reported twice, which is a scanner that
+    // cannot count and a sweep that pays a subprocess per file.
+    const noDedupe = weakened(
+      "union-no-dedupe.ts",
+      "if (readOids.get(path) === entry.oid) continue;",
+      "if (false) continue;",
+    );
+    const doubled = scan(noDedupe);
+    expect(doubled.code, doubled.out).toBe(1);
+    expect(doubled.out.split("segment=").length - 1).toBe(2);
+  });
+
+  it("refuses an in-scope GITLINK, which has no bytes at that path at all", () => {
+    resetToBaseline();
+    const nested = join(scaffold, "test", "fixtures", "nested");
+    mkdirSync(nested, { recursive: true });
+    expect(spawnSync("git", ["init", "-q", "."], { cwd: nested, encoding: "utf8" }).status).toBe(0);
+    spawnSync("git", ["config", "user.email", "test@example.com"], { cwd: nested });
+    spawnSync("git", ["config", "user.name", "test"], { cwd: nested });
+    spawnSync("git", ["config", "commit.gpgsign", "false"], { cwd: nested });
+    writeFileSync(join(nested, "inner.txt"), "nothing to see\n", "utf8");
+    spawnSync("git", ["add", "-A"], { cwd: nested });
+    spawnSync("git", ["commit", "-qm", "inner", "--no-verify"], { cwd: nested });
+    git(["add", "--", "test/fixtures/nested"]);
+
+    // The git premise: the index carries a mode-160000 entry for that path.
+    expect(git(["ls-files", "-s", "--", "test/fixtures/nested"]).out).toContain("160000");
+
+    const r = scan("scripts/phi-scan.ts");
+    expect(r.code, r.out).toBe(2);
+    expect(r.out).toContain("test/fixtures/nested");
+    expect(r.out).toContain("a gitlink");
+    expect(r.out).not.toContain("OK: no hits");
+  });
+
+  it("refuses an in-scope path with NO STAGE-0 BLOB, and keys on the STAGE not the mode", () => {
+    // 🛑 The trap this axis exists for. `git ls-files -s` reports an unmerged
+    // path at stages 1/2/3 with ORDINARY BLOB MODES, so the mode rule cannot
+    // see it, and the `--staged` route's signal (`--raw` status `U`, dest mode
+    // `000000`) does not appear in this command's output at all.
+    resetToBaseline();
+    const rel = commitFile("test/fixtures/conflict.txt", "nothing to see\n");
+    fabricateStages(rel, {
+      base: "nothing to see\n",
+      ours: "still nothing\n",
+      theirs: "patient ssn 123-45-6789 on file\n",
+    });
+    // The premise, from the run's own artifact rather than from reasoning: three
+    // records, stages 1/2/3, every one of them an ordinary blob mode.
+    const staged = git(["ls-files", "-s", "--", rel]).out.trim().split("\n");
+    expect(staged).toHaveLength(3);
+    expect(staged.map((l) => l.split(" ")[0])).toEqual(["100644", "100644", "100644"]);
+    expect(staged.map((l) => l.split(" ")[2]?.split("\t")[0])).toEqual(["1", "2", "3"]);
+
+    const r = scan("scripts/phi-scan.ts");
+    expect(r.code, r.out).toBe(2);
+    expect(r.out).toContain(rel);
+    expect(r.out).toContain("no stage-0 blob");
+    expect(r.out).not.toContain("OK: no hits");
+
+    // THE DEFECT, REPRODUCED, and it is the sharp one: taking the FIRST record
+    // per path scans STAGE 1 - THE MERGE BASE - labels it as the bytes git
+    // carries, and prints a clean line at exit 0 over a marker that lives only
+    // in stage 3. The working tree copy is clean here, so nothing else covers it.
+    const firstRecord = weakened(
+      "stage-blind.ts",
+      'if (stage === "0") entries.set(path, { mode, oid });\n    else higherStages.add(path);',
+      "if (!entries.has(path)) entries.set(path, { mode, oid });",
+    );
+    const blind = scan(firstRecord);
+    expect(blind.code, blind.out).toBe(0);
+    expect(blind.out).toContain("OK: no hits");
+  });
+
+  it("refuses a REAL merge conflict too, on the sweeping route", () => {
+    // The fabricated index above is the microscope; this is the ordinary tree a
+    // developer actually has. The merge is EXPECTED to fail: the conflict is the
+    // fixture, and this repo's committer identity is configured in beforeAll, so
+    // a non-zero exit here is a conflict rather than a crash - asserted below by
+    // the index's own three stages, never by the exit code alone.
+    resetToBaseline();
+    const rel = "test/fixtures/real-conflict.txt";
+    commitFile(rel, "one\n");
+    expect(git(["checkout", "-q", "-b", "u-side-a"]).code).toBe(0);
+    writeFileSync(join(scaffold, ...rel.split("/")), "side a\n", "utf8");
+    expect(git(["commit", "-qam", "side a", "--no-verify"]).code).toBe(0);
+    expect(git(["checkout", "-q", "-b", "u-side-b", "HEAD~1"]).code).toBe(0);
+    writeFileSync(join(scaffold, ...rel.split("/")), "side b\n", "utf8");
+    expect(git(["commit", "-qam", "side b", "--no-verify"]).code).toBe(0);
+    git(["merge", "--no-verify", "u-side-a"]);
+    expect(git(["ls-files", "-s", "--", rel]).out.trim().split("\n")).toHaveLength(3);
+
+    const r = scan("scripts/phi-scan.ts");
+    expect(r.code, r.out).toBe(2);
+    expect(r.out).toContain(rel);
+    expect(r.out).toContain("no stage-0 blob");
+    git(["merge", "--abort"]);
+    git(["checkout", "-q", "main"]);
+  });
+
+  it("refuses when git cannot name the index, or names it EMPTY", () => {
+    // Without the index the union cannot run and the sweep is back to the walk's
+    // word alone, which is the state the rule exists to end. An empty answer
+    // counts as no answer: `git ls-files` prints nothing and exits 0 both for an
+    // empty index and for a directory that is no repository at all.
+    const outside = mkdtempSync(join(tmpdir(), "phi-scan-noindex-"));
+    mkdirSync(join(outside, "scripts"), { recursive: true });
+    mkdirSync(join(outside, "test", "fixtures"), { recursive: true });
+    writeFileSync(
+      join(outside, "scripts", "phi-allow-list.txt"),
+      readFileSync(join(scaffold, "scripts", "phi-allow-list.txt"), "utf8"),
+      "utf8",
+    );
+    writeFileSync(join(outside, "test", "fixtures", "ok.txt"), "nothing to see\n", "utf8");
+
+    // No repository at all.
+    const noRepo = scan("scripts/phi-scan.ts", [], outside);
+    expect(noRepo.code, noRepo.out).toBe(2);
+    expect(noRepo.out).toContain("index");
+    expect(noRepo.out).not.toContain("OK: no hits");
+    // ...and it is NOT the allow-list refusal wearing a different hat.
+    expect(noRepo.out).not.toContain("allow-list not found");
+
+    // A repository whose index is empty answers identically, and must be
+    // refused identically.
+    expect(spawnSync("git", ["init", "-q", "."], { cwd: outside }).status).toBe(0);
+    expect(spawnSync("git", ["ls-files"], { cwd: outside, encoding: "utf8" }).stdout).toBe("");
+    const emptyIndex = scan("scripts/phi-scan.ts", [], outside);
+    expect(emptyIndex.code, emptyIndex.out).toBe(2);
+    expect(emptyIndex.out).toContain("index");
+
+    rmSync(outside, { recursive: true, force: true });
+  });
+
+  it("leaves AXIS 2 alone: a TRACKED .md is still read by neither sweeping route", () => {
+    // The union inherits the walk's read filter rather than getting a wider one
+    // of its own. One boundary, not two: moving it is a roots-and-exclusions
+    // decision, taken deliberately, not a side effect of widening the sweep.
+    resetToBaseline();
+    commitFile("test/fixtures/notes.md", "ssn 123-45-6789\n");
+    const r = scan("scripts/phi-scan.ts");
+    expect(r.code, r.out).toBe(0);
+    expect(r.out).toContain("OK: no hits");
+  });
+
+  it("THE COMPLETENESS RULE COVERS THE UNION: a bypass on a tracked-but-absent path refuses", () => {
+    // The two tiers meet here. The path is not on disk, so only the union would
+    // ever read it; because the union's candidates are enumerated BEFORE the
+    // sweep, the bypass is judged as SUBTRACTING SOMETHING (not as naming a
+    // path the run does not enumerate), and the run then refuses for the true
+    // reason: a target it enumerated and never read.
+    resetToBaseline();
+    const rel = commitFile("test/fixtures/absent.txt", "patient ssn 123-45-6789 on file\n");
+    rmSync(join(scaffold, ...rel.split("/")));
+    logBypass(rel);
+
+    const r = scan("scripts/phi-scan.ts", [BYPASS, rel]);
+    expect(r.code, r.out).toBe(2);
+    expect(r.out).toContain("enumerated and never read");
+    expect(r.out).toContain(rel);
+    expect(r.out).not.toContain("does not enumerate");
+    expect(r.out).not.toContain("OK: no hits");
+  });
+
+  it("COSTS WHAT IT SAYS: a clean checkout invokes NO `cat-file`, and ONE `rev-parse`", () => {
+    // The cost claim in the scanner's docblock, MEASURED rather than derived
+    // from reading the code. A `git` shim first on PATH records every
+    // invocation and then execs the real one, so the counts are the run's own
+    // artifact. "No subprocess" would have been the easy sentence and it is
+    // false: the content dedupe needs the repository's object format before it
+    // can compare anything, which is exactly one `rev-parse` per all-mode run.
+    resetToBaseline();
+    commitFile("test/fixtures/tracked-clean.txt", "nothing to see\n");
+
+    const realGit = spawnSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).stdout.trim();
+    expect(realGit).not.toBe("");
+    const shimDir = join(root, "git-shim");
+    const log = join(root, "git-calls.log");
+    mkdirSync(shimDir, { recursive: true });
+    writeFileSync(
+      join(shimDir, "git"),
+      `#!/bin/sh\nprintf '%s\\n' "$*" >> ${log}\nexec ${realGit} "$@"\n`,
+      {
+        mode: 0o755,
+      },
+    );
+    const shimmed = { ...process.env, PATH: `${shimDir}:${process.env.PATH ?? ""}` };
+
+    writeFileSync(log, "", "utf8");
+    const r = scan("scripts/phi-scan.ts", [], scaffold, shimmed);
+    expect(r.code, r.out).toBe(0);
+    const calls = readFileSync(log, "utf8").split("\n").filter(Boolean);
+    expect(calls.filter((c) => c.startsWith("cat-file"))).toEqual([]);
+    expect(calls.filter((c) => c.startsWith("rev-parse --show-object-format"))).toHaveLength(1);
+
+    // ...and the counterfactual, so the zero is the DEDUPE's doing rather than
+    // an empty index: disable it and the union reads every tracked in-scope
+    // blob through `cat-file`.
+    const noDedupe = weakened(
+      "union-cost-no-dedupe.ts",
+      "if (readOids.get(path) === entry.oid) continue;",
+      "if (false) continue;",
+    );
+    writeFileSync(log, "", "utf8");
+    expect(scan(noDedupe, [], scaffold, shimmed).code).toBe(0);
+    const dumbCalls = readFileSync(log, "utf8").split("\n").filter(Boolean);
+    expect(dumbCalls.filter((c) => c.startsWith("cat-file")).length).toBeGreaterThan(0);
+  });
+
+  it("POSITIVES: an ordinary clean tracked tree is untouched, on every route", () => {
+    resetToBaseline();
+    commitFile("test/fixtures/clean-tracked.txt", "nothing to see\n");
+    expect(scan("scripts/phi-scan.ts").code).toBe(0);
+    expect(scan("scripts/phi-scan.ts", ["--staged"]).code).toBe(0);
+    expect(scan("scripts/phi-scan.ts", ["test/fixtures/clean-tracked.txt"]).code).toBe(0);
   });
 });
