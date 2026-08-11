@@ -101,16 +101,18 @@ the **`0.0.x`-until-first-alpha** ladder.
   co-occur inside single files.
 
 - **Reserved spaces, so a repo declares a CONVENTION instead of literals**: `nanp-fictional`,
-  `ssa-never-issued`, `reserved-domain`, on the floor and on a field rule. Declaring five
+  `ssa-never-issued`, `reserved-domain`, declarable on either branch of the floor and exported so a
+  repo's own `detect` can answer against exactly the table the floor uses. Declaring five
   never-issued SSN literals as `ID` entries is exactly the hand-maintenance this work deletes.
 
 - **A declared allow-list tag namespace, and an unknown tag REFUSES.** The parser had a
   `default: break`, so `ADDR`, `PHONE` and `EMAIL` were parsed, matched nothing and vanished with no
   diagnostic, five repos measured the cost as hits over values their own allow-list already
-  declared synthetic. The buckets are now `names`, `dobs`, `ids`, `addresses`, `cities`, `zips`,
-  `phones`, `emails`, `scopedEmails` and `emailDomains`. `EMAIL` also takes a path-scoped two-field
-  form, because widening a whole domain to clear one address is a real subtraction on the
-  commit-blocking route. **`DOB` is stored verbatim and compared verbatim**: one repo declares a
+  declared synthetic. The buckets are `names`, `dobs`, `ids`, `addresses`, `cities`, `zips`,
+  `phones`, `emails`, `scopedEmails`, `scopedEmailValues` and `emailDomains`. The path-scoped
+  declaration has its own tag, **`EMAILAT <path> <address>`**, because widening a whole domain to
+  clear one address is a real subtraction on the commit-blocking route, and because choosing an
+  arity by counting a line's fields is a heuristic that guesses wrong on a trailing comment. **`DOB` is stored verbatim and compared verbatim**: one repo declares a
   deliberately truncated date pinning a partial-timestamp fixture, and any normalising
   implementation silently drops it.
 
@@ -157,10 +159,6 @@ the **`0.0.x`-until-first-alpha** ladder.
 - **`--staged` diagnosed an unmerged path as "the index holds no file content for such an
   entry"**, which is true of a link and false here. It now has its own sentence, keyed on the `U`
   status letter.
-
-- **A declared format that fails to parse REFUSES instead of falling back to the floor alone.** A
-  sibling's shipped scanner does the latter and reports 0 hits at exit 0 over a fragmentary resource
-  carrying a name, a date of birth and a street address.
 
 - **The union's `git cat-file blob` ran at node's default 1 MiB `maxBuffer`, and the locus was
   computed after the read**, so a large tracked blob refused while naming the bare path. The locus

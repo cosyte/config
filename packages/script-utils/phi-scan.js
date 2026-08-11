@@ -10,8 +10,8 @@
 // WHAT "PROCESS" MEANS HERE, AND IT IS THE WHOLE LIST: walking, reading, enumeration, the union of
 // the walk with the bytes git carries, staged-blob handling, completeness and its bookkeeping,
 // reporting, exit codes, refusals, AND THE PROCESS TAIL that delivers all of it. A consuming repo
-// declares roots, exclusions, allow-list conventions, views and detector vocabularies. It runs none
-// of the above.
+// declares roots, exclusions, allow-list conventions and views, and supplies its own per-standard
+// field detection through `detect`. It runs none of the above.
 //
 // THE DESIGN RULE THIS FILE IS BUILT ON, and it comes from a measurement rather than a taste. All
 // thirteen consuming repos derived against 0.0.2, all thirteen were blocked, and every defect they
@@ -25,9 +25,10 @@
 // are all refusals.
 //
 // 🛑 IT IS NOT A CLAIM THAT EVERY MISDECLARATION IS CAUGHT, and an earlier draft said "WHEREVER",
-// which a reviewer falsified in four ways in one pass. A parameter that is well-typed and WRONG is
-// not detectable here: a `recordIdLength` of 2 against a three-character record id matches nothing,
-// and the engine cannot know that was not intended. What is closed is the class the engine can see.
+// which a reviewer falsified in four ways in one pass. A value that is well-typed and WRONG is not
+// detectable here, and neither is a misspelled key inside an optional NESTED object: a transposed
+// sub-key in `excludedPaths.routes` reverts to the default routes rather than refusing, which the
+// run then announces on stderr. What is closed is the class the engine can see.
 //
 // ZERO DEPENDENCIES, NO BUILD STEP. `git` is the only subprocess, always `execFileSync` with array
 // args, never shell-form.

@@ -123,11 +123,11 @@ a summary.
 - **WHERE THE ENGINE CAN TELL A PARAMETER IS WRONG, IT REFUSES.** All thirteen consuming repos
   derived against the first published engine, all thirteen were blocked, and **every defect they
   found made the gate weaker than declared and said nothing**: none produced a false alarm, all
-  produced false confidence. So an unknown allow-list tag, an unknown key in a detector spec, a root
-  that is not the shape it declares, a root the scan cannot stat, a declared root that yielded
-  nothing read, a declared format that will not parse, and an unreadable allow-list are refusals.
-  **It is not a claim that every misdeclaration is caught**: a well-typed but wrong value is not
-  detectable there.
+  produced false confidence. So an unknown allow-list tag, a root that is not the shape it declares,
+  a root the scan cannot stat, a declared root that yielded nothing read, and an unreadable
+  allow-list are refusals. **It is not a claim that every misdeclaration is caught**: a well-typed
+  but wrong value is not detectable there, and neither is a misspelled key inside an optional nested
+  object.
 - **THE SCAN ROOTS ARE THE WHOLE REPOSITORY (`["."]`), AND NARROWING THEM IS A MEASURED DECISION.**
   This template shipped `["test/fixtures", "src"]` and it was measured against a fresh scaffold: **35
   tracked files, ONE in scope**, so a tracked `test/leak.test.ts` carrying a dashed SSN exited 0 on

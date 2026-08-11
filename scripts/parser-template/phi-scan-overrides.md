@@ -43,17 +43,22 @@ creates an audit trail.
 > header promised took no effect and its author believed it had. Five repos
 > measured the cost as hits over values they had already declared synthetic. The
 > canonical tags are `NAME`, `DOB`, `ID`, `ADDR`, `CITY`, `ZIP`, `PHONE`,
-> `EMAIL` and `EMAILDOMAIN`; `EMAIL` also takes a path-scoped two-field form,
-> `EMAIL <repo-relative path> <address>`, which is narrower than allowing a
-> whole domain on the commit-blocking route.
+> `EMAIL`, `EMAILAT` and `EMAILDOMAIN`.
+>
+> 🛑 **THE PATH-SCOPED MAIL FORM IS `EMAILAT <repo-relative path> <address>`, NOT
+> `EMAIL`.** It is narrower than allowing a whole domain on the commit-blocking
+> route, which is the remedy to reach for first. `EMAIL` takes ONE field and
+> takes the rest of the line as the address, so `EMAIL <path> <address>` is
+> accepted, joined into one value that matches nothing, and declares nothing:
+> the unknown-tag refusal cannot see it, because `EMAIL` is a known tag.
 
-> **This is the STARTER template.** `scripts/phi-scan.ts` declares **no field
-> vocabulary**, so `pnpm phi-scan` finds the cross-cutting SSN/email floor and
-> nothing else. Before you rely on it as a real PHI gate for this standard, fill
-> in the `DETECTORS` table in `scripts/phi-scan.ts`, it is data, not code. If
-> this repo genuinely has no PHI-bearing fields to key on, say so in a comment
-> where `DETECTORS` is left empty, so a reader can tell a decision from an
-> omission. The clean line prints the declared-detector count on every run.
+> **This is the STARTER template.** `detect` in `scripts/phi-scan.ts` is empty,
+> so `pnpm phi-scan` finds the cross-cutting SSN/email floor and nothing else.
+> Before you rely on it as a real PHI gate for this standard, write this
+> standard's field-level detection there. If this repo genuinely has no
+> PHI-bearing fields to key on, say so in a comment where `detect` is left empty,
+> so a reader can tell a decision from an omission: the clean line says whether a
+> detector ran at all, on every run, for exactly that reason.
 
 ## Format
 

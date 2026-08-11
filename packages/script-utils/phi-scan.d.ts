@@ -4,7 +4,8 @@
  * THE ENGINE OWNS THE PROCESS AND THE CALLER DECLARES DATA. Process is walking, reading,
  * enumeration, the union of the walk with the bytes git carries, staged-blob handling, completeness
  * and its bookkeeping, reporting, exit codes, refusals, and the process TAIL. A consuming repo
- * declares roots, exclusions, allow-list conventions, views and detector vocabularies.
+ * declares roots, exclusions, allow-list conventions and views, and supplies its own per-standard
+ * field detection through `detect`.
  *
  * THE DESIGN RULE, from a measurement rather than a taste: all thirteen consuming repos derived
  * against 0.0.2, all thirteen were blocked, and every defect they found made the gate WEAKER THAN
@@ -17,7 +18,7 @@
 export interface Hit {
   /** The reported locus: the target's repo-relative path, plus an origin label when it has one. */
   path: string;
-  /** A locator inside the target: `(ssn)`, `(email)`, or an id from a declared vocabulary entry. */
+  /** A locator inside the target: `(ssn)`, `(email)`, or whatever this repo's `detect` names. */
   segment: string;
   /** The offending value, as found. */
   value: string;
@@ -188,7 +189,7 @@ export interface DetectContext {
 }
 
 /**
- * A per-repo detector the declarative surface cannot express, and the boundary is deliberate.
+ * This repo's own per-standard field detection: names, DOB, MRN / member id, address, phone.
  *
  * 🛑 THE THROWN MESSAGE IS PRINTED VERBATIM, so it reaches CI logs. Name the position, never the
  * content: a parser that interpolates the record it choked on turns a diagnostic into a PHI surface.

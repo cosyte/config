@@ -155,14 +155,14 @@ roots silently dropped tracked files their index union had been reading. Derive 
 
 All thirteen consuming repos derived against `0.0.2`, all thirteen were blocked, and **every defect
 they found made the gate weaker than declared and said nothing**: none produced a false alarm, all
-produced false confidence. So an unknown allow-list tag, an unknown key in a detector spec, a root
-that is not the shape it declares, a root the scan cannot stat, a declared root that yielded nothing
-read, a declared format that will not parse, a `stagedRoots` entry outside every scan root, and an
-unreadable allow-list or override log are all **refusals**, not silent skips.
+produced false confidence. So an unknown allow-list tag, a root that is not the shape it declares, a
+root the scan cannot stat, a declared root that yielded nothing read, a `stagedRoots` entry outside
+every scan root, and an unreadable allow-list or override log are all **refusals**, not silent skips.
 
 It is **not** a claim that every misdeclaration is caught. A parameter that is well-typed and wrong
-is not detectable here: a `recordIdLength` of 2 against a three-character record id matches nothing,
-and the engine cannot know that was not intended.
+is not detectable here, and neither is a misspelled key inside an optional nested object: a
+transposed sub-key in `excludedPaths.routes` reverts to the default routes, which the run then
+announces.
 
 ### Two things worth knowing before you adopt
 
