@@ -359,18 +359,25 @@
  * to a file, so the two get one boundary rather than links getting a second,
  * stricter one; `--staged` applies no gitignore exemption, and does not need
  * one, because `git check-ignore` is index-aware and a staged path is therefore
- * never reported ignored; and if a scan ROOT is itself replaced by an UNTRACKED
- * link the walk follows it (`existsSync`/`readdirSync` both follow) and scans
- * the target directory, where `--staged` refuses the index entry. Those are
- * different answers to the same tree and neither is blind, which is why this
- * narrows the staged one and leaves the walk alone.
+ * never reported ignored.
  *
- * THE WORD `UNTRACKED` IN THAT LAST CLAUSE IS DOING WORK, AND IT WAS ADDED
- * AFTER THE UNION MADE THE UNQUALIFIED SENTENCE FALSE. Once the root link is
- * TRACKED, `all` mode meets it as a mode-120000 INDEX ENTRY and refuses under
- * the index rule below, so the two routes no longer give different answers
- * there. The walk itself is still unchanged, which is what the sentence was
- * about; the run around it got stricter.
+ * A SCAN ROOT REPLACED BY A LINK IS ITS OWN CASE, AND IT SPLITS ON WHETHER THE
+ * LINK IS TRACKED. Both halves are measured, on a scaffolded repo, because two
+ * drafts of this paragraph asserted a shape the tree does not have:
+ *
+ *   - TRACKED: BOTH routes refuse (exit 2). `all` mode meets a mode-120000
+ *     INDEX ENTRY and refuses under the index rule; `--staged` meets the same
+ *     mode in a `--raw` record and refuses under its own. Different sentences,
+ *     same answer.
+ *   - UNTRACKED: there is no index entry at all, so `--staged` has nothing to
+ *     refuse and legitimately reports a clean commit; the walk FOLLOWS the link
+ *     (`existsSync`/`readdirSync` both follow) and scans the target directory,
+ *     reporting any hit it finds there under the in-repo path. THAT ASYMMETRY
+ *     IS NOT A HOLE, because an untracked link commits nothing at that path:
+ *     `--staged` grades what a commit carries, and a commit carries none of it.
+ *
+ * The walk itself is unchanged by any of this, which is what the narrowing was
+ * ever about; what got stricter is the index the sweep now also reads.
  * ===========================================================================
  */
 

@@ -146,10 +146,13 @@ function overrideLog(paths) {
  * WHAT `ok` DOES AND DOES NOT PROVE, STATED RATHER THAN LEFT TO BE ASSUMED. It
  * proves the scanner REFUSED a run that withdrew a target it had enumerated,
  * instead of reporting on it: that is the property a caller of `phi-scan`
- * actually depends on, and it is the one every repo in this survey fails. It
- * does NOT prove WHICH rule produced the refusal. A scanner that refuses any
- * run using a bypass at all, or refuses for some unrelated reason, is graded
- * `ok` here. Sharpening that would mean asking the scanner WHY, which means
+ * actually depends on. It does NOT prove WHICH rule produced the refusal. A
+ * scanner that refuses ANY run carrying a bypass, or refuses for some unrelated
+ * reason AFTER reading the violator, is graded `ok` here. (One that refuses
+ * BEFORE reading anything prints no marker and lands on `inconclusive` instead,
+ * which is the branch below.) NO COUNT OF HOW MANY REPOS PASS OR FAIL IS
+ * WRITTEN HERE: a draft of this paragraph said "every repo in this survey
+ * fails" and one already did not. Sharpening that would mean asking the scanner WHY, which means
  * matching its prose, which is the failure mode this whole probe exists to
  * avoid. So the weaker discriminator is deliberate, and the wording of every
  * verdict is kept inside what was observed.

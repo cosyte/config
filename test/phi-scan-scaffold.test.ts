@@ -558,17 +558,36 @@ describe("--staged refuses a non-regular entry, and keys on the ROOT half of sco
     expect(r.out).toContain("test/fixtures");
     expect(r.out).toContain("a symbolic link");
 
-    // AND `all` MODE NOW REFUSES IT TOO, which is a CHANGE the union brought
-    // and is pinned here so the docblock clause about the two routes giving
-    // different answers stays true only where it still is. Before the index was
-    // read, the walk FOLLOWED the link and scanned whatever was on the other
-    // side; once the link is TRACKED it is a mode-120000 index entry and the
-    // index rule refuses. An UNTRACKED root link is still followed.
+    // ...and the message is the STAGED rule's, which is what makes the pair
+    // below a real discrimination rather than two spellings of one refusal.
+    expect(r.out).toContain("entry is not a regular file");
+
+    // AND `all` MODE NOW REFUSES IT TOO, which is a CHANGE the union brought.
+    // Before the index was read, the walk FOLLOWED the link and scanned
+    // whatever was on the other side; once the link is TRACKED it is a
+    // mode-120000 INDEX ENTRY and the index rule refuses. The noun is asserted,
+    // not just the exit code: it is the only thing that says WHICH rule fired,
+    // and the docblock clause this pins distinguishes them.
     const swept = scan("scripts/phi-scan.ts");
     expect(swept.code, swept.out).toBe(2);
     expect(swept.out).toContain("test/fixtures");
     expect(swept.out).toContain("a symbolic link");
+    expect(swept.out).toContain("index entry is not a regular blob");
     expect(swept.out).not.toContain("OK: no hits");
+
+    // THE UNTRACKED HALF, MEASURED RATHER THAN ASSERTED IN PROSE. With the same
+    // link untracked there is no index entry, so `--staged` has nothing to
+    // refuse and reports a clean commit, while the walk follows the link and
+    // scans what is on the other side. Two drafts of the docblock paragraph
+    // about this got the pairing wrong; this is what the tree actually does.
+    git(["rm", "-q", "--cached", "--", "test/fixtures"]);
+    expect(git(["ls-files", "-s", "--", "test/fixtures"]).out.trim()).toBe("");
+    const untrackedStaged = scan("scripts/phi-scan.ts", ["--staged"]);
+    expect(untrackedStaged.code, untrackedStaged.out).toBe(0);
+    writeFileSync(join(root, "elsewhere", "leak.txt"), "patient ssn 123-45-6789\n", "utf8");
+    const untrackedAll = scan("scripts/phi-scan.ts");
+    expect(untrackedAll.code, untrackedAll.out).toBe(1);
+    expect(untrackedAll.out).toContain("123-45-6789");
   });
 
   it("still scans, and still catches, an ordinary staged fixture", () => {
@@ -1105,7 +1124,7 @@ describe("all mode reads the bytes git carries as a UNION with the walk", () => 
       cwd: outside,
       encoding: "utf8",
     });
-    expect(noRepoList.status).not.toBe(0);
+    expect(noRepoList.status).toBe(128);
     expect(noRepoList.stderr).toContain("not a git repository");
 
     const noRepo = scan("scripts/phi-scan.ts", [], outside);
