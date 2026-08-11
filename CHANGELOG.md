@@ -76,11 +76,14 @@ no package, so entries here are **dated** rather than versioned.
     - **A POSITIVE CONTROL runs before anything is graded**: the template's scanner with the rule
       deleted MUST come back `drift`, and the shipped one MUST come back `ok`, or the tool refuses to
       report at all. An assertion nobody has seen fail is indistinguishable from one that cannot.
-    - **First measurement, 13 target repos:** `terminology` carries the rule; **11 do not** (they
-      report only their hits code over a run that withdrew an enumerated target), and `dicom` was
-      `inconclusive` until it got a payload its scanner reads. That list is a worklist, not a
-      verdict on those slices: it is a DIFFERENT half of `PHI-SCAN` from the sweep-versus-corpus
-      escape those repos closed.
+    - **First measurement, 2026-08-11, over the 13 targets:** `terminology` carries the rule and
+      **the other 12 do not**: they report only their hits code over a run that withdrew a target
+      they had enumerated. `dicom` was `inconclusive` until it got a payload its scanner reads, and
+      it is one of the 12. **That count is a dated measurement, not a standing claim** (an earlier
+      draft of this line said 11 by counting `dicom` out after it stopped being inconclusive).
+      Re-run the check rather than reading it here. The list is a worklist and not a verdict on
+      those slices: it is a DIFFERENT half of `PHI-SCAN` from the sweep-versus-corpus escape those
+      repos closed.
     - `scripts/drift-check.js` now runs only under `isCliEntrypoint`, so the probe can be tested
       here. `pnpm drift` needs sibling checkouts and this repo's CI has none, so
       `test/drift-check-phi-probe.test.ts` is where the controls actually run.
