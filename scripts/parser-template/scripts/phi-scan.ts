@@ -361,23 +361,30 @@
  * one, because `git check-ignore` is index-aware and a staged path is therefore
  * never reported ignored.
  *
- * A SCAN ROOT REPLACED BY A LINK IS ITS OWN CASE, AND IT SPLITS ON WHETHER THE
- * LINK IS TRACKED. Both halves are measured, on a scaffolded repo, because two
- * drafts of this paragraph asserted a shape the tree does not have:
+ * A SCAN ROOT REPLACED BY A LINK IS ITS OWN CASE, AND THE TWO ROUTES SPLIT ON
+ * DIFFERENT AXES: `all` mode keys on THE INDEX, `--staged` keys on THE STAGED
+ * DELTA. Those are not the same question, and ONLY THE THREE CELLS BELOW ARE
+ * CLAIMED, because only these are executed (`cosyte/config`'s
+ * `test/phi-scan-scaffold.test.ts`, against a scaffolded repo):
  *
- *   - TRACKED: BOTH routes refuse (exit 2). `all` mode meets a mode-120000
- *     INDEX ENTRY and refuses under the index rule; `--staged` meets the same
- *     mode in a `--raw` record and refuses under its own. Different sentences,
- *     same answer.
- *   - UNTRACKED: there is no index entry at all, so `--staged` has nothing to
- *     refuse and legitimately reports a clean commit; the walk FOLLOWS the link
- *     (`existsSync`/`readdirSync` both follow) and scans the target directory,
- *     reporting any hit it finds there under the in-repo path. THAT ASYMMETRY
- *     IS NOT A HOLE, because an untracked link commits nothing at that path:
- *     `--staged` grades what a commit carries, and a commit carries none of it.
+ *   - the link STAGED: both routes refuse (exit 2), under two different rules
+ *     and with two different nouns. `all` meets a mode-120000 INDEX ENTRY;
+ *     `--staged` meets the same mode in a `--raw` record.
+ *   - the link COMMITTED, with nothing left in the staged delta: `all` still
+ *     refuses, and `--staged` reports a clean commit (exit 0) because there is
+ *     no staged record left to read. That is the delta route's SCOPE rather
+ *     than a hole in it, and it is the reason `all` mode is the sweep.
+ *   - the link never added: `all` FOLLOWS it (`existsSync`/`readdirSync` both
+ *     follow) and scans the target directory, reporting what it finds there
+ *     under the in-repo path; `--staged` reports clean, and rightly, because a
+ *     commit carries no bytes at that path.
  *
- * The walk itself is unchanged by any of this, which is what the narrowing was
- * ever about; what got stricter is the index the sweep now also reads.
+ * NO WIDER CLAIM IS MADE, AND THE MISSING ONE IS NAMED RATHER THAN IMPLIED:
+ * three drafts of this paragraph quantified over TRACKED versus UNTRACKED and
+ * each was false in a cell the fixture did not cover (a committed link is
+ * tracked and stages nothing; an unadded link leaves the OTHER entries under
+ * that root in the index). The walk itself is unchanged by any of it. What got
+ * stricter is the index the sweep now also reads.
  * ===========================================================================
  */
 

@@ -575,18 +575,36 @@ describe("--staged refuses a non-regular entry, and keys on the ROOT half of sco
     expect(swept.out).toContain("index entry is not a regular blob");
     expect(swept.out).not.toContain("OK: no hits");
 
-    // THE UNTRACKED HALF, MEASURED RATHER THAN ASSERTED IN PROSE. With the same
-    // link untracked there is no index entry, so `--staged` has nothing to
-    // refuse and reports a clean commit, while the walk follows the link and
-    // scans what is on the other side. Two drafts of the docblock paragraph
-    // about this got the pairing wrong; this is what the tree actually does.
+    // CELL 2, THE ONE THREE DRAFTS OF THE DOCBLOCK GOT WRONG: COMMIT the link
+    // and the staged delta is EMPTY, so `--staged` has no record to read and
+    // reports a clean commit, while `all` still refuses off the index. The two
+    // routes split on DIFFERENT AXES (staged delta vs index), which is why
+    // neither "tracked" nor "untracked" was ever the right word for the pair.
+    expect(git(["commit", "-qm", "root link", "--no-verify"]).code).toBe(0);
+    expect(git(["diff", "--cached", "--raw", "--no-renames", "--diff-filter=d"]).out.trim()).toBe(
+      "",
+    );
+    const committedStaged = scan("scripts/phi-scan.ts", ["--staged"]);
+    expect(committedStaged.code, committedStaged.out).toBe(0);
+    const committedAll = scan("scripts/phi-scan.ts");
+    expect(committedAll.code, committedAll.out).toBe(2);
+    expect(committedAll.out).toContain("index entry is not a regular blob");
+
+    // CELL 3: the link never added at all. `--staged` reports clean (a commit
+    // carries no bytes at that path) and the walk FOLLOWS the link, scanning
+    // what is on the other side and reporting it under the IN-REPO path, which
+    // is asserted rather than just the value: the locus is the whole reason a
+    // developer can find it. Note the OTHER entries under that root stay in the
+    // index, which is why the paragraph says "the link has no entry" and not
+    // "there is no entry".
     git(["rm", "-q", "--cached", "--", "test/fixtures"]);
-    expect(git(["ls-files", "-s", "--", "test/fixtures"]).out.trim()).toBe("");
+    expect(git(["ls-files", "-s", "--", "test/fixtures"]).out).not.toContain("120000");
     const untrackedStaged = scan("scripts/phi-scan.ts", ["--staged"]);
     expect(untrackedStaged.code, untrackedStaged.out).toBe(0);
     writeFileSync(join(root, "elsewhere", "leak.txt"), "patient ssn 123-45-6789\n", "utf8");
     const untrackedAll = scan("scripts/phi-scan.ts");
     expect(untrackedAll.code, untrackedAll.out).toBe(1);
+    expect(untrackedAll.out).toContain("test/fixtures/leak.txt");
     expect(untrackedAll.out).toContain("123-45-6789");
   });
 
