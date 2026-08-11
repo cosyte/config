@@ -67,7 +67,6 @@ function run(config: Partial<Parameters<typeof runPhiScan>[0]> & { argv?: string
       argv: [],
       exitCodes: CODES,
       scanRoots: ["."],
-      isStagedReadable: exemptsMarkdown,
       ...config,
     });
     return { code, out };
@@ -109,7 +108,6 @@ describe("the configuration contract refuses to be inherited by accident", () =>
         repoRoot: repo,
         argv: [],
         scanRoots: ["."],
-        isStagedReadable: exemptsMarkdown,
       } as unknown as Parameters<typeof runPhiScan>[0]),
     ).toThrow(/exitCodes` is REQUIRED/);
   });
@@ -124,43 +122,93 @@ describe("the configuration contract refuses to be inherited by accident", () =>
         argv: [],
         exitCodes: { clean: 0, hits: 2, refuse: 2 },
         scanRoots: ["."],
-        isStagedReadable: exemptsMarkdown,
       }),
     ).toThrow(/three DIFFERENT numbers/);
   });
 
-  it("REQUIRES the scan roots and the --staged read filter", () => {
+  it("REQUIRES the scan roots, which have no safe default in either direction", () => {
+    // Five repos need the whole repository; two measured that the whole repository makes them exit
+    // on their own manifest's author address; five more measured that copying a sibling's narrow
+    // roots silently dropped tracked files the index union had been reading. So there is no value
+    // this engine could pick that is not wrong somewhere, and it declines to pick one.
     expect(() =>
       runPhiScan({
         repoRoot: repo,
         argv: [],
         exitCodes: CODES,
-        isStagedReadable: exemptsMarkdown,
       } as unknown as Parameters<typeof runPhiScan>[0]),
     ).toThrow(/scanRoots` is REQUIRED/);
+  });
 
+  it("REFUSES the retired `isStagedReadable` rather than ignoring it", () => {
+    // A parameter the engine no longer reads must not be accepted in silence: a repo carrying one
+    // forward would have its `--staged` scope quietly become something else. This is the same
+    // class as the allow-list's old `default: break`.
     expect(() =>
       runPhiScan({
         repoRoot: repo,
         argv: [],
         exitCodes: CODES,
         scanRoots: ["."],
+        isStagedReadable: exemptsMarkdown,
       } as unknown as Parameters<typeof runPhiScan>[0]),
-    ).toThrow(/isStagedReadable` is REQUIRED/);
+    ).toThrow(/`isStagedReadable` has been replaced by `stagedRoots`/);
   });
 
-  it("DEFAULTS the Markdown read exemption, so moving it is one change rather than thirteen", () => {
-    // `isWalkReadable` is deliberately optional. A repo that does not set it inherits the shared
-    // exemption, which is what makes the `.md` boundary a one-line decision in this package rather
-    // than an edit in every consumer. Pinned in both directions so the default cannot go vacuous.
+  it("REFUSES the retired `isWalkReadable`, whose DEFAULT also changed under it", () => {
+    // Renaming it silently would be worse than dropping it: a repo that had relied on the old
+    // default would keep the old spelling, get the new default, and read more than it declared —
+    // or, had the flip gone the other way, less.
+    expect(() =>
+      runPhiScan({
+        repoRoot: repo,
+        argv: [],
+        exitCodes: CODES,
+        scanRoots: ["."],
+        isWalkReadable: exemptsMarkdown,
+      } as unknown as Parameters<typeof runPhiScan>[0]),
+    ).toThrow(/`isWalkReadable` is now `isReadable`/);
+  });
+
+  it("READS Markdown BY DEFAULT, and the exemption is an explicit opt-in", () => {
+    // 🛑 THE DEFAULT IS FLIPPED FROM 0.0.2, AND THIS IS THE FIX FOR THE MEASURED DEFECT. The old
+    // default exempted Markdown on both sweeping routes, so a tracked `.md` was read by neither
+    // while `README.md` and `CHANGELOG.md` ship inside the npm tarball. Pinned in BOTH directions,
+    // so neither the default nor the opt-in can go vacuous.
     write("test/fixtures/notes.md", `ssn ${SSN}\n`);
     write("test/fixtures/data.txt", "nothing to see\n");
     commitAll();
-    expect(run().code).toBe(0);
 
-    const strict = run({ isWalkReadable: () => true });
-    expect(strict.code).toBe(1);
-    expect(strict.out).toContain("test/fixtures/notes.md");
+    const byDefault = run();
+    expect(byDefault.code).toBe(1);
+    expect(byDefault.out).toContain("test/fixtures/notes.md");
+
+    // The old behaviour is still reachable, but only by declaring it.
+    expect(run({ isReadable: exemptsMarkdown }).code).toBe(0);
+  });
+
+  it("READS a Markdown FILE ROOT, which used to report clean over a live identifier", () => {
+    // 🛑 THE HEADLINE DEFECT OF THIS SLICE, PINNED. Under 0.0.2 a `README.md` scan root went through
+    // the shared Markdown read exemption, read NOTHING, and returned `OK: no hits` at exit 0 over a
+    // live dashed identifier — a PHI gate reporting clean while opening no file, reachable by
+    // default. A declared FILE root now bypasses the read filter entirely, because naming a file as
+    // a root is the same explicit act as naming it on the command line.
+    write("README.md", `ssn ${SSN}\n`);
+    write("src/a.ts", "nothing to see\n");
+    commitAll();
+
+    const r = run({ scanRoots: [{ rel: "README.md", shape: "file" }] });
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("README.md");
+
+    // AND IT SURVIVES THE OPT-IN. A repo that declares the Markdown exemption for its SWEEP must
+    // still read a file it named as a root, or the defect comes straight back through the override.
+    const exempted = run({
+      scanRoots: [{ rel: "README.md", shape: "file" }],
+      isReadable: exemptsMarkdown,
+    });
+    expect(exempted.code).toBe(1);
+    expect(exempted.out).toContain("README.md");
   });
 });
 
@@ -286,12 +334,33 @@ describe("the two containments a reviewer falsified, now enforced rather than as
   // type documents as valid did exactly that. Each reproduction below is the reviewer's, kept as the
   // regression rather than paraphrased.
 
-  it("REFUSES a staged path `isStagedReadable` admits and no scan root covers", () => {
-    // THE MEASURED HOLE. With roots at `["src"]` and the staged filter at the shared Markdown
-    // exemption, a STAGED symbolic link under `test/fixtures/` is outside every scan root, so the
-    // non-regular refusal never sees it. The route then enumerated it, READ it, handed the link's
-    // TARGET PATH to the detector as if it were content, counted the scan complete, and printed
-    // `OK: no hits` at exit 0. The bytes are the very text the engine refuses to print elsewhere.
+  it("cannot be given a `--staged` scope outside the scan roots AT ALL", () => {
+    // THE MEASURED HOLE, AND THE REPAIR IS STRUCTURAL RATHER THAN A NEW RUNTIME CHECK. With roots at
+    // `["src"]` and the old `isStagedReadable` predicate at the shared Markdown exemption, a STAGED
+    // symbolic link under `test/fixtures/` was outside every scan root, so the non-regular refusal
+    // never saw it. The route then enumerated it, READ it, handed the link's TARGET PATH to the
+    // detector as if it were content, counted the scan complete, and printed `OK: no hits` at exit
+    // 0. A predicate and a root list were two independent keys with nothing relating them.
+    //
+    // `stagedRoots` is a second declared LIST, so the containment is a comparison the engine can
+    // make before any file is opened. It REFUSES rather than narrowing silently to the
+    // intersection: narrowing would hide a misconfiguration in the one place this gate blocks a
+    // commit.
+    expect(() =>
+      runPhiScan({
+        repoRoot: repo,
+        argv: ["--staged"],
+        exitCodes: CODES,
+        scanRoots: ["src"],
+        stagedRoots: ["test/fixtures"],
+      }),
+    ).toThrow(/covered by no scan root/);
+  });
+
+  it("still refuses a staged link INSIDE the roots, with the mode's own noun", () => {
+    // The other side of the same boundary, and it is the anti-vacuity half: making the misconfigured
+    // shape unreachable must not also disarm the check for the shape that IS configurable. A staged
+    // link under a covered root is refused on its mode, before any read.
     const outside = join(repo, "..", "phi-scan-engine-staged-target.txt");
     writeFileSync(outside, `ssn ${SSN}\n`, "utf8");
     try {
@@ -308,24 +377,17 @@ describe("the two containments a reviewer falsified, now enforced rather than as
       const seen: string[] = [];
       const r = run({
         argv: ["--staged"],
-        scanRoots: ["src"],
+        scanRoots: ["."],
         detect: (ctx) => seen.push(ctx.path),
       });
       expect(r.code, r.out).toBe(2);
       expect(r.out).toContain("test/fixtures/link.txt");
-      expect(r.out).toContain("outside every scan root");
+      expect(r.out).toContain("a symbolic link");
       expect(r.out).not.toContain("OK: no hits");
       // The refusal fires BEFORE the read, so the link's target never reached a detector, and the
       // target path is never echoed: it is working-tree text that can itself carry PHI.
       expect(seen).toEqual([]);
       expect(r.out).not.toContain("phi-scan-engine-staged-target");
-
-      // ...and the configuration that DOES contain the filter is untouched: widen the roots to
-      // cover the same path and the ordinary non-regular refusal takes over, with its own noun.
-      const covered = run({ argv: ["--staged"], scanRoots: ["."] });
-      expect(covered.code, covered.out).toBe(2);
-      expect(covered.out).toContain("a symbolic link");
-      expect(covered.out).not.toContain("outside every scan root");
     } finally {
       rmSync(outside, { force: true });
     }
@@ -363,7 +425,6 @@ describe("the two containments a reviewer falsified, now enforced rather than as
         argv: [],
         exitCodes: CODES,
         scanRoots: ["../elsewhere"],
-        isStagedReadable: exemptsMarkdown,
       }),
     ).toThrow(/resolves outside the repository/);
   });
@@ -378,7 +439,6 @@ describe("the two containments a reviewer falsified, now enforced rather than as
         argv: [],
         exitCodes: CODES,
         scanRoots: ["."],
-        isStagedReadable: exemptsMarkdown,
         excludedPaths: ["a"] as unknown as ReadonlySet<string>,
       }),
     ).toThrow(/excludedPaths` must be a Set/);
@@ -394,7 +454,23 @@ describe("whole-repository scan roots, which is what a fresh scaffold needs", ()
     write("src/index.ts", "export const x = 1;\n");
     commitAll();
 
-    expect(run({ scanRoots: ["test/fixtures", "src"] }).code).toBe(0);
+    // 🛑 THE NARROW ROOTS NOW REFUSE RATHER THAN REPORTING CLEAN, and that is the per-root
+    // observation tier, not the corpus. `test/fixtures` is declared and yields nothing read, which
+    // is indistinguishable from a root that was never there. Under 0.0.2 this same configuration
+    // printed `OK: no hits` at exit 0 over the tracked violator below.
+    const narrow = run({ scanRoots: ["test/fixtures", "src"] });
+    expect(narrow.code, narrow.out).toBe(2);
+    expect(narrow.out).toContain("test/fixtures");
+    expect(narrow.out).not.toContain("OK: no hits");
+
+    // The old silent-clean shape is still reachable, but only by DECLARING that the root may be
+    // empty — and even then the violator outside the roots is still not read, which is the scope
+    // decision this test is really about.
+    const declared = run({
+      scanRoots: [{ rel: "test/fixtures", require: false }, "src"],
+    });
+    expect(declared.code, declared.out).toBe(0);
+    expect(declared.out).not.toContain("test/leak.test.ts");
 
     const wide = run();
     expect(wide.code).toBe(1);
@@ -487,14 +563,22 @@ describe("whole-repository scan roots, which is what a fresh scaffold needs", ()
     write("src/index.ts", "export const x = 1;\n");
     commitAll();
 
-    const r = run({ scanRoots: ["README.md"], isWalkReadable: () => true });
+    const r = run({ scanRoots: [{ rel: "README.md", shape: "file" }] });
     expect(r.code, r.out).toBe(1);
     expect(r.out).toContain("README.md");
 
     // ...and the root half of scope really is just that file: a violator elsewhere is out of scope.
     write("src/leak.ts", `const ssn = "${SSN}";\n`);
-    const scoped = run({ scanRoots: ["README.md"], isWalkReadable: () => true });
+    const scoped = run({ scanRoots: [{ rel: "README.md", shape: "file" }] });
     expect(scoped.out).not.toContain("src/leak.ts");
+
+    // 🛑 AND THE SHAPE IS DECLARED, NOT DERIVED. Deriving is what let a corpus root replaced by a
+    // one-line file through: the sweep read the replacement, the per-root tier saw something read
+    // under that root, and a run went from refusing to clean. `require` cannot catch that state,
+    // because the replacement IS read; only the declaration can.
+    const mismatch = run({ scanRoots: ["README.md"] });
+    expect(mismatch.code, mismatch.out).toBe(2);
+    expect(mismatch.out).toContain("a file, where a directory is declared");
   });
 
   it("REFUSES a root that names a symbolic link, rather than following it", () => {
@@ -529,7 +613,12 @@ describe("whole-repository scan roots, which is what a fresh scaffold needs", ()
 
     const r = run({ excludedPaths: new Set(["test/deliberate.test.ts"]) });
     expect(r.code).toBe(1);
-    expect(r.out).not.toContain("test/deliberate.test.ts");
-    expect(r.out).toContain("test/other.test.ts");
+    // It is ANNOUNCED and it is not judged. The announcement is the point: a sibling's superseded
+    // scanner printed its exclusions and the engine dropped them silently, which is the same class
+    // as a dropped allow-list tag. So the assertion is about the HIT report, not about the whole
+    // stream.
+    expect(r.out).toContain("EXCLUDED: test/deliberate.test.ts");
+    expect(r.out).not.toContain("HIT: test/deliberate.test.ts");
+    expect(r.out).toContain("HIT: test/other.test.ts");
   });
 });

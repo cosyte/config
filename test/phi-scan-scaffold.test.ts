@@ -71,6 +71,7 @@
 import { spawnSync } from "node:child_process";
 import {
   cpSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -168,13 +169,24 @@ function weakenedAll(name: string, subs: [string, string][]): string {
   let engine = readFileSync(join(scaffold, ENGINE_REL), "utf8");
 
   for (const [from, to] of subs) {
-    const inScanner = scanner.includes(from);
-    const inEngine = engine.includes(from);
+    const inScanner = scanner.split(from).length - 1;
+    const inEngine = engine.split(from).length - 1;
     expect(
-      inScanner || inEngine,
+      inScanner + inEngine > 0,
       `counterfactual "${name}" matches neither the shipped scanner nor the shipped engine: ${from}`,
     ).toBe(true);
-    if (inScanner) scanner = scanner.replace(from, to);
+    // 🛑 AND IT MUST MATCH EXACTLY ONCE. `String.replace` with a string pattern rewrites
+    // only the FIRST occurrence, so an ambiguous anchor silently weakens something other
+    // than the line the case names and the counterfactual then passes for the wrong
+    // reason. Measured: the staged builder carries three `isUnderStagedRoot(s.path) &&`
+    // occurrences, and an anchor on the bare line hit the unmerged filter rather than the
+    // mode refusal.
+    expect(
+      inScanner + inEngine,
+      `counterfactual "${name}" anchor is not unique (${String(inScanner)} in the scanner, ` +
+        `${String(inEngine)} in the engine): ${from}`,
+    ).toBe(1);
+    if (inScanner === 1) scanner = scanner.replace(from, to);
     else engine = engine.replace(from, to);
   }
 
@@ -367,11 +379,9 @@ describe("controls: the suite is exercising the emitted scanner, and it can stil
     for (const line of [
       'from "@cosyte/script-utils/phi-scan"',
       "const EXIT_CODES = { clean: 0, hits: 1, refuse: 2 } as const;",
-      'const SCAN_ROOTS: readonly string[] = ["."];',
-      "function isStagedReadable(relPath: string): boolean {",
-      "return exemptsMarkdown(relPath);",
-      "process.exit(",
-      "runPhiScan({",
+      'const SCAN_ROOTS: readonly ScanRootSpec[] = ["."];',
+      "const DETECTORS: readonly DetectorSpec[] = [];",
+      "runPhiScanCli({",
     ]) {
       expect(squash(source)).toContain(squash(line));
       expect(squash(emitted)).toContain(squash(line));
@@ -385,9 +395,31 @@ describe("controls: the suite is exercising the emitted scanner, and it can stil
     expect(engine).toBe(shipped);
     for (const line of [
       "isUnderScanRoot(relPath) {",
-      "this.isUnderScanRoot(s.path) &&",
-      '["diff", "--cached", "--raw", "-z", "--no-renames", "--diff-filter=d"]',
+      "this.isUnderStagedRoot(s.path) &&",
+      '"--no-renames",',
+      '"--ignore-submodules=none",',
       "unscannable.push({ path: this.normalizePath(full), kind: direntKind(e) });",
+      // THE READ AND SHAPE HALVES OF A ROOT. A declared FILE root bypasses the
+      // read filter (the Markdown-root defect), and a root that is not the shape
+      // it declares refuses (the root-replaced-by-a-blob defect, which the
+      // per-root tier cannot catch because the replacement IS read).
+      'if (root.shape === "file") files.push(abs);',
+      'unscannable.push({ path: root.rel, kind: `a ${actual}, where a ${root.shape} is declared` });',
+      // `lstat`, never `stat`, on the route that takes a path from argv.
+      "const stats = lstatOrNull(abs);",
+      // The per-root observation tier, and the announcement of every declared
+      // subtraction. Both exist because a gate must not be quietly narrower than
+      // it was declared to be.
+      ".filter((root) => root.require)",
+      "reportDeclaredSubtractions();",
+      // An allow-list tag nothing consumes refuses instead of vanishing.
+      "unknown.push(`  - line ${String(i + 1)}: ${tag}`);",
+      // A declared format that will not parse refuses instead of falling back to
+      // the floor alone.
+      "throw new FormatParseError(",
+      // The process tail: status first, EPIPE swallowed, termination bounded.
+      "process.exitCode = code;",
+      "timer.unref();",
       // The completeness rule. Each of these is a line whose loss reopens a
       // measured exit-0-over-an-unopened-corpus hole.
       'const scanPaths = mode === "paths" ? this.dedupeByRepoPath(seed) : paths;',
@@ -501,10 +533,17 @@ describe("all mode refuses a non-regular entry under a scan root", () => {
     expect(indexOnly.out).toContain("a symbolic link");
   });
 
-  it("leaves the .md READ exemption alone: a regular .md file is still not read", () => {
+  it("READS a regular .md file, which the shared exemption used to skip", () => {
+    // 🛑 THE DEFAULT IS FLIPPED, AND THIS CASE IS THE INVERSION OF THE ONE IT
+    // REPLACES. `.md` used to be dropped by the shared read filter on both
+    // sweeping routes, so a tracked Markdown file was read by neither while
+    // `README.md` and `CHANGELOG.md` ship inside the npm tarball. It is now
+    // read, and a repo that wants the old boundary declares `exemptsMarkdown`.
     resetToBaseline();
     writeFileSync(join(scaffold, "test", "fixtures", "notes.md"), "ssn 123-45-6789\n", "utf8");
-    expect(scan("scripts/phi-scan.ts").code).toBe(0);
+    const r = scan("scripts/phi-scan.ts");
+    expect(r.code, r.out).toBe(1);
+    expect(r.out).toContain("test/fixtures/notes.md");
   });
 
   it("still scans, and still catches, an ordinary regular fixture", () => {
@@ -533,13 +572,19 @@ describe("--staged refuses a non-regular entry, and keys on the ROOT half of sco
     // the read filter instead makes the pre-commit route pass a mode-120000 blob
     // green over a corpus all-mode refuses.
     //
-    // WHICH READ FILTER, STATED CURRENTLY RATHER THAN FROM MEMORY: this template's
-    // `isStagedReadable` is now the shared Markdown exemption, so what drops
-    // `src/notes.md` is its `.md` name. It used to be `src/**.ts`, and an earlier
-    // version of this comment still said so after the axis moved. The point is
-    // unchanged and is about the SHAPE of the two predicates, not about either
-    // one's current body: a link's NAME is no evidence about what is on the other
-    // side of it, which is exactly what a read filter may assume about a FILE.
+    // WHICH READ FILTER, STATED CURRENTLY RATHER THAN FROM MEMORY, AND IT MOVED
+    // AGAIN IN THIS SLICE. The template's read filter now reads EVERYTHING, so
+    // nothing it ships drops `src/notes.md` and the two predicates cannot be told
+    // apart by a `.md` name any more. The counterfactual below therefore declares
+    // a read subtraction — `unreadablePrefixes`, which is the shape one sibling
+    // needs for six vendored tarballs whose names carry versions — and only then
+    // collapses the predicates.
+    //
+    // The point is unchanged and is about the SHAPE of the two predicates, not
+    // about either one's current body: a link's NAME is no evidence about what is
+    // on the other side of it, which is exactly what a read filter may assume
+    // about a FILE. Two sibling ports shipped one shared predicate and both had
+    // the routes disagree about the same entry.
     resetToBaseline();
     symlinkSync(payload, join(scaffold, "src", "notes.md"));
     git(["add", "src/notes.md"]);
@@ -549,11 +594,27 @@ describe("--staged refuses a non-regular entry, and keys on the ROOT half of sco
     expect(staged.code).toBe(2);
     expect(staged.out).toContain("src/notes.md");
 
-    const collapsed = weakened(
-      "collapsed-predicate.ts",
-      "this.isUnderScanRoot(s.path) &&",
-      "this.cfg.isStagedReadable(s.path) &&",
+    // ANTI-VACUITY FIRST: the read subtraction ALONE must not make the route
+    // pass. Without it, a green below would prove only that the prefix was
+    // declared, not that collapsing the predicates is what costs the refusal.
+    const subtractedOnly = weakened(
+      "read-subtraction-only.ts",
+      "  detectors: DETECTORS,",
+      '  detectors: DETECTORS,\n  unreadablePrefixes: ["src"],',
     );
+    const stillRefused = scan(subtractedOnly, ["--staged"]);
+    expect(stillRefused.code, stillRefused.out).toBe(2);
+    expect(stillRefused.out).toContain("src/notes.md");
+
+    // ...and now the defect, reproduced: the same declaration, with the ROOT half
+    // of the refusal replaced by the READ half.
+    const collapsed = weakenedAll("collapsed-predicate.ts", [
+      ["  detectors: DETECTORS,", '  detectors: DETECTORS,\n  unreadablePrefixes: ["src"],'],
+      [
+        "this.isUnderStagedRoot(s.path) &&\n            !this.cfg.regularBlobModes.has(s.mode) &&",
+        "this.isReadable(s.path) &&\n            !this.cfg.regularBlobModes.has(s.mode) &&",
+      ],
+    ]);
     expect(scan(collapsed, ["--staged"]).code).toBe(0); // the defect, reproduced
   });
 
@@ -585,18 +646,16 @@ describe("--staged refuses a non-regular entry, and keys on the ROOT half of sco
     // the flag's load-bearing half is still pinned and the polarity change is
     // shown to have moved a silent miss to a loud refusal rather than to have
     // made `--no-renames` redundant.
-    const renamesOnOldFilter = weakened(
+    const renamesOnOldFilter = weakenedAll(
       "renames-on-old-filter.ts",
-      '"-z", "--no-renames", "--diff-filter=d"',
-      '"-z", "--diff-filter=AMT"',
+      [
+        ['"--no-renames",', '"-M",'],
+        ['"--diff-filter=d",', '"--diff-filter=AMT",'],
+      ],
     );
     expect(scan(renamesOnOldFilter, ["--staged"]).code).toBe(0);
 
-    const renamesOn = weakened(
-      "renames-on.ts",
-      '"-z", "--no-renames", "--diff-filter=d"',
-      '"-z", "--diff-filter=d"',
-    );
+    const renamesOn = weakened("renames-on.ts", '"--no-renames",', '"-M",');
     const desynced = scan(renamesOn, ["--staged"]);
     expect(desynced.code).toBe(2);
     expect(desynced.out).toMatch(/unrecognized record/);
@@ -665,8 +724,8 @@ describe("--staged refuses a non-regular entry, and keys on the ROOT half of sco
     // clean, which is the silence the polarity change removes.
     const oldFilter = weakened(
       "old-status-allow-list.ts",
-      '"--no-renames", "--diff-filter=d"',
-      '"--no-renames", "--diff-filter=AMT"',
+      '"--diff-filter=d",',
+      '"--diff-filter=AMT",',
     );
     expect(scan(oldFilter, ["--staged"]).code).toBe(0);
   });
@@ -871,20 +930,25 @@ describe("a target enumerated but never read refuses, in every mode", () => {
   });
 
   it("refuses a bypass naming a path the run does not enumerate", () => {
-    // `docs/notes.md` is nowhere near a scan root, so an all-mode run never
-    // enumerates it and the flag subtracts nothing. Honouring it silently would
-    // let a developer believe a file was acknowledged.
+    // `docs/absent.md` IS NOT THERE AT ALL, so neither the walk nor the index
+    // union enumerates it and the flag subtracts nothing. Honouring it silently
+    // would let a developer believe a file was acknowledged.
+    //
+    // It used to be an existing `docs/notes.md`, which only worked because the
+    // shared read filter dropped `.md` before enumeration. With Markdown read by
+    // default that file IS enumerated, so the case would have quietly become a
+    // test of the UNREAD tier instead of this one. The premise is asserted below
+    // rather than assumed.
     resetToBaseline();
-    mkdirSync(join(scaffold, "docs"), { recursive: true });
-    writeFileSync(join(scaffold, "docs", "notes.md"), "ordinary prose\n", "utf8");
-    logBypass("docs/notes.md");
+    expect(existsSync(join(scaffold, "docs", "absent.md"))).toBe(false);
+    logBypass("docs/absent.md");
 
     writeViolator(); // a live hit sitting in the corpus the whole time
 
-    const r = scan("scripts/phi-scan.ts", ["--allow-fixture", "docs/notes.md"]);
+    const r = scan("scripts/phi-scan.ts", ["--allow-fixture", "docs/absent.md"]);
     expect(r.code, r.out).toBe(2);
     expect(r.out).toContain("does not enumerate");
-    expect(r.out).toContain("docs/notes.md");
+    expect(r.out).toContain("docs/absent.md");
     expect(r.out).not.toContain("OK: no hits");
     // AND THE LIMIT OF THAT TIER, PINNED RATHER THAN GLOSSED: it refuses BEFORE
     // any target is read, so it prints no hit. That is not the same guarantee
@@ -893,15 +957,18 @@ describe("a target enumerated but never read refuses, in every mode", () => {
     expect(r.out).not.toContain("123-45-6789");
   });
 
-  it("DISCLOSURE, PINNED: an allow-list that exists but cannot be READ still takes exit 1", () => {
-    // The one state the emitted exit contract does NOT deliver, and says it does
-    // not. `existsSync` passes, `readFileSync` throws a plain Error rather than
-    // an InvocationError, nothing handles it, and the run takes node's own exit
-    // 1: the code reserved for "hits found". Pre-existing, and deliberately not
-    // closed by widening a catch or enumerating errno spellings (the
-    // deny-list-of-spellings shape this template already retired on the attw
-    // gate). This test exists so the DISCLOSURE cannot go stale: a later slice
-    // that closes the escape has to come here and change the claim too.
+  it("CLOSED: an allow-list that exists but cannot be READ now refuses, not exit 1", () => {
+    // 🛑 THIS WAS A DISCLOSED ESCAPE AND IT IS NOW FIXED, so the claim is
+    // inverted rather than deleted. `existsSync` passed, `readFileSync` threw a
+    // plain Error rather than an InvocationError, nothing handled it, and the
+    // run took node's own exit 1: the code reserved for "hits found". Four
+    // repos measured seven distinct instances of that shape across the
+    // allow-list, the override log and an unopenable directory.
+    //
+    // The catch is BARE rather than an errno allow-list, because a deny-list of
+    // spellings buys exactly one more evasion per round — the shape this
+    // template already retired on the attw gate. A crash and a PHI finding must
+    // not share a code.
     //
     // A DIRECTORY rather than mode 000, because a chmod is a no-op for a
     // privileged uid and this must not depend on who runs it.
@@ -910,10 +977,11 @@ describe("a target enumerated but never read refuses, in every mode", () => {
     mkdirSync(join(scaffold, "scripts", "phi-allow-list.txt"), { recursive: true });
 
     const r = scan("scripts/phi-scan.ts", ["README.md"]);
-    expect(r.code, r.out).toBe(1);
+    expect(r.code, r.out).toBe(2);
+    expect(r.out).toContain("could not read the allow-list");
     expect(r.out).not.toContain("OK: no hits");
 
-    // ...whereas a MISSING allow-list is the state the contract does assign: 2.
+    // ...and a MISSING allow-list is still its own sentence, at the same code.
     rmSync(join(scaffold, "scripts", "phi-allow-list.txt"), { recursive: true, force: true });
     const missing = scan("scripts/phi-scan.ts", ["README.md"]);
     expect(missing.code, missing.out).toBe(2);
@@ -994,11 +1062,14 @@ describe("a target enumerated but never read refuses, in every mode", () => {
   });
 
   it("leaves the read filters alone: a skipped file is not an unread target", () => {
-    // Enumeration is the run's own declaration of what it will read. A `.md`
-    // file the walk skips, and a gitignored entry, are never enumerated, so the
-    // rule must not fire on them. Without this the gate reds on every repo.
+    // Enumeration is the run's own declaration of what it will read. A
+    // gitignored entry is never enumerated, so the rule must not fire on it.
+    // Without this the gate reds on every repo.
+    //
+    // The `.md` half of this case moved out when the read filter's default
+    // flipped: Markdown is enumerated and read now, so it is no longer an
+    // example of something skipped.
     resetToBaseline();
-    writeFileSync(join(scaffold, "test", "fixtures", "notes.md"), "ssn 123-45-6789\n", "utf8");
     writeFileSync(join(scaffold, ".gitignore"), "test/fixtures/ignored.txt\n", { flag: "a" });
     writeFileSync(join(scaffold, "test", "fixtures", "ignored.txt"), "ssn 123-45-6789\n", "utf8");
     const r = scan("scripts/phi-scan.ts");
@@ -1312,15 +1383,25 @@ describe("all mode reads the bytes git carries as a UNION with the walk", () => 
     rmSync(outside, { recursive: true, force: true });
   });
 
-  it("leaves AXIS 2 alone: a TRACKED .md is still read by neither sweeping route", () => {
-    // The union inherits the walk's read filter rather than getting a wider one
-    // of its own. One boundary, not two: moving it is a roots-and-exclusions
-    // decision, taken deliberately, not a side effect of widening the sweep.
+  it("THE UNION INHERITS THE READ FILTER, so a TRACKED .md is read by BOTH sweeping routes", () => {
+    // The union inherits the walk's read filter rather than getting a wider or a
+    // narrower one of its own. ONE BOUNDARY, NOT TWO — and the boundary moved,
+    // which is what makes this case worth keeping: the filter now reads
+    // Markdown, so a tracked `.md` is read by both routes where it used to be
+    // read by neither. `README.md` and `CHANGELOG.md` ship inside the npm
+    // tarball, and this is the route that covers them.
     resetToBaseline();
     commitFile("test/fixtures/notes.md", "ssn 123-45-6789\n");
     const r = scan("scripts/phi-scan.ts");
-    expect(r.code, r.out).toBe(0);
-    expect(r.out).toContain("OK: no hits");
+    expect(r.code, r.out).toBe(1);
+    expect(r.out).toContain("test/fixtures/notes.md");
+
+    // ...and the working-tree copy gone entirely, so ONLY the union can reach
+    // it: the label is what proves which route read the bytes.
+    rmSync(join(scaffold, "test", "fixtures", "notes.md"));
+    const unionOnly = scan("scripts/phi-scan.ts");
+    expect(unionOnly.code, unionOnly.out).toBe(1);
+    expect(unionOnly.out).toContain("test/fixtures/notes.md (as git carries it)");
   });
 
   it("THE COMPLETENESS RULE COVERS THE UNION: a bypass on a tracked-but-absent path refuses", () => {
