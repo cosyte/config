@@ -79,7 +79,7 @@ function probe(
 }
 
 /** The line whose removal removes the completeness rule, and nothing else. It is in the ENGINE. */
-const COMPLETENESS_LINE = "const unread = [...enumerated].filter((p) => !read.has(p));";
+const COMPLETENESS_LINE = "const unread = [...enumerated].filter((p) => !read.has(p) && !tolerated.has(p));";
 
 describe("the phi-scan completeness probe", () => {
   it("passes its own controls: the shipped template is ok, the rule removed REDS", () => {

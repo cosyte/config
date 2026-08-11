@@ -6,6 +6,14 @@ flag UNLESS this file contains a `### <path>` subsection referencing the same
 path. The committed log is intentionally annoying. It discourages bypass and
 creates an audit trail.
 
+> **🛑 A `### <path>` HEADING COUNTS ONLY UNDER THE `## Entries` HEADING.** The
+> engine reads this file section-scoped, and a `###` anywhere above `## Entries`
+> — in the Format section below, in a legend, in prose — is **not** an entry. A
+> sibling's committed log held five `###` headings above its own `## Entries`
+> section, and an unscoped reading turned all five into honoured bypass paths.
+> Headings inside a fenced code block are skipped too, so the example below
+> cannot become an entry.
+
 > **A BYPASS IS RECORDED AND THEN REFUSED. IT CANNOT PRODUCE A CLEAN RUN, IN ANY
 > MODE.** `--allow-fixture` withdraws a file from the read set, and the scanner
 > refuses (**exit 2**) over a target it enumerated and never read: a scan that
@@ -21,20 +29,35 @@ creates an audit trail.
 > token-level, reviewed declaration that specific identifiers are synthetic. It
 > is narrower than a whole-file bypass by construction, because the file still
 > gets opened and every check still runs over it. Add the tokens; do not withdraw
-> the file. The full reasoning, including the four argv shapes that used to exit
-> 0 over an unopened corpus, is in the docblock of `scripts/phi-scan.ts` under
-> THE COMPLETENESS RULE.
+> the file.
+>
+> **A CONVENTION IS BETTER THAN A LIST OF LITERALS.** Where the synthetic values
+> live in a reserved space that is itself the provenance marker — the NANP
+> fictional numbers, the SSA never-issued ranges, the RFC-reserved domains —
+> declare the SPACE once in the scanner's `floor` rather than adding a literal
+> per fixture. Maintaining literals by hand is the thing this gate's shared
+> engine exists to delete.
 
-> **This is the STARTER template.** `scripts/phi-scan.ts` ships with the shared
-> machinery and a cross-cutting SSN/email floor ONLY. Before you rely on
-> `pnpm phi-scan` as a real PHI gate for this standard, add structured,
-> field-level detection (names, DOB, MRN / member id, address, phone) in the
-> fenced TODO section of `scripts/phi-scan.ts`: see the sibling parsers
-> (`hl7` / `dicom` / `x12` / `ccda` / `ncpdp`) for worked examples.
+> **🛑 AN UNKNOWN TAG IN `scripts/phi-allow-list.txt` NOW REFUSES.** The parser
+> used to drop a tag it did not implement, silently, so a declaration its own
+> header promised took no effect and its author believed it had. Five repos
+> measured the cost as hits over values they had already declared synthetic. The
+> canonical tags are `NAME`, `DOB`, `ID`, `ADDR`, `CITY`, `ZIP`, `PHONE`,
+> `EMAIL` and `EMAILDOMAIN`; `EMAIL` also takes a path-scoped two-field form,
+> `EMAIL <repo-relative path> <address>`, which is narrower than allowing a
+> whole domain on the commit-blocking route.
+
+> **This is the STARTER template.** `scripts/phi-scan.ts` declares **no field
+> vocabulary**, so `pnpm phi-scan` finds the cross-cutting SSN/email floor and
+> nothing else. Before you rely on it as a real PHI gate for this standard, fill
+> in the `DETECTORS` table in `scripts/phi-scan.ts` — it is data, not code. If
+> this repo genuinely has no PHI-bearing fields to key on, say so in a comment
+> where `DETECTORS` is left empty, so a reader can tell a decision from an
+> omission. The clean line prints the declared-detector count on every run.
 
 ## Format
 
-Each entry is a markdown subsection:
+Each entry is a markdown subsection, **under this file's `## Entries` heading**:
 
 ```
 ### <path>
