@@ -1,6 +1,6 @@
 {
   "name": "@cosyte/script-utils",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Zero-dependency helpers for the repo-local gate scripts in @cosyte/* repos.",
   "keywords": [
     "cli",
