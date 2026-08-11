@@ -16,6 +16,78 @@ no package, so entries here are **dated** rather than versioned.
 
 ### Added
 
+- **The parser template's PHI scanner now reads THE BYTES GIT CARRIES as a UNION with the walk, and
+  the drift check RUNS it rather than reading it** (`PHI-SCAN`). Two halves of one enabler: the six
+  remaining per-repo adoptions should each be one mechanical port, not five judgement calls.
+  - **The union, in `scripts/parser-template/scripts/phi-scan.ts`.** The walk answers "what is on
+    disk under the scan roots", which is not "what does this repository carry". **Three states were
+    reproduced against this template's own pre-union shape, each over a TRACKED file carrying a
+    live, detectable hit, all three printing `OK: no hits` at exit 0**: the path **occupied by a
+    directory** (the decoy-contents shape, and a path-SET reconciliation cannot see it either, because
+    the path IS present, so only reading the OBJECT closes it), the working tree **short** of a
+    tracked file, and the two copies **differing**. `git ls-files -s -z` is now read for the whole
+    index and every in-scope tracked path the walk did not already read verbatim is scanned through
+    `git cat-file blob <sha>`.
+  - **Deduplication is BY CONTENT**, under git's own `blob <len>\0` framing and the repository's
+    object format, so a clean checkout adds **zero** reads and never invokes `cat-file`. The exact
+    fixed cost is **one** `git rev-parse --show-object-format` per `all`-mode run, stated rather than
+    rounded to "no subprocess". Where the two copies differ **both** are scanned, which is what makes
+    it correct under **EOL normalization**: pinned by a case whose index carries LF (via a
+    `.gitattributes` `text` attribute) while the working tree carries CRLF, and where the run reports
+    the same path twice, once labelled `(as git carries it)`.
+  - 🛑 **The union is keyed on the ABSENCE OF STAGE 0, re-derived rather than ported.** `ls-files -s`
+    reports an unmerged path only at stages 1/2/3 and with **ordinary blob modes**, so the mode rule
+    cannot see it, and `--staged`'s signal (`--raw` status `U`, destination mode `000000`) does not
+    appear in this command at all. **Taking the first record scans STAGE 1, THE MERGE BASE**, pinned
+    by a counterfactual that prints `OK: no hits` at exit 0 over a marker living only in stage 3,
+    against a fabricated index whose three stages are asserted from `git ls-files -s`'s own output.
+  - **`all` mode refuses (exit 2) when git cannot name the index or names it EMPTY**, when an
+    in-scope index entry is not a regular blob (a **gitlink** or a link), and when an in-scope path
+    has no stage-0 blob. An empty answer counts as no answer, and the two states arrive through
+    DIFFERENT branches, measured on git 2.39.5: a directory that is no repository at all **fatals**
+    (exit 128) and is turned into a refusal by the `catch`, while an empty index (and a directory
+    inside a repository with nothing tracked under it) prints nothing and exits 0 and is turned into
+    one by the size check. Both premises are now measured in the test rather than one asserted. **A
+    fresh scaffold
+    therefore needs `git init` + a commit before `pnpm phi-scan` means anything**, which is the
+    stated cost.
+  - **The completeness rule and the union are NOT redundant, which is measured rather than argued.**
+    Remove only the union's read half and the completeness rule refuses over every tracked path the
+    run enumerated and never read: a half-ported union reds instead of reporting clean.
+  - **THE FIVE PER-REPO AXES ARE NOW ONE DECLARED BLOCK** at the top of the scanner (exit codes,
+    roots + exclusions, `--staged` scope, gitlinks, EOL normalization), so a port re-derives them in
+    one place while the machinery under them stays shared. The **standard-specific field detection**
+    keeps its existing fenced TODO in `scanTarget`; that split is deepened, not replaced. Exclusions
+    are **literal paths, never a class**, with the measured reason written down (a sibling's two
+    hand-written sources embed NUL bytes as HMAC domain separators, so a "binary blob" predicate
+    would have dropped them out of the corpus).
+  - **`drift-check.js` gained its first BEHAVIOURAL assertion, and it is a CAPABILITY PROBE.** It
+    builds a throwaway git repository, plants a synthetic violator and a clean decoy, withdraws the
+    decoy with a **logged** `--allow-fixture`, and asks whether the scanner refuses. **Nothing is
+    matched against the scanner's source**: this lineage has produced six claim-defects that lived in
+    a prose carrier while the code was right every time, so a regex would grade the comment.
+    - **It derives each repo's own exit codes** (the siblings deliberately disagree) from a control
+      run that produces hits and nothing else, and treats only **exit 0** as "reported clean". Pinned
+      by a case that renumbers the whole contract to 7/9 and expects the verdict not to move.
+    - **It answers `inconclusive` rather than passing** when the payload is not detected at that path
+      or the bypass never gets past that repo's own override-log gate: the probe cannot vouch for
+      what it could not reach. `dicom` needed its own manifest entry for exactly that reason: its
+      text pass detects DICOM's own shapes, not a dashed SSN.
+    - **A POSITIVE CONTROL runs before anything is graded**: the template's scanner with the rule
+      deleted MUST come back `drift`, and the shipped one MUST come back `ok`, or the tool refuses to
+      report at all. An assertion nobody has seen fail is indistinguishable from one that cannot.
+    - **First measurement, 2026-08-11, over the 13 targets:** `terminology` carries the rule and
+      **the other 12 do not**: they report only their hits code over a run that withdrew a target
+      they had enumerated. `dicom` was `inconclusive` until it got a payload its scanner reads, and
+      it is one of the 12. **That count is a dated measurement, not a standing claim** (an earlier
+      draft of this line said 11 by counting `dicom` out after it stopped being inconclusive).
+      Re-run the check rather than reading it here. The list is a worklist and not a verdict on
+      those slices: it is a DIFFERENT half of `PHI-SCAN` from the sweep-versus-corpus escape those
+      repos closed.
+    - `scripts/drift-check.js` now runs only under `isCliEntrypoint`, so the probe can be tested
+      here. `pnpm drift` needs sibling checkouts and this repo's CI has none, so
+      `test/drift-check-phi-probe.test.ts` is where the controls actually run.
+
 - **`@cosyte/script-utils`**, a new zero-dependency, zero-build package, so that the entry-point
   guard every cosyte gate script needs lands **once** rather than being respelled per repo
   (`ENTRYPOINT-STRING-COMPARE`). It ships `isCliEntrypoint(import.meta.url)`. `website` (3 CLIs) and

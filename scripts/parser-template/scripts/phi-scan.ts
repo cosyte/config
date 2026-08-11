@@ -128,6 +128,116 @@
  * ===========================================================================
  *
  * ===========================================================================
+ * `all` MODE READS THE BYTES GIT CARRIES AS A UNION WITH THE WALK. This
+ * paragraph is the ONE authoritative statement of that rule.
+ *
+ * The walk answers "what is on disk under the scan roots". That is not the same
+ * question as "what does this repository carry", and where the two disagree the
+ * walk was the only voice, so the sweep reported `OK: no hits` at exit 0 over
+ * tracked bytes it never opened. THREE SUCH STATES WERE REPRODUCED AGAINST THIS
+ * FILE'S OWN PRE-UNION SHAPE, each over a tracked file carrying a live,
+ * detectable hit (`cosyte/config`'s `test/phi-scan-scaffold.test.ts` pins each
+ * one, and reproduces it on a weakened copy of the shipped scanner):
+ *
+ *   1. THE PATH IS OCCUPIED BY A DIRECTORY. `git ls-files` still names the
+ *      path, `Dirent.isFile()` is false for the directory, the walk descends
+ *      into it and scans whatever is inside. The tracked blob is never read.
+ *      This is the decoy-contents shape, and a path-SET reconciliation does not
+ *      see it either, because the path IS present: only reading the OBJECT
+ *      closes it.
+ *   2. THE WORKING TREE IS SHORT. A tracked fixture deleted from the working
+ *      tree (not from the index) is enumerated by nothing, and a sweep that
+ *      still finds other files has no count that can notice.
+ *   3. THE TWO COPIES DIFFER. A tracked blob carrying a hit, with a clean file
+ *      of the same name on disk, read clean: the walk answers with the disk
+ *      copy and nothing asked git what it was carrying.
+ *
+ * WHAT THE UNION IS. `git ls-files -s -z` is read for the whole index, and for
+ * every IN-SCOPE tracked path whose bytes the walk did not already read, the
+ * STAGE-0 BLOB is scanned through `git cat-file blob <sha>`. It is a union and
+ * never a replacement: the walk still runs first and still reaches UNTRACKED
+ * files, which git cannot name at all. Widening makes it narrower, not worse.
+ *
+ * WHY `cat-file blob` AND NOT A RE-READ OF THE PATH. Re-reading the path is
+ * exactly what the walk already did, and state 1 is the case where the path
+ * resolves to something else entirely. `cat-file blob` names the OBJECT, so the
+ * bytes are the ones git carries whatever the working tree currently says.
+ *
+ * DEDUPLICATION IS BY CONTENT, NOT BY PATH, AND THAT IS THE EOL AXIS. A walk
+ * target is skipped by the union only when the bytes it read hash to the index
+ * entry's own object id, so on a clean checkout the union adds ZERO reads and
+ * NEVER INVOKES `git cat-file`. BE EXACT ABOUT THE FIXED COST RATHER THAN
+ * SAYING "no subprocess": it adds ONE `git rev-parse --show-object-format` per
+ * `all`-mode run, always, because the deduplication needs the algorithm before
+ * it can compare anything. Where the two copies of a path DIFFER, BOTH are
+ * scanned. That is what makes this correct under EOL normalization rather than
+ * merely untested by it: with a `text` attribute or `core.autocrlf` the index
+ * carries LF and the working tree CRLF, the ids differ, and both forms are read
+ * instead of one being assumed to stand for the other.
+ *
+ * A HIT FROM THE UNION IS LABELLED `(as git carries it)`, and the label is on
+ * the REPORTED LOCUS ONLY. A hit that named the bare path would send a
+ * developer to open a file that is clean, or not there at all. The target's
+ * `path` stays undecorated because every filter, exclusion and completeness
+ * tier is keyed on it.
+ *
+ * A NON-BLOB INDEX MODE UNDER A SCAN ROOT REFUSES (exit 2), the same rule and
+ * the same reason as the `--staged` route: `120000` is a symbolic link, whose
+ * blob is its TARGET PATH and not any content, and `160000` is a gitlink, which
+ * carries a commit id and no bytes at this path at all. Neither can be scanned,
+ * so neither may be reported clean.
+ *
+ * `all` MODE REFUSES WHEN GIT CANNOT NAME THE INDEX, OR NAMES IT EMPTY. Without
+ * the index the union cannot run and the sweep is back to being the walk's word
+ * alone, which is the state this whole rule exists to end. AN EMPTY ANSWER
+ * COUNTS AS NO ANSWER, and be exact about WHICH states answer that way, because
+ * the two halves arrive through DIFFERENT branches and a reader who merges them
+ * will delete the wrong one. MEASURED ON git 2.39.5:
+ *
+ *   - a directory that is no repository at all FATALS (`fatal: not a git
+ *     repository`, exit 128). It is the `catch` that turns that into `null`, so
+ *     that handler is load-bearing rather than defensive: without it the throw
+ *     escapes and the run takes node's own exit 1, which this contract reserves
+ *     for HITS FOUND;
+ *   - a repository whose index is empty, and a directory INSIDE a repository
+ *     with nothing tracked under it, both print nothing and exit 0. That is
+ *     what the size check is for, and an empty map would make every tracked
+ *     path untracked, which is the one state in which the union silently stops
+ *     existing.
+ *
+ * A SCAFFOLDED PARSER MUST THEREFORE
+ * `git init` AND COMMIT BEFORE `pnpm phi-scan` MEANS ANYTHING, which is a
+ * one-line cost stated here rather than discovered.
+ *
+ * THE OTHER TWO ROUTES ARE UNCHANGED, AND THAT IS DERIVED RATHER THAN
+ * INHERITED. `--staged` already reads stage-0 blobs (`git show :<path>`) for
+ * exactly the records a commit carries, so it already reads the bytes git
+ * carries; widening its SCOPE is a hook decision about what a commit is blocked
+ * on, not this one. `paths` is bounded by an argv a human typed. Neither is a
+ * sweep.
+ *
+ * RESIDUALS, DISCLOSED RATHER THAN CLOSED:
+ *
+ *   - `git cat-file blob` runs through `execFileSync`, whose `maxBuffer`
+ *     defaults to 1 MiB, so a tracked blob larger than that fails the read and
+ *     REFUSES (exit 2) rather than reporting a truncated scan clean. Identical
+ *     bound, and identical trade, to the `git show` call `--staged` makes.
+ *   - The union is keyed on STAGE 0, and an unmerged path has none, so it is
+ *     refused under its OWN sentence rather than under the mode rule. Be exact
+ *     about why it needs one: `ls-files -s` reports such a path only at stages
+ *     1, 2 and/or 3, its records carry ORDINARY BLOB MODES, and so the mode
+ *     rule cannot see it. `--staged` distinguishes the same state from
+ *     `--raw`'s status `U` and a destination mode of `000000`, which is a
+ *     DIFFERENT signal from a different command: the axis is re-derived here
+ *     rather than ported, and a sibling's draft that ported it scanned the
+ *     MERGE BASE and labelled it as the bytes git carries.
+ *   - The union inherits the walk's READ filter (`isWalkReadable`) and its
+ *     exclusions, so a tracked `.md` is still not read by either sweeping
+ *     route. That is one boundary rather than two, and moving it is an AXIS 2
+ *     decision.
+ * ===========================================================================
+ *
+ * ===========================================================================
  * EXIT CONTRACT, DEFINED HERE AND NOT INHERITED. A scaffolded parser has no
  * history, so this template STATES its contract rather than acquiring one by
  * accident:
@@ -139,9 +249,15 @@
  *   2  EVERY STATE THIS FILE RAISES IN WHICH THE SCAN CANNOT ACCOUNT FOR
  *      SOMETHING: a bad argument, a MISSING allow-list, an unlogged bypass, a
  *      bypass naming a path this run does not enumerate, an in-scope entry that
- *      is not a regular file, an unparseable `git diff --cached` record, a
+ *      is not a regular file, an unparseable `git diff --cached` record, an
+ *      index git cannot name or names empty, an in-scope index entry that is
+ *      not a regular blob, an in-scope path with no stage-0 blob (unmerged), a
  *      target whose bytes cannot be read, and a target enumerated but never
  *      read.
+ *
+ * THE THREE CODES ARE `EXIT_CLEAN` / `EXIT_HITS` / `EXIT_REFUSE` IN THE AXES
+ * BLOCK BELOW, which is AXIS 1: a port changes a number there, once, and
+ * rewrites this table beside it.
  *
  * 1 IS RESERVED BECAUSE CI AND THE PRE-COMMIT HOOK BRANCH ON THE CODE. A caller
  * must be able to tell "PHI was found here" from "this scan is not trustworthy":
@@ -243,16 +359,41 @@
  * to a file, so the two get one boundary rather than links getting a second,
  * stricter one; `--staged` applies no gitignore exemption, and does not need
  * one, because `git check-ignore` is index-aware and a staged path is therefore
- * never reported ignored; and if a scan ROOT is itself replaced by a link the
- * walk follows it (`existsSync`/`readdirSync` both follow) and scans the target
- * directory, where `--staged` refuses the index entry. Those are different
- * answers to the same tree and neither is blind, which is why this narrows the
- * staged one and leaves the walk alone.
+ * never reported ignored.
+ *
+ * A SCAN ROOT REPLACED BY A LINK IS ITS OWN CASE, AND THE TWO ROUTES SPLIT ON
+ * DIFFERENT AXES: `all` mode keys on THE INDEX, `--staged` keys on THE STAGED
+ * DELTA. Those are not the same question, and ONLY THE THREE CELLS BELOW ARE
+ * CLAIMED, because only these are executed (`cosyte/config`'s
+ * `test/phi-scan-scaffold.test.ts`, against a scaffolded repo):
+ *
+ *   - the link STAGED: both routes refuse (exit 2), under two different rules
+ *     and with two different nouns. `all` meets a mode-120000 INDEX ENTRY;
+ *     `--staged` meets the same mode in a `--raw` record.
+ *   - the link COMMITTED, with nothing left in the staged delta: `all` still
+ *     refuses, and `--staged` reports a clean commit (exit 0) because there is
+ *     no staged record left to read. That is the delta route's SCOPE rather
+ *     than a hole in it, and it is the reason `all` mode is the sweep.
+ *   - the link NOT IN THE INDEX: `all` FOLLOWS it (`existsSync`/`readdirSync`
+ *     both follow) and scans the target directory, reporting what it finds
+ *     there under the in-repo path; `--staged` reports clean, and rightly,
+ *     because a commit carries no bytes at that path. The cell is executed by
+ *     REMOVING the entry; a link that was never added is a different index (the
+ *     root's other entries remain, and the union still reads those) and is not
+ *     claimed here.
+ *
+ * NO WIDER CLAIM IS MADE, AND THE MISSING ONE IS NAMED RATHER THAN IMPLIED:
+ * three drafts of this paragraph quantified over TRACKED versus UNTRACKED and
+ * each was false in a cell the fixture did not cover (a committed link is
+ * tracked and stages nothing; an unadded link leaves the OTHER entries under
+ * that root in the index). The walk itself is unchanged by any of it. What got
+ * stricter is the index the sweep now also reads.
  * ===========================================================================
  */
 
 import { readFileSync, statSync, existsSync, readdirSync, type Dirent } from "node:fs";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { join, resolve, relative, sep, isAbsolute } from "node:path";
 
 // ---------------------------------------------------------------------------
@@ -263,11 +404,72 @@ const REPO_ROOT = process.cwd();
 const ALLOW_LIST_PATH = join(REPO_ROOT, "scripts", "phi-allow-list.txt");
 const OVERRIDE_LOG_PATH = join(REPO_ROOT, "phi-scan-overrides.md");
 
-// Roots walked in "all" mode. test/fixtures gets the full scan; src gets the
-// same conservative shape pass because it is hand-written code, not data.
-// JSDoc `@example` snippets must not carry real PHI either.
-const FIXTURE_ROOT = join(REPO_ROOT, "test", "fixtures");
-const SRC_ROOT = join(REPO_ROOT, "src");
+// ===========================================================================
+// ██  THE FIVE PER-REPO AXES  ███████████████████████████████████████████████
+// ===========================================================================
+//
+// A PORT IS NOT A COPY. Five things genuinely differ between the sibling
+// `@cosyte/*` scanners, and every one of them is DECLARED IN THIS BLOCK so a
+// port re-derives them HERE rather than by editing the machinery below:
+//
+//   1. EXIT CODES        `EXIT_CLEAN` / `EXIT_HITS` / `EXIT_REFUSE`.
+//   2. ROOTS+EXCLUSIONS  `SCAN_ROOTS`, `EXCLUDED_PATHS`, `isWalkReadable`.
+//   3. `--staged` SCOPE  `isStagedReadable`.
+//   4. GITLINKS          `REGULAR_BLOB_MODES` + `gitModeKind` (further down,
+//                        beside the two routes that read a git mode).
+//   5. EOL NORMALIZATION `gitObjectHash` + `blobOid`: the index/working-tree
+//                        deduplication is BY CONTENT, so a repo whose index
+//                        carries LF and whose working tree carries CRLF scans
+//                        BOTH forms rather than assuming one stands for the
+//                        other. Nothing to set; it is listed because it is one
+//                        of the five and a port must check it, not skip it.
+//
+// The machinery under this block is SHARED and is not the place to express a
+// per-repo decision. What IS per-repo below it is the STANDARD-SPECIFIC FIELD
+// DETECTION, and it has its own fenced TODO section inside `scanTarget`.
+// ===========================================================================
+
+/**
+ * AXIS 1: THE EXIT CONTRACT, as three names rather than three literals. The
+ * meanings are stated in the EXIT CONTRACT block in the header; a port that
+ * changes a number changes it here, once, and the header block beside it.
+ *
+ * DO NOT PORT THESE NUMBERS INTO, OR OUT OF, A SIBLING. The siblings do not
+ * agree on them: at least one uses 2 where another uses 1.
+ */
+const EXIT_CLEAN = 0;
+const EXIT_HITS = 1;
+const EXIT_REFUSE = 2;
+
+/**
+ * AXIS 2: the roots walked in `all` mode, repo-relative and forward-slashed.
+ * `test/fixtures` gets the full scan; `src` gets the same conservative shape
+ * pass because it is hand-written code, not data, and a JSDoc `@example`
+ * snippet must not carry real PHI either.
+ *
+ * A ROOT IS A SCOPE DECISION AND IT IS THE AXIS MOST LIKELY TO BE WRONG IN A
+ * PORT. A sibling that widened its walk to the whole repository found tracked
+ * files that had never been opened by either route. Widen deliberately, and
+ * measure what the widening newly reads rather than assuming it reads nothing.
+ */
+const SCAN_ROOTS: readonly string[] = ["test/fixtures", "src"];
+
+/**
+ * AXIS 2 (the subtractive half): repo-relative paths NO route reads: not the
+ * walk, not the index union, not `--staged`.
+ *
+ * 🛑 EXCLUDE A LITERAL PATH, NEVER A CLASS. It is tempting to write a predicate
+ * ("skip binary blobs", "skip generated files") because it needs no
+ * maintenance. A sibling measured what that costs: two of its hand-written
+ * sources embed NUL bytes as HMAC domain separators, so git's own binary
+ * heuristic calls them binary and a "binary blob" predicate would have dropped
+ * them out of the corpus silently. A literal path is reviewable in a diff; a
+ * class quietly grows new members.
+ *
+ * Ships EMPTY. An entry here is a file the scan has NO verdict about, so each
+ * one wants a comment saying why.
+ */
+const EXCLUDED_PATHS: ReadonlySet<string> = new Set<string>();
 
 // ---------------------------------------------------------------------------
 // Types
@@ -476,6 +678,18 @@ function validateAllowFixtures(allowFixtures: string[]): void {
 interface Target {
   path: string; // forward-slash repo-relative path for reporting
   read: () => Buffer;
+  /**
+   * Where these bytes came from, when it is not simply the file at `path`. Set
+   * only by the index union, and it decorates the REPORTED LOCUS ONLY: a hit in
+   * a tracked blob whose working-tree copy differs (or is not there) must not
+   * read as a hit in the file on disk, which a developer would open and find
+   * clean.
+   *
+   * `path` itself stays undecorated, because the read filters, the exclusions,
+   * the dedupe and both completeness tiers are all keyed on it: decorating it
+   * would silently re-scope a target rather than re-label it.
+   */
+  origin?: string;
 }
 
 /**
@@ -500,28 +714,44 @@ function direntKind(e: Dirent): string {
 }
 
 /**
- * The ROOT half of scope: is this entry the scan's business at all? This is the
- * predicate every non-regular check keys on, and it is deliberately NOT the
- * predicate that decides what gets READ. See the two-predicate note in the
- * header. The bare root names are in scope because git records no index entry
- * for a directory, so `test/fixtures` appearing as an index entry can only mean
- * the corpus root itself has been replaced by a blob or a link.
+ * AXIS 2: the ROOT half of scope: is this entry the scan's business at all?
+ * This is the predicate every non-regular and non-blob check keys on, and it is
+ * deliberately NOT the predicate that decides what gets READ. See the
+ * two-predicate note in the header. The bare root names are in scope because
+ * git records no index entry for a directory, so `test/fixtures` appearing as
+ * an index entry can only mean the corpus root itself has been replaced by a
+ * blob or a link.
  */
 function isUnderScanRoot(relPath: string): boolean {
-  return (
-    relPath === "test/fixtures" ||
-    relPath.startsWith("test/fixtures/") ||
-    relPath === "src" ||
-    relPath.startsWith("src/")
-  );
+  return SCAN_ROOTS.some((root) => relPath === root || relPath.startsWith(`${root}/`));
 }
 
 /**
- * The READ half of scope for `--staged`: which regular blobs get their bytes
- * scanned. Narrower than `isUnderScanRoot` and unchanged by the non-regular
- * work, so the containment `isStagedReadable` implies `isUnderScanRoot` holds:
- * that containment is what guarantees a non-regular entry is refused before it
- * could ever be read.
+ * AXIS 2: the READ half of scope for the two SWEEPING routes (the walk and the
+ * index union it is a union with). Markdown is documentation, not fixture data,
+ * and may legitimately describe a violator value.
+ *
+ * THE TWO SWEEPING ROUTES SHARE THIS PREDICATE ON PURPOSE. The union exists to
+ * read the bytes git carries at a path the walk did not read; it is the SAME
+ * route by another door, so it inherits the same read filter. Giving the union
+ * its own, wider filter would make `all` mode's verdict depend on which copy of
+ * a file it happened to reach.
+ */
+function isWalkReadable(relPath: string): boolean {
+  return !relPath.toLowerCase().endsWith(".md");
+}
+
+/**
+ * AXIS 3: the READ half of scope for `--staged`: which regular blobs get their
+ * bytes scanned. Narrower than `isUnderScanRoot` and unchanged by the
+ * non-regular work, so the containment `isStagedReadable` implies
+ * `isUnderScanRoot` holds: that containment is what guarantees a non-regular
+ * entry is refused before it could ever be read.
+ *
+ * 🛑 WIDENING THIS IS A HOOK DECISION, NOT A SWEEP DECISION, and it has been
+ * declined in a sibling three times for that reason: it changes what a COMMIT
+ * is blocked on. Widen `all` mode first (that is the sweep), and treat this as
+ * its own change with its own argument.
  */
 function isStagedReadable(relPath: string): boolean {
   return (
@@ -545,7 +775,7 @@ function walk(dir: string, out: string[], unscannable: Unscannable[]): void {
       // README/markdown docs may legitimately describe violator values; they
       // are documentation, not fixtures. This is a READ filter, and the branch
       // below is deliberately not subject to it.
-      if (e.name.toLowerCase().endsWith(".md")) continue;
+      if (!isWalkReadable(normalizePath(full))) continue;
       out.push(full);
     } else {
       // Deliberately NOT subject to the `.md` exemption above. That exemption is
@@ -558,16 +788,30 @@ function walk(dir: string, out: string[], unscannable: Unscannable[]): void {
 
 /**
  * Refuse (exit 2) over entries the enumeration reached and cannot scan. EVERY
- * offender is named, not just the first: a developer who has to re-run the gate
- * once per link learns to distrust it.
+ * offender IN THE GROUP is named, not just the first: a developer who has to
+ * re-run the gate once per link learns to distrust it. Each call is one group
+ * and the first group that fires throws, so a tree with offenders in more than
+ * one group names them a group per run. WRITE NO COUNT OF THE GROUPS HERE.
+ *
+ * `noun` is overridable because the refusal must say something TRUE about what
+ * it refused: an unmerged path is not a non-regular file, it is a path with no
+ * single blob, and reporting it as the former sends a developer looking for a
+ * symbolic link that is not there.
  */
-function refuseUnscannable(entries: Unscannable[], why: string, remedy: string): void {
+function refuseUnscannable(
+  entries: Unscannable[],
+  why: string,
+  remedy: string,
+  noun: { one: string; many: string } = {
+    one: "entry is not a regular file",
+    many: "entries are not regular files",
+  },
+): void {
   if (entries.length === 0) return;
   const lines = entries.map((u) => `  - ${u.path} (${u.kind})`).join("\n");
-  const noun =
-    entries.length === 1 ? "entry is not a regular file" : "entries are not regular files";
+  const phrase = entries.length === 1 ? noun.one : noun.many;
   throw new InvocationError(
-    `refusing the scan: ${String(entries.length)} ${noun}:\n${lines}\n${why} ${remedy}`,
+    `refusing the scan: ${String(entries.length)} ${phrase}:\n${lines}\n${why} ${remedy}`,
   );
 }
 
@@ -590,39 +834,10 @@ function gitIgnored(paths: string[]): Set<string> {
   return ignored;
 }
 
-function buildTargetsForAll(): Target[] {
-  const files: string[] = [];
-  const unscannable: Unscannable[] = [];
-  walk(FIXTURE_ROOT, files, unscannable);
-  walk(SRC_ROOT, files, unscannable);
-
-  // One `git check-ignore` over both lists. An ignored entry is already out of
-  // scope for the file route, so applying the same rule to a link keeps a single
-  // boundary rather than inventing a second, stricter one for links alone. Note
-  // `git check-ignore` is index-aware, so `git add -f` on an ignored link does
-  // not buy a bypass: once tracked it is no longer reported ignored.
-  const ignored = gitIgnored([...files.map(normalizePath), ...unscannable.map((u) => u.path)]);
-
-  refuseUnscannable(
-    unscannable.filter((u) => !ignored.has(u.path)),
-    "The walk can neither read such an entry nor vouch for what is on the other side of it.",
-    "Remove it, replace it with a regular file, or (if it is genuinely not part of the " +
-      "corpus) untrack it and add it to .gitignore.",
-  );
-
-  return files
-    .filter((abs) => !ignored.has(normalizePath(abs)))
-    .map((abs) => ({ path: normalizePath(abs), read: () => readFileSync(abs) }));
-}
-
-function buildTargetsForPaths(paths: string[]): Target[] {
-  return paths.map((p) => {
-    const abs = isAbsolute(p) ? p : resolve(REPO_ROOT, p);
-    if (!existsSync(abs)) throw new InvocationError(`File not found: ${p}`);
-    if (!statSync(abs).isFile()) throw new InvocationError(`Not a regular file: ${p}`);
-    return { path: normalizePath(abs), read: () => readFileSync(abs) };
-  });
-}
+// ---------------------------------------------------------------------------
+// AXIS 4: gitlinks, and every other index mode that is not a file to read.
+// Both git-reading routes (`--staged` and `all` mode's union half) key on these.
+// ---------------------------------------------------------------------------
 
 /** git's file modes for a regular blob. Every other mode is not a file to read. */
 const REGULAR_BLOB_MODES = new Set(["100644", "100755"]);
@@ -632,6 +847,268 @@ function gitModeKind(mode: string): string {
   if (mode === "120000") return "a symbolic link";
   if (mode === "160000") return "a gitlink (a nested repository)";
   return `a git mode-${mode} entry`;
+}
+
+/** A stage-0 index entry: the mode git records, and the object it points at. */
+interface IndexEntry {
+  mode: string;
+  oid: string;
+}
+
+/**
+ * Every stage-0 index entry keyed by repo-relative path, plus the paths that
+ * have a record but NO stage-0 record, or `null` when git could not answer.
+ *
+ * AN EMPTY ANSWER COUNTS AS NO ANSWER. `git ls-files` exits 0 printing nothing
+ * for a repository whose index is empty, and for a directory INSIDE a
+ * repository with nothing tracked under it; an empty map would make every file
+ * untracked, which is the one state in which the union silently stops existing.
+ * A directory that is NO repository at all is a different branch and does not
+ * arrive here as an empty list at all: it FATALS (exit 128) and the `catch`
+ * below is what turns it into `null`. Both reach the same refusal, and BOTH
+ * ROUTES ARE NEEDED. Measured on git 2.39.5.
+ *
+ * `-s` carries the MODE, which is the only thing that distinguishes a regular
+ * blob from a symbolic link or a gitlink, and the OBJECT ID, which is what makes
+ * the union's content deduplication exact.
+ *
+ * 🛑 THE STAGE DIGIT IS READ, AND KEYING ON IT IS NOT OPTIONAL. THE RULE IS THE
+ * ABSENCE OF STAGE 0. Do NOT re-derive it from a record count or from a mode,
+ * and do NOT port it from the `--staged` route: that route spots an unmerged
+ * path from `--raw`'s status `U` and a destination mode of `000000`, and
+ * NOTHING IN `ls-files -s` LOOKS LIKE THAT. An unmerged path is reported here
+ * only at stages 1, 2 and/or 3, with ORDINARY BLOB MODES, so the mode rule
+ * cannot see it. A sibling's draft took the FIRST record per path and never
+ * looked at the stage: it scanned STAGE 1, THE MERGE BASE, labelled it as the
+ * bytes git carries, and printed a clean line over a marker living only in
+ * stage 3.
+ */
+function gitIndexEntries(): { entries: Map<string, IndexEntry>; unmerged: string[] } | null {
+  let out: Buffer;
+  try {
+    // SECURITY: array-form execFileSync, no shell. `-z` is NUL-separated and
+    // unquoted, so it matches the walk's forward-slash relative paths exactly.
+    // `maxBuffer` is raised because a TRUNCATED list is a SHORT list, and a
+    // short list is the unscanned corpus this whole rule is about. Node throws
+    // `ENOBUFS` rather than truncating, so the bound refuses either way; the
+    // headroom keeps a legitimate repo from paying an opaque refusal for it.
+    out = execFileSync("git", ["ls-files", "-s", "-z"], {
+      stdio: ["ignore", "pipe", "ignore"],
+      maxBuffer: 64 * 1024 * 1024,
+    });
+  } catch {
+    return null;
+  }
+  const entries = new Map<string, IndexEntry>();
+  const higherStages = new Set<string>();
+  for (const rec of out.toString("utf8").split("\0")) {
+    if (rec.length === 0) continue;
+    // `<mode> <oid> <stage>\t<path>`; a path may contain anything but NUL.
+    const m = /^(\d{6}) ([0-9a-f]+) (\d)\t([\s\S]+)$/.exec(rec);
+    const mode = m?.[1];
+    const oid = m?.[2];
+    const stage = m?.[3];
+    const path = m?.[4];
+    if (mode === undefined || oid === undefined || stage === undefined || path === undefined) {
+      // An unparseable record means the list may be SHORT in a way we cannot
+      // see, which is the one thing this sweep must never scan past.
+      return null;
+    }
+    if (stage === "0") entries.set(path, { mode, oid });
+    else higherStages.add(path);
+  }
+  // A path is unmerged when it has a record and none of them is stage 0. The set
+  // difference is taken rather than assuming the two are disjoint: relying on
+  // that without saying so is how an assumption becomes a silent short list.
+  const unmerged = [...higherStages].filter((p) => !entries.has(p));
+  if (entries.size === 0 && unmerged.length === 0) return null;
+  return { entries, unmerged };
+}
+
+/**
+ * AXIS 5: the repository's object format as a Node hash name, or `null` when
+ * git says something we do not recognise. `null` disables the union's content
+ * deduplication, which scans MORE, never less.
+ *
+ * WHEN GIT WILL NOT SAY AT ALL THE ANSWER IS `sha1`, NOT `null`, and the two
+ * cases are stated apart because an auditor asking "can this silently assume
+ * sha1 in a sha256 repository" deserves the right first answer. A git too old
+ * to know `--show-object-format` predates sha256 repositories entirely, so the
+ * fallback is a derivation rather than a guess; an answer we do not recognise
+ * is a git NEWER than this file, and there the honest move is to stop
+ * deduplicating.
+ */
+function gitObjectHash(): string | null {
+  let answer: string;
+  try {
+    // SECURITY: array-form execFileSync, no shell.
+    answer = execFileSync("git", ["rev-parse", "--show-object-format"], {
+      stdio: ["ignore", "pipe", "ignore"],
+    })
+      .toString("utf8")
+      .trim();
+  } catch {
+    return "sha1";
+  }
+  if (answer === "sha1") return "sha1";
+  if (answer === "sha256") return "sha256";
+  return null;
+}
+
+/**
+ * AXIS 5: the object id git would record for these bytes, under its own
+ * `blob <len>\0` framing. Used only to answer "did the walk already read
+ * EXACTLY the bytes the index carries here", so a wrong answer can only ever
+ * cost a second scan of the same content.
+ *
+ * THIS IS THE EOL AXIS. Where a `text` attribute or `core.autocrlf` makes the
+ * index carry LF and the working tree CRLF, the two ids differ and BOTH copies
+ * are scanned, rather than one being assumed to stand for the other.
+ */
+function blobOid(algorithm: string, bytes: Buffer): string | null {
+  try {
+    return createHash(algorithm)
+      .update(`blob ${String(bytes.length)}\0`)
+      .update(bytes)
+      .digest("hex");
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * `all` mode's enumeration: the walk, PLUS the in-scope index the union half
+ * reads. See THE UNION block in the header for what it closes and what it costs.
+ */
+function buildTargetsForAll(): { targets: Target[]; index: Map<string, IndexEntry> } {
+  const files: string[] = [];
+  const unscannable: Unscannable[] = [];
+  for (const root of SCAN_ROOTS) walk(join(REPO_ROOT, ...root.split("/")), files, unscannable);
+
+  // One `git check-ignore` over both lists. An ignored entry is already out of
+  // scope for the file route, so applying the same rule to a link keeps a single
+  // boundary rather than inventing a second, stricter one for links alone. Note
+  // `git check-ignore` is index-aware, so `git add -f` on an ignored link does
+  // not buy a bypass: once tracked it is no longer reported ignored.
+  const ignored = gitIgnored([...files.map(normalizePath), ...unscannable.map((u) => u.path)]);
+
+  refuseUnscannable(
+    unscannable.filter((u) => !ignored.has(u.path) && !EXCLUDED_PATHS.has(u.path)),
+    "The walk can neither read such an entry nor vouch for what is on the other side of it.",
+    "Remove it, replace it with a regular file, or (if it is genuinely not part of the " +
+      "corpus) untrack it and add it to .gitignore.",
+  );
+
+  const listed = gitIndexEntries();
+  if (listed === null) {
+    throw new InvocationError(
+      "refusing the sweep: git could not name this repository's index, or named it empty, so the " +
+        "sweep would be the working-tree walk's word alone and could report clean over tracked " +
+        "bytes it never opened. Run it inside a git repository with a readable index.",
+    );
+  }
+
+  // Unmerged first, and under its OWN sentence: an unmerged path is not a link
+  // and not a gitlink, and reporting it as one sends a developer looking for
+  // something that is not there.
+  refuseUnscannable(
+    listed.unmerged
+      .filter((p) => isUnderScanRoot(p) && !EXCLUDED_PATHS.has(p))
+      .map((p) => ({ path: p, kind: "no stage-0 blob" })),
+    "An unmerged path has no single merged blob, so there is no one set of bytes git carries " +
+      "here for the sweep to read, only the conflicting sides and, when there is one, their base.",
+    "Resolve the conflict and stage the result, then re-run.",
+    { one: "path is unmerged", many: "paths are unmerged" },
+  );
+
+  // The index's own non-blob entries, refused BEFORE anything is read so a
+  // developer is not made to wait out a whole sweep for it. Same rule and the
+  // same closed-set token as the `--staged` route: git hands back a link's
+  // target path rather than content, and a gitlink has no bytes at this path at
+  // all. It is scoped to `isUnderScanRoot`, which is AXIS 2's business: a
+  // submodule outside the scan roots is none of this scan's.
+  refuseUnscannable(
+    [...listed.entries]
+      .filter(
+        ([p, e]) =>
+          isUnderScanRoot(p) && !REGULAR_BLOB_MODES.has(e.mode) && !EXCLUDED_PATHS.has(p),
+      )
+      .map(([p, e]) => ({ path: p, kind: gitModeKind(e.mode) })),
+    "Git records no readable content at such a path, so scanning it would prove nothing about " +
+      "what it stands for.",
+    "Untrack it, or replace it with a regular file.",
+    // Its own noun: the offender here is an INDEX RECORD, and a gitlink's
+    // working tree may not exist at all, so "not a regular file" would send a
+    // developer to look at a path where there is nothing to see.
+    { one: "index entry is not a regular blob", many: "index entries are not regular blobs" },
+  );
+
+  const targets = files
+    .map((abs) => ({ abs, rel: normalizePath(abs) }))
+    .filter(({ rel }) => !ignored.has(rel) && !EXCLUDED_PATHS.has(rel))
+    .map(({ abs, rel }) => ({ path: rel, read: (): Buffer => readFileSync(abs) }));
+  return { targets, index: listed.entries };
+}
+
+/**
+ * The in-scope tracked paths the union half is entitled to read: every stage-0
+ * regular blob under a scan root that the read filter admits and no exclusion
+ * names.
+ *
+ * IT IS COMPUTED BEFORE THE FIRST BYTE IS READ, AND THAT IS LOAD-BEARING, not a
+ * refactor. This set is part of what `all` mode ENUMERATES, so both completeness
+ * tiers see it: a bypass naming a tracked-but-absent path subtracts something
+ * real (rather than being refused as naming nothing), and a target that ends up
+ * unread is named by the unread refusal whichever route would have read it.
+ */
+function unionCandidatePaths(index: Map<string, IndexEntry>): string[] {
+  return [...index]
+    .filter(([p, e]) => REGULAR_BLOB_MODES.has(e.mode) && isUnderScanRoot(p) && isWalkReadable(p))
+    .filter(([p]) => !EXCLUDED_PATHS.has(p))
+    .map(([p]) => p);
+}
+
+/**
+ * THE UNION HALF of `all` mode: the bytes git carries at every in-scope tracked
+ * path whose bytes the walk did not already read VERBATIM.
+ *
+ * `readOids` maps a path the walk actually READ to the object id of what it
+ * read. A path absent from it was never opened, whatever the reason, so its blob
+ * is scanned; a path present with a DIFFERENT id had a different copy read, so
+ * its blob is scanned too. That second case is the EOL axis.
+ */
+function buildTargetsForGitIndex(
+  index: Map<string, IndexEntry>,
+  readOids: Map<string, string>,
+): Target[] {
+  const targets: Target[] = [];
+  for (const path of unionCandidatePaths(index)) {
+    const entry = index.get(path);
+    if (entry === undefined) continue;
+    if (readOids.get(path) === entry.oid) continue;
+    targets.push({
+      path,
+      origin: "as git carries it",
+      // SECURITY: array-form execFileSync, no shell. The object id is git's own
+      // output, and naming the OBJECT rather than the path is the whole point:
+      // it cannot be redirected by whatever the working tree currently holds.
+      read: (): Buffer =>
+        execFileSync("git", ["cat-file", "blob", entry.oid], {
+          encoding: "buffer",
+          stdio: ["ignore", "pipe", "pipe"],
+        }),
+    });
+  }
+  return targets;
+}
+
+function buildTargetsForPaths(paths: string[]): Target[] {
+  return paths.map((p) => {
+    const abs = isAbsolute(p) ? p : resolve(REPO_ROOT, p);
+    if (!existsSync(abs)) throw new InvocationError(`File not found: ${p}`);
+    if (!statSync(abs).isFile()) throw new InvocationError(`Not a regular file: ${p}`);
+    return { path: normalizePath(abs), read: () => readFileSync(abs) };
+  });
 }
 
 /** `:<srcmode> <dstmode> <srcsha> <dstsha> <status>`: the info half of a `--raw -z` record. */
@@ -751,7 +1228,12 @@ function buildTargetsForStaged(): Target[] {
   // the same entry.
   refuseUnscannable(
     staged
-      .filter((s) => isUnderScanRoot(s.path) && !REGULAR_BLOB_MODES.has(s.mode))
+      .filter(
+        (s) =>
+          isUnderScanRoot(s.path) &&
+          !REGULAR_BLOB_MODES.has(s.mode) &&
+          !EXCLUDED_PATHS.has(s.path),
+      )
       .map((s) => ({ path: s.path, kind: gitModeKind(s.mode) })),
     "The index holds no file content for such an entry, so scanning it would prove nothing " +
       "about what it refers to.",
@@ -760,7 +1242,9 @@ function buildTargetsForStaged(): Target[] {
 
   // Every remaining readable record is a regular blob: `isStagedReadable` implies
   // `isUnderScanRoot`, so anything non-regular was refused above.
-  const list = staged.filter((s) => isStagedReadable(s.path)).map((s) => s.path);
+  const list = staged
+    .filter((s) => isStagedReadable(s.path) && !EXCLUDED_PATHS.has(s.path))
+    .map((s) => s.path);
   return list.map((relPath) => ({
     path: relPath,
     // SECURITY: array-form execFileSync, no shell. `:<path>` is a git pathspec.
@@ -794,7 +1278,12 @@ function scanCommonShapes(path: string, content: string, allow: AllowList, hits:
 // Dispatch
 // ---------------------------------------------------------------------------
 
-function scanTarget(target: Target, allow: AllowList, hits: Hit[]): void {
+/**
+ * Scan one target and RETURN THE BYTES IT OBSERVED. The bytes are returned
+ * rather than a boolean so `all` mode can ask whether the walk already read
+ * exactly what the index carries at this path; see `buildTargetsForGitIndex`.
+ */
+function scanTarget(target: Target, allow: AllowList, hits: Hit[]): Buffer {
   let buf: Buffer;
   try {
     buf = target.read();
@@ -804,10 +1293,13 @@ function scanTarget(target: Target, allow: AllowList, hits: Hit[]): void {
     );
   }
   const text = buf.toString("utf8");
+  // Scope is decided on the target's own path; only the REPORTED locus carries
+  // the origin label, so a labelled target is never a differently-scoped one.
+  const locus = target.origin === undefined ? target.path : `${target.path} (${target.origin})`;
 
   // The format-agnostic floor: dashed SSN + non-test email. This runs on every
   // target and is all the starter detects.
-  scanCommonShapes(target.path, text, allow, hits);
+  scanCommonShapes(locus, text, allow, hits);
 
   // ── TODO: add {{TITLE}}-specific structured field-level PHI detection here ──
   //
@@ -828,12 +1320,18 @@ function scanTarget(target: Target, allow: AllowList, hits: Hit[]): void {
   //     const d = detect{{TITLE}}Delimiters(text);          // if applicable
   //     for (const record of split{{TITLE}}(text, d)) {
   //       // check name / dob / id / address / phone fields against `allow`
-  //       // hits.push({ path: target.path, segment: "<field>", value, reason });
+  //       // hits.push({ path: locus, segment: "<field>", value, reason });
   //     }
   //
   //   Until this section is implemented, treat a green `pnpm phi-scan` as
   //   "no SSN/email shapes found", NOT as "no PHI".
+  //
+  //   Report against `locus`, NOT `target.path`: the index union scans bytes
+  //   that may not be the ones on disk, and a hit that names an undecorated
+  //   path a developer then opens and finds clean is its own defect.
   // ───────────────────────────────────────────────────────────────────────────
+
+  return buf;
 }
 
 // ---------------------------------------------------------------------------
@@ -890,7 +1388,7 @@ function main(): number {
   } catch (err) {
     if (err instanceof InvocationError) {
       process.stderr.write(`[phi-scan] ${err.message}\n`);
-      return 2;
+      return EXIT_REFUSE;
     }
     throw err;
   }
@@ -899,6 +1397,9 @@ function main(): number {
 
   let allow: AllowList;
   let targets: Target[];
+  // `all` mode's index, read once: it is the union half's whole enumeration.
+  // `null` in the other two modes, which are not sweeps and do not have one.
+  let index: Map<string, IndexEntry> | null = null;
   try {
     // `loadAllowList()` IS INSIDE THIS HANDLER, AND THAT PLACEMENT IS THE POINT.
     // Outside it, a missing allow-list escaped as an uncaught throw and took
@@ -907,20 +1408,32 @@ function main(): number {
     allow = loadAllowList();
     if (args.mode === "staged") targets = buildTargetsForStaged();
     else if (args.mode === "paths") targets = buildTargetsForPaths(args.paths);
-    else targets = buildTargetsForAll();
+    else {
+      const built = buildTargetsForAll();
+      targets = built.targets;
+      index = built.index;
+    }
   } catch (err) {
     if (err instanceof InvocationError) {
       process.stderr.write(`[phi-scan] ${err.message}\n`);
-      return 2;
+      return EXIT_REFUSE;
     }
     throw err;
   }
 
   // ENUMERATED: the set of paths this run declared it would read. Everything the
-  // read filters dropped upstream (a `.md` file in the walk, a gitignored entry,
-  // a staged path outside `isStagedReadable`) never became a target and is not
-  // in here, which is why the completeness rule below does not fire on them.
+  // read filters dropped upstream (a `.md` file on the sweeping routes, a
+  // gitignored entry, an excluded path, a staged path outside
+  // `isStagedReadable`) never became a target and is not in here, which is why
+  // the completeness rule below does not fire on them.
+  //
+  // IN `all` MODE IT IS THE WALK'S TARGETS UNION THE IN-SCOPE TRACKED PATHS.
+  // The union half reads the second set, minus whatever the walk already read
+  // verbatim, and that dedupe collapses on the SAME path key: so a path the
+  // union skips is a path the walk already put in `read`, and the difference
+  // below stays exact either way.
   const enumerated = new Set<string>(targets.map((t) => t.path));
+  if (index !== null) for (const p of unionCandidatePaths(index)) enumerated.add(p);
 
   // TIER: A BYPASS MUST NAME A PATH THIS RUN ENUMERATES. Otherwise it subtracts
   // nothing, and a flag that subtracts nothing lets a developer believe a file
@@ -933,25 +1446,48 @@ function main(): number {
         `enumerate, so the flag subtracts nothing:\n${unmatched.map((p) => `  - ${p}`).join("\n")}\n` +
         `Scan a corpus that contains the path, or drop the flag.\n`,
     );
-    return 2;
+    return EXIT_REFUSE;
   }
 
   const hits: Hit[] = [];
   // READ: filled in only after a target's bytes have actually been through
   // `scanTarget`. This is evidence of observation, never a plan to observe.
   const read = new Set<string>();
-  for (const t of targets) {
-    if (allowed.has(t.path)) continue;
-    try {
-      scanTarget(t, allow, hits);
-    } catch (err) {
-      if (err instanceof InvocationError) {
-        process.stderr.write(`[phi-scan] ${err.message}\n`);
-        return 2;
+  // Path -> object id of the bytes the walk actually read, so the union below
+  // can skip a path whose content it would otherwise scan a second time.
+  const readOids = new Map<string, string>();
+  const objectHash = index === null ? null : gitObjectHash();
+
+  const sweep = (batch: Target[]): number | null => {
+    for (const t of batch) {
+      if (allowed.has(t.path)) continue;
+      let bytes: Buffer;
+      try {
+        bytes = scanTarget(t, allow, hits);
+      } catch (err) {
+        if (err instanceof InvocationError) {
+          process.stderr.write(`[phi-scan] ${err.message}\n`);
+          return EXIT_REFUSE;
+        }
+        throw err;
       }
-      throw err;
+      read.add(t.path);
+      if (objectHash !== null && t.origin === undefined) {
+        const oid = blobOid(objectHash, bytes);
+        if (oid !== null) readOids.set(t.path, oid);
+      }
     }
-    read.add(t.path);
+    return null;
+  };
+
+  const walkFailure = sweep(targets);
+  if (walkFailure !== null) return walkFailure;
+
+  // THE UNION. It runs AFTER the walk, not instead of it, and only over the
+  // paths the walk did not already read verbatim.
+  if (index !== null) {
+    const unionFailure = sweep(buildTargetsForGitIndex(index, readOids));
+    if (unionFailure !== null) return unionFailure;
   }
 
   // THE COMPLETENESS RULE. A SET DIFFERENCE, NEVER A SIZE COMPARISON: a count
@@ -970,12 +1506,12 @@ function main(): number {
         `genuinely synthetic, declare its identifiers in scripts/phi-allow-list.txt rather than ` +
         `withdrawing the file from the scan.\n`,
     );
-    return 2;
+    return EXIT_REFUSE;
   }
 
-  if (hits.length > 0) return 1;
+  if (hits.length > 0) return EXIT_HITS;
   process.stdout.write("[phi-scan] OK: no hits\n");
-  return 0;
+  return EXIT_CLEAN;
 }
 
 process.exit(main());
