@@ -122,8 +122,12 @@ a summary.
   This template shipped `["test/fixtures", "src"]` and it was measured against a fresh scaffold: **35
   tracked files, ONE in scope**, so a tracked `test/leak.test.ts` carrying a dashed SSN exited 0 on
   the sweep and on the pre-commit route. The engine prunes gitignored directories during descent and
-  skips `.git` by name, so a whole-repository root costs nothing on a fresh tree. If you narrow it,
-  **measure what the narrowing STOPS reading** rather than assuming it stops reading nothing.
+  skips `.git` by name, so a whole-repository root costs nothing on a fresh tree. **After the
+  widening the sweep reads 23 of those 35**: the remaining twelve are the eleven `.md` files the
+  shared read exemption drops on both sweeping routes, plus the one `EXCLUDED_PATHS` entry. "The
+  whole repository" is the ROOT half of scope, never a claim that every tracked file is read. If you
+  narrow it, **measure what the narrowing STOPS reading** rather than assuming it stops reading
+  nothing.
 - **THE `--allow-fixture` BYPASS CANNOT REACH A CLEAN RUN, SO EVERY DETECTOR YOU ADD MUST CONSULT
   `ctx.allow`.** A target the run enumerated and never read REFUSES, in every mode, so the flag is
   recorded and then refused. That means a detector that checks nothing leaves a developer with a hit

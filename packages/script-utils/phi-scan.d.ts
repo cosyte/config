@@ -73,7 +73,14 @@ export interface DetectContext {
   hit: (h: Omit<Hit, "path">) => void;
 }
 
-/** A per-standard field detector. Throwing REFUSES the scan rather than taking node's exit code. */
+/**
+ * A per-standard field detector. Throwing REFUSES the scan rather than taking node's exit code.
+ *
+ * 🛑 THE THROWN MESSAGE IS PRINTED VERBATIM, so it reaches CI logs. Name the position, never the
+ * content: a parser that interpolates the record it choked on turns a diagnostic into a PHI
+ * surface. This is the one place the engine prints text it cannot vouch for, and it is disclosed
+ * rather than suppressed, because a refusal nobody can diagnose is its own defect.
+ */
 export type DetectFn = (ctx: DetectContext) => void;
 
 /** The three codes this repo's own exit contract assigns. All three must differ. */
@@ -95,16 +102,30 @@ export interface PhiScanConfig {
   exitCodes: PhiScanExitCodes;
 
   /**
-   * AXIS 2, REQUIRED: the roots `all` mode walks, repo-relative and forward-slashed. `["."]` means
-   * the whole repository, which is the only honest setting for a repo that has not yet decided what
-   * its corpus is. A ROOT IS A SCOPE DECISION AND IT IS THE AXIS MOST LIKELY TO BE WRONG IN A PORT:
-   * measure what a narrowing stops reading, rather than assuming it stops reading nothing.
+   * AXIS 2, REQUIRED: the roots `all` mode walks. `["."]` means the whole repository, which is the
+   * only honest setting for a repo that has not yet decided what its corpus is. A ROOT IS A SCOPE
+   * DECISION AND IT IS THE AXIS MOST LIKELY TO BE WRONG IN A PORT: measure what a narrowing stops
+   * reading, rather than assuming it stops reading nothing.
+   *
+   * Each entry is normalised the way every other path is, so `src`, `./src`, `src/` and an absolute
+   * path to it are one root. That normalization is a fix rather than a convenience: `["./src"]`
+   * used to walk correctly while matching no index path, which emptied the union, the index
+   * non-blob refusal and the unmerged refusal in silence. A root resolving OUTSIDE the repository
+   * is refused for the same reason.
    */
   scanRoots: readonly string[];
 
   /**
-   * AXIS 3, REQUIRED: the READ half of scope for `--staged`. Narrower than the root half by
-   * construction. Widening it changes what a COMMIT is blocked on, which is a hook decision.
+   * AXIS 3, REQUIRED: the READ half of scope for `--staged`. Widening it changes what a COMMIT is
+   * blocked on, which is a hook decision each repo takes for itself.
+   *
+   * IT MUST STAY INSIDE `scanRoots`, AND THE ENGINE ENFORCES THAT RATHER THAN ASSUMING IT. This
+   * doc used to say "narrower than the root half by construction", and nothing constructed it:
+   * these are two independent keys. A reviewer measured the gap with roots at `["src"]` and this
+   * filter at `exemptsMarkdown`: a STAGED symbolic link under `test/fixtures/` was outside every
+   * scan root, so the non-regular refusal never saw it, and the route read the link's TARGET PATH
+   * as if it were content and reported clean at exit 0. A staged path this admits and no scan root
+   * covers is now REFUSED, naming the path.
    */
   isStagedReadable: (relPath: string) => boolean;
 

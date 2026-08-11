@@ -35,3 +35,12 @@ still unreachable from there.
 A detector that throws REFUSES the scan rather than escaping to node's own exit code, which the
 contract reserves for HITS FOUND. A misconfigured scanner throws a `TypeError` rather than returning
 a code, because at the point a required axis is missing there is no trustworthy code to return.
+
+Two containments the first draft asserted are ENFORCED rather than claimed, both falsified in review
+and both reproducible against the pre-consolidation scanner: a staged path `isStagedReadable` admits
+that no scan root covers is REFUSED (it used to be enumerated, read, and reported clean, with the
+link's target path handed to the detector as content), and a scan root is normalised the way every
+other path is, with one resolving outside the repository refused (`["./src"]` used to walk correctly
+while matching no index path, emptying every index-keyed rule in silence). The optional axes are
+shape-checked too, because `excludedPaths` given as an array used to throw from inside enumeration
+and take node's exit 1, the code reserved for HITS FOUND.

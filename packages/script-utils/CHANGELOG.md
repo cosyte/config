@@ -38,12 +38,38 @@ the **`0.0.x`-until-first-alpha** ladder.
   sentence in a comment; it is now the only path a caller can reach.
 
 - **A scan root of `"."` means the whole repository**, with gitignored directories pruned during
-  descent and `.git` skipped by literal name. Pruning is exactly equivalent to filtering afterwards,
-  because git cannot re-include a path under an excluded directory, and it is what makes a
-  whole-repository root usable at all rather than a walk through `node_modules`.
+  descent and `.git` skipped by literal name, which is what makes a whole-repository root usable at
+  all rather than a walk through `node_modules`. Pruning is equivalent to filtering afterwards
+  because **`git check-ignore` is index-aware at directory granularity**, measured both ways on git
+  2.39.5: with nothing tracked underneath, a gitignored directory is reported ignored and pruned;
+  with one file force-added underneath it is reported NOT ignored, so the walk descends and still
+  reads it. An earlier draft justified this with the gitignore-pattern rule that a path under an
+  excluded directory cannot be re-included, which does not settle it, because the filter being
+  replaced asked `check-ignore` too.
 
 ### Changed
 
+- **Two containments the first draft ASSERTED are now ENFORCED**, both falsified by this slice's
+  adversarial review and both reproduced against the pre-consolidation scanner too, so neither is a
+  regression this package introduced. What was introduced was the sentence claiming they held, on the
+  API contract thirteen migrations are about to be written against.
+  - **A staged path `isStagedReadable` admits that no scan root covers is REFUSED.** The type said
+    the `--staged` filter was "narrower than the root half by construction"; nothing constructed it,
+    because they are two independent keys. Measured with roots at `["src"]` and the filter at the
+    shared Markdown exemption: a STAGED mode-120000 entry under `test/fixtures/` was outside every
+    scan root, so the non-regular refusal never saw it, and the route enumerated it, READ it, handed
+    the link's TARGET PATH to the detector as if it were content, counted the scan complete and
+    printed `OK: no hits` at exit 0. Narrowing silently to the intersection would have been the wrong
+    repair: it hides a misconfiguration in the one place the gate blocks a commit.
+  - **A scan root is normalised the way every other path is, and one resolving outside the repository
+    is refused.** `"./src"` is a spelling the type documents as valid; it walked correctly while
+    `isUnderScanRoot` compared it against the normalized index path and never matched, emptying the
+    union, the index non-blob refusal and the unmerged refusal in silence. Measured: `["src"]`
+    refused a tracked mode-120000 entry at exit 2 while `["./src"]` reported clean at exit 0 over the
+    same repository.
+- **The optional axes are shape-checked.** `excludedPaths: ["a"]`, a plausible reading of
+  "repo-relative paths", used to survive normalization, reach `.has(...)` inside enumeration, and
+  take node's exit 1 from there, which the exit contract reserves for HITS FOUND.
 - **The floor's dashed-SSN branch now consults `allow.ids`, in either rendering.** This is a
   correction rather than a port: with the whole-file `--allow-fixture` bypass closed, a detector
   that consults nothing leaves a developer with a hit and **no remedy at all**, and a sibling

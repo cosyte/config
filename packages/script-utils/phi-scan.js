@@ -85,13 +85,28 @@ export function exemptsMarkdown(relPath) {
 /**
  * Normalise and CHECK the caller's configuration.
  *
- * A MISCONFIGURED SCANNER MUST NOT BE ABLE TO REPORT CLEAN, and that is the only property this
- * function is for. It throws a `TypeError` rather than returning a code, because at the point a
- * required axis is missing there is no trustworthy code to return: `exitCodes` is itself the thing
- * that was not supplied. A `TypeError` escapes to node's own exit 1 with a stack, which is loud,
- * lands on the author's very first run of their own scanner, and is not something CI can read as a
- * clean pass. It is NOT the caller's HITS code by coincidence: this state is unreachable once the
- * scanner runs at all.
+ * IT THROWS A `TypeError` RATHER THAN RETURNING A CODE, because at the point a required axis is
+ * missing there is no trustworthy code to return: `exitCodes` is itself the thing that was not
+ * supplied. That escapes to node's own exit 1 with a stack, which is loud and lands on the author's
+ * very first run of their own scanner.
+ *
+ * WHAT IT CHECKS AND WHAT IT DOES NOT, SCOPED TO WHAT IS ENFORCED HERE RATHER THAN TO AN INTENT.
+ * An earlier draft of this docblock said a misconfigured scanner "must not be able to report clean",
+ * and a reviewer falsified that sentence twice in four lines. Both reproductions were the same
+ * shape: a configuration this function ACCEPTED, whose roots then matched nothing, so every
+ * index-keyed rule went silently empty and the run printed `OK: no hits`. So the two are named:
+ *
+ *   1. A ROOT IS NORMALISED THE SAME WAY A PATH IS. `"./src"` is a spelling the type describes as
+ *      valid, and it walked correctly while `isUnderScanRoot` compared it against the NORMALIZED
+ *      index path `src/...` and never matched. Measured: `["src"]` refused a tracked mode-120000
+ *      entry at exit 2 while `["./src"]` reported clean at exit 0 over the same repository.
+ *   2. A ROOT THAT RESOLVES OUTSIDE THE REPOSITORY IS REFUSED, because no index path can ever be
+ *      under it, which is the same silently-empty state arrived at by another spelling.
+ *
+ * IT IS STILL NOT AN EXHAUSTIVE GUARANTEE, and the residual is named rather than implied: the
+ * CONTENT of a caller's predicates is not checkable here. `isStagedReadable` admitting a path
+ * outside every scan root is the one containment that matters, and it is enforced where it can be
+ * observed, in `buildTargetsForStaged`, not here.
  *
  * @param {import("./phi-scan.js").PhiScanConfig} config
  * @returns {Required<Omit<import("./phi-scan.js").PhiScanConfig, "detect">> & { detect?: import("./phi-scan.js").DetectFn }}
@@ -138,21 +153,66 @@ function normalizeConfig(config) {
         "whole repository.",
     );
   }
-  /** @type {string[]} */
-  const scanRoots = [];
+  /** @type {Set<string>} */
+  const scanRootSet = new Set();
   for (const root of rawRoots) {
     if (typeof root !== "string" || root === "") {
       throw new TypeError("runPhiScan: every entry in `scanRoots` must be a non-empty string.");
     }
-    const trimmed = root.replace(/\/+$/, "");
-    scanRoots.push(trimmed === "" ? "." : trimmed);
+    // THE SAME NORMALIZATION EVERY OTHER PATH GETS, and it is the fix for reproduction 1 above:
+    // `isUnderScanRoot` compares against repo-relative, forward-slashed paths, so a root must be one
+    // too or it matches nothing while still walking correctly. This maps `./src`, `src/` and
+    // `<repoRoot>/src` onto `src`, and the repository root itself onto `.`.
+    const rel = relative(repoRoot, isAbsolute(root) ? root : resolve(repoRoot, root))
+      .split(sep)
+      .join("/");
+    if (rel === ".." || rel.startsWith("../")) {
+      throw new TypeError(
+        `runPhiScan: scanRoots entry ${JSON.stringify(root)} resolves outside the repository ` +
+          `(${rel}). No path git can name is under it, so every index-keyed rule would go silently ` +
+          `empty and the sweep would report clean over a corpus it never had in scope.`,
+      );
+    }
+    scanRootSet.add(rel === "" ? "." : rel);
   }
+  // Deduped, so two spellings of one root cannot walk the same tree twice.
+  const scanRoots = [...scanRootSet];
 
   if (typeof config.isStagedReadable !== "function") {
     throw new TypeError(
       "runPhiScan: `isStagedReadable` is REQUIRED. It decides which staged blobs a COMMIT is " +
         "blocked on, which is a per-repo hook decision and must not be inherited silently.",
     );
+  }
+
+  // THE OPTIONAL AXES ARE SHAPE-CHECKED TOO, AND THAT IS NOT TIDINESS. A reviewer measured
+  // `excludedPaths: ["a"]`, which is a plausible reading of "repo-relative paths": it survived
+  // normalization, reached `.has(...)` inside enumeration, threw an uncaught `TypeError` from there,
+  // and the run took node's exit 1, which the exit contract reserves for HITS FOUND. Checking the
+  // shape here turns that into a throw that says what to fix, before any scan begins.
+  if (config.excludedPaths !== undefined && typeof config.excludedPaths.has !== "function") {
+    throw new TypeError(
+      "runPhiScan: `excludedPaths` must be a Set (or anything with `.has(path)`), not an array.",
+    );
+  }
+  if (config.regularBlobModes !== undefined && typeof config.regularBlobModes.has !== "function") {
+    throw new TypeError(
+      "runPhiScan: `regularBlobModes` must be a Set (or anything with `.has(mode)`).",
+    );
+  }
+  for (const key of /** @type {const} */ (["isWalkReadable", "detect"])) {
+    if (config[key] !== undefined && typeof config[key] !== "function") {
+      throw new TypeError(`runPhiScan: \`${key}\` must be a function when given.`);
+    }
+  }
+  for (const key of /** @type {const} */ (["allowListPath", "overrideLogPath"])) {
+    const value = config[key];
+    if (value !== undefined && (typeof value !== "string" || value === "")) {
+      throw new TypeError(`runPhiScan: \`${key}\` must be a non-empty string when given.`);
+    }
+  }
+  if (config.argv !== undefined && !Array.isArray(config.argv)) {
+    throw new TypeError("runPhiScan: `argv` must be an array of strings when given.");
   }
 
   return {
@@ -647,9 +707,23 @@ class PhiScan {
    *
    * IGNORED DIRECTORIES ARE PRUNED DURING DESCENT, ONE `git check-ignore` PER LEVEL. That is not an
    * optimisation bolted onto a filter: `scanRoots: ["."]` is the only honest default for a freshly
-   * scaffolded repo, and without pruning such a sweep descends into `node_modules`. It is exactly
-   * equivalent to filtering afterwards, because git cannot re-include a path under an excluded
-   * directory, and the file-level filter still runs below.
+   * scaffolded repo, and without pruning such a sweep descends into `node_modules`.
+   *
+   * WHY IT IS EQUIVALENT TO FILTERING AFTERWARDS, NAMED AS THE RULE THAT ACTUALLY CARRIES IT. An
+   * earlier draft said "git cannot re-include a path under an excluded directory", which is a
+   * gitignore-PATTERN rule and does not settle this on its own, because the filter it replaces
+   * asked `check-ignore` too. The load-bearing property is that `git check-ignore` IS INDEX-AWARE AT
+   * DIRECTORY GRANULARITY. Measured on git 2.39.5, with `node_modules/` in `.gitignore`:
+   *
+   *   - nothing tracked underneath  -> `check-ignore node_modules` exits 0 and the directory is
+   *     pruned, which is right, because no file under it could have survived the file-level filter
+   *     either;
+   *   - one file force-added underneath -> `check-ignore node_modules` exits 1, the directory is NOT
+   *     pruned, and the walk descends and reads the tracked file exactly as before.
+   *
+   * The file-level filter still runs below, so pruning only ever removes work the filter would have
+   * removed anyway. `test/phi-scan-engine.test.ts` pins BOTH directions, because a test that only
+   * plants a violator in an ignored directory measures that pruning happens, not that it is safe.
    *
    * A DIRECTORY NAMED `.git` IS SKIPPED BY NAME, at any depth. It is git's own object store rather
    * than the corpus, git does not report it ignored, and the union already reads what the repository
@@ -953,7 +1027,40 @@ class PhiScan {
       "Unstage it, or replace it with a regular file.",
     );
 
-    // Every remaining readable record is a regular blob: anything non-regular was refused above.
+    // THE CONTAINMENT IS ENFORCED, NOT ASSUMED, AND IT USED TO BE THE WORD "by construction".
+    // `isStagedReadable` and `scanRoots` are two independent keys a repo fills in, and nothing
+    // relates them. A reviewer measured what that costs: with roots narrowed to `src` and this
+    // filter left at the shared Markdown exemption, a STAGED mode-120000 entry under
+    // `test/fixtures/` was outside every scan root, so the non-regular refusal above never saw it,
+    // and the route then ENUMERATED it, READ it, handed the link's TARGET PATH to the detector as
+    // if it were content, counted the scan complete, and printed `OK: no hits` at exit 0. That is
+    // exactly the hole the two-predicate rule exists to close, arriving through configuration
+    // instead of through code.
+    //
+    // So a staged path this filter admits and `isUnderScanRoot` does not is REFUSED. Narrowing it
+    // silently to the intersection would be the wrong repair: it would hide a misconfiguration that
+    // the author needs to see, in the one place the gate is a commit blocker.
+    this.refuseUnscannable(
+      staged
+        .filter(
+          (s) =>
+            this.cfg.isStagedReadable(s.path) &&
+            !this.isUnderScanRoot(s.path) &&
+            !this.cfg.excludedPaths.has(s.path),
+        )
+        .map((s) => ({ path: s.path, kind: "outside every scan root" })),
+      "`isStagedReadable` admits a path no scan root covers, so the checks that key on the ROOT " +
+        "half of scope never ran for it: its bytes would be read without anything having " +
+        "established that there are bytes there to read.",
+      "Widen `scanRoots` to cover it, or narrow `isStagedReadable` to stay inside them.",
+      {
+        one: "staged path is readable but outside every scan root",
+        many: "staged paths are readable but outside every scan root",
+      },
+    );
+
+    // Every remaining readable record is a regular blob under a scan root: anything non-regular was
+    // refused above, and anything outside the roots was refused just now.
     return staged
       .filter((s) => this.cfg.isStagedReadable(s.path) && !this.cfg.excludedPaths.has(s.path))
       .map((s) => s.path)
@@ -1048,6 +1155,16 @@ class PhiScan {
    * A DETECTOR THAT THROWS REFUSES THE SCAN rather than escaping to node's own exit code. A
    * per-standard parser meeting input it cannot handle is an ordinary event, and the code node would
    * pick is the one this contract reserves for HITS FOUND.
+   *
+   * 🛑 THE REFUSAL PRINTS THE DETECTOR'S OWN MESSAGE VERBATIM, AND THAT IS A DISCLOSED RESIDUAL
+   * RATHER THAN A CLOSED ONE. Everywhere else this engine prints only a repo-relative path and a
+   * token from a closed set, precisely because a diagnostic ABOUT a PHI leak is itself a PHI
+   * surface. A caller's error message is text this engine cannot vouch for, and a parser that
+   * interpolates the record it choked on will put that record on stderr, which is CI logs. It is not
+   * suppressed, because a refusal nobody can diagnose is its own defect, and it is not new: before
+   * this engine existed the same string reached the same place through node's default handler. What
+   * is new is that it is written down, here and on `DetectFn`. Throw a message that names the
+   * position, never the content.
    *
    * @param {import("./phi-scan.js").Target} target
    * @param {import("./phi-scan.js").AllowList} allow

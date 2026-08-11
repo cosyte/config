@@ -132,6 +132,14 @@ const EXIT_CODES = { clean: 0, hits: 1, refuse: 2 } as const;
  * scope is everything, and the engine prunes gitignored directories during
  * descent and skips `.git` by name so that costs nothing on a fresh tree.
  *
+ * BE EXACT ABOUT WHAT "EVERYTHING" READS, BECAUSE IT IS NOT EVERY TRACKED FILE.
+ * Measured on the same fresh scaffold AFTER the widening: 23 of the 35 tracked
+ * files are read by the sweep. The other twelve are the ELEVEN `.md` files the
+ * shared read exemption drops on both sweeping routes, and the ONE entry in
+ * `EXCLUDED_PATHS` below. The `.md` boundary is the engine's own default and
+ * moving it is a decision taken there; it is named here so this constant is not
+ * read as a claim that nothing is left out.
+ *
  * 🛑 NARROWING THIS IS A SCOPE DECISION AND IT IS THE AXIS MOST LIKELY TO BE
  * WRONG. A sibling that widened its walk to the whole repository found tracked
  * files that had never been opened by either route. If you narrow it, measure

@@ -279,6 +279,112 @@ describe("a per-standard detector is handed the locus, and cannot take down the 
   });
 });
 
+describe("the two containments a reviewer falsified, now enforced rather than asserted", () => {
+  // BOTH OF THESE WERE PROSE BEFORE THEY WERE CODE, AND BOTH WERE FALSE. The `.d.ts` said
+  // `isStagedReadable` was "narrower than the root half by construction" and nothing constructed it;
+  // `normalizeConfig` said a misconfigured scanner could not report clean and a root spelling its own
+  // type documents as valid did exactly that. Each reproduction below is the reviewer's, kept as the
+  // regression rather than paraphrased.
+
+  it("REFUSES a staged path `isStagedReadable` admits and no scan root covers", () => {
+    // THE MEASURED HOLE. With roots at `["src"]` and the staged filter at the shared Markdown
+    // exemption, a STAGED symbolic link under `test/fixtures/` is outside every scan root, so the
+    // non-regular refusal never sees it. The route then enumerated it, READ it, handed the link's
+    // TARGET PATH to the detector as if it were content, counted the scan complete, and printed
+    // `OK: no hits` at exit 0. The bytes are the very text the engine refuses to print elsewhere.
+    const outside = join(repo, "..", "phi-scan-engine-staged-target.txt");
+    writeFileSync(outside, `ssn ${SSN}\n`, "utf8");
+    try {
+      write("src/index.ts", "export const x = 1;\n");
+      commitAll();
+      // STAGED but not committed, so `git diff --cached` has a record to read.
+      mkdirSync(join(repo, "test", "fixtures"), { recursive: true });
+      symlinkSync(outside, join(repo, "test", "fixtures", "link.txt"));
+      git(["add", "-A"]);
+
+      // The git premise first: the staged record really is a mode-120000 entry at that path.
+      expect(git(["diff", "--cached", "--raw", "--no-renames"]).out).toContain("120000");
+
+      const seen: string[] = [];
+      const r = run({
+        argv: ["--staged"],
+        scanRoots: ["src"],
+        detect: (ctx) => seen.push(ctx.path),
+      });
+      expect(r.code, r.out).toBe(2);
+      expect(r.out).toContain("test/fixtures/link.txt");
+      expect(r.out).toContain("outside every scan root");
+      expect(r.out).not.toContain("OK: no hits");
+      // The refusal fires BEFORE the read, so the link's target never reached a detector, and the
+      // target path is never echoed: it is working-tree text that can itself carry PHI.
+      expect(seen).toEqual([]);
+      expect(r.out).not.toContain("phi-scan-engine-staged-target");
+
+      // ...and the configuration that DOES contain the filter is untouched: widen the roots to
+      // cover the same path and the ordinary non-regular refusal takes over, with its own noun.
+      const covered = run({ argv: ["--staged"], scanRoots: ["."] });
+      expect(covered.code, covered.out).toBe(2);
+      expect(covered.out).toContain("a symbolic link");
+      expect(covered.out).not.toContain("outside every scan root");
+    } finally {
+      rmSync(outside, { force: true });
+    }
+  });
+
+  it("NORMALISES a scan root, so `./src` and `src` are one root and both match the index", () => {
+    // THE MEASURED HOLE. `./src` is a spelling the type documents as valid. The walk resolved it
+    // fine; `isUnderScanRoot` compared the NORMALIZED index path `src/link.ts` against the literal
+    // `"./src"` and never matched, so the union, the index non-blob refusal and the unmerged refusal
+    // all went silently empty and the sweep printed `OK: no hits` at exit 0 over a tracked
+    // mode-120000 entry.
+    const outside = join(repo, "..", "phi-scan-engine-root-target.txt");
+    writeFileSync(outside, `ssn ${SSN}\n`, "utf8");
+    try {
+      mkdirSync(join(repo, "src"), { recursive: true });
+      symlinkSync(outside, join(repo, "src", "link.ts"));
+      commitAll();
+      expect(git(["ls-files", "-s", "--", "src/link.ts"]).out).toContain("120000");
+
+      for (const roots of [["src"], ["./src"], ["src/"], [join(repo, "src")]]) {
+        const r = run({ scanRoots: roots });
+        expect(r.code, `${JSON.stringify(roots)}: ${r.out}`).toBe(2);
+        expect(r.out).toContain("src/link.ts");
+      }
+    } finally {
+      rmSync(outside, { force: true });
+    }
+  });
+
+  it("REFUSES a scan root that resolves outside the repository", () => {
+    // Same silently-empty class by another spelling: no path git can name is under it.
+    expect(() =>
+      runPhiScan({
+        repoRoot: repo,
+        argv: [],
+        exitCodes: CODES,
+        scanRoots: ["../elsewhere"],
+        isStagedReadable: exemptsMarkdown,
+      }),
+    ).toThrow(/resolves outside the repository/);
+  });
+
+  it("REFUSES an optional axis of the wrong shape, instead of throwing from inside enumeration", () => {
+    // `excludedPaths: ["a"]` is a plausible reading of "repo-relative paths". It used to survive
+    // normalization, reach `.has(...)` inside enumeration, and take node's exit 1 from there, which
+    // this contract reserves for HITS FOUND.
+    expect(() =>
+      runPhiScan({
+        repoRoot: repo,
+        argv: [],
+        exitCodes: CODES,
+        scanRoots: ["."],
+        isStagedReadable: exemptsMarkdown,
+        excludedPaths: ["a"] as unknown as ReadonlySet<string>,
+      }),
+    ).toThrow(/excludedPaths` must be a Set/);
+  });
+});
+
 describe("whole-repository scan roots, which is what a fresh scaffold needs", () => {
   it("reads a tracked file no narrow root would have covered", () => {
     // The measured hole: with `["test/fixtures", "src"]` a scaffold had ONE of its tracked files in
@@ -306,6 +412,33 @@ describe("whole-repository scan roots, which is what a fresh scaffold needs", ()
     const r = run();
     expect(r.code, r.out).toBe(0);
     expect(r.out).not.toContain(SSN);
+  });
+
+  it("PRUNES ONLY WHAT THE FILE FILTER WOULD HAVE DROPPED: a TRACKED file under an ignored dir is still read", () => {
+    // THE DANGEROUS DIRECTION, and the case above does not measure it: planting a violator in an
+    // ignored directory shows that pruning HAPPENS, not that it is safe. What carries the
+    // equivalence is that `git check-ignore` is INDEX-AWARE AT DIRECTORY GRANULARITY, so the premise
+    // is measured from git rather than argued from the gitignore pattern rules.
+    write("node_modules/pkg/tracked.txt", `ssn ${SSN}\n`);
+    write("src/index.ts", "export const x = 1;\n");
+    git(["add", "-f", "--", "node_modules/pkg/tracked.txt"]);
+    commitAll();
+
+    // The premise, both ways round, from git's own answer:
+    expect(git(["check-ignore", "--", "node_modules"]).code).not.toBe(0); // NOT ignored: tracked inside
+    expect(git(["check-ignore", "--", "node_modules/pkg/tracked.txt"]).code).not.toBe(0);
+
+    const r = run();
+    expect(r.code, r.out).toBe(1);
+    expect(r.out).toContain("node_modules/pkg/tracked.txt");
+
+    // ...and the contrast, so the pin is a discrimination rather than one observation: untrack it
+    // and the same directory IS reported ignored, is pruned, and the file is not read.
+    git(["rm", "-q", "--cached", "--", "node_modules/pkg/tracked.txt"]);
+    expect(git(["check-ignore", "--", "node_modules"]).code).toBe(0);
+    const pruned = run();
+    expect(pruned.code, pruned.out).toBe(0);
+    expect(pruned.out).not.toContain(SSN);
   });
 
   it("SKIPS `.git` by name, which git does not report as ignored", () => {

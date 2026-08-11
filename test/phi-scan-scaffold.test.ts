@@ -529,9 +529,17 @@ describe("--staged refuses a non-regular entry, and keys on the ROOT half of sco
 
   it("refuses a .md-named link under src/ on BOTH routes, where a shared predicate would not", () => {
     // The disagreement two sibling ports shipped: `src/notes.md` is a link, and
-    // the READ filter (`src/**.ts`) drops it while the walk refuses it. Keying
-    // the refusal on the read filter makes the pre-commit route pass a
-    // mode-120000 blob green over a corpus all-mode refuses.
+    // the READ filter drops it while the walk refuses it. Keying the refusal on
+    // the read filter instead makes the pre-commit route pass a mode-120000 blob
+    // green over a corpus all-mode refuses.
+    //
+    // WHICH READ FILTER, STATED CURRENTLY RATHER THAN FROM MEMORY: this template's
+    // `isStagedReadable` is now the shared Markdown exemption, so what drops
+    // `src/notes.md` is its `.md` name. It used to be `src/**.ts`, and an earlier
+    // version of this comment still said so after the axis moved. The point is
+    // unchanged and is about the SHAPE of the two predicates, not about either
+    // one's current body: a link's NAME is no evidence about what is on the other
+    // side of it, which is exactly what a read filter may assume about a FILE.
     resetToBaseline();
     symlinkSync(payload, join(scaffold, "src", "notes.md"));
     git(["add", "src/notes.md"]);
