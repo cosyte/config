@@ -735,3 +735,297 @@ describe("runPhiScanCli: the process tail, which is where the report used to die
     expect(r.err).toContain("400 hit(s) across 1 file(s)");
   });
 });
+
+describe("declared detectors: the vocabulary is data, and the boundary is deliberate", () => {
+  // The half a repo actually writes. The engine ships the GRAMMARS and the value RULES; a repo
+  // declares positions, conjunctive equality guards over a sibling position, and a named rule.
+  //
+  // 🛑 THE KIND SET IS DECLARED AND OPEN, AND SEVERAL REPOS LEGITIMATELY FILL NONE. The premise this
+  // work began from, five universal kinds with only the vocabulary differing, was refuted on both
+  // axes across the fleet: one repo has no address, phone or identifier vocabulary, one declares no
+  // field vocabulary at all because its corpus is code-system content, one has no address, and one
+  // has no date-of-birth detector at all.
+
+  /** A synthetic HL7-shaped record. Every value here is invented and none is a real identifier. */
+  const HL7 = [
+    "MSH|^~\\&|APP|FAC|APP2|FAC2|20240101120000||ADT^A01|1|P|2.5",
+    "PID|1||900001^^^HOSP^MR~123-45-6789^^^USA^SS|" +
+      "|QUINCE^ROWAN^T||19850211|F|||742 EVERGREEN TER^^SPRINGFIELD^IL^62704||5551234567",
+  ].join("\r");
+
+  const hl7Detector = {
+    id: "hl7v2",
+    grammar: { kind: "delimited-record" as const, headerRecordIds: ["MSH"] },
+    appliesTo: { pathSuffixes: [".hl7"] },
+    fields: [
+      { record: "PID", field: 5, kind: "name" as const, id: "PID-5" },
+      {
+        record: "PID",
+        field: 7,
+        component: 0,
+        kind: "dob" as const,
+        pattern: /^\d{8}$/,
+        id: "PID-7",
+      },
+      { record: "PID", field: 11, component: 0, kind: "address" as const, id: "PID-11" },
+      { record: "PID", field: 13, kind: "phone" as const, id: "PID-13" },
+    ],
+  };
+
+  function segmentsOf(out: string): string[] {
+    return [...out.matchAll(/segment=(\S+)/g)].map((m) => m[1] ?? "");
+  }
+
+  it("reads a delimited wire format through DECLARED positions, and answers to the allow-list", () => {
+    write("test/fixtures/a.hl7", `${HL7}\r`);
+    commitAll();
+
+    const found = run({ detectors: [hl7Detector] });
+    expect(found.code, found.out).toBe(1);
+    // Every declared position fired, and the ids are the ones the vocabulary named.
+    expect(new Set(segmentsOf(found.out))).toEqual(
+      new Set(["PID-5", "PID-7", "PID-11", "PID-13", "(ssn)"]),
+    );
+
+    // ...and DECLARING the values clears it, which is the remedy the footer points at. The address
+    // is lower-cased, the name is tokenised, the phone is reduced to digits, and the date is
+    // compared VERBATIM.
+    write(
+      "scripts/phi-allow-list.txt",
+      [
+        "EMAILDOMAIN example.com",
+        "NAME QUINCE",
+        "NAME ROWAN",
+        "DOB 19850211",
+        "ADDR 742 evergreen ter",
+        "PHONE 5551234567",
+        `ID ${SSN}`,
+        "",
+      ].join("\n"),
+    );
+    const cleared = run({ detectors: [hl7Detector] });
+    expect(cleared.code, cleared.out).toBe(0);
+  });
+
+  it("keys on the DECLARED POSITION, not on the value, so a coded field is not a name", () => {
+    // ANTI-VACUITY FOR THE WHOLE MECHANISM. A detector that fired on any name-shaped token anywhere
+    // would pass the case above for the wrong reason. Here the same tokens sit in a field the
+    // vocabulary does not name, and nothing fires.
+    write(
+      "test/fixtures/a.hl7",
+      `${HL7.replace("QUINCE^ROWAN^T", "")}\rOBX|1|ST|CBC^QUINCE ROWAN||x\r`,
+    );
+    commitAll();
+    const r = run({ detectors: [hl7Detector] });
+    expect(segmentsOf(r.out)).not.toContain("PID-5");
+  });
+
+  it("applies a GUARD as equality over a sibling position, and nothing more", () => {
+    // The identifier vocabulary has to tell an MRN from a national identifier sitting in the same
+    // repeating field, and the only thing that distinguishes them is a sibling component. This is
+    // the whole of the guard language: a position, and a set of literals it must equal.
+    write("test/fixtures/a.hl7", `${HL7}\r`);
+    commitAll();
+    const withGuard = {
+      ...hl7Detector,
+      fields: [
+        {
+          record: "PID",
+          field: 3,
+          component: 0,
+          guard: [{ component: 4, oneOf: ["MR"] }],
+          kind: "id" as const,
+          minDigits: 6,
+          id: "PID-3-MR",
+        },
+      ],
+    };
+    const r = run({ detectors: [withGuard] });
+    expect(r.code, r.out).toBe(1);
+    expect(segmentsOf(r.out)).toContain("PID-3-MR");
+    // The repetition whose sibling component says SS is NOT reported under this entry: the guard
+    // selected one repetition out of two.
+    const mrHits = [...r.out.matchAll(/segment=PID-3-MR value="([^"]*)"/g)].map((m) => m[1]);
+    expect(mrHits).toEqual(["900001"]);
+  });
+
+  it("answers a RESERVED SPACE without a per-value declaration", () => {
+    // The alternative to maintaining literals by hand, which is the thing this work deletes. The
+    // engine's phone rule defaults to the NANP fictional range, and it is STRICTER than the
+    // `includes("555")` test four sibling scanners carried.
+    write("test/fixtures/a.hl7", `${HL7.replace("5551234567", "5555550123")}\r`);
+    commitAll();
+    const r = run({ detectors: [hl7Detector] });
+    expect(segmentsOf(r.out)).not.toContain("PID-13");
+
+    // ...and a number that merely CONTAINS 555 is not in that space, which is the tightening.
+    write("test/fixtures/a.hl7", `${HL7.replace("5551234567", "5552224444")}\r`);
+    const loose = run({ detectors: [hl7Detector] });
+    expect(segmentsOf(loose.out)).toContain("PID-13");
+  });
+
+  it("reads XML by local name and by attribute, prefix-tolerant and entity-decoded", () => {
+    write(
+      "test/fixtures/a.xml",
+      '<?xml version="1.0"?><ClinicalDocument xmlns="urn:hl7-org:v3">' +
+        "<patient><name><family>Q&#x75;INCE</family></name>" +
+        '<birthTime value="19850211"/>' +
+        '<id root="2.16.840.1.113883.4.1" extension="123456789"/>' +
+        '<id root="1.2.3" extension="900001"/>' +
+        "</patient></ClinicalDocument>",
+    );
+    commitAll();
+    const r = run({
+      detectors: [
+        {
+          id: "cda",
+          grammar: { kind: "xml" as const },
+          appliesTo: { pathSuffixes: [".xml"] },
+          fields: [
+            { record: "family", kind: "name" as const, id: "family" },
+            {
+              record: "birthtime",
+              attr: "value",
+              kind: "dob" as const,
+              pattern: /^\d{8}$/,
+              id: "birthTime",
+            },
+            {
+              record: "id",
+              attr: "extension",
+              guard: [{ attr: "root", oneOf: ["2.16.840.1.113883.4.1"] }],
+              kind: "id" as const,
+              minDigits: 9,
+              maxDigits: 9,
+              id: "id@ssn-root",
+            },
+          ],
+        },
+      ],
+    });
+    expect(r.code, r.out).toBe(1);
+    const segs = new Set(segmentsOf(r.out));
+    // The entity was decoded before the token check, so `&#x75;` could not smuggle the name past it.
+    expect(r.out).toContain('value="QuINCE"');
+    expect(segs).toContain("birthTime");
+    // The guard picked the id whose root says so, and left the other one alone.
+    const ids = [...r.out.matchAll(/segment=id@ssn-root value="([^"]*)"/g)].map((m) => m[1]);
+    expect(ids).toEqual(["123456789"]);
+  });
+
+  it("REFUSES a declared format it cannot parse, instead of falling back to the floor", () => {
+    // 🛑 A sibling's shipped scanner does the opposite: on a JSON parse failure it falls back to the
+    // cross-cutting floor alone, and reports 0 hits at exit 0 over a FRAGMENTARY resource carrying a
+    // name, a date of birth AND a street address. A run that could not read a format it declared has
+    // no verdict to give about that file.
+    write("test/fixtures/broken.json", '{"name":[{"family":"QUINCE"');
+    commitAll();
+    const detector = {
+      id: "fhir",
+      grammar: { kind: "json" as const },
+      appliesTo: { pathSuffixes: [".json"] },
+      fields: [{ record: "name.family", kind: "name" as const, id: "name.family" }],
+    };
+    const r = run({ detectors: [detector] });
+    expect(r.code, r.out).toBe(2);
+    expect(r.out).toContain("could not parse it");
+    expect(r.out).not.toContain("OK: no hits");
+
+    // ...and the same vocabulary over a WELL-FORMED document still reports, so the refusal above is
+    // about the parse and not about the detector being inert.
+    write("test/fixtures/broken.json", '{"name":[{"family":"QUINCE"}]}');
+    commitAll();
+    const ok = run({ detectors: [detector] });
+    expect(ok.code, ok.out).toBe(1);
+    expect(segmentsOf(ok.out)).toContain("name.family");
+  });
+
+  it("keys JSON on the property PATH, so an ordinary English word is not a vocabulary", () => {
+    // `family`, `given`, `line` and `city` are ordinary property names. A detector keyed on the bare
+    // word fires on prose and on unrelated structures; the path is what makes it structural.
+    write("test/fixtures/a.json", '{"unrelated":{"family":"QUINCE"}}');
+    commitAll();
+    const r = run({
+      detectors: [
+        {
+          id: "fhir",
+          grammar: { kind: "json" as const },
+          appliesTo: { pathSuffixes: [".json"] },
+          fields: [{ record: "name.family", kind: "name" as const, id: "name.family" }],
+        },
+      ],
+    });
+    expect(r.code, r.out).toBe(0);
+  });
+
+  it("REFUSES a misdeclared vocabulary at configuration time, rather than matching nothing", () => {
+    // Every one of these would otherwise be a detector that silently judges nothing, which is this
+    // whole item's failure class arriving through configuration.
+    const base = { repoRoot: repo, argv: [], exitCodes: CODES, scanRoots: ["."] };
+    const detector = (over: Record<string, unknown>) => ({
+      id: "d",
+      grammar: { kind: "delimited-record" },
+      fields: [{ record: "PID", field: 5, kind: "name" }],
+      ...over,
+    });
+    expect(() =>
+      runPhiScan({ ...base, detectors: [detector({ fields: [{ kind: "nope" }] })] } as never),
+    ).toThrow(/declares kind "nope"/);
+    expect(() =>
+      runPhiScan({
+        ...base,
+        detectors: [detector({ fields: [{ kind: "name", bucket: "nope" }] })],
+      } as never),
+    ).toThrow(/names bucket "nope"/);
+    expect(() =>
+      runPhiScan({
+        ...base,
+        detectors: [detector({ fields: [{ kind: "phone", reservedSpaces: ["nope"] }] })],
+      } as never),
+    ).toThrow(/names reserved space "nope"/);
+    expect(() =>
+      runPhiScan({ ...base, detectors: [detector({ grammar: { kind: "yaml" } })] } as never),
+    ).toThrow(/declares grammar kind "yaml"/);
+    // A guard is an equality test over a sibling position and nothing else.
+    expect(() =>
+      runPhiScan({
+        ...base,
+        detectors: [detector({ fields: [{ kind: "name", guard: [{ component: 4 }] }] })],
+      } as never),
+    ).toThrow(/guard without a non-empty `oneOf`/);
+    // A grammar that REFUSES what it cannot parse must say which targets carry that format, or it
+    // would refuse on every file in the corpus.
+    expect(() =>
+      runPhiScan({
+        ...base,
+        detectors: [
+          detector({ grammar: { kind: "json" }, fields: [{ record: "a", kind: "name" }] }),
+        ],
+      } as never),
+    ).toThrow(/must declare an `appliesTo`/);
+  });
+
+  it("runs SEVERAL vocabularies over one target, because recogniser count is per-repo", () => {
+    // 🛑 "ONE VOCABULARY PER REPO" IS FALSE AND WAS MEASURED SO. One repo carries a single synthetic
+    // identity in three vocabularies which CO-OCCUR INSIDE SINGLE FILES, so neither a per-root nor a
+    // per-file-type selection can pick between them. The parameter is a LIST.
+    write("test/fixtures/both.hl7", `${HL7}\r`);
+    write("test/fixtures/both.json", '{"name":[{"family":"ROWAN"}]}');
+    commitAll();
+    const r = run({
+      detectors: [
+        hl7Detector,
+        {
+          id: "fhir",
+          grammar: { kind: "json" as const },
+          appliesTo: { pathSuffixes: [".json"] },
+          fields: [{ record: "name.family", kind: "name" as const, id: "name.family" }],
+        },
+      ],
+    });
+    expect(r.code, r.out).toBe(1);
+    const segs = new Set(segmentsOf(r.out));
+    expect(segs).toContain("PID-5");
+    expect(segs).toContain("name.family");
+  });
+});

@@ -2753,10 +2753,11 @@ const GRAMMARS = {
   "delimited-record": (text, grammar) => {
     const stripped = text.replace(/^\ufeff/, "").replace(/^\u000b+/, "");
     const headerIds = new Set(grammar.headerRecordIds ?? ["MSH"]);
-    const fallback = grammar.fallback ?? { field: "|", component: "^" };
+    const fallback = grammar.fallback ?? { field: "|", component: "^", repetition: "~" };
     const idLength = grammar.recordIdLength ?? 3;
     let fieldSep = fallback.field;
     let componentSep = fallback.component;
+    const repetitionSep = grammar.repetitionSeparator ?? fallback.repetition;
 
     const lines = stripped.split(/\r\n|\r|\n/);
     for (const line of lines) {
@@ -2783,10 +2784,20 @@ const GRAMMARS = {
       // The separator must sit exactly where the format says, which is what stops an English
       // sentence whose first three letters happen to match a record id becoming a record.
       if (trimmed.charAt(idLength) !== fieldSep) continue;
+      // A FIELD IS A LIST OF REPETITIONS, EACH A LIST OF COMPONENTS, and the repetition level is
+      // not optional. HL7 v2 puts a patient's medical-record number and their national identifier
+      // in two REPETITIONS of one field, distinguished only by a sibling component; without this
+      // level a guard on that component reads across the separator and matches neither.
       out.push({
         record: id,
         index: out.length,
-        fields: trimmed.split(fieldSep).map((f) => f.split(componentSep)),
+        fields: trimmed
+          .split(fieldSep)
+          .map((f) =>
+            (repetitionSep === undefined ? [f] : f.split(repetitionSep)).map((r) =>
+              r.split(componentSep),
+            ),
+          ),
         attrs: {},
       });
     }
@@ -2822,7 +2833,7 @@ const GRAMMARS = {
         const after = stripped.slice((m.index ?? 0) + m[0].length);
         leaf = decodeXmlEntities(/^([^<]*)/.exec(after)?.[1] ?? "");
       }
-      out.push({ record: name, index: out.length, fields: [[leaf]], attrs });
+      out.push({ record: name, index: out.length, fields: [[[leaf]]], attrs });
     }
     return out;
   },
@@ -2860,7 +2871,7 @@ const GRAMMARS = {
       for (const [key, value] of Object.entries(node)) {
         const child = path === "" ? key : `${path}.${key}`;
         if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
-          out.push({ record: child, index: out.length, fields: [[String(value)]], attrs: {} });
+          out.push({ record: child, index: out.length, fields: [[[String(value)]]], attrs: {} });
         } else {
           visit(value, child);
         }
@@ -2946,16 +2957,25 @@ function runDetector(detector, ctx) {
     if (record === undefined) continue;
     for (const spec of detector.fields) {
       if (spec.record !== undefined && spec.record !== record.record) continue;
-      if (!guardsPass(spec.guard, record)) continue;
-      for (const value of valuesAt(spec, record)) {
-        if (typeof value !== "string" || value.trim().length === 0) continue;
-        if (VALUE_RULES[spec.kind](value, ctx.allow, spec)) {
-          ctx.hits.push({
-            path: ctx.locus,
-            segment: spec.id ?? `${detector.id}:${record.record}`,
-            value,
-            reason: spec.reason ?? `${String(spec.kind)} not declared synthetic`,
-          });
+      // ONE PASS PER REPETITION, so a guard names a sibling position WITHIN the same repetition.
+      // Evaluating it against the whole field would let one repetition's qualifier vouch for
+      // another's value, which is the identifier confusion this level exists to prevent.
+      const reps =
+        typeof spec.attr === "string"
+          ? [0]
+          : (record.fields?.[spec.field ?? 0] ?? []).map((_r, i) => i);
+      for (const rep of reps) {
+        if (!guardsPass(spec.guard, record, rep, spec.field ?? 0)) continue;
+        for (const value of valuesAt(spec, record, rep)) {
+          if (typeof value !== "string" || value.trim().length === 0) continue;
+          if (VALUE_RULES[spec.kind](value, ctx.allow, spec)) {
+            ctx.hits.push({
+              path: ctx.locus,
+              segment: spec.id ?? `${detector.id}:${record.record}`,
+              value,
+              reason: spec.reason ?? `${String(spec.kind)} not declared synthetic`,
+            });
+          }
         }
       }
     }
@@ -2963,13 +2983,30 @@ function runDetector(detector, ctx) {
 }
 
 /**
+ * A guard is a CONJUNCTION of equality tests over sibling positions, and nothing else: no
+ * operators, no negation, no arithmetic.
+ *
+ * A GUARD THAT NAMES NO `field` INHERITS THE ONE BEING JUDGED, and is read inside the SAME
+ * repetition. Defaulting it to field 0 instead reads the record id, so a component guard silently
+ * matched nothing and the vocabulary entry it protects never fired at all: a detector that judges
+ * nothing, which is this whole gate's failure class. A guard that names a DIFFERENT field is
+ * satisfied by any repetition of that field, because a qualifier living elsewhere in the record
+ * does not repeat with this one.
+ *
  * @param {any[] | undefined} guards
  * @param {any} record
+ * @param {number} rep The repetition being judged.
+ * @param {number} defaultField The field the guarded vocabulary entry names.
  * @returns {boolean}
  */
-function guardsPass(guards, record) {
+function guardsPass(guards, record, rep, defaultField) {
   for (const g of guards ?? []) {
-    const values = valuesAt(g, record);
+    const sameField = g.field === undefined || g.field === defaultField;
+    const values = valuesAt(
+      { ...g, field: g.field ?? defaultField },
+      record,
+      sameField ? rep : null,
+    );
     if (!values.some((v) => typeof v === "string" && g.oneOf.includes(v.trim()))) return false;
   }
   return true;
@@ -2979,22 +3016,33 @@ function guardsPass(guards, record) {
  * The values a locator names inside one record. A locator is a POSITION and nothing else: a field
  * index, a component index, or an attribute name.
  *
+ * `rep` selects one repetition of the field; `null` means every repetition of it.
+ *
  * @param {any} spec
  * @param {any} record
+ * @param {number | null} rep
  * @returns {any[]}
  */
-function valuesAt(spec, record) {
+function valuesAt(spec, record, rep) {
   if (typeof spec.attr === "string") {
     const v = record.attrs?.[spec.attr.toLowerCase()];
     return typeof v === "string" ? [v] : [];
   }
   const field = record.fields?.[spec.field ?? 0];
   if (field === undefined) return [];
-  if (typeof spec.component === "number") {
-    const v = field[spec.component];
-    return typeof v === "string" ? [v] : [];
+  const reps = rep === null ? field : field[rep] === undefined ? [] : [field[rep]];
+  /** @type {any[]} */
+  const out = [];
+  for (const components of reps) {
+    if (!Array.isArray(components)) continue;
+    if (typeof spec.component === "number") {
+      const v = components[spec.component];
+      if (typeof v === "string") out.push(v);
+    } else {
+      for (const v of components) out.push(v);
+    }
   }
-  return field;
+  return out;
 }
 
 /**
