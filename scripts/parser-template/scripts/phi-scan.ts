@@ -374,10 +374,13 @@
  *     refuses, and `--staged` reports a clean commit (exit 0) because there is
  *     no staged record left to read. That is the delta route's SCOPE rather
  *     than a hole in it, and it is the reason `all` mode is the sweep.
- *   - the link never added: `all` FOLLOWS it (`existsSync`/`readdirSync` both
- *     follow) and scans the target directory, reporting what it finds there
- *     under the in-repo path; `--staged` reports clean, and rightly, because a
- *     commit carries no bytes at that path.
+ *   - the link NOT IN THE INDEX: `all` FOLLOWS it (`existsSync`/`readdirSync`
+ *     both follow) and scans the target directory, reporting what it finds
+ *     there under the in-repo path; `--staged` reports clean, and rightly,
+ *     because a commit carries no bytes at that path. The cell is executed by
+ *     REMOVING the entry; a link that was never added is a different index (the
+ *     root's other entries remain, and the union still reads those) and is not
+ *     claimed here.
  *
  * NO WIDER CLAIM IS MADE, AND THE MISSING ONE IS NAMED RATHER THAN IMPLIED:
  * three drafts of this paragraph quantified over TRACKED versus UNTRACKED and

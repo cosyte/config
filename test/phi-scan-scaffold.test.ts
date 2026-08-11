@@ -590,15 +590,21 @@ describe("--staged refuses a non-regular entry, and keys on the ROOT half of sco
     expect(committedAll.code, committedAll.out).toBe(2);
     expect(committedAll.out).toContain("index entry is not a regular blob");
 
-    // CELL 3: the link never added at all. `--staged` reports clean (a commit
+    // CELL 3: the link NOT IN THE INDEX. `--staged` reports clean (a commit
     // carries no bytes at that path) and the walk FOLLOWS the link, scanning
     // what is on the other side and reporting it under the IN-REPO path, which
     // is asserted rather than just the value: the locus is the whole reason a
-    // developer can find it. Note the OTHER entries under that root stay in the
-    // index, which is why the paragraph says "the link has no entry" and not
-    // "there is no entry".
+    // developer can find it.
+    //
+    // BE EXACT ABOUT WHICH INDEX THIS IS. The fixture reaches the state by
+    // REMOVING the entry, and the root's other entries went with it (cell 1
+    // staged their deletion, cell 2 committed it), so nothing is left under
+    // that root here: the assertion is the empty string, which is the strongest
+    // true one. A link that was NEVER ADDED is a different index (the sibling
+    // entries remain, and the union still reads them) and this cell does not
+    // execute it.
     git(["rm", "-q", "--cached", "--", "test/fixtures"]);
-    expect(git(["ls-files", "-s", "--", "test/fixtures"]).out).not.toContain("120000");
+    expect(git(["ls-files", "-s", "--", "test/fixtures"]).out.trim()).toBe("");
     const untrackedStaged = scan("scripts/phi-scan.ts", ["--staged"]);
     expect(untrackedStaged.code, untrackedStaged.out).toBe(0);
     writeFileSync(join(root, "elsewhere", "leak.txt"), "patient ssn 123-45-6789\n", "utf8");
