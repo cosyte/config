@@ -25,8 +25,8 @@
  * ██  STARTER: READ BEFORE YOU RELY ON THIS  ████████████████████████████████
  * ===========================================================================
  *
- *   As shipped, this scanner declares NO field vocabulary, so it detects
- *   EXACTLY TWO cross-cutting shapes, both from the shared floor:
+ *   As shipped, `detect` below is empty, so this scanner finds EXACTLY TWO
+ *   cross-cutting shapes, both from the shared floor:
  *
  *       (1) a dashed Social Security Number
  *       (2) an email at a domain the allow-list does not declare
@@ -37,14 +37,14 @@
  *
  *   ⚠  A scanner that silently ships SSN/email-only detection is a FALSE-
  *      CONFIDENCE RISK. Before you trust `pnpm phi-scan` as a safety gate for
- *      {{TITLE}}, fill in `DETECTORS` below.
+ *      {{TITLE}}, fill in `detect` below.
  *
- *   🛑 DECLARING NO VOCABULARY IS ALSO A LEGITIMATE ANSWER, and one sibling
+ *   🛑 HAVING NO FIELD VOCABULARY IS ALSO A LEGITIMATE ANSWER, and one sibling
  *   reached it correctly: a repo whose corpus is code-system content rather
  *   than patient demographics has no field to key a detector on. If that is
- *   this repo, say so in a comment where `DETECTORS` is left empty, so the
- *   next reader can tell a decision from an omission. The clean line prints
- *   the declared-detector count on every run for exactly this reason.
+ *   this repo, say so in a comment where `detect` is left empty, so the next
+ *   reader can tell a decision from an omission. The clean line says whether a
+ *   detector ran at all, on every run, for exactly this reason.
  * ===========================================================================
  *
  * ===========================================================================
@@ -66,7 +66,7 @@
 
 import {
   runPhiScanCli,
-  type DetectorSpec,
+  type DetectContext,
   type ScanRootSpec,
 } from "@cosyte/script-utils/phi-scan";
 
@@ -146,70 +146,69 @@ const EXCLUDED_PATHS: ReadonlySet<string> = new Set<string>([
 const TEXT_VIEWS = [{ kind: "source-literals" as const, appliesTo: [".ts", ".tsx"] }];
 
 /**
- * THE PER-STANDARD FIELD VOCABULARY: the half that genuinely differs, declared
- * as DATA.
+ * THE STANDARD-SPECIFIC FIELD DETECTION: the half the shared engine deliberately
+ * does not own, because it differs per healthcare standard.
  *
- * ── TODO: declare {{TITLE}}'s PHI-bearing fields here ──────────────────────
+ * The engine has already run the cross-cutting floor (SSN + email shapes) over
+ * every view of this target and reported any hits against the correct locus.
+ * Everything below is yours.
  *
- *   A vocabulary entry is a POSITION, an optional equality GUARD over a sibling
- *   position, and a named value RULE. The engine ships the rules (`name`,
- *   `dob`, `id`, `address`, `city`, `postal-code`, `phone`, `email`) and the
- *   grammars (`delimited-record` for HL7 v2 / X12 / ASTM, `xml`, `json`), so
- *   what you write here is a table.
+ * 🛑 A DECLARATIVE VOCABULARY LAYER WAS BUILT FOR THIS AND THEN CUT, and the
+ * reason is worth knowing before anyone rebuilds it: three consecutive
+ * adversarial passes each found a blocker in it and each remedy grew a new one.
+ * A JSON walk dropped primitives inside arrays, so FHIR given names and street
+ * lines were invisible at exit 0. Delimiter DISCOVERY was blinded by one line of
+ * prose naming a field; its remedy was blinded by a field table. Declaring the
+ * delimiters instead moved three checked keys into an unchecked nested object,
+ * so one transposed letter blinded a whole file again. And the record splitter
+ * never covered X12 at all, whose segments end with a declared character rather
+ * than a line break.
  *
- *   A worked example, for a delimited wire format:
+ * None of that touched the PROCESS, which is why the process shipped and this
+ * did not. Write the parsing here, where it is a reviewable function rather than
+ * a table that has to be right about six things at once.
  *
- *     const DETECTORS: readonly DetectorSpec[] = [
- *       {
- *         id: "{{PKG}}",
- *         grammar: { kind: "delimited-record" },
- *         appliesTo: { pathSuffixes: [".hl7"], pathPrefixes: ["test/"] },
- *         fields: [
- *           { record: "PID", field: 5, kind: "name", id: "PID-5" },
- *           { record: "PID", field: 7, component: 0, kind: "dob",
- *             pattern: /^\d{8}$/, id: "PID-7" },
- *           { record: "PID", field: 3, component: 0, kind: "id",
- *             guard: [{ component: 4, oneOf: ["MR", "MRN"] }],
- *             minDigits: 6, id: "PID-3" },
- *           { record: "PID", field: 11, component: 0, kind: "address",
- *             id: "PID-11" },
- *           { record: "PID", field: 13, kind: "phone",
- *             reservedSpaces: ["nanp-fictional"], id: "PID-13" },
- *         ],
- *       },
- *     ];
+ * ── TODO: add {{TITLE}}-specific structured field-level PHI detection here ──
  *
- *   🛑 KEY ON STRUCTURE, NOT ON A BARE WORD. `family`, `given`, `line` and
- *   `city` are ordinary English and ordinary property names; a detector keyed
- *   on the word alone fires on prose. The delimited grammar keys on a record id
- *   PLUS a field number, and the JSON grammar keys on a dotted property PATH,
- *   for exactly this reason.
+ *   At minimum: person NAMES, DATE OF BIRTH, MRN / MEMBER ID, ADDRESS and
+ *   PHONE, parsed according to the {{TITLE}} wire format and checked against
+ *   `ctx.allow` (`.names` / `.dobs` / `.ids` / `.addresses` / `.phones`), with a
+ *   hit raised for anything not positively declared synthetic.
  *
- *   🛑 A DECLARED FORMAT THAT FAILS TO PARSE REFUSES, and it must. A sibling's
- *   shipped scanner falls back to the floor alone when its JSON parse throws,
- *   and reports 0 hits at exit 0 over a FRAGMENTARY resource carrying a name, a
- *   date of birth AND a street address. Narrow `appliesTo` rather than widening
- *   the fallback.
+ *   Parse the format properly (delimiters / segments / elements / tags). Do NOT
+ *   bolt on a blind text regex for names: coded values produce false confidence.
  *
- *   WHAT STAYS CODE, IN `detect`: anything needing a conditional or an
- *   expression. A rule keyed on the cardinality of distinct digits, a policy
- *   cutoff on a date, a wall-clock-relative recency window, or a heuristic over
- *   the adjacency of two components. All four are real and all four are less
- *   reviewable written as data. Do not build a configuration mini-language;
- *   reviewability is what this gate is for.
+ *   🛑 KEY PATH LOGIC ON `ctx.targetPath`, NEVER ON `ctx.path`. The second is the
+ *   reported LOCUS and carries an origin label for a hit found in the bytes git
+ *   carries, so an extension test anchored anywhere but the start silently stops
+ *   matching on the union half. Six repos derived this independently and two
+ *   measured what it costs.
  *
- *   Until this table is filled in, treat a green `pnpm phi-scan` as "no
- *   SSN/email shapes found", NOT as "no PHI".
+ *   🛑 CHECK `ctx.allow` IN EVERY DETECTOR YOU ADD. The `--allow-fixture` bypass
+ *   cannot reach a clean run, so a detector that consults nothing leaves a
+ *   developer with a hit they cannot answer and a gate they will route around.
+ *   Where the synthetic values live in a reserved space that is itself the
+ *   provenance marker, prefer `RESERVED_SPACES` over a list of literals.
+ *
+ *   `ctx.views` carries every view the engine produced, `raw` first. Raise hits
+ *   through `ctx.hit`, which fills in the locus; never build a path yourself.
+ *
+ *   Until this is implemented, treat a green `pnpm phi-scan` as "no SSN/email
+ *   shapes found", NOT as "no PHI".
  * ───────────────────────────────────────────────────────────────────────────
+ *
+ * @param ctx The target's views and bytes, the parsed allow-list, and `hit`.
  */
-const DETECTORS: readonly DetectorSpec[] = [];
+function detect(ctx: DetectContext): void {
+  void ctx;
+}
 
 runPhiScanCli({
   exitCodes: EXIT_CODES,
   scanRoots: SCAN_ROOTS,
   excludedPaths: EXCLUDED_PATHS,
   textViews: TEXT_VIEWS,
-  detectors: DETECTORS,
+  detect,
   // `stagedRoots` is deliberately NOT set: it defaults to `scanRoots`, and the
   // engine refuses at configuration time if it is ever widened past them.
   //

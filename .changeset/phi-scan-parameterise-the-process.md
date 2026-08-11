@@ -36,8 +36,8 @@ removed and throw a `TypeError` naming their replacement rather than being silen
 root spellings with one type whose `shape` is declared and checked; `isReadable` defaults to reading
 everything.
 
-Detection is declarative: `detectors` is a LIST of grammars (`delimited-record`, covering HL7 v2,
-X12 and ASTM; `xml`; `json`) plus tables of positions, conjunctive equality guards and named value
-rules, with reserved spaces so a repo declares a convention rather than a literal per fixture. The
-"five universal kinds" premise is refuted and recorded as such: the kind set is declared and open,
-and several repos legitimately fill none.
+A declarative vocabulary layer was built for `detectors` and then CUT: three consecutive adversarial
+passes each found a blocker in it and each remedy grew a new one, and none of them touched the
+process. Passing `detectors` is a `TypeError` rather than a silent no-op, and a repo declares its
+field vocabulary inside `detect`, where its format parsing already lives. The "five universal kinds,
+only the vocabulary differs" premise is refuted on both axes and recorded so it is not re-derived.

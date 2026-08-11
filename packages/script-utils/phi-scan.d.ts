@@ -219,120 +219,22 @@ export interface AllowListTag {
 export type AllowBucket = keyof AllowList;
 
 /**
- * A value rule the engine ships.
+ * 🛑 THE DECLARATIVE DETECTOR LAYER IS NOT PART OF THIS ENGINE, and passing `detectors` is a
+ * `TypeError` rather than a silent no-op.
  *
- * 🛑 THE KIND SET IS DECLARED AND OPEN, AND SEVERAL REPOS LEGITIMATELY FILL NONE. The premise this
- * work began from, five universal kinds, only the vocabulary differing, was refuted on both axes:
- * one repo has no address, phone or identifier vocabulary; one declares no field vocabulary at all,
- * correctly, because its corpus is code-system content rather than patient demographics; one has no
- * address; and one has no date-of-birth detector, its date tags being study and acquisition dates
- * under a wall-clock-relative rule that no token set can hold.
- */
-export type FieldKind =
-  | "name"
-  | "dob"
-  | "id"
-  | "address"
-  | "city"
-  | "postal-code"
-  | "phone"
-  | "email";
-
-/**
- * A guard: an equality test over a SIBLING POSITION in the same record, and nothing else.
+ * It was cut after three adversarial passes each found a blocker in it and each remedy grew a new
+ * one: a JSON walk that dropped primitives inside arrays made FHIR given names and street lines
+ * invisible at exit 0; delimiter DISCOVERY was blinded by one line of prose, and its remedy was
+ * blinded by a field table; declaring the delimiters instead moved three previously-checked keys
+ * into an unchecked nested object, so one transposed letter blinded a whole file again. The
+ * record-splitting rule also never covered X12, whose segments are terminated by a declared
+ * character rather than by a line break.
  *
- * This is where the parameterization stops on purpose. Conjunctive equality over a position is a
- * table; conditionals, arithmetic and negation would be an expression language, and a PHI detector
- * written in a hand-rolled DSL is harder to review than a function. Anything beyond this stays in
- * `detect`.
+ * None of that touched the process, which is what the founder directive is about. So the process
+ * ships and the vocabulary layer does not: a repo declares its field vocabulary inside `detect`,
+ * which is where its format parsing already lives, and the declarative surface becomes its own
+ * slice with its own tests and its own adversarial budget.
  */
-export interface FieldGuard {
-  field?: number;
-  component?: number;
-  attr?: string;
-  oneOf: string[];
-}
-
-/** One vocabulary entry: a POSITION, an optional guard, and a named value rule. */
-export interface FieldSpec {
-  /** The record id this entry keys on. Omitted means every record. */
-  record?: string;
-  /** The field index within the record. @default 0 */
-  field?: number;
-  /** The component index within the field. Omitted means every component. */
-  component?: number;
-  /** An attribute name, for the `xml` grammar. */
-  attr?: string;
-  guard?: FieldGuard[];
-  kind: FieldKind;
-  /** Which allow-list bucket answers this entry. Defaults to the kind's own bucket. */
-  bucket?: AllowBucket;
-  /** Reserved spaces that answer this entry without a per-value declaration. */
-  reservedSpaces?: ReservedSpace[];
-  /** The shape a value must have before the declaration is consulted. */
-  pattern?: RegExp;
-  minDigits?: number;
-  maxDigits?: number;
-  digitsOnly?: boolean;
-  /** Tokens that are not name evidence. Defaults to the shared honorific/credential set. */
-  noise?: Iterable<string>;
-  /** The locator printed on a hit. */
-  id?: string;
-  reason?: string;
-}
-
-/** A declared detector: a grammar, what it applies to, and its vocabulary. */
-export interface DetectorSpec {
-  id: string;
-  /**
-   * `delimited-record` covers HL7 v2, X12 and ASTM, the same shape with different numbers, so one
-   * parameter serves three repos. `json` REFUSES a target it cannot parse.
-   */
-  grammar:
-    | {
-        kind: "delimited-record";
-        /** @default 3 */
-        recordIdLength?: number;
-        /**
-         * The delimiters, DECLARED rather than discovered from the document.
-         *
-         * 🛑 TWO SUCCESSIVE ATTEMPTS TO DISCOVER THEM BOTH BLINDED A WHOLE FILE AT EXIT 0, and the
-         * second was the remedy for the first. Reading the first line whose opening characters
-         * matched a header id let one line of prose naming a field (`MSH-9`) set the separator;
-         * preferring the candidate that admitted the most records then lost to a field TABLE, where
-         * `MSH-1` through `MSH-10` is one admitted line each. A repo knows its own wire format, so
-         * it declares it. A line is a record only when `field` sits exactly at `recordIdLength`,
-         * which prose cannot reach.
-         *
-         * A repetition is a level, not a nicety: HL7 v2 puts a medical-record number and a national
-         * identifier in two repetitions of one field, told apart only by a sibling component.
-         *
-         * @default { field: "|", component: "^", repetition: "~" }
-         */
-        delimiters?: { field?: string; component?: string; repetition?: string };
-        /** @default 4 */
-        minRecordLength?: number;
-      }
-    | { kind: "xml" }
-    | { kind: "json" };
-  /**
-   * Which targets carry this format. REQUIRED for a grammar that can refuse, checked at
-   * configuration time: without it a strict grammar would refuse on every file in the corpus.
-   */
-  appliesTo?: {
-    pathSuffixes?: string[];
-    pathPrefixes?: string[];
-    contentMarker?: RegExp;
-  };
-  fields: FieldSpec[];
-  /**
-   * Restrict this detector's vocabulary to the records BEFORE the first record of this kind. One
-   * repo measured that without it the same element name means a patient in the header and a drug in
-   * the body, and checking both makes the gate fire on purpose-built fixtures until someone turns
-   * it off.
-   */
-  regionEndsAt?: string;
-}
 
 export interface PhiScanConfig {
   /**
@@ -469,9 +371,6 @@ export interface PhiScanConfig {
     ssn?: false | { reservedSpaces?: ReservedSpace[] };
     email?: false | { reservedSpaces?: ReservedSpace[] };
   };
-
-  /** The declared vocabularies. A repo may declare several; one repo carries three. */
-  detectors?: readonly DetectorSpec[];
 
   /**
    * The closed table of reasons `ctx.partial` may name.

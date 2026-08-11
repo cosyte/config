@@ -380,7 +380,7 @@ describe("controls: the suite is exercising the emitted scanner, and it can stil
       'from "@cosyte/script-utils/phi-scan"',
       "const EXIT_CODES = { clean: 0, hits: 1, refuse: 2 } as const;",
       'const SCAN_ROOTS: readonly ScanRootSpec[] = ["."];',
-      "const DETECTORS: readonly DetectorSpec[] = [];",
+      "function detect(ctx: DetectContext): void {",
       "runPhiScanCli({",
     ]) {
       expect(squash(source)).toContain(squash(line));
@@ -414,9 +414,6 @@ describe("controls: the suite is exercising the emitted scanner, and it can stil
       "reportDeclaredSubtractions();",
       // An allow-list tag nothing consumes refuses instead of vanishing.
       "unknown.push(`  - line ${String(i + 1)}: ${tag}`);",
-      // A declared format that will not parse refuses instead of falling back to
-      // the floor alone.
-      "throw new FormatParseError(",
       // The process tail: status first, EPIPE swallowed, termination bounded.
       "process.exitCode = code;",
       "timer.unref();",
@@ -599,8 +596,8 @@ describe("--staged refuses a non-regular entry, and keys on the ROOT half of sco
     // declared, not that collapsing the predicates is what costs the refusal.
     const subtractedOnly = weakened(
       "read-subtraction-only.ts",
-      "  detectors: DETECTORS,",
-      '  detectors: DETECTORS,\n  unreadablePrefixes: ["src"],',
+      "  detect,",
+      '  detect,\n  unreadablePrefixes: ["src"],',
     );
     const stillRefused = scan(subtractedOnly, ["--staged"]);
     expect(stillRefused.code, stillRefused.out).toBe(2);
@@ -609,7 +606,7 @@ describe("--staged refuses a non-regular entry, and keys on the ROOT half of sco
     // ...and now the defect, reproduced: the same declaration, with the ROOT half
     // of the refusal replaced by the READ half.
     const collapsed = weakenedAll("collapsed-predicate.ts", [
-      ["  detectors: DETECTORS,", '  detectors: DETECTORS,\n  unreadablePrefixes: ["src"],'],
+      ["  detect,", '  detect,\n  unreadablePrefixes: ["src"],'],
       [
         "this.isUnderStagedRoot(s.path) &&\n            !this.cfg.regularBlobModes.has(s.mode) &&",
         "this.isReadable(s.path) &&\n            !this.cfg.regularBlobModes.has(s.mode) &&",

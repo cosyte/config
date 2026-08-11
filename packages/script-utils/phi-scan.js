@@ -20,9 +20,9 @@
 // inherit each default.
 //
 // So the rule is: WHERE THIS ENGINE CAN TELL that a parameter was misdeclared, misparsed or is
-// unsupported, IT REFUSES rather than proceeding quietly. An unknown allow-list tag, an unknown key
-// in a detector spec, a root that is not the shape it declares, a root it cannot stat, a declared
-// root that yielded nothing read, and a declared format it cannot parse are all refusals.
+// unsupported, IT REFUSES rather than proceeding quietly. An unknown allow-list tag, a root that is
+// not the shape it declares, a root it cannot stat, and a declared root that yielded nothing read
+// are all refusals.
 //
 // 🛑 IT IS NOT A CLAIM THAT EVERY MISDECLARATION IS CAUGHT, and an earlier draft said "WHEREVER",
 // which a reviewer falsified in four ways in one pass. A parameter that is well-typed and WRONG is
@@ -566,6 +566,15 @@ function normalizeConfig(config) {
     throw new TypeError('runPhiScan: `unionScope` must be "scanRoots" or "repository".');
   }
 
+  if (config.detectors !== undefined) {
+    throw new TypeError(
+      "runPhiScan: `detectors` (the declarative vocabulary layer) is not part of this engine. It " +
+        "was cut after three adversarial passes each found a blocker in it, and it is its own " +
+        "slice. Declare this repo's field vocabulary inside `detect`, which is handed the locus, " +
+        "the undecorated path, every view, the allow-list and `hit`.",
+    );
+  }
+
   const vanished = config.vanishedUntrackedWalkTarget ?? "refuse";
   if (vanished !== "refuse" && vanished !== "report-unobserved") {
     throw new TypeError(
@@ -591,7 +600,6 @@ function normalizeConfig(config) {
     allowListTags: normalizeAllowListTags(config.allowListTags),
     textViews: normalizeTextViews(config.textViews),
     floor: normalizeFloor(config.floor),
-    detectors: normalizeDetectors(config.detectors),
     detect: config.detect,
     partialReasons,
     partialExit,
@@ -1994,16 +2002,6 @@ class PhiScan {
       // view got the detectors and not the floor, where the hand-written scanners it replaces gave
       // both.
       this.scanFloor(locus, target.path, view.text, allow, viewHits);
-      for (const detector of this.cfg.detectors) {
-        runDetector(detector, {
-          locus,
-          relPath: target.path,
-          text: view.text,
-          viewId: view.id,
-          allow,
-          hits: viewHits,
-        });
-      }
       for (const h of viewHits) push(h);
     }
 
@@ -2185,8 +2183,8 @@ class PhiScan {
    *           walk cannot open, a declared root that yielded nothing read, an unparseable
    *           `git diff --cached` record, an index git cannot name or names empty, an in-scope index
    *           entry that is not a regular blob, an in-scope path with no stage-0 blob, a staged
-   *           unmerged path, a target whose bytes cannot be read, a DECLARED FORMAT THAT FAILED TO
-   *           PARSE, a field detector that threw, and a target enumerated but never read.
+   *           unmerged path, a target whose bytes cannot be read, a field detector that threw, and
+   *           a target enumerated but never read.
    * ===========================================================================================
    *
    * @returns {number}
@@ -2395,7 +2393,7 @@ class PhiScan {
     // requirement two repos derived from opposite directions.
     const denominator =
       `${String(read.size)} target(s) read, ${String(enumerated.size)} enumerated, ` +
-      `${String(this.cfg.detectors.length)} declared detector(s)` +
+      `${this.cfg.detect === undefined ? "floor only" : "floor plus this repo's detector"}` +
       (tolerated.size > 0 ? `, ${String(tolerated.size)} untracked target(s) gone` : "");
     if (partialLoci > 0) {
       process.stdout.write(
@@ -2600,686 +2598,27 @@ function decodeSourceLiterals(source, holePattern) {
 }
 
 // ---------------------------------------------------------------------------
-// Declarative detectors
+// Reserved spaces are the one detection primitive that stays here
 // ---------------------------------------------------------------------------
-
-/** Honorifics, suffixes and credentials that are not name evidence. */
-const DEFAULT_NAME_NOISE = new Set([
-  "MD",
-  "DO",
-  "DR",
-  "MR",
-  "MRS",
-  "MS",
-  "MISS",
-  "JR",
-  "SR",
-  "II",
-  "III",
-  "IV",
-  "RN",
-  "NP",
-  "PA",
-  "PHD",
-  "DDS",
-  "DMD",
-  "ESQ",
-  "PROF",
-  "FNP",
-  "APRN",
-]);
-
-/**
- * @param {string} value
- * @param {Set<string>} noise
- * @returns {string[]} Uppercased tokens that could be a name.
- */
-function nameTokens(value, noise) {
-  /** @type {string[]} */
-  const out = [];
-  for (const raw of value.split(/[^\p{L}\p{M}]+/u)) {
-    if (raw.length === 0) continue;
-    // A single CJK ideograph is a whole name; a single Latin letter is an initial.
-    if (raw.length < 2 && !/\p{Script=Han}|\p{Script=Hiragana}|\p{Script=Katakana}/u.test(raw)) {
-      continue;
-    }
-    const token = raw.toUpperCase();
-    if (noise.has(token)) continue;
-    out.push(token);
-  }
-  return out;
-}
-
-/**
- * The value rules this engine ships, keyed by the `kind` a vocabulary entry declares.
- *
- * 🛑 THE KIND SET IS DECLARED AND OPEN, AND THAT IS A CORRECTION MEASURED ACROSS THE FLEET. The
- * premise this work started from was five universal kinds, names, DOB, MRN, address, phone, with
- * only the vocabulary differing per standard. It does not survive contact: one repo has no address,
- * phone or identifier vocabulary at all; one declares no field vocabulary of any kind and is right
- * to, because its corpus is code-system content rather than patient demographics; one has no
- * address; and one has no date-of-birth detector at all, its date tags are study and acquisition
- * dates governed by a wall-clock-relative rule, so the same bytes get a different verdict next year.
- * So a repo NAMES the kinds it fills, several legitimately fill none, and the engine ships each kind
- * as a rule rather than assuming a fixed five of everyone.
- *
- * EVERY RULE RETURNS `true` WHEN THE VALUE IS A HIT.
- */
-const VALUE_RULES = {
-  /**
-   * A person name. Tokenised on Unicode letters, noise tokens dropped, each surviving token checked
-   * against the declared bucket. Tokenising is what stops a coded value, an identifier followed by
-   * its display text, being read as a family name.
-   */
-  name: (value, allow, spec) => {
-    const tokens = nameTokens(value, spec.noise ?? DEFAULT_NAME_NOISE);
-    return tokens.length > 0 && tokens.some((t) => !allow[spec.bucket ?? "names"].has(t));
-  },
-  /**
-   * A date of birth. MATCHED AGAINST A DECLARED PATTERN AND COMPARED VERBATIM.
-   *
-   * 🛑 IT MUST NOT NORMALISE, and that is measured rather than stylistic: one repo's allow-list
-   * carries a deliberately truncated seven-digit synthetic date pinning a partial-timestamp fixture,
-   * and every normalising implementation silently drops that declaration and every fixture behind
-   * it. A second repo independently reported that it stores verbatim and every consumer re-derives.
-   * Both are satisfied here. See also the stated limit above: there is no reserved date space, so
-   * this rule can only ever be a declaration check.
-   */
-  dob: (value, allow, spec) => {
-    const pattern = spec.pattern ?? /^\d{4,}$/;
-    if (!pattern.test(value)) return false;
-    return !allow[spec.bucket ?? "dobs"].has(value);
-  },
-  /** An identifier, gated on a declared digit-count window before the declaration is consulted. */
-  id: (value, allow, spec) => {
-    const digits = value.replace(/\D/g, "");
-    const min = spec.minDigits ?? 6;
-    const max = spec.maxDigits ?? Number.POSITIVE_INFINITY;
-    if (digits.length < min || digits.length > max) return false;
-    if (spec.digitsOnly === true && digits.length !== value.length) return false;
-    const bucket = allow[spec.bucket ?? "ids"];
-    if (bucket.has(value.toUpperCase()) || bucket.has(digits)) return false;
-    return !(spec.reservedSpaces ?? []).some((s) => RESERVED_SPACES[s](value));
-  },
-  /** A street address line: a house number followed by a word, then the declaration. */
-  address: (value, allow, spec) => {
-    const trimmed = value.trim();
-    if (!/^\d+\s+\p{L}/u.test(trimmed)) return false;
-    return !allow[spec.bucket ?? "addresses"].has(trimmed.toLowerCase());
-  },
-  /** A locality name. Tokenised like a person name, checked against its own bucket. */
-  city: (value, allow, spec) => {
-    const tokens = nameTokens(value, spec.noise ?? DEFAULT_NAME_NOISE);
-    return tokens.length > 0 && tokens.some((t) => !allow[spec.bucket ?? "cities"].has(t));
-  },
-  /** A postal code. */
-  "postal-code": (value, allow, spec) => {
-    const pattern = spec.pattern ?? /^\d{5}(?:-\d{4})?$/;
-    const trimmed = value.trim();
-    if (!pattern.test(trimmed)) return false;
-    return !allow[spec.bucket ?? "zips"].has(trimmed);
-  },
-  /** A telephone number, answered by a declaration or by a declared reserved space. */
-  phone: (value, allow, spec) => {
-    const digits = value.replace(/\D/g, "");
-    if (digits.length < (spec.minDigits ?? 10)) return false;
-    if (allow[spec.bucket ?? "phones"].has(digits)) return false;
-    return !(spec.reservedSpaces ?? ["nanp-fictional"]).some((s) => RESERVED_SPACES[s](value));
-  },
-  /** An email address, answered by a domain, a mailbox or a reserved space. */
-  email: (value, allow, spec) => {
-    const lower = value.trim().toLowerCase();
-    const at = lower.lastIndexOf("@");
-    if (at < 0) return false;
-    if (allow.emailDomains.has(lower.slice(at + 1))) return false;
-    if (allow[spec.bucket ?? "emails"].has(lower)) return false;
-    return !(spec.reservedSpaces ?? ["reserved-domain"]).some((s) => RESERVED_SPACES[s](value));
-  },
-};
-
-/**
- * Raised by a grammar that was SELECTED for a target and could not parse it.
- *
- * 🛑 A DECLARED FORMAT THAT FAILS TO PARSE IS A REFUSAL, NEVER A DOWNGRADE TO THE FLOOR. A sibling's
- * shipped scanner falls back to the floor alone when its JSON parse throws, and `origin/main`
- * reports 0 hits at exit 0 over a FRAGMENTARY resource carrying a name, a date of birth AND a street
- * address. That is this lineage's dominant class exactly: weaker than declared, silent, exit 0. If a
- * repo declared that a path carries a format, a run that could not read that format has no verdict
- * to give about it.
- */
-class FormatParseError extends Error {}
-
-/**
- * 🛑 A PARSE DIAGNOSTIC CARRIES NO TEXT OFF THE DOCUMENT. V8's `JSON.parse` message embeds a window
- * of the input, so interpolating it put a patient's given name on stderr, which is CI logs. The
- * refusal names the locus, the detector and the grammar, all of which the caller declared, and
- * nothing else. This engine prints only a repo-relative path and a token from a closed set.
- */
-
-/**
- * Validate the declared detectors.
- *
- * 🛑 THE BOUNDARY, DRAWN EXPLICITLY BECAUSE IT IS THE THING THIS SURFACE COULD MOST EASILY GET
- * WRONG. What a repo may declare is: POSITIONS (a record id with a field or component index, an
- * element or attribute name, a property path), CONJUNCTIVE EQUALITY GUARDS over a sibling position,
- * a REGION bound, and a named value RULE with numeric or pattern parameters. There are no operators,
- * no arithmetic, no negation and no control flow. That is a table, and a table is reviewable in a
- * diff.
- *
- * Anything needing more than that stays a function in the repo's own `detect`, and that is not a
- * hedge: a rule keyed on the cardinality of distinct digits in an identifier, a policy cutoff on a
- * service date, a wall-clock-relative recency window, and a heuristic over the ADJACENCY of two
- * single-token components are all real, all live in shipping scanners, and all become LESS
- * reviewable written as data than written as code. A PHI detector expressed in a hand-rolled
- * expression language is harder to review than a function, and reviewability is what this gate is
- * for.
- *
- * @param {unknown} raw
- * @returns {any[]}
- */
-const DETECTOR_KEYS = new Set(["id", "grammar", "appliesTo", "fields", "regionEndsAt"]);
-const GRAMMAR_KEYS = new Set(["kind", "recordIdLength", "delimiters", "minRecordLength"]);
-const FIELD_KEYS = new Set([
-  "record",
-  "field",
-  "component",
-  "attr",
-  "guard",
-  "kind",
-  "bucket",
-  "reservedSpaces",
-  "pattern",
-  "minDigits",
-  "maxDigits",
-  "digitsOnly",
-  "noise",
-  "id",
-  "reason",
-]);
-
-/**
- * Refuse a key this engine does not read.
- *
- * A MISSPELLED KEY IS A VOCABULARY ENTRY THAT JUDGES NOTHING, and it looks exactly like one that
- * judges something. A reviewer typed `guards` for `guard` and the entry fired unguarded; `headerRecordIDs`
- * for `headerRecordIds` and the delimiters silently fell back.
- *
- * @param {Record<string, unknown>} obj
- * @param {Set<string>} known
- * @param {string} what
- */
-function refuseUnknownKeys(obj, known, what) {
-  const unknown = Object.keys(obj).filter((k) => !known.has(k));
-  if (unknown.length > 0) {
-    throw new TypeError(
-      `runPhiScan: ${what} declares ${unknown.map((k) => JSON.stringify(k)).join(", ")}, which ` +
-        `this engine does not read. Known keys: ${[...known].sort().join(", ")}.`,
-    );
-  }
-}
-
-function normalizeDetectors(raw) {
-  if (raw === undefined) return [];
-  if (!Array.isArray(raw)) throw new TypeError("runPhiScan: `detectors` must be an array.");
-  return raw.map((d, i) => {
-    if (!isPlainObject(d)) {
-      throw new TypeError(`runPhiScan: detectors[${String(i)}] must be an object.`);
-    }
-    refuseUnknownKeys(d, DETECTOR_KEYS, `detectors[${String(i)}]`);
-    const id = d.id;
-    if (typeof id !== "string" || id === "") {
-      throw new TypeError(`runPhiScan: detectors[${String(i)}] needs a non-empty \`id\`.`);
-    }
-    const grammar = d.grammar;
-    if (!isPlainObject(grammar) || !Object.hasOwn(GRAMMARS, String(grammar.kind))) {
-      throw new TypeError(
-        `runPhiScan: detector ${id} declares grammar kind ` +
-          `${JSON.stringify(isPlainObject(grammar) ? grammar.kind : grammar)}; known kinds are ` +
-          `${Object.keys(GRAMMARS).join(", ")}.`,
-      );
-    }
-    refuseUnknownKeys(grammar, GRAMMAR_KEYS, `detector ${id}'s grammar`);
-    const appliesTo = normalizeAppliesTo(d.appliesTo, id);
-    // A GRAMMAR THAT CAN REFUSE MUST BE SELECTIVE. Because a parse failure is now a refusal rather
-    // than a downgrade, a strict grammar with no `appliesTo` would refuse on every file in the
-    // corpus. So the requirement is checked at configuration time, where the author sees it.
-    if (
-      STRICT_GRAMMARS.has(String(grammar.kind)) &&
-      appliesTo.pathSuffixes.length === 0 &&
-      appliesTo.pathPrefixes.length === 0 &&
-      appliesTo.contentMarker === null
-    ) {
-      throw new TypeError(
-        `runPhiScan: detector ${id} uses the \`${String(grammar.kind)}\` grammar, which REFUSES a ` +
-          `target it cannot parse, so it must declare an \`appliesTo\` that selects the targets ` +
-          `carrying that format. Without one it would refuse on every file in the corpus.`,
-      );
-    }
-    if (!Array.isArray(d.fields) || d.fields.length === 0) {
-      throw new TypeError(`runPhiScan: detector ${id} must declare a non-empty \`fields\` list.`);
-    }
-    const fields = d.fields.map((f, j) => {
-      if (!isPlainObject(f)) {
-        throw new TypeError(`runPhiScan: detector ${id} field ${String(j)} must be an object.`);
-      }
-      refuseUnknownKeys(f, FIELD_KEYS, `detector ${id} field ${String(j)}`);
-      if (!Object.hasOwn(VALUE_RULES, String(f.kind))) {
-        throw new TypeError(
-          `runPhiScan: detector ${id} field ${String(j)} declares kind ${JSON.stringify(f.kind)}; ` +
-            `known kinds are ${Object.keys(VALUE_RULES).join(", ")}.`,
-        );
-      }
-      if (f.bucket !== undefined && !ALLOW_BUCKETS.includes(String(f.bucket))) {
-        throw new TypeError(
-          `runPhiScan: detector ${id} field ${String(j)} names bucket ` +
-            `${JSON.stringify(f.bucket)}; known buckets are ${ALLOW_BUCKETS.join(", ")}.`,
-        );
-      }
-      for (const space of f.reservedSpaces ?? []) {
-        if (!Object.hasOwn(RESERVED_SPACES, String(space))) {
-          throw new TypeError(
-            `runPhiScan: detector ${id} field ${String(j)} names reserved space ` +
-              `${JSON.stringify(space)}; known spaces are ` +
-              `${Object.keys(RESERVED_SPACES).join(", ")}.`,
-          );
-        }
-      }
-      if (f.pattern !== undefined && !(f.pattern instanceof RegExp)) {
-        throw new TypeError(
-          `runPhiScan: detector ${id} field ${String(j)} \`pattern\` must be a RegExp.`,
-        );
-      }
-      for (const g of f.guard ?? []) {
-        if (!isPlainObject(g) || !Array.isArray(g.oneOf) || g.oneOf.length === 0) {
-          throw new TypeError(
-            `runPhiScan: detector ${id} field ${String(j)} has a guard without a non-empty ` +
-              `\`oneOf\`. A guard is an equality test over a sibling position and nothing else.`,
-          );
-        }
-      }
-      return {
-        ...f,
-        noise:
-          f.noise === undefined
-            ? undefined
-            : new Set([...f.noise].map((t) => String(t).toUpperCase())),
-      };
-    });
-    return { id, grammar, appliesTo, fields, regionEndsAt: d.regionEndsAt };
-  });
-}
-
-/**
- * @param {unknown} raw
- * @param {string} id
- * @returns {{ pathSuffixes: string[], pathPrefixes: string[], contentMarker: RegExp | null }}
- */
-function normalizeAppliesTo(raw, id) {
-  /** @type {any} */
-  const out = { pathSuffixes: [], pathPrefixes: [], contentMarker: null };
-  if (raw === undefined) return out;
-  if (!isPlainObject(raw)) {
-    throw new TypeError(`runPhiScan: detector ${id} has a non-object \`appliesTo\`.`);
-  }
-  for (const key of ["pathSuffixes", "pathPrefixes"]) {
-    if (raw[key] === undefined) continue;
-    if (!Array.isArray(raw[key])) {
-      throw new TypeError(`runPhiScan: detector ${id} \`appliesTo.${key}\` must be an array.`);
-    }
-    out[key] = raw[key].map((s) => String(s).toLowerCase());
-  }
-  if (raw.contentMarker !== undefined) {
-    if (!(raw.contentMarker instanceof RegExp)) {
-      throw new TypeError(
-        `runPhiScan: detector ${id} \`appliesTo.contentMarker\` must be a RegExp.`,
-      );
-    }
-    out.contentMarker = raw.contentMarker;
-  }
-  return out;
-}
-
-/**
- * Grammars whose parse can FAIL, and which therefore refuse rather than yielding nothing. A
- * delimited-record or element sweep cannot fail, it finds records or it does not, while a
- * structured document parse distinguishes "no records here" from "I could not read this".
- */
-const STRICT_GRAMMARS = new Set(["json"]);
-
-/**
- * The grammars this engine ships. Each turns a target's text into a stream of records, and nothing
- * else: the value rules and the guards are shared across all of them.
- *
- * `delimited-record` covers HL7 v2, X12 and ASTM, which are the same shape with different numbers:
- * a header record that DECLARES the delimiters at fixed offsets, records separated by line
- * terminators, fields by one character, components by another. One grammar serves three repos, and
- * that is the property that makes the next escape cost one pull request rather than thirteen.
- */
-const GRAMMARS = {
-  /**
-   * @param {string} text
-   * @param {any} grammar
-   * @returns {any[]}
-   */
-  "delimited-record": (text, grammar) => {
-    const stripped = text.replace(/^\ufeff/, "").replace(/^\u000b+/, "");
-    const idLength = grammar.recordIdLength ?? 3;
-    const minLength = grammar.minRecordLength ?? 4;
-    // THE DELIMITERS ARE DECLARED, NOT DISCOVERED, AND THAT IS A CUT RATHER THAN A SIMPLIFICATION.
-    //
-    // 🛑 TWO SUCCESSIVE ATTEMPTS TO DISCOVER THEM FROM THE DOCUMENT BOTH BLINDED A WHOLE FILE AT
-    // EXIT 0, and the second was the remedy for the first. Reading the FIRST line whose opening
-    // characters matched a header id let one line of ordinary prose naming a field (`MSH-9`, the
-    // commonest way an HL7 field is spelled in documentation) set the separator to `-`, after which
-    // every real record failed admission. Choosing the candidate that ADMITTED THE MOST RECORDS
-    // then lost to a field TABLE: `MSH-1` through `MSH-10` is one admitted line each under `-`, so
-    // enough documentation lines outvote the message they document. The justifying sentence, that
-    // "a prose line admits itself and nothing else", was simply false.
-    //
-    // There is no third guess. A repo knows its own wire format, so it DECLARES the delimiters, and
-    // a line is a record only when the declared field separator sits exactly where the format says.
-    // Prose cannot reach that shape, and the cost of a document using undeclared delimiters is a
-    // detector that finds nothing rather than one that silently stops finding anything: the roots
-    // and the floor still read the file, and `appliesTo` still selects it.
-    //
-    // It also removes a measured performance cliff. The admit-counting pass was quadratic in the
-    // number of candidate header lines and ran in the pre-commit hook: over one 40,000-line batch it
-    // took 109,888 ms against 503 ms for the version it replaced.
-    const declared = grammar.delimiters ?? {};
-    const fieldSep = declared.field ?? "|";
-    const componentSep = declared.component ?? "^";
-    const repetitionSep = declared.repetition ?? "~";
-
-    /** @type {any[]} */
-    const out = [];
-    for (const line of stripped.split(/\r\n|\r|\n/)) {
-      const trimmed = line.replace(/\s+$/, "");
-      if (trimmed.length < minLength) continue;
-      const id = trimmed.slice(0, idLength);
-      if (!/^[A-Za-z][A-Za-z0-9]*$/.test(id)) continue;
-      // The separator must sit exactly where the format says. This is the whole admission rule.
-      if (trimmed.charAt(idLength) !== fieldSep) continue;
-      // A FIELD IS A LIST OF REPETITIONS, EACH A LIST OF COMPONENTS, and the repetition level is
-      // not optional. HL7 v2 puts a patient's medical-record number and their national identifier
-      // in two REPETITIONS of one field, distinguished only by a sibling component; without this
-      // level a guard on that component reads across the separator and matches neither.
-      out.push({
-        record: id,
-        index: out.length,
-        fields: trimmed
-          .split(fieldSep)
-          .map((f) =>
-            (repetitionSep === "" ? [f] : f.split(repetitionSep)).map((r) =>
-              componentSep === "" ? [r] : r.split(componentSep),
-            ),
-          ),
-        attrs: {},
-      });
-    }
-    return out;
-  },
-
-  /**
-   * XML by local name, prefix-tolerant and entity-decoded. There is NO document model, on purpose: a
-   * span-to-the-next-close regex runs away across a source file that merely MENTIONS an element in a
-   * comment, which one sibling measured and then refused to ship. The cost is stated rather than
-   * hidden, mixed content loses the text that sits beside a child element.
-   *
-   * @param {string} text
-   * @returns {any[]}
-   */
-  xml: (text) => {
-    const stripped = text.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, (_m, inner) => inner);
-    /** @type {any[]} */
-    const out = [];
-    for (const m of stripped.matchAll(/<(?:[\w.-]+:)?([A-Za-z_][\w.-]*)\b([^>]*?)(\/?)>/g)) {
-      const name = (m[1] ?? "").toLowerCase();
-      /** @type {Record<string, string>} */
-      const attrs = {};
-      for (const a of (m[2] ?? "").matchAll(
-        /(?:[\w.-]+:)?([A-Za-z_][\w.-]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/g,
-      )) {
-        attrs[(a[1] ?? "").toLowerCase()] = decodeXmlEntities(a[2] ?? a[3] ?? "");
-      }
-      // The element's DIRECT text only. `[^<]*` is deliberate: an element with children yields the
-      // empty string, and its children are matched on their own.
-      let leaf = "";
-      if (m[3] !== "/") {
-        const after = stripped.slice((m.index ?? 0) + m[0].length);
-        leaf = decodeXmlEntities(/^([^<]*)/.exec(after)?.[1] ?? "");
-      }
-      out.push({ record: name, index: out.length, fields: [[[leaf]]], attrs });
-    }
-    return out;
-  },
-
-  /**
-   * JSON by property path. A record's `record` is the dotted path to the property, so a vocabulary
-   * keys on STRUCTURE rather than on a bare word: `family`, `given`, `line` and `city` are ordinary
-   * English and ordinary property names, and a detector keyed on the word alone fires on prose.
-   *
-   * A PARSE FAILURE REFUSES. See `FormatParseError`.
-   *
-   * @param {string} text
-   * @returns {any[]}
-   */
-  json: (text) => {
-    /** @type {unknown} */
-    let doc;
-    try {
-      // A leading BOM is permitted in front of a JSON text and `JSON.parse` rejects it, so a
-      // legitimate fixture would have refused. Stripping it is liberal-on-parse, which is this
-      // ecosystem's own convention.
-      doc = JSON.parse(text.replace(/^\ufeff/, ""));
-    } catch (err) {
-      throw new FormatParseError(err instanceof Error ? err.message : String(err));
-    }
-    /** @type {any[]} */
-    const out = [];
-    /**
-     * @param {unknown} node
-     * @param {string} path
-     */
-    const visit = (node, path) => {
-      if (Array.isArray(node)) {
-        for (const item of node) {
-          // 🛑 A PRIMITIVE INSIDE AN ARRAY IS A VALUE AT THE PARENT'S PATH, and dropping it is not a
-          // gap in an edge case: FHIR R4 declares `HumanName.given` and `Address.line` as arrays of
-          // strings, so a patient's given name and street line ALWAYS arrive this way. Recursing
-          // without emitting made both invisible and the run reported clean at exit 0.
-          if (typeof item === "string" || typeof item === "number" || typeof item === "boolean") {
-            out.push({ record: path, index: out.length, fields: [[[String(item)]]], attrs: {} });
-          } else {
-            visit(item, path);
-          }
-        }
-        return;
-      }
-      if (!isPlainObject(node)) return;
-      for (const [key, value] of Object.entries(node)) {
-        const child = path === "" ? key : `${path}.${key}`;
-        if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
-          out.push({ record: child, index: out.length, fields: [[[String(value)]]], attrs: {} });
-        } else {
-          visit(value, child);
-        }
-      }
-    };
-    visit(doc, "");
-    return out;
-  },
-};
-
-/** @param {string} s @returns {string} */
-function decodeXmlEntities(s) {
-  return (
-    s
-      .replace(/&#x([0-9a-fA-F]+);/g, (_m, h) => safeCodePoint(Number.parseInt(h, 16)))
-      .replace(/&#(\d+);/g, (_m, d) => safeCodePoint(Number.parseInt(d, 10)))
-      .replace(/&lt;/g, "<")
-      .replace(/&gt;/g, ">")
-      .replace(/&quot;/g, '"')
-      .replace(/&apos;/g, "'")
-      // `&amp;` LAST, so a literal ampersand is not re-read as the start of another reference.
-      .replace(/&amp;/g, "&")
-  );
-}
-
-/** @param {number} code @returns {string} */
-function safeCodePoint(code) {
-  if (!Number.isFinite(code) || code < 0 || code > 0x10ffff) return "";
-  try {
-    return String.fromCodePoint(code);
-  } catch {
-    return "";
-  }
-}
-
-/**
- * Run one declared detector over one view of a target.
- *
- * @param {any} detector
- * @param {any} ctx
- */
-function runDetector(detector, ctx) {
-  // 🛑 A STRICT GRAMMAR RUNS ON THE RAW VIEW ONLY, so a declared view stays STRICTLY ADDITIVE. A
-  // `source-literals` view decodes escapes, and a decoded `\n` inside a JSON string literal makes
-  // the decoded text invalid JSON: running the strict grammar over it turned a CLEAN run into a
-  // refusal on a file whose real bytes parse fine. A view may add a finding; it must not be able to
-  // subtract a verdict.
-  if (ctx.viewId !== "raw" && STRICT_GRAMMARS.has(String(detector.grammar.kind))) return;
-  const lower = ctx.relPath.toLowerCase();
-  const { pathSuffixes, pathPrefixes, contentMarker } = detector.appliesTo;
-  const anyPath = pathSuffixes.length === 0 && pathPrefixes.length === 0;
-  const pathMatches =
-    anyPath ||
-    pathSuffixes.some((s) => lower.endsWith(s)) ||
-    pathPrefixes.some((p) => lower.startsWith(p));
-  if (!pathMatches) return;
-  if (contentMarker !== null && !contentMarker.test(ctx.text)) return;
-
-  /** @type {any[]} */
-  let records;
-  try {
-    records = GRAMMARS[detector.grammar.kind](ctx.text, detector.grammar);
-  } catch (err) {
-    if (err instanceof FormatParseError) {
-      throw new InvocationError(
-        `refusing ${ctx.locus}: detector ${detector.id} selected it as ` +
-          `\`${String(detector.grammar.kind)}\` and could not parse it. A run that could not read ` +
-          `a format it declared has no verdict to give about that file, and falling back to the ` +
-          `cross-cutting floor alone would report a fragmentary document as clean. Fix the file, ` +
-          `or narrow this detector's \`appliesTo\`. The parser's own message is NOT printed: it ` +
-          `embeds a window of the document, which would put the bytes this gate exists to contain ` +
-          `into CI logs.`,
-      );
-    }
-    throw err;
-  }
-  if (records.length === 0) return;
-
-  // A REGION BOUND, when declared: a vocabulary entry may be restricted to the records BEFORE the
-  // first record of a named kind. One repo measured that without it the same element name means a
-  // patient in the header and a drug in the body, and checking both makes the gate fire on
-  // purpose-built fixtures until someone turns it off.
-  let limit = records.length;
-  if (typeof detector.regionEndsAt === "string") {
-    const end = records.findIndex((r) => r.record === detector.regionEndsAt);
-    if (end >= 0) limit = end;
-  }
-
-  for (let i = 0; i < limit; i += 1) {
-    const record = records[i];
-    if (record === undefined) continue;
-    for (const spec of detector.fields) {
-      if (spec.record !== undefined && spec.record !== record.record) continue;
-      // ONE PASS PER REPETITION, so a guard names a sibling position WITHIN the same repetition.
-      // Evaluating it against the whole field would let one repetition's qualifier vouch for
-      // another's value, which is the identifier confusion this level exists to prevent.
-      const reps =
-        typeof spec.attr === "string"
-          ? [0]
-          : (record.fields?.[spec.field ?? 0] ?? []).map((_r, i) => i);
-      for (const rep of reps) {
-        if (!guardsPass(spec.guard, record, rep, spec.field ?? 0)) continue;
-        for (const value of valuesAt(spec, record, rep)) {
-          if (typeof value !== "string" || value.trim().length === 0) continue;
-          if (VALUE_RULES[spec.kind](value, ctx.allow, spec)) {
-            ctx.hits.push({
-              path: ctx.locus,
-              segment: spec.id ?? `${detector.id}:${record.record}`,
-              value,
-              reason: spec.reason ?? `${String(spec.kind)} not declared synthetic`,
-            });
-          }
-        }
-      }
-    }
-  }
-}
-
-/**
- * A guard is a CONJUNCTION of equality tests over sibling positions, and nothing else: no
- * operators, no negation, no arithmetic.
- *
- * A GUARD THAT NAMES NO `field` INHERITS THE ONE BEING JUDGED, and is read inside the SAME
- * repetition. Defaulting it to field 0 instead reads the record id, so a component guard silently
- * matched nothing and the vocabulary entry it protects never fired at all: a detector that judges
- * nothing, which is this whole gate's failure class. A guard that names a DIFFERENT field is
- * satisfied by any repetition of that field, because a qualifier living elsewhere in the record
- * does not repeat with this one.
- *
- * @param {any[] | undefined} guards
- * @param {any} record
- * @param {number} rep The repetition being judged.
- * @param {number} defaultField The field the guarded vocabulary entry names.
- * @returns {boolean}
- */
-function guardsPass(guards, record, rep, defaultField) {
-  for (const g of guards ?? []) {
-    const sameField = g.field === undefined || g.field === defaultField;
-    const values = valuesAt(
-      { ...g, field: g.field ?? defaultField },
-      record,
-      sameField ? rep : null,
-    );
-    if (!values.some((v) => typeof v === "string" && g.oneOf.includes(v.trim()))) return false;
-  }
-  return true;
-}
-
-/**
- * The values a locator names inside one record. A locator is a POSITION and nothing else: a field
- * index, a component index, or an attribute name.
- *
- * `rep` selects one repetition of the field; `null` means every repetition of it.
- *
- * @param {any} spec
- * @param {any} record
- * @param {number | null} rep
- * @returns {any[]}
- */
-function valuesAt(spec, record, rep) {
-  if (typeof spec.attr === "string") {
-    const v = record.attrs?.[spec.attr.toLowerCase()];
-    return typeof v === "string" ? [v] : [];
-  }
-  const field = record.fields?.[spec.field ?? 0];
-  if (field === undefined) return [];
-  const reps = rep === null ? field : field[rep] === undefined ? [] : [field[rep]];
-  /** @type {any[]} */
-  const out = [];
-  for (const components of reps) {
-    if (!Array.isArray(components)) continue;
-    if (typeof spec.component === "number") {
-      const v = components[spec.component];
-      if (typeof v === "string") out.push(v);
-    } else {
-      for (const v of components) out.push(v);
-    }
-  }
-  return out;
-}
+//
+// 🛑 THE DECLARATIVE DETECTOR LAYER WAS CUT FROM THIS SLICE, DELIBERATELY, AFTER THREE
+// ADVERSARIAL PASSES. Three consecutive rounds found a blocker in it and each remedy grew a new
+// one: a JSON walk that dropped primitives inside arrays made FHIR given names and street lines
+// invisible at exit 0; delimiter DISCOVERY was blinded by one line of prose, and its remedy was
+// blinded by a field table; declaring the delimiters instead moved three previously-checked keys
+// into an unchecked nested object, so a single transposed letter blinded a whole file again. The
+// record-splitting rule also never covered X12, whose segments are terminated by a declared
+// character rather than by a line break.
+//
+// Every one of those defects lived in the SAME surface, and none of them touched the process the
+// founder directive is actually about. So the process ships and the vocabulary layer does not:
+// a repo keeps its own `detect`, which is where its format parsing already lives, and the
+// declarative surface becomes its own slice with its own tests and its own adversarial budget.
+//
+// What stays here is what the FLOOR needs, because the floor is engine-owned: a repo must be able
+// to declare a synthetic value by naming the reserved space it lives in rather than by listing
+// literals, and `RESERVED_SPACES` is also exported so a caller's own `detect` can answer against
+// exactly the table the floor uses.
 
 /**
  * @typedef {ReturnType<typeof normalizeConfig>} NormalizedConfig

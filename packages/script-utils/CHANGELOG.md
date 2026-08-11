@@ -77,25 +77,28 @@ the **`0.0.x`-until-first-alpha** ladder.
   the findings **before** anything is written, so it never depended on delivery. All four are now
   restored explicitly and separately, with termination bounded by an **unref'd** timer.
 
-- **Declarative detectors.** `detectors: DetectorSpec[]`, a **list**, because recogniser count is
-  per-repo rather than one-per-repo: one repo carries a single synthetic identity in three
-  vocabularies that co-occur inside single files. Each entry is a grammar
-  (`delimited-record`, covering HL7 v2, X12 and ASTM with different numbers; `xml`; `json`), an
-  `appliesTo`, and a table of `{ position, guard?, kind }`.
+- **A declarative vocabulary layer was built for `detectors` and then CUT from this slice**, and
+  passing `detectors` is now a `TypeError` rather than a silent no-op. Three consecutive adversarial
+  passes each found a blocker in it and each remedy grew a new one: a JSON walk dropped primitives
+  inside arrays, so FHIR `HumanName.given` and `Address.line` were invisible at exit 0; delimiter
+  discovery was blinded by one line of prose naming a field, and its remedy was blinded by a field
+  table; declaring the delimiters instead moved three checked keys into an unchecked nested object,
+  so one transposed letter blinded a whole file again. The record splitter also never covered X12,
+  whose segments end with a declared character rather than a line break.
 
-  **The boundary is drawn explicitly**: positions, conjunctive equality guards over a sibling
-  position, a region bound, and named rules with numeric or pattern parameters. No operators, no
-  arithmetic, no negation, no control flow. Anything beyond that stays a function in the repo's own
-  `detect`, a rule keyed on the cardinality of distinct digits, a policy cutoff on a date, a
-  wall-clock-relative recency window, and a heuristic over component adjacency are all real, all
-  live in shipping scanners, and all become **less** reviewable written as data.
+  **None of that touched the process**, which is what the founder directive is about, so the process
+  ships and the vocabulary layer does not. A repo declares its field vocabulary inside `detect`,
+  where its format parsing already lives. The declarative surface is its own slice, with its own
+  tests and its own adversarial budget.
 
-- **The kind set is declared and OPEN, and several repos legitimately fill none.** The premise this
-  work began from, five universal kinds, only the vocabulary differing, was refuted on both axes:
-  one repo has no address, phone or identifier vocabulary; one declares no field vocabulary at all,
+  The premise the layer was built on is refuted either way, and is recorded here so it is not
+  re-derived: **five universal kinds with only the vocabulary differing** fails on both axes. One
+  repo has no address, phone or identifier vocabulary; one declares no field vocabulary at all,
   correctly, because its corpus is code-system content rather than patient demographics; one has no
-  address; and one has **no date-of-birth detector**, its date tags being study and acquisition
-  dates under a wall-clock-relative rule that no token set can hold.
+  address; one has **no date-of-birth detector**, its date tags being study and acquisition dates
+  under a wall-clock-relative rule that no token set can hold. And recogniser count is per-repo
+  rather than one-per-repo: one repo carries a single synthetic identity in three vocabularies that
+  co-occur inside single files.
 
 - **Reserved spaces, so a repo declares a CONVENTION instead of literals**: `nanp-fictional`,
   `ssa-never-issued`, `reserved-domain`, on the floor and on a field rule. Declaring five

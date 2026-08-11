@@ -87,23 +87,16 @@ string, for the same reason.
 consuming repo declares data.**
 
 ```ts
-import { runPhiScanCli, type DetectorSpec } from "@cosyte/script-utils/phi-scan";
+import { runPhiScanCli, type DetectContext } from "@cosyte/script-utils/phi-scan";
 
 runPhiScanCli({
   exitCodes: { clean: 0, hits: 1, refuse: 2 },
   scanRoots: ["."],
-  detectors: [
-    {
-      id: "hl7v2",
-      grammar: { kind: "delimited-record" },
-      appliesTo: { pathSuffixes: [".hl7"], pathPrefixes: ["test/"] },
-      fields: [
-        { record: "PID", field: 5, kind: "name", id: "PID-5" },
-        { record: "PID", field: 7, component: 0, kind: "dob", pattern: /^\d{8}$/, id: "PID-7" },
-        { record: "PID", field: 13, kind: "phone", reservedSpaces: ["nanp-fictional"] },
-      ],
-    },
-  ],
+  detect: (ctx: DetectContext) => {
+    // This standard's field-level detection. Parse the wire format, check every
+    // PHI-bearing field against ctx.allow, and raise findings with ctx.hit(...).
+    // Key path logic on ctx.targetPath, never on ctx.path.
+  },
 });
 ```
 
@@ -124,12 +117,20 @@ version bump.
 paths, and the `all`-mode sweep); the allow-list and the override log; the union of the working-tree
 walk with the bytes git carries, deduplicated **by content** under git's own `blob <len>\0` framing;
 the completeness rule and its per-root tier; every refusal; the report; the exit codes; and the
-process tail. It also ships the value **rules** (`name`, `dob`, `id`, `address`, `city`,
-`postal-code`, `phone`, `email`) and the **grammars** (`delimited-record`, which covers HL7 v2, X12
-and ASTM; `xml`; `json`).
+process tail. Plus the cross-cutting floor and the **reserved spaces** a repo declares instead of
+maintaining a list of literals.
 
-A consuming repo declares its roots, its subtractions, its allow-list conventions, its views and its
-field **vocabulary**. It runs none of the above.
+It does **not** own per-standard field detection: names, DOB, MRN / member id, address, phone. Those
+differ per healthcare standard and are supplied through `detect`.
+
+**A declarative vocabulary layer was built for that and then cut**, and the reason is on the record
+rather than left to be rediscovered: three consecutive adversarial passes each found a blocker in it
+and each remedy grew a new one. A JSON walk dropped primitives inside arrays, so FHIR given names and
+street lines were invisible at exit 0. Delimiter discovery was blinded by one line of prose naming a
+field; its remedy was blinded by a field table. Declaring the delimiters instead moved three checked
+keys into an unchecked nested object, so one transposed letter blinded a whole file again. And the
+record splitter never covered X12, whose segments end with a declared character rather than a line
+break. None of it touched the process, so the process shipped and it did not.
 
 ### The axes
 
