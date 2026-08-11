@@ -291,35 +291,25 @@ export interface DetectorSpec {
   grammar:
     | {
         kind: "delimited-record";
-        /**
-         * Records whose id declares the delimiters. Of the candidates, the one admitting the MOST
-         * records wins: taking the first was a measured whole-file false negative, because one line
-         * of prose naming a field set the separator and every real record then failed admission.
-         *
-         * @default ["MSH"]
-         */
-        headerRecordIds?: string[];
         /** @default 3 */
         recordIdLength?: number;
-        /** @default recordIdLength */
-        fieldSeparatorOffset?: number;
-        componentSeparatorOffset?: number;
         /**
-         * The separator between REPETITIONS of one field. A field is a list of repetitions, each a
-         * list of components, and the level is not optional: HL7 v2 puts a medical-record number
-         * and a national identifier in two repetitions of one field, told apart only by a sibling
-         * component, so without it a guard on that component matches neither.
+         * The delimiters, DECLARED rather than discovered from the document.
          *
-         * @default `fallback.repetition`
-         */
-        repetitionSeparator?: string;
-        /**
-         * The delimiters used when no header declares them. DECLARING THIS REPLACES ALL THREE, so a
-         * `fallback` that omits `repetition` turns repetition splitting off.
+         * 🛑 TWO SUCCESSIVE ATTEMPTS TO DISCOVER THEM BOTH BLINDED A WHOLE FILE AT EXIT 0, and the
+         * second was the remedy for the first. Reading the first line whose opening characters
+         * matched a header id let one line of prose naming a field (`MSH-9`) set the separator;
+         * preferring the candidate that admitted the most records then lost to a field TABLE, where
+         * `MSH-1` through `MSH-10` is one admitted line each. A repo knows its own wire format, so
+         * it declares it. A line is a record only when `field` sits exactly at `recordIdLength`,
+         * which prose cannot reach.
+         *
+         * A repetition is a level, not a nicety: HL7 v2 puts a medical-record number and a national
+         * identifier in two repetitions of one field, told apart only by a sibling component.
          *
          * @default { field: "|", component: "^", repetition: "~" }
          */
-        fallback?: { field: string; component: string; repetition?: string };
+        delimiters?: { field?: string; component?: string; repetition?: string };
         /** @default 4 */
         minRecordLength?: number;
       }
@@ -356,8 +346,11 @@ export interface PhiScanConfig {
    * AXIS 2, REQUIRED, AND IT HAS NO SAFE DEFAULT IN EITHER DIRECTION. Five repos need the whole
    * repository; two measured that the whole repository exits on their own manifest's author
    * address, and both remedies are worse than the narrow roots. Five more measured that copying a
-   * sibling's narrow roots silently drops tracked files their index union already read, 18, 19 and
-   * 49 files in three of them. DERIVE it; never port it.
+   * sibling's narrow roots silently drops tracked files their index union already read. DERIVE it;
+   * never port it, and check `unionScope` before narrowing: a narrow walk with a repository-wide
+   * union is usually what a narrow-corpus repo actually wants. NO FILE COUNT IS QUOTED HERE,
+   * deliberately: a draft carried per-repo counts with no attribution, and a reader in another repo
+   * reasonably mistook one for their own.
    */
   scanRoots: readonly ScanRootSpec[];
 

@@ -162,7 +162,7 @@ const TEXT_VIEWS = [{ kind: "source-literals" as const, appliesTo: [".ts", ".tsx
  *     const DETECTORS: readonly DetectorSpec[] = [
  *       {
  *         id: "{{PKG}}",
- *         grammar: { kind: "delimited-record", headerRecordIds: ["MSH"] },
+ *         grammar: { kind: "delimited-record" },
  *         appliesTo: { pathSuffixes: [".hl7"], pathPrefixes: ["test/"] },
  *         fields: [
  *           { record: "PID", field: 5, kind: "name", id: "PID-5" },

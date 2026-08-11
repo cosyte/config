@@ -499,6 +499,21 @@ function normalizeConfig(config) {
     }
   }
 
+  for (const root of scanRoots) {
+    if (root.shape !== "file") continue;
+    const covering = unreadablePrefixes.filter(
+      (prefix) => root.rel === prefix || root.rel.startsWith(`${prefix}/`),
+    );
+    if (covering.length > 0) {
+      throw new TypeError(
+        `runPhiScan: ${JSON.stringify(root.rel)} is declared as a FILE root, which is read on every ` +
+          `route, and is also covered by unreadablePrefixes ${JSON.stringify(covering[0])}, which ` +
+          `says its bytes are never read. Those cannot both be true, and the run would have ` +
+          `announced the second while doing the first. Drop one.`,
+      );
+    }
+  }
+
   for (const key of ["isReadable", "detect"]) {
     if (config[key] !== undefined && typeof config[key] !== "function") {
       throw new TypeError(`runPhiScan: \`${key}\` must be a function when given.`);
@@ -922,6 +937,26 @@ class PhiScan {
     );
   }
 
+  /**
+   * The ROOT half of scope for everything keyed on the INDEX: the union's candidates and the two
+   * refusals that read index entries.
+   *
+   * 🛑 IT IS ONE PREDICATE FOR ALL THREE, AND SPLITTING THEM WAS A MEASURED FALSE CLEAN. When
+   * `unionScope` first landed it widened only the candidate list, so with a narrow walk and a
+   * repository-wide union a tracked path outside the roots was READ but the tiers that say "this
+   * path has bytes I cannot account for" never looked at it: an unmerged path carrying a dashed
+   * identifier in one conflict side reported `OK: no hits` at exit 0, where the same repository
+   * under `["."]` refused. Reading further than you account for is the shape this whole gate
+   * exists to remove.
+   *
+   * @param {string} relPath
+   * @returns {boolean}
+   */
+  isInUnionScope(relPath) {
+    if (this.cfg.unionScope === "repository") return true;
+    return this.isUnderScanRoot(relPath);
+  }
+
   /** @param {string} relPath @returns {boolean} */
   isUnderStagedRoot(relPath) {
     return this.cfg.stagedRoots.some(
@@ -1104,6 +1139,22 @@ class PhiScan {
       if (chosen === undefined || rest.length < chosen.arity) {
         unknown.push(
           `  - line ${String(i + 1)}: ${tag} (expects ${String(chosen?.arity ?? 1)} field(s))`,
+        );
+        continue;
+      }
+      // AN ARITY-2 TAG TAKES EXACTLY TWO FIELDS, and a third is refused rather than swallowed. Both
+      // of its fields are single tokens (a repo-relative path and a mail address), so an extra one
+      // is a mistake this engine can SEE: a trailing `# note` used to be folded into the address and
+      // the declaration then matched nothing. `#` opens a comment only at the START of a line.
+      //
+      // 🛑 THE SAME SHAPE SURVIVES FOR ARITY-1 TAGS AND IS NOT CLOSED. `ADDR` and `NAME` values are
+      // legitimately multi-word, so the rest of the line IS the value and a trailing comment becomes
+      // part of it. That declaration then matches nothing, loudly in the sense that the hit remains
+      // rather than a false clean, and it is stated here rather than left to be discovered.
+      if (chosen.arity === 2 && rest.length > 2) {
+        unknown.push(
+          `  - line ${String(i + 1)}: ${tag} (takes exactly 2 fields, got ${String(rest.length)}; ` +
+            `"#" opens a comment only at the start of a line)`,
         );
         continue;
       }
@@ -1503,7 +1554,7 @@ class PhiScan {
     // reporting it as one sends a developer looking for something that is not there.
     this.refuseUnscannable(
       listed.unmerged
-        .filter((p) => this.isUnderScanRoot(p) && !this.isExcluded(p, "index"))
+        .filter((p) => this.isInUnionScope(p) && !this.isExcluded(p, "index"))
         .map((p) => ({ path: p, kind: "no stage-0 blob" })),
       "An unmerged path has no single merged blob, so there is no one set of bytes git carries here " +
         "for the sweep to read, only the conflicting sides and, when there is one, their base.",
@@ -1515,7 +1566,7 @@ class PhiScan {
       [...listed.entries]
         .filter(
           ([p, e]) =>
-            this.isUnderScanRoot(p) &&
+            this.isInUnionScope(p) &&
             !this.cfg.regularBlobModes.has(e.mode) &&
             !this.isExcluded(p, "index"),
         )
@@ -1553,10 +1604,7 @@ class PhiScan {
    * @returns {string[]}
    */
   unionCandidatePaths(index) {
-    const inScope =
-      this.cfg.unionScope === "repository"
-        ? () => true
-        : /** @param {string} p */ (p) => this.isUnderScanRoot(p);
+    const inScope = /** @param {string} p */ (p) => this.isInUnionScope(p);
     return [...index]
       .filter(
         ([p, e]) =>
@@ -2730,16 +2778,7 @@ class FormatParseError extends Error {}
  * @returns {any[]}
  */
 const DETECTOR_KEYS = new Set(["id", "grammar", "appliesTo", "fields", "regionEndsAt"]);
-const GRAMMAR_KEYS = new Set([
-  "kind",
-  "headerRecordIds",
-  "recordIdLength",
-  "fieldSeparatorOffset",
-  "componentSeparatorOffset",
-  "repetitionSeparator",
-  "fallback",
-  "minRecordLength",
-]);
+const GRAMMAR_KEYS = new Set(["kind", "recordIdLength", "delimiters", "minRecordLength"]);
 const FIELD_KEYS = new Set([
   "record",
   "field",
@@ -2924,78 +2963,41 @@ const GRAMMARS = {
    */
   "delimited-record": (text, grammar) => {
     const stripped = text.replace(/^\ufeff/, "").replace(/^\u000b+/, "");
-    const headerIds = new Set(grammar.headerRecordIds ?? ["MSH"]);
-    const fallback = grammar.fallback ?? { field: "|", component: "^", repetition: "~" };
     const idLength = grammar.recordIdLength ?? 3;
-    let fieldSep = fallback.field;
-    let componentSep = fallback.component;
-    const repetitionSep = grammar.repetitionSeparator ?? fallback.repetition;
-
-    const lines = stripped.split(/\r\n|\r|\n/);
     const minLength = grammar.minRecordLength ?? 4;
-
-    /**
-     * How many lines this file would admit as records under a candidate field separator. It is the
-     * evidence a candidate is really the document's delimiter rather than a coincidence.
-     *
-     * @param {string} sep
-     * @returns {number}
-     */
-    const admitCount = (sep) => {
-      let n = 0;
-      for (const line of lines) {
-        const trimmed = line.replace(/\s+$/, "");
-        if (trimmed.length < minLength) continue;
-        if (!/^[A-Za-z][A-Za-z0-9]*$/.test(trimmed.slice(0, idLength))) continue;
-        if (trimmed.charAt(idLength) === sep) n += 1;
-      }
-      return n;
-    };
-
-    // 🛑 THE CANDIDATE THAT ADMITS THE MOST RECORDS WINS, AND TAKING THE FIRST ONE WAS A MEASURED
-    // WHOLE-FILE FALSE NEGATIVE. Delimiter discovery used to accept the first line whose opening
-    // characters matched a header id, with any punctuation at the separator offset. One line of
-    // ordinary English prose naming a field (`MSH-9`, the commonest way an HL7 field is spelled in
-    // documentation) therefore set the separator to `-`, after which every real `MSH|` and `PID|`
-    // record failed the admission test and the whole file scanned clean at exit 0. Counting what
-    // each candidate would actually admit makes prose lose to the document, because a prose line
-    // admits itself and nothing else.
+    // THE DELIMITERS ARE DECLARED, NOT DISCOVERED, AND THAT IS A CUT RATHER THAN A SIMPLIFICATION.
     //
-    // WHAT THIS DOES NOT FIX, STATED RATHER THAN LEFT TO BE FOUND: a file carrying two messages with
-    // DIFFERENT encoding characters is still read under one set, the winner's. Discovery is
-    // per-file here, not per-message.
-    /** @type {{ sep: string, comp: string, admits: number } | null} */
-    let best = null;
-    for (const line of lines) {
-      if (!headerIds.has(line.slice(0, idLength))) continue;
-      const declared = line.charAt(grammar.fieldSeparatorOffset ?? idLength);
-      // A delimiter is a punctuation character. A letter, a digit or a space is prose.
-      if (declared.length !== 1 || /[\p{L}\p{N}\s]/u.test(declared)) continue;
-      let comp = componentSep;
-      const compOffset = grammar.componentSeparatorOffset;
-      if (typeof compOffset === "number") {
-        const c = line.charAt(compOffset);
-        if (c.length === 1 && !/[\p{L}\p{N}\s]/u.test(c)) comp = c;
-      }
-      const admits = admitCount(declared);
-      if (best === null || admits > best.admits) best = { sep: declared, comp, admits };
-    }
-    // A candidate that admits nothing is no evidence at all, so the declared fallback is kept: it is
-    // what a document with no header at all is read under.
-    if (best !== null && best.admits > 0) {
-      fieldSep = best.sep;
-      componentSep = best.comp;
-    }
+    // 🛑 TWO SUCCESSIVE ATTEMPTS TO DISCOVER THEM FROM THE DOCUMENT BOTH BLINDED A WHOLE FILE AT
+    // EXIT 0, and the second was the remedy for the first. Reading the FIRST line whose opening
+    // characters matched a header id let one line of ordinary prose naming a field (`MSH-9`, the
+    // commonest way an HL7 field is spelled in documentation) set the separator to `-`, after which
+    // every real record failed admission. Choosing the candidate that ADMITTED THE MOST RECORDS
+    // then lost to a field TABLE: `MSH-1` through `MSH-10` is one admitted line each under `-`, so
+    // enough documentation lines outvote the message they document. The justifying sentence, that
+    // "a prose line admits itself and nothing else", was simply false.
+    //
+    // There is no third guess. A repo knows its own wire format, so it DECLARES the delimiters, and
+    // a line is a record only when the declared field separator sits exactly where the format says.
+    // Prose cannot reach that shape, and the cost of a document using undeclared delimiters is a
+    // detector that finds nothing rather than one that silently stops finding anything: the roots
+    // and the floor still read the file, and `appliesTo` still selects it.
+    //
+    // It also removes a measured performance cliff. The admit-counting pass was quadratic in the
+    // number of candidate header lines and ran in the pre-commit hook: over one 40,000-line batch it
+    // took 109,888 ms against 503 ms for the version it replaced.
+    const declared = grammar.delimiters ?? {};
+    const fieldSep = declared.field ?? "|";
+    const componentSep = declared.component ?? "^";
+    const repetitionSep = declared.repetition ?? "~";
 
     /** @type {any[]} */
     const out = [];
-    for (const line of lines) {
+    for (const line of stripped.split(/\r\n|\r|\n/)) {
       const trimmed = line.replace(/\s+$/, "");
-      if (trimmed.length < (grammar.minRecordLength ?? 4)) continue;
+      if (trimmed.length < minLength) continue;
       const id = trimmed.slice(0, idLength);
       if (!/^[A-Za-z][A-Za-z0-9]*$/.test(id)) continue;
-      // The separator must sit exactly where the format says, which is what stops an English
-      // sentence whose first three letters happen to match a record id becoming a record.
+      // The separator must sit exactly where the format says. This is the whole admission rule.
       if (trimmed.charAt(idLength) !== fieldSep) continue;
       // A FIELD IS A LIST OF REPETITIONS, EACH A LIST OF COMPONENTS, and the repetition level is
       // not optional. HL7 v2 puts a patient's medical-record number and their national identifier
@@ -3007,8 +3009,8 @@ const GRAMMARS = {
         fields: trimmed
           .split(fieldSep)
           .map((f) =>
-            (repetitionSep === undefined ? [f] : f.split(repetitionSep)).map((r) =>
-              r.split(componentSep),
+            (repetitionSep === "" ? [f] : f.split(repetitionSep)).map((r) =>
+              componentSep === "" ? [r] : r.split(componentSep),
             ),
           ),
         attrs: {},

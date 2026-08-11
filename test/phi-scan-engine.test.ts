@@ -755,7 +755,7 @@ describe("declared detectors: the vocabulary is data, and the boundary is delibe
 
   const hl7Detector = {
     id: "hl7v2",
-    grammar: { kind: "delimited-record" as const, headerRecordIds: ["MSH"] },
+    grammar: { kind: "delimited-record" as const },
     appliesTo: { pathSuffixes: [".hl7"] },
     fields: [
       { record: "PID", field: 5, kind: "name" as const, id: "PID-5" },
@@ -1099,20 +1099,32 @@ describe("pass-2 repairs: each of these was a live escape a reviewer measured", 
       "PID|1||900001^^^HOSP^MR||QUINCE^ROWAN||19850211\n";
     const detector = {
       id: "hl7v2",
-      grammar: { kind: "delimited-record", headerRecordIds: ["MSH"] },
+      grammar: { kind: "delimited-record" },
       appliesTo: { pathPrefixes: ["test/"] },
       fields: [{ record: "PID", field: 5, kind: "name", id: "PID-5" }],
     };
 
+    // ONE prose line, which is what the discarded first heuristic lost to.
     write("test/notes.md", `MSH-9 carries the message type.\n${message}`);
     commitAll();
-    const withProse = run({ detectors: [detector] });
-    expect(withProse.code, withProse.out).toBe(1);
-    expect(withProse.out).toContain("segment=PID-5");
+    const one = run({ detectors: [detector] });
+    expect(one.code, one.out).toBe(1);
+    expect(one.out).toContain("segment=PID-5");
 
-    // ANTI-VACUITY, AND IT IS THE PROPERTY THE OLD PUNCTUATION TEST WAS PROTECTING: prose ALONE must
-    // still not manufacture a record.
-    write("test/notes.md", "MSH-9 carries the message type, and MSH-10 the control id.\n");
+    // 🛑 AND A WHOLE FIELD TABLE, which is what the SECOND heuristic lost to: `MSH-1` through
+    // `MSH-10` is one admitted line each under separator `-`, so enough documentation lines
+    // outvoted the message they document. Declared delimiters have no vote to lose.
+    const table = Array.from({ length: 12 }, (_, i) => `MSH-${String(i + 1)} some field`).join(
+      "\n",
+    );
+    write("test/notes.md", `${table}\n${message}`);
+    commitAll();
+    const many = run({ detectors: [detector] });
+    expect(many.code, many.out).toBe(1);
+    expect(many.out).toContain("segment=PID-5");
+
+    // ANTI-VACUITY: prose ALONE must still not manufacture a record.
+    write("test/notes.md", `${table}\n`);
     commitAll();
     expect(run({ detectors: [detector] }).code).toBe(0);
   });
@@ -1221,6 +1233,37 @@ describe("pass-2 repairs: each of these was a live escape a reviewer measured", 
     write("elsewhere/untracked.txt", `ssn ${SSN}\n`);
     const still = run({ scanRoots: ["src"], unionScope: "repository" });
     expect(still.out).not.toContain("elsewhere/untracked.txt\n");
+  });
+
+  it("REFUSES an unaccountable index entry that `unionScope` brought into scope", () => {
+    // 🛑 WIDENING WHAT IS READ WITHOUT WIDENING WHAT IS ACCOUNTED FOR IS THIS GATE'S OWN FAILURE
+    // SHAPE. When `unionScope` first landed it widened only the union's candidate list, so with a
+    // narrow walk and a repository-wide union a tracked path outside the roots was READ while the
+    // tiers that say "this path has bytes I cannot account for" still keyed on the walk's roots. An
+    // unmerged path carrying a dashed identifier in one conflict side reported `OK: no hits` at
+    // exit 0, where the same repository under `["."]` refused.
+    write("src/index.ts", "export const x = 1;\n");
+    write("data/notes.txt", "base\n");
+    commitAll();
+    expect(git(["checkout", "-q", "-b", "side-a"]).code).toBe(0);
+    writeFileSync(join(repo, "data", "notes.txt"), `side a ${SSN}\n`, "utf8");
+    expect(git(["commit", "-qam", "side a", "--no-verify"]).code).toBe(0);
+    expect(git(["checkout", "-q", "-b", "side-b", "HEAD~1"]).code).toBe(0);
+    writeFileSync(join(repo, "data", "notes.txt"), "side b\n", "utf8");
+    expect(git(["commit", "-qam", "side b", "--no-verify"]).code).toBe(0);
+    // The merge is EXPECTED to fail; the conflict is the fixture.
+    git(["merge", "--no-verify", "side-a"]);
+    expect(git(["status", "--short"]).out).toContain("UU data/notes.txt");
+
+    const wide = run({ scanRoots: ["src"], unionScope: "repository" });
+    expect(wide.code, wide.out).toBe(2);
+    expect(wide.out).toContain("data/notes.txt");
+    expect(wide.out).toContain("unmerged");
+    expect(wide.out).not.toContain("OK: no hits");
+
+    // ...and the narrow default still leaves it out of scope entirely, which is the other polarity:
+    // the refusal follows the scope rather than being unconditional.
+    expect(run({ scanRoots: ["src"] }).code).toBe(0);
   });
 
   it("reads a declared FILE root on the union and staged routes, not only on the walk", () => {
