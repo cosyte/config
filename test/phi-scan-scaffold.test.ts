@@ -557,6 +557,18 @@ describe("--staged refuses a non-regular entry, and keys on the ROOT half of sco
     expect(r.code).toBe(2);
     expect(r.out).toContain("test/fixtures");
     expect(r.out).toContain("a symbolic link");
+
+    // AND `all` MODE NOW REFUSES IT TOO, which is a CHANGE the union brought
+    // and is pinned here so the docblock clause about the two routes giving
+    // different answers stays true only where it still is. Before the index was
+    // read, the walk FOLLOWED the link and scanned whatever was on the other
+    // side; once the link is TRACKED it is a mode-120000 index entry and the
+    // index rule refuses. An UNTRACKED root link is still followed.
+    const swept = scan("scripts/phi-scan.ts");
+    expect(swept.code, swept.out).toBe(2);
+    expect(swept.out).toContain("test/fixtures");
+    expect(swept.out).toContain("a symbolic link");
+    expect(swept.out).not.toContain("OK: no hits");
   });
 
   it("still scans, and still catches, an ordinary staged fixture", () => {
@@ -1067,9 +1079,16 @@ describe("all mode reads the bytes git carries as a UNION with the walk", () => 
 
   it("refuses when git cannot name the index, or names it EMPTY", () => {
     // Without the index the union cannot run and the sweep is back to the walk's
-    // word alone, which is the state the rule exists to end. An empty answer
-    // counts as no answer: `git ls-files` prints nothing and exits 0 both for an
-    // empty index and for a directory that is no repository at all.
+    // word alone, which is the state the rule exists to end.
+    //
+    // THE TWO STATES ARRIVE THROUGH DIFFERENT BRANCHES, AND BOTH PREMISES ARE
+    // MEASURED HERE RATHER THAN ONE OF THEM ASSERTED. A directory that is no
+    // repository at all FATALS (exit 128), so it is the `catch` that turns it
+    // into a refusal; a repository whose index is empty prints nothing and
+    // exits 0, so it is the size check. An earlier draft of this case measured
+    // only the second and wrote prose claiming both, which reads to the next
+    // porter as "the catch is redundant" and would put the non-repo run back on
+    // node's own exit 1: the code this contract reserves for HITS FOUND.
     const outside = mkdtempSync(join(tmpdir(), "phi-scan-noindex-"));
     mkdirSync(join(outside, "scripts"), { recursive: true });
     mkdirSync(join(outside, "test", "fixtures"), { recursive: true });
@@ -1080,7 +1099,15 @@ describe("all mode reads the bytes git carries as a UNION with the walk", () => 
     );
     writeFileSync(join(outside, "test", "fixtures", "ok.txt"), "nothing to see\n", "utf8");
 
-    // No repository at all.
+    // No repository at all. The premise first: git FATALS here, it does not
+    // answer with an empty list.
+    const noRepoList = spawnSync("git", ["ls-files", "-s", "-z"], {
+      cwd: outside,
+      encoding: "utf8",
+    });
+    expect(noRepoList.status).not.toBe(0);
+    expect(noRepoList.stderr).toContain("not a git repository");
+
     const noRepo = scan("scripts/phi-scan.ts", [], outside);
     expect(noRepo.code, noRepo.out).toBe(2);
     expect(noRepo.out).toContain("index");
@@ -1088,10 +1115,15 @@ describe("all mode reads the bytes git carries as a UNION with the walk", () => 
     // ...and it is NOT the allow-list refusal wearing a different hat.
     expect(noRepo.out).not.toContain("allow-list not found");
 
-    // A repository whose index is empty answers identically, and must be
-    // refused identically.
+    // A repository whose index is empty reaches the same refusal by the OTHER
+    // branch: exit 0 with no output, which the size check turns into `null`.
     expect(spawnSync("git", ["init", "-q", "."], { cwd: outside }).status).toBe(0);
-    expect(spawnSync("git", ["ls-files"], { cwd: outside, encoding: "utf8" }).stdout).toBe("");
+    const emptyList = spawnSync("git", ["ls-files", "-s", "-z"], {
+      cwd: outside,
+      encoding: "utf8",
+    });
+    expect(emptyList.status).toBe(0);
+    expect(emptyList.stdout).toBe("");
     const emptyIndex = scan("scripts/phi-scan.ts", [], outside);
     expect(emptyIndex.code, emptyIndex.out).toBe(2);
     expect(emptyIndex.out).toContain("index");

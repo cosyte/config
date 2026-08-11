@@ -142,6 +142,17 @@ function overrideLog(paths) {
  * Returns `{ status: "ok" | "drift" | "inconclusive", detail }`. `inconclusive`
  * is a real answer and is NOT a pass: it means this probe could not ground its
  * own premise in that repo, so the caller must not claim the rule is present.
+ *
+ * WHAT `ok` DOES AND DOES NOT PROVE, STATED RATHER THAN LEFT TO BE ASSUMED. It
+ * proves the scanner REFUSED a run that withdrew a target it had enumerated,
+ * instead of reporting on it: that is the property a caller of `phi-scan`
+ * actually depends on, and it is the one every repo in this survey fails. It
+ * does NOT prove WHICH rule produced the refusal. A scanner that refuses any
+ * run using a bypass at all, or refuses for some unrelated reason, is graded
+ * `ok` here. Sharpening that would mean asking the scanner WHY, which means
+ * matching its prose, which is the failure mode this whole probe exists to
+ * avoid. So the weaker discriminator is deliberate, and the wording of every
+ * verdict is kept inside what was observed.
  */
 export function probePhiScanCompleteness({ scannerSource, allowList, spec }) {
   const dir = mkdtempSync(join(tmpdir(), "phi-scan-probe-"));
@@ -180,6 +191,15 @@ export function probePhiScanCompleteness({ scannerSource, allowList, spec }) {
     // scanner actually finds at this path, or a clean report over it proves
     // nothing. This run ALSO teaches the probe the repo's own HITS code, which
     // is deliberately not assumed: the siblings do not agree on it.
+    //
+    // THE DERIVATION HAS A BOUND, AND IT FAILS SAFE. It reads this run's exit
+    // code as the HITS code, which is only right if the run found hits and did
+    // nothing else. A scanner that refused for some other reason IN THIS RUN
+    // would have its refusal code learned as its hits code, and the graded run
+    // would then be reported as `drift` when it might not be. That direction is
+    // the safe one (it over-reports work, never vouches for a scanner that
+    // reports clean), and no target repo is in that state today: all thirteen
+    // derive the same code they use for hits.
     const hitRun = runNode(dir, scanner, [spec.violator]);
     if (hitRun.code === 0 || !hitRun.out.includes(spec.marker)) {
       return {
@@ -243,7 +263,9 @@ export function probePhiScanCompleteness({ scannerSource, allowList, spec }) {
     }
     return {
       status: "ok",
-      detail: `refuses (exit ${graded.code}) over a target enumerated and never read`,
+      detail:
+        `REFUSED (exit ${graded.code}) a run that withdrew ${spec.decoy} after enumerating it, ` +
+        `rather than reporting on it`,
     };
   } finally {
     rmSync(dir, { recursive: true, force: true });

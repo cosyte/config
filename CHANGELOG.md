@@ -43,8 +43,12 @@ no package, so entries here are **dated** rather than versioned.
     against a fabricated index whose three stages are asserted from `git ls-files -s`'s own output.
   - **`all` mode refuses (exit 2) when git cannot name the index or names it EMPTY**, when an
     in-scope index entry is not a regular blob (a **gitlink** or a link), and when an in-scope path
-    has no stage-0 blob. An empty answer counts as no answer: `git ls-files` prints nothing and exits
-    0 both for an empty index and for a directory that is no repository at all. **A fresh scaffold
+    has no stage-0 blob. An empty answer counts as no answer, and the two states arrive through
+    DIFFERENT branches, measured on git 2.39.5: a directory that is no repository at all **fatals**
+    (exit 128) and is turned into a refusal by the `catch`, while an empty index (and a directory
+    inside a repository with nothing tracked under it) prints nothing and exits 0 and is turned into
+    one by the size check. Both premises are now measured in the test rather than one asserted. **A
+    fresh scaffold
     therefore needs `git init` + a commit before `pnpm phi-scan` means anything**, which is the
     stated cost.
   - **The completeness rule and the union are NOT redundant, which is measured rather than argued.**

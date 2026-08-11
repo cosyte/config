@@ -190,10 +190,22 @@
  * `all` MODE REFUSES WHEN GIT CANNOT NAME THE INDEX, OR NAMES IT EMPTY. Without
  * the index the union cannot run and the sweep is back to being the walk's word
  * alone, which is the state this whole rule exists to end. AN EMPTY ANSWER
- * COUNTS AS NO ANSWER: `git ls-files` prints nothing and exits 0 both for an
- * empty index and for a directory that is not a repository at all, and an empty
- * map would make every tracked path untracked, which is the one state in which
- * the union silently stops existing. A SCAFFOLDED PARSER MUST THEREFORE
+ * COUNTS AS NO ANSWER, and be exact about WHICH states answer that way, because
+ * the two halves arrive through DIFFERENT branches and a reader who merges them
+ * will delete the wrong one. MEASURED ON git 2.39.5:
+ *
+ *   - a directory that is no repository at all FATALS (`fatal: not a git
+ *     repository`, exit 128). It is the `catch` that turns that into `null`, so
+ *     that handler is load-bearing rather than defensive: without it the throw
+ *     escapes and the run takes node's own exit 1, which this contract reserves
+ *     for HITS FOUND;
+ *   - a repository whose index is empty, and a directory INSIDE a repository
+ *     with nothing tracked under it, both print nothing and exit 0. That is
+ *     what the size check is for, and an empty map would make every tracked
+ *     path untracked, which is the one state in which the union silently stops
+ *     existing.
+ *
+ * A SCAFFOLDED PARSER MUST THEREFORE
  * `git init` AND COMMIT BEFORE `pnpm phi-scan` MEANS ANYTHING, which is a
  * one-line cost stated here rather than discovered.
  *
@@ -347,11 +359,18 @@
  * to a file, so the two get one boundary rather than links getting a second,
  * stricter one; `--staged` applies no gitignore exemption, and does not need
  * one, because `git check-ignore` is index-aware and a staged path is therefore
- * never reported ignored; and if a scan ROOT is itself replaced by a link the
- * walk follows it (`existsSync`/`readdirSync` both follow) and scans the target
- * directory, where `--staged` refuses the index entry. Those are different
- * answers to the same tree and neither is blind, which is why this narrows the
- * staged one and leaves the walk alone.
+ * never reported ignored; and if a scan ROOT is itself replaced by an UNTRACKED
+ * link the walk follows it (`existsSync`/`readdirSync` both follow) and scans
+ * the target directory, where `--staged` refuses the index entry. Those are
+ * different answers to the same tree and neither is blind, which is why this
+ * narrows the staged one and leaves the walk alone.
+ *
+ * THE WORD `UNTRACKED` IN THAT LAST CLAUSE IS DOING WORK, AND IT WAS ADDED
+ * AFTER THE UNION MADE THE UNQUALIFIED SENTENCE FALSE. Once the root link is
+ * TRACKED, `all` mode meets it as a mode-120000 INDEX ENTRY and refuses under
+ * the index rule below, so the two routes no longer give different answers
+ * there. The walk itself is still unchanged, which is what the sentence was
+ * about; the run around it got stricter.
  * ===========================================================================
  */
 
@@ -824,10 +843,13 @@ interface IndexEntry {
  * have a record but NO stage-0 record, or `null` when git could not answer.
  *
  * AN EMPTY ANSWER COUNTS AS NO ANSWER. `git ls-files` exits 0 printing nothing
- * both for a repository whose index is empty and for a directory that is not a
- * repository at all, and an empty map would make every file untracked, which is
- * the one state in which the union silently stops existing. `all` mode refuses
- * on `null` rather than sweeping on the walk's word alone.
+ * for a repository whose index is empty, and for a directory INSIDE a
+ * repository with nothing tracked under it; an empty map would make every file
+ * untracked, which is the one state in which the union silently stops existing.
+ * A directory that is NO repository at all is a different branch and does not
+ * arrive here as an empty list at all: it FATALS (exit 128) and the `catch`
+ * below is what turns it into `null`. Both reach the same refusal, and BOTH
+ * ROUTES ARE NEEDED. Measured on git 2.39.5.
  *
  * `-s` carries the MODE, which is the only thing that distinguishes a regular
  * blob from a symbolic link or a gitlink, and the OBJECT ID, which is what makes
@@ -888,11 +910,16 @@ function gitIndexEntries(): { entries: Map<string, IndexEntry>; unmerged: string
 
 /**
  * AXIS 5: the repository's object format as a Node hash name, or `null` when
- * git will not say or says something we do not recognise. `null` disables the
- * union's content deduplication, which scans MORE, never less.
+ * git says something we do not recognise. `null` disables the union's content
+ * deduplication, which scans MORE, never less.
  *
- * A git too old to know `--show-object-format` predates sha256 repositories
- * entirely, so falling back to sha1 there is a derivation, not a guess.
+ * WHEN GIT WILL NOT SAY AT ALL THE ANSWER IS `sha1`, NOT `null`, and the two
+ * cases are stated apart because an auditor asking "can this silently assume
+ * sha1 in a sha256 repository" deserves the right first answer. A git too old
+ * to know `--show-object-format` predates sha256 repositories entirely, so the
+ * fallback is a derivation rather than a guess; an answer we do not recognise
+ * is a git NEWER than this file, and there the honest move is to stop
+ * deduplicating.
  */
 function gitObjectHash(): string | null {
   let answer: string;
@@ -1276,7 +1303,7 @@ function scanTarget(target: Target, allow: AllowList, hits: Hit[]): Buffer {
   //     const d = detect{{TITLE}}Delimiters(text);          // if applicable
   //     for (const record of split{{TITLE}}(text, d)) {
   //       // check name / dob / id / address / phone fields against `allow`
-  //       // hits.push({ path: target.path, segment: "<field>", value, reason });
+  //       // hits.push({ path: locus, segment: "<field>", value, reason });
   //     }
   //
   //   Until this section is implemented, treat a green `pnpm phi-scan` as
