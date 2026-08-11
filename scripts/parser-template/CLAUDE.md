@@ -109,25 +109,35 @@ a summary.
   closed so far cost one pull request and one adversarial review PER REPO. Fixing the engine now
   fixes every consumer through a version bump. **It is a devDependency, never a runtime one**: the
   zero-dep rule governs what ships, and a dev-time gate does not ship.
-- **WHAT STAYS IN THIS FILE IS THE FIVE PER-REPO AXES AND THE FENCED DETECTOR.** The axes are
-  `exitCodes`, `scanRoots` + `excludedPaths`, `isStagedReadable`, gitlinks and EOL normalization, and
-  **which ones the engine REQUIRES is the design**: `exitCodes`, `scanRoots` and `isStagedReadable`
-  have no default, because the siblings genuinely disagree on them and a default would be the porting
-  mistake the gate exists to catch. `excludedPaths`, the `.md` read exemption and the regular-blob
-  modes ARE defaulted, so moving one of those shared boundaries is one change in `cosyte/config` plus
-  a version bump. 🛑 **Never port an exit code in or out.** 🛑 **An exclusion is a LITERAL PATH, never
-  a class**. A sibling measured that a "binary blob" predicate would have dropped two of its own
-  hand-written sources, which embed NUL bytes as HMAC domain separators.
+- **WHAT STAYS IN THIS FILE IS DATA.** The scanner declares roots, subtractions, allow-list
+  conventions, views and the per-standard field VOCABULARY. It runs no process at all: the engine
+  owns walking, reading, enumeration, the union, completeness, reporting, the exit codes, the
+  refusals and the process TAIL (`runPhiScanCli`). **Which parameters the engine REQUIRES is the
+  design**: `exitCodes` and `scanRoots` have no default, because the siblings genuinely disagree and
+  a default would be the porting mistake the gate exists to catch. 🛑 **Never port an exit code in or
+  out.** 🛑 **An exclusion is a LITERAL PATH, never a class**. A sibling measured that a "binary
+  blob" predicate would have dropped two of its own hand-written sources, which embed NUL bytes as
+  HMAC domain separators.
+- **WHEREVER A PARAMETER CAN BE IGNORED, THE ENGINE REFUSES.** Eleven repos derived against the
+  first published engine and **every defect they found made the gate weaker than declared and said
+  nothing**, none produced a false alarm, all produced false confidence. So an unknown allow-list
+  tag, a root that is not the shape it declares, a declared root that yielded nothing read, a
+  declared format that will not parse, and an unreadable allow-list are refusals, not silent skips.
 - **THE SCAN ROOTS ARE THE WHOLE REPOSITORY (`["."]`), AND NARROWING THEM IS A MEASURED DECISION.**
   This template shipped `["test/fixtures", "src"]` and it was measured against a fresh scaffold: **35
   tracked files, ONE in scope**, so a tracked `test/leak.test.ts` carrying a dashed SSN exited 0 on
   the sweep and on the pre-commit route. The engine prunes gitignored directories during descent and
-  skips `.git` by name, so a whole-repository root costs nothing on a fresh tree. **After the
-  widening the sweep reads 23 of those 35**: the remaining twelve are the eleven `.md` files the
-  shared read exemption drops on both sweeping routes, plus the one `EXCLUDED_PATHS` entry. "The
-  whole repository" is the ROOT half of scope, never a claim that every tracked file is read. If you
-  narrow it, **measure what the narrowing STOPS reading** rather than assuming it stops reading
-  nothing.
+  skips `.git` by name, so a whole-repository root costs nothing on a fresh tree.
+  🛑 **THIS AXIS HAS NO SAFE DEFAULT IN EITHER DIRECTION AND BOTH FAILURES ARE MEASURED.** Five repos
+  need the whole repository; **two measured that it makes them exit on their own `package.json`
+  author address**, and both remedies are worse than narrow roots. Five more measured that copying a
+  sibling's narrow roots silently DROPPED tracked files their index union had been reading, 18, 19
+  and 49 files in three of them. "The whole repository" is the ROOT half of scope, never a claim that
+  every tracked file is read: `EXCLUDED_PATHS` and `unreadablePrefixes` still subtract, and both are
+  ANNOUNCED on every run. **NO COUNT OF WHAT A FRESH SCAFFOLD READS IS WRITTEN HERE**: a figure that
+  stood in this bullet was invalidated by the read filter's default changing, and it read as current
+  the whole time. If you narrow the roots, **measure what the narrowing STOPS reading** rather than
+  assuming it stops reading nothing.
 - **THE `--allow-fixture` BYPASS CANNOT REACH A CLEAN RUN, SO EVERY DETECTOR YOU ADD MUST CONSULT
   `ctx.allow`.** A target the run enumerated and never read REFUSES, in every mode, so the flag is
   recorded and then refused. That means a detector that checks nothing leaves a developer with a hit

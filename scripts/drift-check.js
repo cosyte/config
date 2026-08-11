@@ -425,7 +425,8 @@ export function sharedPhiScanSource() {
  * COPY of the engine and leaves the subject scanner untouched, which is also the shape a target
  * repo is graded in.
  */
-const COMPLETENESS_LINE = "const unread = [...enumerated].filter((p) => !read.has(p) && !tolerated.has(p));";
+const COMPLETENESS_LINE =
+  "const unread = [...enumerated].filter((p) => !read.has(p) && !tolerated.has(p));";
 
 /**
  * The phi-scan probe's two controls: the shipped template scanner over the shipped engine must come

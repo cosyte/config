@@ -27,7 +27,7 @@ export interface Hit {
  * The positive declaration that specific identifiers are synthetic, parsed from the allow-list file.
  *
  * EVERY BUCKET ALWAYS EXISTS. Which TAG fills which bucket is `allowListTags`, and a tag no entry
- * names is a REFUSAL rather than a silent drop — the parser used to have a `default: break`, and
+ * names is a REFUSAL rather than a silent drop, the parser used to have a `default: break`, and
  * five repos measured the cost as hits over values their own allow-list already declared synthetic.
  */
 export interface AllowList {
@@ -197,7 +197,7 @@ export type AllowBucket = keyof AllowList;
  * A value rule the engine ships.
  *
  * 🛑 THE KIND SET IS DECLARED AND OPEN, AND SEVERAL REPOS LEGITIMATELY FILL NONE. The premise this
- * work began from — five universal kinds, only the vocabulary differing — was refuted on both axes:
+ * work began from, five universal kinds, only the vocabulary differing, was refuted on both axes:
  * one repo has no address, phone or identifier vocabulary; one declares no field vocabulary at all,
  * correctly, because its corpus is code-system content rather than patient demographics; one has no
  * address; and one has no date-of-birth detector, its date tags being study and acquisition dates
@@ -260,7 +260,7 @@ export interface FieldSpec {
 export interface DetectorSpec {
   id: string;
   /**
-   * `delimited-record` covers HL7 v2, X12 and ASTM — the same shape with different numbers, so one
+   * `delimited-record` covers HL7 v2, X12 and ASTM, the same shape with different numbers, so one
    * parameter serves three repos. `json` REFUSES a target it cannot parse.
    */
   grammar:
@@ -310,7 +310,7 @@ export interface PhiScanConfig {
    * AXIS 2, REQUIRED, AND IT HAS NO SAFE DEFAULT IN EITHER DIRECTION. Five repos need the whole
    * repository; two measured that the whole repository exits on their own manifest's author
    * address, and both remedies are worse than the narrow roots. Five more measured that copying a
-   * sibling's narrow roots silently drops tracked files their index union already read — 18, 19 and
+   * sibling's narrow roots silently drops tracked files their index union already read, 18, 19 and
    * 49 files in three of them. DERIVE it; never port it.
    */
   scanRoots: readonly ScanRootSpec[];
@@ -329,7 +329,7 @@ export interface PhiScanConfig {
   stagedRoots?: readonly string[];
 
   /**
-   * AXIS 2, the subtractive half: paths NO route reads. EXCLUDE A LITERAL PATH, NEVER A CLASS — a
+   * AXIS 2, the subtractive half: paths NO route reads. EXCLUDE A LITERAL PATH, NEVER A CLASS, a
    * "skip binary blobs" predicate was measured dropping two of a repo's hand-written sources, which
    * embed NUL bytes as domain separators.
    *
@@ -359,7 +359,7 @@ export interface PhiScanConfig {
    * Repo-relative prefixes whose bytes are never read, as DATA.
    *
    * `excludedPaths` cannot cover it: it is exact-match, and one repo's six vendored tarball names
-   * carry versions, so a re-pack silently renames one out of the list. Note the polarity — this
+   * carry versions, so a re-pack silently renames one out of the list. Note the polarity, this
    * subtracts a READ, never SCOPE, so a link named under such a prefix is still refused rather than
    * buying a pass on its name.
    *
@@ -436,8 +436,8 @@ export interface PhiScanConfig {
    * What to do when an UNTRACKED walk target vanishes between enumeration and the read.
    *
    * 🛑 THE DEFAULT REFUSES, AND TOLERANCE IS OPT-IN. Tolerating is only defensible with ALL THREE of
-   * its halves — tracked paths never tolerated, ENOENT and nothing else, and a post-sweep re-check
-   * that refuses on a path which came back — and carrying one or two of the three is worse than
+   * its halves, tracked paths never tolerated, ENOENT and nothing else, and a post-sweep re-check
+   * that refuses on a path which came back, and carrying one or two of the three is worse than
    * refusing. The repo that authored the tolerance accepts refusal for itself.
    *
    * @default "refuse"
@@ -480,7 +480,7 @@ export declare function runPhiScan(config: PhiScanConfig): number;
  * `EPIPE`; the same plus an `EPIPE` guard still hung. A hang in a pre-commit hook is worse than a
  * truncated report.
  *
- * `process.exit` discharges four obligations at once — set the status, abandon the write queue,
+ * `process.exit` discharges four obligations at once, set the status, abandon the write queue,
  * swallow `EPIPE`, force termination. The exit code is computed from the findings BEFORE anything is
  * written, so it never depended on delivery. This restores all four explicitly and separately, so
  * the report is delivered in full when the reader drains, and the run still terminates when it does

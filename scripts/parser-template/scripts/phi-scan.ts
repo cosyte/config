@@ -87,7 +87,7 @@ const EXIT_CODES = { clean: 0, hits: 1, refuse: 2 } as const;
  * 🛑 THIS AXIS HAS NO SAFE DEFAULT IN EITHER DIRECTION, AND BOTH FAILURES ARE
  * MEASURED. Five repos need the whole repository. TWO measured that the whole
  * repository makes them exit 1 on their own `package.json` author address, and
- * both remedies are worse than narrow roots — widening the allowed email domain
+ * both remedies are worse than narrow roots, widening the allowed email domain
  * weakens the floor on the commit-blocking route, and excluding the file leaves
  * it with no verdict at all. FIVE more measured that copying a sibling's narrow
  * roots silently DROPPED tracked files their index union had been reading: 18,
@@ -126,12 +126,12 @@ const EXCLUDED_PATHS: ReadonlySet<string> = new Set<string>([
  * uses, decoded, so a wire payload written as a literal is judged as the bytes
  * it stands for rather than as the characters that spell it.
  *
- * STRICTLY ADDITIVE — the raw view is still scanned, so this can only ever add
+ * STRICTLY ADDITIVE, the raw view is still scanned, so this can only ever add
  * a finding. It replaces the hand-written embedded-payload extractors two
  * siblings carried.
  *
  * 🛑 `appliesTo` HAS NO DEFAULT AND MUST NOT GROW CARELESSLY. If THIS repo's
- * wire format is itself source-shaped — JSON is the live example — do NOT add
+ * wire format is itself source-shaped, JSON is the live example, do NOT add
  * its extension here: decoding a wire payload fabricates content the file does
  * not carry. One sibling needs `.json` in this list and another needs it out.
  */
@@ -207,7 +207,7 @@ runPhiScanCli({
   //
   // `isReadable` is deliberately NOT set: the engine's default reads
   // everything. `exemptsMarkdown` is exported if this repo decides to stop
-  // reading its own `.md` on the sweeping routes — but that is the third of
+  // reading its own `.md` on the sweeping routes, but that is the third of
   // this item's three escape classes, `README.md` and `CHANGELOG.md` ship
   // inside the npm tarball, and it is a decision to write down, not to inherit.
 });

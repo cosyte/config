@@ -8,7 +8,7 @@ creates an audit trail.
 
 > **🛑 A `### <path>` HEADING COUNTS ONLY UNDER THE `## Entries` HEADING.** The
 > engine reads this file section-scoped, and a `###` anywhere above `## Entries`
-> — in the Format section below, in a legend, in prose — is **not** an entry. A
+> (in the Format section below, in a legend, in prose) is **not** an entry. A
 > sibling's committed log held five `###` headings above its own `## Entries`
 > section, and an unscoped reading turned all five into honoured bypass paths.
 > Headings inside a fenced code block are skipped too, so the example below
@@ -32,8 +32,8 @@ creates an audit trail.
 > the file.
 >
 > **A CONVENTION IS BETTER THAN A LIST OF LITERALS.** Where the synthetic values
-> live in a reserved space that is itself the provenance marker — the NANP
-> fictional numbers, the SSA never-issued ranges, the RFC-reserved domains —
+> live in a reserved space that is itself the provenance marker (the NANP
+> fictional numbers, the SSA never-issued ranges, the RFC-reserved domains),
 > declare the SPACE once in the scanner's `floor` rather than adding a literal
 > per fixture. Maintaining literals by hand is the thing this gate's shared
 > engine exists to delete.
@@ -50,7 +50,7 @@ creates an audit trail.
 > **This is the STARTER template.** `scripts/phi-scan.ts` declares **no field
 > vocabulary**, so `pnpm phi-scan` finds the cross-cutting SSN/email floor and
 > nothing else. Before you rely on it as a real PHI gate for this standard, fill
-> in the `DETECTORS` table in `scripts/phi-scan.ts` — it is data, not code. If
+> in the `DETECTORS` table in `scripts/phi-scan.ts`, it is data, not code. If
 > this repo genuinely has no PHI-bearing fields to key on, say so in a comment
 > where `DETECTORS` is left empty, so a reader can tell a decision from an
 > omission. The clean line prints the declared-detector count on every run.

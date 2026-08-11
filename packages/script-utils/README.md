@@ -81,27 +81,34 @@ exits 0, which is silent. Those are not symmetric, so the tie goes to running.
 It throws a `TypeError` rather than returning `false` when handed something that is not a non-empty
 string, for the same reason.
 
-## `runPhiScan(config)`
+## `runPhiScanCli(config)`
 
-`@cosyte/script-utils/phi-scan` is the shared machinery of the `@cosyte/*` PHI commit-gate.
+`@cosyte/script-utils/phi-scan` is the `@cosyte/*` PHI commit-gate. **The engine owns the process; a
+consuming repo declares data.**
 
 ```ts
-import { exemptsMarkdown, runPhiScan } from "@cosyte/script-utils/phi-scan";
+import { runPhiScanCli, type DetectorSpec } from "@cosyte/script-utils/phi-scan";
 
-process.exit(
-  runPhiScan({
-    exitCodes: { clean: 0, hits: 1, refuse: 2 },
-    scanRoots: ["."],
-    isStagedReadable: exemptsMarkdown,
-    detect: (ctx) => {
-      // Your standard's field-level detection. Check every PHI-bearing field
-      // against ctx.allow, and raise findings with ctx.hit(...).
+runPhiScanCli({
+  exitCodes: { clean: 0, hits: 1, refuse: 2 },
+  scanRoots: ["."],
+  detectors: [
+    {
+      id: "hl7v2",
+      grammar: { kind: "delimited-record", headerRecordIds: ["MSH"] },
+      appliesTo: { pathSuffixes: [".hl7"], pathPrefixes: ["test/"] },
+      fields: [
+        { record: "PID", field: 5, kind: "name", id: "PID-5" },
+        { record: "PID", field: 7, component: 0, kind: "dob", pattern: /^\d{8}$/, id: "PID-7" },
+        { record: "PID", field: 13, kind: "phone", reservedSpaces: ["nanp-fictional"] },
+      ],
     },
-  }),
-);
+  ],
+});
 ```
 
-It returns an exit code rather than calling `process.exit`, so a test can drive it in process.
+`runPhiScan(config)` is the same scan without the process tail: it **returns** a code and never
+calls `process.exit`, so a test can drive it in process.
 
 ### Why it is a dependency and not a template file
 
@@ -113,40 +120,50 @@ version bump.
 
 ### What it owns
 
-Argument parsing and the three modes (`--staged`, explicit paths, and the `all`-mode sweep); the
-allow-list and the override log; target enumeration; the union of the working-tree walk with the
-bytes git carries, deduplicated **by content** under git's own `blob <len>\0` framing; the
-completeness rule (a target the run enumerated and never read refuses, naming the paths); every
-refusal; and a cross-cutting floor that detects a dashed SSN shape and an email at an undeclared
-domain.
+**All of the process.** Walking, reading, enumeration on all three routes (`--staged`, explicit
+paths, and the `all`-mode sweep); the allow-list and the override log; the union of the working-tree
+walk with the bytes git carries, deduplicated **by content** under git's own `blob <len>\0` framing;
+the completeness rule and its per-root tier; every refusal; the report; the exit codes; and the
+process tail. It also ships the value **rules** (`name`, `dob`, `id`, `address`, `city`,
+`postal-code`, `phone`, `email`) and the **grammars** (`delimited-record`, which covers HL7 v2, X12
+and ASTM; `xml`; `json`).
 
-It does **not** own per-standard field detection: names, DOB, MRN / member id, address, phone.
-Those differ per healthcare standard and are supplied through `detect`.
+A consuming repo declares its roots, its subtractions, its allow-list conventions, its views and its
+field **vocabulary**. It runs none of the above.
 
-### The five per-repo axes
+### The axes
 
 Which ones are required is the design, not an oversight.
 
-| Axis                | Option                            | Required?                                                       |
-| ------------------- | --------------------------------- | --------------------------------------------------------------- |
-| 1 Exit codes        | `exitCodes`                       | **Required.** The siblings disagree; a default would be a port. |
-| 2 Roots             | `scanRoots`                       | **Required.** `["."]` is the whole repository.                  |
-| 2 Roots (subtract)  | `excludedPaths`, `isWalkReadable` | Defaulted. Moving the shared boundary is one change here.       |
-| 3 `--staged` scope  | `isStagedReadable`                | **Required.** It decides what a commit is blocked on.           |
-| 4 Gitlinks          | `regularBlobModes`                | Defaulted to git's two regular-blob modes.                      |
-| 5 EOL normalization | none                              | Machinery. A port must check it, not set it.                    |
+| Axis                | Option                                | Required?                                                         |
+| ------------------- | ------------------------------------- | ----------------------------------------------------------------- |
+| 1 Exit codes        | `exitCodes`                           | **Required.** The siblings disagree; a default would be a port.   |
+| 2 Roots             | `scanRoots`                           | **Required.** No safe default exists in either direction.         |
+| 2 Roots (subtract)  | `excludedPaths`, `unreadablePrefixes` | Defaulted empty, and every entry is announced on every run.       |
+| 2 Roots (read)      | `isReadable`                          | Defaults to reading **everything**.                               |
+| 3 `--staged` scope  | `stagedRoots`                         | Defaults to `scanRoots`; a wider value is refused at config time. |
+| 4 Gitlinks          | `regularBlobModes`                    | Defaulted to git's two regular-blob modes.                        |
+| 5 EOL normalization | none                                  | Machinery. A port must check it, not set it.                      |
 
-A required axis has no default **because** it is the thing a port gets wrong: carrying an exit code
-across a repo boundary is how a caller ends up branching on a meaning that repo never assigned.
-A defaulted axis is the opposite case: every repo wants the same answer, so the answer lives here
-and reaches all of them through a version bump.
+A required axis has no default **because** it is the thing a port gets wrong. `scanRoots` is the
+sharpest case: five repos need the whole repository, two measured that the whole repository makes
+them exit on their own manifest's author address, and five measured that copying a sibling's narrow
+roots silently dropped tracked files their index union had been reading. Derive it; never port it.
+
+### Wherever a parameter can be ignored, the engine refuses
+
+Twelve repos derived against `0.0.2` and **every defect they found made the gate weaker than
+declared and said nothing**, none produced a false alarm, all produced false confidence. So an
+unknown allow-list tag, a root that is not the shape it declares, a declared root that yielded
+nothing read, a declared format that will not parse, a `stagedRoots` entry outside every scan root,
+and an unreadable allow-list or override log are all **refusals**, not silent skips.
 
 ### Two things worth knowing before you adopt
 
 **A detector that consults nothing has no remedy.** The whole-file `--allow-fixture` bypass is
 recorded and then refused, so it cannot reach a clean run. Check every PHI-bearing field against
-`ctx.allow`, or a developer meeting your detector has nowhere to go. The engine's own floor does
-this on both branches.
+`ctx.allow`, or declare a **reserved space** (`nanp-fictional`, `ssa-never-issued`,
+`reserved-domain`) so a whole convention answers at once instead of a literal per fixture.
 
 **`all` mode needs a git index.** It refuses when git cannot name the index or names it empty,
 because without it the sweep is the working-tree walk's word alone. A freshly scaffolded repo has to

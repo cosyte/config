@@ -404,7 +404,7 @@ describe("controls: the suite is exercising the emitted scanner, and it can stil
       // it declares refuses (the root-replaced-by-a-blob defect, which the
       // per-root tier cannot catch because the replacement IS read).
       'if (root.shape === "file") files.push(abs);',
-      'unscannable.push({ path: root.rel, kind: `a ${actual}, where a ${root.shape} is declared` });',
+      "kind: `a ${actual}, where a ${root.shape} is declared`,",
       // `lstat`, never `stat`, on the route that takes a path from argv.
       "const stats = lstatOrNull(abs);",
       // The per-root observation tier, and the announcement of every declared
@@ -576,8 +576,8 @@ describe("--staged refuses a non-regular entry, and keys on the ROOT half of sco
     // AGAIN IN THIS SLICE. The template's read filter now reads EVERYTHING, so
     // nothing it ships drops `src/notes.md` and the two predicates cannot be told
     // apart by a `.md` name any more. The counterfactual below therefore declares
-    // a read subtraction — `unreadablePrefixes`, which is the shape one sibling
-    // needs for six vendored tarballs whose names carry versions — and only then
+    // a read subtraction, `unreadablePrefixes`, which is the shape one sibling
+    // needs for six vendored tarballs whose names carry versions, and only then
     // collapses the predicates.
     //
     // The point is unchanged and is about the SHAPE of the two predicates, not
@@ -646,13 +646,10 @@ describe("--staged refuses a non-regular entry, and keys on the ROOT half of sco
     // the flag's load-bearing half is still pinned and the polarity change is
     // shown to have moved a silent miss to a loud refusal rather than to have
     // made `--no-renames` redundant.
-    const renamesOnOldFilter = weakenedAll(
-      "renames-on-old-filter.ts",
-      [
-        ['"--no-renames",', '"-M",'],
-        ['"--diff-filter=d",', '"--diff-filter=AMT",'],
-      ],
-    );
+    const renamesOnOldFilter = weakenedAll("renames-on-old-filter.ts", [
+      ['"--no-renames",', '"-M",'],
+      ['"--diff-filter=d",', '"--diff-filter=AMT",'],
+    ]);
     expect(scan(renamesOnOldFilter, ["--staged"]).code).toBe(0);
 
     const renamesOn = weakened("renames-on.ts", '"--no-renames",', '"-M",');
@@ -886,7 +883,10 @@ describe("a target enumerated but never read refuses, in every mode", () => {
         'const scanPaths = mode === "paths" ? this.dedupeByRepoPath(seed) : paths;',
         "const scanPaths = paths.length > 0 ? paths : [...allowFixtures];",
       ],
-      ["const unread = [...enumerated].filter((p) => !read.has(p) && !tolerated.has(p));", "const unread = [];"],
+      [
+        "const unread = [...enumerated].filter((p) => !read.has(p) && !tolerated.has(p));",
+        "const unread = [];",
+      ],
       [
         "const unmatched = [...allowed].filter((p) => !enumerated.has(p));",
         "const unmatched = [];",
@@ -966,7 +966,7 @@ describe("a target enumerated but never read refuses, in every mode", () => {
     // allow-list, the override log and an unopenable directory.
     //
     // The catch is BARE rather than an errno allow-list, because a deny-list of
-    // spellings buys exactly one more evasion per round — the shape this
+    // spellings buys exactly one more evasion per round, the shape this
     // template already retired on the attw gate. A crash and a PHI finding must
     // not share a code.
     //
@@ -1385,7 +1385,7 @@ describe("all mode reads the bytes git carries as a UNION with the walk", () => 
 
   it("THE UNION INHERITS THE READ FILTER, so a TRACKED .md is read by BOTH sweeping routes", () => {
     // The union inherits the walk's read filter rather than getting a wider or a
-    // narrower one of its own. ONE BOUNDARY, NOT TWO — and the boundary moved,
+    // narrower one of its own. ONE BOUNDARY, NOT TWO, and the boundary moved,
     // which is what makes this case worth keeping: the filter now reads
     // Markdown, so a tracked `.md` is read by both routes where it used to be
     // read by neither. `README.md` and `CHANGELOG.md` ship inside the npm

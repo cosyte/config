@@ -8,6 +8,156 @@ the **`0.0.x`-until-first-alpha** ladder.
 > Because the generator is disabled, **`[Unreleased]` is promoted to a version heading BY HAND**, in
 > the pull request that adds the changeset. Nothing does it automatically.
 
+## [Unreleased]
+
+### Changed
+
+- **`@cosyte/script-utils/phi-scan` now carries ALL of the PHI-scan PROCESS, parameterised, so a
+  consuming repo's scanner is a DECLARATIVE PARAMETER FILE.** Founder directive, 2026-08-11: "all
+  updates go to script-utils to parameterize the process." Process means walking, reading,
+  enumeration, the union with the bytes git carries, staged-blob handling, completeness and its
+  bookkeeping, reporting, exit codes, refusals, **and the process tail**. None of it remains in a
+  consumer.
+
+  **The design rule, and it comes from a measurement.** Eleven repos derived against `0.0.2` and
+  every defect they found made the gate **weaker than declared and said nothing**: not one produced
+  a false alarm, all produced false confidence. So wherever a parameter can be misdeclared,
+  misparsed, unsupported or ignored, the engine now **refuses** rather than proceeding quietly.
+
+  **This BREAKS the `0.0.2` surface, deliberately and without a compatibility shim.** No repo had
+  adopted, all thirteen were verified unadopted, and an additive surface would have preserved the
+  defects. `isStagedReadable` and `isWalkReadable` are **removed** and throw a `TypeError` naming
+  their replacement, rather than being silently ignored.
+
+- **`isReadable`'s default reads EVERYTHING; the Markdown exemption is now an explicit opt-in.**
+  Under `0.0.2`, `scanRoots: ["README.md"]` returned `OK: no hits` at **exit 0** over a live dashed
+  identifier, because the default read filter exempted Markdown, a PHI gate reporting clean while
+  opening no file, reachable by default. A tracked `.md` was read by **neither** sweeping route,
+  while `README.md` and `CHANGELOG.md` ship inside the npm tarball. Six of thirteen repos measured
+  that they needed the exemption gone. `exemptsMarkdown` is still exported for a repo that declares
+  it deliberately, and a `shape: "file"` root **bypasses the read filter entirely**, which is what
+  makes the defect unreachable by construction rather than by remembering an override.
+
+- **`ScanRootSpec` replaces seven live root spellings with one type:**
+  `string | { rel, shape?, walk?, require? }`. `shape` is **declared and checked**, deriving it let
+  a corpus root replaced by a one-line file go from refusing to clean, and `require` cannot catch
+  that because the replacement _is_ read. `require` (default `true`) refuses a declared root that
+  yielded no file actually read; two repos measured two silent refuse-to-clean losses it catches.
+  `walk: false` keeps a path in scope for the index-keyed rules without enumerating it. **`abs` is
+  not a field** and declaring one throws: in every live `{abs, rel}` pair `abs` was derivable and
+  carried no information.
+
+- **`stagedRoots` replaces the `isStagedReadable` predicate**, so the containment is a comparison of
+  two declared lists at configuration time. A predicate and a root list were two independent keys
+  with nothing relating them, and a staged mode-120000 entry the first admitted and the second did
+  not cover was enumerated, read, had the link's target path handed to a detector as content, and
+  reported clean at exit 0.
+
+- **The clean line carries its denominators, and drops the word `OK` when it cannot earn it.** `OK`
+  is a claim; the numbers are a measurement.
+
+### Added
+
+- **`runPhiScanCli(config)`: the process tail, shipped once.** Three tails were measured over 2,000
+  hits and **all three were wrong**: `process.exit(runPhiScan(...))` delivered 86 of 2,000 hit lines
+  and no summary to a reader that had not drained stderr; `process.exitCode` **hung** against an
+  open, never-drained pipe _and_ turned a clean run into this contract's HITS code through an
+  uncaught `EPIPE`; the same plus an `EPIPE` guard still hung. A hang in a pre-commit hook is worse
+  than a truncated report. `process.exit` discharges four obligations at once, set the status,
+  abandon the write queue, swallow `EPIPE`, force termination, and the exit code is computed from
+  the findings **before** anything is written, so it never depended on delivery. All four are now
+  restored explicitly and separately, with termination bounded by an **unref'd** timer.
+
+- **Declarative detectors.** `detectors: DetectorSpec[]`, a **list**, because recogniser count is
+  per-repo rather than one-per-repo: one repo carries a single synthetic identity in three
+  vocabularies that co-occur inside single files. Each entry is a grammar
+  (`delimited-record`, covering HL7 v2, X12 and ASTM with different numbers; `xml`; `json`), an
+  `appliesTo`, and a table of `{ position, guard?, kind }`.
+
+  **The boundary is drawn explicitly**: positions, conjunctive equality guards over a sibling
+  position, a region bound, and named rules with numeric or pattern parameters. No operators, no
+  arithmetic, no negation, no control flow. Anything beyond that stays a function in the repo's own
+  `detect`, a rule keyed on the cardinality of distinct digits, a policy cutoff on a date, a
+  wall-clock-relative recency window, and a heuristic over component adjacency are all real, all
+  live in shipping scanners, and all become **less** reviewable written as data.
+
+- **The kind set is declared and OPEN, and several repos legitimately fill none.** The premise this
+  work began from, five universal kinds, only the vocabulary differing, was refuted on both axes:
+  one repo has no address, phone or identifier vocabulary; one declares no field vocabulary at all,
+  correctly, because its corpus is code-system content rather than patient demographics; one has no
+  address; and one has **no date-of-birth detector**, its date tags being study and acquisition
+  dates under a wall-clock-relative rule that no token set can hold.
+
+- **Reserved spaces, so a repo declares a CONVENTION instead of literals**: `nanp-fictional`,
+  `ssa-never-issued`, `reserved-domain`, on the floor and on a field rule. Declaring five
+  never-issued SSN literals as `ID` entries is exactly the hand-maintenance this work deletes.
+
+- **A declared allow-list tag namespace, and an unknown tag REFUSES.** The parser had a
+  `default: break`, so `ADDR`, `PHONE` and `EMAIL` were parsed, matched nothing and vanished with no
+  diagnostic, five repos measured the cost as hits over values their own allow-list already
+  declared synthetic. The buckets are now `names`, `dobs`, `ids`, `addresses`, `cities`, `zips`,
+  `phones`, `emails`, `scopedEmails` and `emailDomains`. `EMAIL` also takes a path-scoped two-field
+  form, because widening a whole domain to clear one address is a real subtraction on the
+  commit-blocking route. **`DOB` is stored verbatim and compared verbatim**: one repo declares a
+  deliberately truncated date pinning a partial-timestamp fixture, and any normalising
+  implementation silently drops it.
+
+- **`textViews`**, a `source-literals` view whose escape decoding is shipped here, derived
+  independently by three repos, and it replaces two siblings' hand-written embedded-payload
+  extractors. Strictly additive, and **the floor runs over every view**, which it did not before.
+  `appliesTo` has no default, because a repo whose wire format is itself source-shaped would have
+  its payload decoded, which fabricates content.
+
+- **`ctx.partial({ bytes, reason })`**, a completeness sink against a caller-declared **closed**
+  reason table. It does **not** move the exit code by default: in the one repo that needs it, a halt
+  reason is reachable by a conformant file, so refusing would red-lock legal input and mask a real
+  hit whenever both were present. It always removes the word `OK` from the clean line.
+
+- **`detectorExemptPaths`** (read and accounted for, judged by nothing), it cannot fold into
+  `excludedPaths`, which withdraws before the read; only the second stays inside completeness
+  accounting. **`unreadablePrefixes`** as data, for vendored paths whose names carry versions.
+  **`excludedPaths` declares its routes**, making a previously undeclared fixed policy explicit.
+  **`vanishedUntrackedWalkTarget`**, defaulting to refusal, with tolerance requiring all three of
+  its halves or none.
+
+### Fixed
+
+- **The named-path route followed symlinks.** `existsSync` + `statSync` both dereference, so a link
+  at an in-repo path pointing at a clean file **outside** the repository reported `OK: no hits` at
+  exit 0, vouching for an in-repo path over bytes git does not carry; pointed at a payload, hits
+  were reported under the **link's** path. Now `lstat`, and a link named on argv is refused.
+
+- **`--staged` omitted `--ignore-submodules=none`.** With `diff.ignoreSubmodules=all` in a user's
+  git config, a staged gitlink under a scan root vanished from `--raw` and the **pre-commit gate
+  reported clean**, measured 2 to 0 by two repos, one of which had already closed it by hand. A git
+  config must not be able to move the commit-blocking route.
+
+- **An unreadable path took node's exit 1, this contract's HITS code.** Seven distinct instances
+  across four repos: a directory the walk cannot open, an allow-list at mode 000, an override log at
+  mode 000. All are refusals now. The catch is **bare** rather than an errno allow-list, because a
+  deny-list of spellings buys exactly one more evasion per round.
+
+- **Override-log entries are now section-scoped**: a `### <path>` heading counts only under
+  `## Entries`, and headings inside fenced blocks are skipped. One repo's committed log holds five
+  `###` headings above its own `## Entries` section, and an unscoped reading turns all five into
+  honoured bypass paths.
+
+- **`--staged` diagnosed an unmerged path as "the index holds no file content for such an
+  entry"**, which is true of a link and false here. It now has its own sentence, keyed on the `U`
+  status letter.
+
+- **A declared format that fails to parse REFUSES instead of falling back to the floor alone.** A
+  sibling's shipped scanner does the latter and reports 0 hits at exit 0 over a fragmentary resource
+  carrying a name, a date of birth and a street address.
+
+- **The union's `git cat-file blob` ran at node's default 1 MiB `maxBuffer`, and the locus was
+  computed after the read**, so a large tracked blob refused while naming the bare path. The locus
+  is now computed first, and the bound matches the index listing's.
+
+- **Declared subtractions are announced on every run.** An exclusion nobody sees is an exclusion
+  nobody reviews, and a sibling's superseded scanner announced its exclusions where the engine
+  dropped them silently.
+
 ## [0.0.2] - 2026-08-11
 
 ### Added

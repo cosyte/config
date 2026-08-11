@@ -181,7 +181,7 @@ export function readsEverything(_relPath) {
  * The Markdown read-exemption, kept as an EXPLICIT OPT-IN rather than as the default.
  *
  * A repo declaring this is choosing not to read its own `.md` files on the sweeping routes. That is
- * a real choice with a real cost — it is the third of this item's three escape classes — so it is
+ * a real choice with a real cost, it is the third of this item's three escape classes, so it is
  * spelled out at the call site rather than inherited.
  *
  * @param {string} relPath A repo-relative, forward-slashed path.
@@ -208,7 +208,7 @@ function isPlainObject(v) {
  * supplied. That escapes with a stack, which is loud and lands on the author's very first run.
  *
  * WHAT IT CANNOT CHECK, NAMED RATHER THAN IMPLIED: the CONTENT of a caller's predicate. The one
- * containment that used to matter there — a staged path admitted outside every root — is now a
+ * containment that used to matter there, a staged path admitted outside every root, is now a
  * config-time comparison of two declared lists, because `stagedRoots` replaced `isStagedReadable`.
  *
  * @param {import("./phi-scan.js").PhiScanConfig} config
@@ -422,7 +422,7 @@ function normalizeConfig(config) {
       throw new TypeError(
         "runPhiScan: `excludedPaths` must be a Set of repo-relative paths, or " +
           "{ paths: Set, routes?: string[] }. An array used to survive normalization, reach " +
-          "`.has(...)` inside enumeration, and take node's exit 1 — the code reserved for HITS.",
+          "`.has(...)` inside enumeration, and take node's exit 1, the code reserved for HITS.",
       );
     }
     for (const p of paths) {
@@ -719,8 +719,8 @@ function normalizeFloor(raw) {
  *
  * PER-ROOT OBSERVATION IS A SECOND, INDEPENDENT TIER. A declared root that yields no file actually
  * READ refuses, because the whole-run floor only asks that SOMETHING was observed. Two repos
- * measured two silent exit-2-to-exit-0 losses this catches — a root absent with its files untracked,
- * and a root starved by gitignore — and a third state it CANNOT catch, a directory root replaced by
+ * measured two silent exit-2-to-exit-0 losses this catches, a root absent with its files untracked,
+ * and a root starved by gitignore, and a third state it CANNOT catch, a directory root replaced by
  * a one-line file, which is why `shape` is declared and checked separately.
  * ===========================================================================================
  * `all` MODE READS THE BYTES GIT CARRIES AS A UNION WITH THE WALK.
@@ -756,9 +756,9 @@ export function runPhiScan(config) {
  * 🛑 THIS EXISTS BECAUSE THE OBVIOUS TAIL IS WRONG AND SO IS THE OBVIOUS FIX, and both were
  * measured. A sibling drove 2,000 hits through three tails against two consumer shapes:
  *
- *   - `process.exit(runPhiScan(...))` — today's template — delivered 86 of 2,000 HIT lines and NO
+ *   - `process.exit(runPhiScan(...))`, today's template, delivered 86 of 2,000 HIT lines and NO
  *     summary to a reader that had not drained stderr. The report is truncated by the exit.
- *   - `process.exitCode = runPhiScan(...)` — the naive repair — delivered more, but HUNG against an
+ *   - `process.exitCode = runPhiScan(...)`, the naive repair, delivered more, but HUNG against an
  *     open, never-drained pipe (killed at 8 s), and turned a CLEAN run into this contract's HITS
  *     code through an uncaught `EPIPE` when the stdout reader had gone.
  *   - the same plus an `EPIPE` guard still HUNG.
@@ -766,7 +766,7 @@ export function runPhiScan(config) {
  * A hang in a pre-commit hook is worse than a truncated report, so neither is shippable alone.
  *
  * WHY THE REPORT AND THE EXIT CODE ARE NOT ACTUALLY IN TENSION: `process.exit` discharges FOUR
- * obligations at once — set the status, abandon the write queue, swallow `EPIPE`, and force
+ * obligations at once, set the status, abandon the write queue, swallow `EPIPE`, and force
  * termination. The exit code is computed from the findings BEFORE anything is written, so it never
  * depended on delivery. Obligations 3 and 4 were side effects nobody chose. This function restores
  * all four EXPLICITLY, and separately:
@@ -775,7 +775,7 @@ export function runPhiScan(config) {
  *   2. queue       left to drain naturally, so the report is delivered in full.
  *   3. `EPIPE`     swallowed on both streams, so a vanished reader cannot move the status.
  *   4. terminate   an UNREF'd timer. If the queues drain, the loop empties and node exits on its own
- *                  with the status already set — full delivery, no timer involvement. If a reader
+ *                  with the status already set, full delivery, no timer involvement. If a reader
  *                  holds the pipe open and never drains it, the pending write keeps the loop alive,
  *                  the timer fires, and `process.exit` ends it with the same status. Bounded, never
  *                  hung, and the status is identical on every path.
@@ -981,7 +981,7 @@ class PhiScan {
    * Read a configuration file this gate depends on.
    *
    * EVERY FAILURE HERE IS A REFUSAL, AND THAT IS A FIX RATHER THAN A TIDY-UP. A file that EXISTS but
-   * cannot be READ — a directory at that path, mode 000, an EACCES on a parent — used to make
+   * cannot be READ, a directory at that path, mode 000, an EACCES on a parent, used to make
    * `readFileSync` throw a plain `Error`, which escaped and took node's exit 1, the code this
    * contract reserves for HITS FOUND. Four repos measured seven distinct instances of that shape. A
    * crash and a PHI finding must not share a code, so the catch is BARE: it does not enumerate errno
@@ -1006,7 +1006,7 @@ class PhiScan {
    * The positive declaration that specific identifiers are synthetic.
    *
    * 🛑 AN UNRECOGNISED TAG REFUSES, NAMING THE TAG AND THE LINE. The old parser had a `switch` with
-   * `default: break`, so a declaration the header promised — `ADDR`, `PHONE`, `EMAIL` — was parsed,
+   * `default: break`, so a declaration the header promised, `ADDR`, `PHONE`, `EMAIL`, was parsed,
    * matched nothing and vanished. Five repos measured the cost as hits over values their own
    * allow-list already declared synthetic. A declaration that does nothing is worse than a missing
    * one, because its author believes it took effect.
@@ -1069,8 +1069,8 @@ class PhiScan {
    * Every path the override log records, repo-relative.
    *
    * 🛑 SECTION-SCOPED. A `### <path>` heading counts only under an `## Entries` heading. One
-   * sibling's committed log holds five `###` headings ABOVE its `## Entries` section — a legend,
-   * not entries — and an unscoped reading turns all five into honoured bypass paths. The scoping is
+   * sibling's committed log holds five `###` headings ABOVE its `## Entries` section, a legend,
+   * not entries, and an unscoped reading turns all five into honoured bypass paths. The scoping is
    * a narrowing of what a heading MEANS, not a parser nicety. Fenced blocks are skipped, so a
    * heading quoted inside an example is not an entry either.
    *
@@ -1105,7 +1105,9 @@ class PhiScan {
   validateAllowFixtures(allowFixtures) {
     if (allowFixtures.length === 0) return;
     const overrides = this.loadOverrideLog();
-    const missing = allowFixtures.map((p) => this.normalizePath(p)).filter((p) => !overrides.has(p));
+    const missing = allowFixtures
+      .map((p) => this.normalizePath(p))
+      .filter((p) => !overrides.has(p));
     if (missing.length > 0) {
       const lines = missing.map((p) => `  - ${p}`).join("\n");
       throw new InvocationError(
@@ -1326,7 +1328,10 @@ class PhiScan {
         continue;
       }
       if (actual !== root.shape) {
-        unscannable.push({ path: root.rel, kind: `a ${actual}, where a ${root.shape} is declared` });
+        unscannable.push({
+          path: root.rel,
+          kind: `a ${actual}, where a ${root.shape} is declared`,
+        });
         continue;
       }
       if (!root.walk) continue;
@@ -1347,7 +1352,7 @@ class PhiScan {
           entries = readdirSync(dir, { withFileTypes: true });
         } catch (err) {
           // A directory the walk cannot open is a refusal, never a skip and never a crash. Uncaught,
-          // this took node's exit 1 — the HITS code — for a directory at mode 000.
+          // this took node's exit 1, the HITS code, for a directory at mode 000.
           throw new InvocationError(
             `could not enumerate ${this.normalizePath(dir)}: ` +
               `${err instanceof Error ? err.message : String(err)}. A directory the sweep cannot ` +
@@ -1568,7 +1573,7 @@ class PhiScan {
    *
    * 🛑 `--ignore-submodules=none` IS LOAD-BEARING AND ITS ABSENCE WAS A REGRESSION. With
    * `diff.ignoreSubmodules=all` in a user's git config, a staged gitlink under a scan root vanished
-   * from `--raw` entirely and the PRE-COMMIT GATE REPORTED CLEAN — measured 2 -> 0 by two repos, one
+   * from `--raw` entirely and the PRE-COMMIT GATE REPORTED CLEAN, measured 2 -> 0 by two repos, one
    * of which had already closed it by hand before adopting. The loss is bounded (a refusal, not a
    * scan: a gitlink has no bytes) and `ls-files -s` is unaffected, so `all` mode still refuses; but
    * this is the commit-blocking route, and a git CONFIG must not be able to move it.
@@ -1632,7 +1637,7 @@ class PhiScan {
 
     // THE UNMERGED SENTENCE, SEPARATE FROM THE MODE SENTENCE. An unmerged path lists with
     // destination mode `000000`, so a single non-regular-mode refusal diagnosed it as "the index
-    // holds no file content for such an entry" — true of a link, false here, and it sends a
+    // holds no file content for such an entry", true of a link, false here, and it sends a
     // developer looking for the wrong thing. `U` is the status letter that says so.
     this.refuseUnscannable(
       staged
@@ -1723,9 +1728,9 @@ class PhiScan {
    * The views a target's bytes are judged through.
    *
    * `raw` always exists. A declared `source-literals` view is ADDITIVE: it decodes the string-escape
-   * sequences a TypeScript or JavaScript source uses, so a wire payload written as a literal —
-   * `"...\r"` for a record separator, `\x` and `\u` escapes inside a value — is judged as the bytes
-   * it stands for rather than as the characters that spell it. Three repos derived this
+   * sequences a TypeScript or JavaScript source uses. A wire payload written as a literal (`"...\r"`
+   * for a record separator, `\x` and `\u` escapes inside a value) is then judged as the bytes it
+   * stands for rather than as the characters that spell it. Three repos derived this
    * independently, and it is what replaces two siblings' hand-written embedded-payload extractors.
    *
    * 🛑 IT IS ONLY EVER ADDITIVE, so it can add a finding and can never remove one: the raw view is
@@ -1794,16 +1799,16 @@ class PhiScan {
    * Scan one target and RETURN THE BYTES IT OBSERVED. The bytes are returned rather than a boolean
    * so `all` mode can ask whether the walk already read exactly what the index carries at this path.
    *
-   * THE LOCUS IS COMPUTED BEFORE THE READ. It used to be computed after, so a read that failed —
-   * reachable, because `cat-file` runs under a byte bound — named the BARE path in its refusal while
-   * the bytes it could not read were the ones git carries.
+   * THE LOCUS IS COMPUTED BEFORE THE READ. It used to be computed after, so a read that failed
+   * (reachable, because `cat-file` runs under a byte bound) named the BARE path in its refusal,
+   * while the bytes it could not read were the ones git carries.
    *
    * THE CALLER'S DETECTOR IS HANDED BOTH THE LOCUS AND THE UNDECORATED PATH. Handing only the locus
    * was a measured false negative and a measured false positive in two different repos: an
    * extension-keyed detector stops matching once `(as git carries it)` is appended, so the union
    * half silently lost a whole detector class in one repo and gained a wrong one in another. Six
-   * repos derived this independently, and two of them REFUSED to strip the label caller-side —
-   * correctly, because parsing engine-owned text narrows silently.
+   * repos derived this independently, and two of them REFUSED to strip the label caller-side. That
+   * refusal was right: parsing engine-owned text narrows silently.
    *
    * A DETECTOR THAT THROWS REFUSES THE SCAN rather than escaping to node's own exit code.
    *
@@ -1843,7 +1848,7 @@ class PhiScan {
     const collected = [];
     /** @param {any} h */
     const push = (h) => {
-      const key = `${h.segment} ${h.value} ${h.reason}`;
+      const key = `${h.segment}\u0000${h.value}\u0000${h.reason}`;
       if (seen.has(key)) return;
       seen.add(key);
       collected.push(h);
@@ -1992,7 +1997,9 @@ class PhiScan {
       );
     }
     for (const p of [...this.cfg.detectorExemptPaths].sort()) {
-      process.stderr.write(`[phi-scan] DETECTOR-EXEMPT: ${p} (read and accounted, judged by none)\n`);
+      process.stderr.write(
+        `[phi-scan] DETECTOR-EXEMPT: ${p} (read and accounted, judged by none)\n`,
+      );
     }
     for (const p of this.cfg.unreadablePrefixes) {
       process.stderr.write(`[phi-scan] UNREAD PREFIX: ${p} (in scope, bytes never read)\n`);
@@ -2238,7 +2245,7 @@ class PhiScan {
     // `OK` is a claim; the numbers are a measurement. Thirteen suites parse this string, and given
     // that every defect in this lineage made the gate weaker while saying nothing, a clean line that
     // cannot state what it covered is the wrong default. A run whose detector stopped partway
-    // through an object has not cleared that object, so it does not get to say `OK` — the same
+    // through an object has not cleared that object, so it does not get to say `OK`, the same
     // requirement two repos derived from opposite directions.
     const denominator =
       `${String(read.size)} target(s) read, ${String(enumerated.size)} enumerated, ` +
@@ -2438,8 +2445,28 @@ function decodeSourceLiterals(source, holePattern) {
 
 /** Honorifics, suffixes and credentials that are not name evidence. */
 const DEFAULT_NAME_NOISE = new Set([
-  "MD", "DO", "DR", "MR", "MRS", "MS", "MISS", "JR", "SR", "II", "III", "IV",
-  "RN", "NP", "PA", "PHD", "DDS", "DMD", "ESQ", "PROF", "FNP", "APRN",
+  "MD",
+  "DO",
+  "DR",
+  "MR",
+  "MRS",
+  "MS",
+  "MISS",
+  "JR",
+  "SR",
+  "II",
+  "III",
+  "IV",
+  "RN",
+  "NP",
+  "PA",
+  "PHD",
+  "DDS",
+  "DMD",
+  "ESQ",
+  "PROF",
+  "FNP",
+  "APRN",
 ]);
 
 /**
@@ -2467,11 +2494,11 @@ function nameTokens(value, noise) {
  * The value rules this engine ships, keyed by the `kind` a vocabulary entry declares.
  *
  * 🛑 THE KIND SET IS DECLARED AND OPEN, AND THAT IS A CORRECTION MEASURED ACROSS THE FLEET. The
- * premise this work started from was five universal kinds — names, DOB, MRN, address, phone — with
+ * premise this work started from was five universal kinds, names, DOB, MRN, address, phone, with
  * only the vocabulary differing per standard. It does not survive contact: one repo has no address,
  * phone or identifier vocabulary at all; one declares no field vocabulary of any kind and is right
  * to, because its corpus is code-system content rather than patient demographics; one has no
- * address; and one has no date-of-birth detector at all — its date tags are study and acquisition
+ * address; and one has no date-of-birth detector at all, its date tags are study and acquisition
  * dates governed by a wall-clock-relative rule, so the same bytes get a different verdict next year.
  * So a repo NAMES the kinds it fills, several legitimately fill none, and the engine ships each kind
  * as a rule rather than assuming a fixed five of everyone.
@@ -2481,8 +2508,8 @@ function nameTokens(value, noise) {
 const VALUE_RULES = {
   /**
    * A person name. Tokenised on Unicode letters, noise tokens dropped, each surviving token checked
-   * against the declared bucket. Tokenising is what stops a coded value — an identifier followed by
-   * its display text — being read as a family name.
+   * against the declared bucket. Tokenising is what stops a coded value, an identifier followed by
+   * its display text, being read as a family name.
    */
   name: (value, allow, spec) => {
     const tokens = nameTokens(value, spec.noise ?? DEFAULT_NAME_NOISE);
@@ -2703,7 +2730,7 @@ function normalizeAppliesTo(raw, id) {
 
 /**
  * Grammars whose parse can FAIL, and which therefore refuse rather than yielding nothing. A
- * delimited-record or element sweep cannot fail — it finds records or it does not — while a
+ * delimited-record or element sweep cannot fail, it finds records or it does not, while a
  * structured document parse distinguishes "no records here" from "I could not read this".
  */
 const STRICT_GRAMMARS = new Set(["json"]);
@@ -2712,7 +2739,7 @@ const STRICT_GRAMMARS = new Set(["json"]);
  * The grammars this engine ships. Each turns a target's text into a stream of records, and nothing
  * else: the value rules and the guards are shared across all of them.
  *
- * `delimited-record` covers HL7 v2, X12 and ASTM, which are the same shape with different numbers —
+ * `delimited-record` covers HL7 v2, X12 and ASTM, which are the same shape with different numbers:
  * a header record that DECLARES the delimiters at fixed offsets, records separated by line
  * terminators, fields by one character, components by another. One grammar serves three repos, and
  * that is the property that makes the next escape cost one pull request rather than thirteen.
@@ -2724,7 +2751,7 @@ const GRAMMARS = {
    * @returns {any[]}
    */
   "delimited-record": (text, grammar) => {
-    const stripped = text.replace(/^﻿/, "").replace(/^+/, "");
+    const stripped = text.replace(/^\ufeff/, "").replace(/^\u000b+/, "");
     const headerIds = new Set(grammar.headerRecordIds ?? ["MSH"]);
     const fallback = grammar.fallback ?? { field: "|", component: "^" };
     const idLength = grammar.recordIdLength ?? 3;
@@ -2770,7 +2797,7 @@ const GRAMMARS = {
    * XML by local name, prefix-tolerant and entity-decoded. There is NO document model, on purpose: a
    * span-to-the-next-close regex runs away across a source file that merely MENTIONS an element in a
    * comment, which one sibling measured and then refused to ship. The cost is stated rather than
-   * hidden — mixed content loses the text that sits beside a child element.
+   * hidden, mixed content loses the text that sits beside a child element.
    *
    * @param {string} text
    * @returns {any[]}
@@ -2846,15 +2873,17 @@ const GRAMMARS = {
 
 /** @param {string} s @returns {string} */
 function decodeXmlEntities(s) {
-  return s
-    .replace(/&#x([0-9a-fA-F]+);/g, (_m, h) => safeCodePoint(Number.parseInt(h, 16)))
-    .replace(/&#(\d+);/g, (_m, d) => safeCodePoint(Number.parseInt(d, 10)))
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'")
-    // `&amp;` LAST, so a literal ampersand is not re-read as the start of another reference.
-    .replace(/&amp;/g, "&");
+  return (
+    s
+      .replace(/&#x([0-9a-fA-F]+);/g, (_m, h) => safeCodePoint(Number.parseInt(h, 16)))
+      .replace(/&#(\d+);/g, (_m, d) => safeCodePoint(Number.parseInt(d, 10)))
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&quot;/g, '"')
+      .replace(/&apos;/g, "'")
+      // `&amp;` LAST, so a literal ampersand is not re-read as the start of another reference.
+      .replace(/&amp;/g, "&")
+  );
 }
 
 /** @param {number} code @returns {string} */

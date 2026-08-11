@@ -27,6 +27,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { exemptsMarkdown, runPhiScan } from "@cosyte/script-utils/phi-scan";
 
+/** The engine's own file URL, so a subprocess can import exactly the copy this suite drives. */
+const ENGINE_URL = new URL("../packages/script-utils/phi-scan.js", import.meta.url).href;
+
 /** A synthetic dashed identifier the floor detects, and its undashed rendering. */
 const SSN = "123-45-6789";
 const SSN_DIGITS = "123456789";
@@ -157,8 +160,8 @@ describe("the configuration contract refuses to be inherited by accident", () =>
 
   it("REFUSES the retired `isWalkReadable`, whose DEFAULT also changed under it", () => {
     // Renaming it silently would be worse than dropping it: a repo that had relied on the old
-    // default would keep the old spelling, get the new default, and read more than it declared —
-    // or, had the flip gone the other way, less.
+    // default would keep the old spelling, get the new default, and read more than it declared
+    // (or, had the flip gone the other way, less).
     expect(() =>
       runPhiScan({
         repoRoot: repo,
@@ -190,7 +193,7 @@ describe("the configuration contract refuses to be inherited by accident", () =>
   it("READS a Markdown FILE ROOT, which used to report clean over a live identifier", () => {
     // 🛑 THE HEADLINE DEFECT OF THIS SLICE, PINNED. Under 0.0.2 a `README.md` scan root went through
     // the shared Markdown read exemption, read NOTHING, and returned `OK: no hits` at exit 0 over a
-    // live dashed identifier — a PHI gate reporting clean while opening no file, reachable by
+    // live dashed identifier, a PHI gate reporting clean while opening no file, reachable by
     // default. A declared FILE root now bypasses the read filter entirely, because naming a file as
     // a root is the same explicit act as naming it on the command line.
     write("README.md", `ssn ${SSN}\n`);
@@ -464,7 +467,7 @@ describe("whole-repository scan roots, which is what a fresh scaffold needs", ()
     expect(narrow.out).not.toContain("OK: no hits");
 
     // The old silent-clean shape is still reachable, but only by DECLARING that the root may be
-    // empty — and even then the violator outside the roots is still not read, which is the scope
+    // empty, and even then the violator outside the roots is still not read, which is the scope
     // decision this test is really about.
     const declared = run({
       scanRoots: [{ rel: "test/fixtures", require: false }, "src"],
@@ -620,5 +623,115 @@ describe("whole-repository scan roots, which is what a fresh scaffold needs", ()
     expect(r.out).toContain("EXCLUDED: test/deliberate.test.ts");
     expect(r.out).not.toContain("HIT: test/deliberate.test.ts");
     expect(r.out).toContain("HIT: test/other.test.ts");
+  });
+});
+
+describe("runPhiScanCli: the process tail, which is where the report used to die", () => {
+  // 🛑 THREE TAILS WERE MEASURED AND ALL THREE WERE WRONG, which is why this is shipped rather
+  // than written thirteen times. Over 2,000 hits against two consumer shapes, a sibling measured:
+  //
+  //   `process.exit(runPhiScan(...))`   delivered 86 of 2,000 HIT lines and NO summary to a
+  //                                     reader that had not drained stderr.
+  //   `process.exitCode = ...`          HUNG against an open, never-drained pipe, AND turned a
+  //                                     CLEAN run into this contract's HITS code through an
+  //                                     uncaught `EPIPE` when the stdout reader had gone.
+  //   the same plus an `EPIPE` guard    still HUNG.
+  //
+  // A hang in a pre-commit hook is worse than a truncated report, so neither is shippable alone.
+  // These cases pin all three properties at once, because a fix for any one of them reintroduces
+  // one of the others.
+
+  /** The CLI tail, in a real subprocess: none of this is observable in process. */
+  function cli(
+    args: string[],
+    opts: { drain: boolean; drainGraceMs?: number },
+  ): { code: number | null; err: string; ms: number } {
+    const grace = opts.drainGraceMs ?? 1500;
+    const driver = `
+      const { spawn } = require("node:child_process");
+      const t0 = Date.now();
+      const child = spawn(process.execPath, ["--input-type=module", "-e", process.argv[1]], {
+        cwd: ${JSON.stringify(repo)},
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      let err = "";
+      ${opts.drain ? 'child.stderr.on("data", (c) => { err += String(c); }); child.stdout.resume();' : ""}
+      const kill = setTimeout(() => { child.kill("SIGKILL"); }, 12000);
+      child.on("exit", (code, signal) => {
+        clearTimeout(kill);
+        process.stdout.write(JSON.stringify({ code, signal, err, ms: Date.now() - t0 }));
+      });
+    `;
+    const scanner = `
+      import { runPhiScanCli } from ${JSON.stringify(ENGINE_URL)};
+      runPhiScanCli({
+        exitCodes: { clean: 0, hits: 1, refuse: 2 },
+        scanRoots: ["."],
+        repoRoot: ${JSON.stringify(repo)},
+        argv: ${JSON.stringify(args)},
+        drainGraceMs: ${String(grace)},
+      });
+    `;
+    const r = spawnSync(process.execPath, ["-e", driver, scanner], { encoding: "utf8" });
+    const parsed = JSON.parse(r.stdout) as {
+      code: number | null;
+      signal: string | null;
+      err: string;
+      ms: number;
+    };
+    expect(parsed.signal, "the tail hung and had to be killed").toBeNull();
+    return { code: parsed.code, err: parsed.err, ms: parsed.ms };
+  }
+
+  it("does NOT turn a clean run into the HITS code when the stdout reader has gone", () => {
+    // The `EPIPE` flip, and it is the worst of the three: a repo would read exit 1 as "PHI found
+    // here" on a corpus that is clean. The guard is installed BEFORE the report is written,
+    // because the writes are what raise it.
+    //
+    // WHICH TAIL THIS DISCRIMINATES AGAINST: the naive repair (`process.exitCode` alone), not the
+    // one the template used to ship, `process.exit` gets this case right, by abandoning the write
+    // queue before it can fail. That is the trade this whole function exists to unpick.
+    write("src/a.ts", "nothing to see\n");
+    commitAll();
+    const r = cli([], { drain: false });
+    expect(r.code, r.err).toBe(0);
+  });
+
+  it("TERMINATES against a pipe that is open and never drained, instead of hanging", () => {
+    // The hang. An unref'd timer is what bounds it: when the queues drain the loop empties and
+    // node exits on its own with the status already set, so the timer never participates; when a
+    // reader holds the pipe open and never reads, the pending write keeps the loop alive, the
+    // timer fires, and the process ends with the SAME status.
+    write("src/leak.ts", `const ssn = "${SSN}";\n`);
+    commitAll();
+    const r = cli([], { drain: false, drainGraceMs: 500 });
+    expect(r.code, r.err).toBe(1);
+    // Bounded by the grace, not by the 12-second kill the driver would otherwise apply.
+    expect(r.ms).toBeLessThan(9000);
+  });
+
+  it("delivers the WHOLE report, every hit and the summary, when the reader drains", () => {
+    // 🛑 THIS CASE PINS DELIVERY, AND IT DOES NOT REPRODUCE THE TRUNCATION. Measured here, on this
+    // runner, with this corpus: a `process.exit(runPhiScan(...))` tail delivers all 400 lines too,
+    // so the two tails are indistinguishable by this assertion. The 86-of-2,000 truncation was
+    // measured in a different environment and is NOT reproduced by anything in this repository.
+    //
+    // It is kept anyway, and the reason is worth stating rather than leaving to be inferred: the
+    // property a consumer depends on is that the report ARRIVES, and a future change to the tail
+    // that starts dropping lines reds here. What it must not be read as is evidence that the
+    // truncation is fixed, the two cases above are what discriminate this tail from the two
+    // wrong ones, and each names which.
+    const lines = Array.from({ length: 400 }, (_, i) => {
+      const tail = String(i).padStart(4, "0");
+      return `ssn 123-45-${tail}`;
+    });
+    write("src/many.txt", `${lines.join("\n")}\n`);
+    commitAll();
+
+    const r = cli([], { drain: true });
+    expect(r.code).toBe(1);
+    const delivered = r.err.split("\n").filter((l) => l.includes("segment=(ssn)")).length;
+    expect(delivered).toBe(400);
+    expect(r.err).toContain("400 hit(s) across 1 file(s)");
   });
 });
