@@ -122,11 +122,7 @@ function normalizeConfig(config) {
       );
     }
   }
-  if (
-    codes.clean === codes.hits ||
-    codes.clean === codes.refuse ||
-    codes.hits === codes.refuse
-  ) {
+  if (codes.clean === codes.hits || codes.clean === codes.refuse || codes.hits === codes.refuse) {
     throw new TypeError(
       "runPhiScan: exitCodes.clean, .hits and .refuse must be three DIFFERENT numbers. A caller " +
         "has to be able to tell `this corpus contains something that looks like PHI` from `this " +
@@ -138,7 +134,7 @@ function normalizeConfig(config) {
   const rawRoots = config.scanRoots;
   if (!Array.isArray(rawRoots) || rawRoots.length === 0) {
     throw new TypeError(
-      "runPhiScan: `scanRoots` is REQUIRED and must name at least one root. Use `[\".\"]` for the " +
+      'runPhiScan: `scanRoots` is REQUIRED and must name at least one root. Use `["."]` for the ' +
         "whole repository.",
     );
   }
@@ -168,8 +164,7 @@ function normalizeConfig(config) {
     isWalkReadable: config.isWalkReadable ?? exemptsMarkdown,
     isStagedReadable: config.isStagedReadable,
     regularBlobModes: config.regularBlobModes ?? DEFAULT_REGULAR_BLOB_MODES,
-    allowListPath:
-      config.allowListPath ?? join(repoRoot, "scripts", "phi-allow-list.txt"),
+    allowListPath: config.allowListPath ?? join(repoRoot, "scripts", "phi-allow-list.txt"),
     overrideLogPath: config.overrideLogPath ?? join(repoRoot, "phi-scan-overrides.md"),
     detect: config.detect,
   };
@@ -300,9 +295,7 @@ class PhiScan {
    */
   isUnderScanRoot(relPath) {
     if (this.wholeRepo) return true;
-    return this.cfg.scanRoots.some(
-      (root) => relPath === root || relPath.startsWith(`${root}/`),
-    );
+    return this.cfg.scanRoots.some((root) => relPath === root || relPath.startsWith(`${root}/`));
   }
 
   // -------------------------------------------------------------------------
@@ -366,9 +359,10 @@ class PhiScan {
     // positional path was given: with one present the bypass was a silent no-op and the named file
     // was never ADMITTED to the run rather than withdrawn from it. Unioning admits it in every case,
     // so the withdrawal below is always a withdrawal of something enumerated and is therefore always
-    // caught by the completeness rule.
-    const scanPaths =
-      mode === "paths" ? this.dedupeByRepoPath([...paths, ...allowFixtures]) : paths;
+    // caught by the completeness rule. Dedupe is by repo-relative path, so a file named both as a
+    // positional and as a bypass is one target, not two.
+    const seed = [...paths, ...allowFixtures];
+    const scanPaths = mode === "paths" ? this.dedupeByRepoPath(seed) : paths;
 
     return { mode, paths: scanPaths, allowFixtures };
   }
