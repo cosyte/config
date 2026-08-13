@@ -1,6 +1,6 @@
 {
   "name": "@cosyte/process",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "The shared per-repo process scripts for @cosyte/* repos: one `cosyte-process` bin behind build, test, lint, typecheck, format and check.",
   "keywords": [
     "cli",
