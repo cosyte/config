@@ -1,10 +1,10 @@
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { PassThrough } from "node:stream";
+import { PassThrough, Writable } from "node:stream";
 
 import { afterAll, describe, expect, it } from "vitest";
 
-import { cleanupTempDirs, makeTempDir, useFixture } from "./helpers.js";
+import { cleanupTempDirs, makeTempDir, PKG_ROOT, useFixture } from "./helpers.js";
 import { checkWiring } from "../src/check.js";
 import { OVERRIDE_FILE } from "../src/overrides.js";
 import { resolveToolBin } from "../src/resolve.js";
@@ -268,6 +268,60 @@ describe("exit codes come from the tool, verbatim", () => {
     const { spawnTool } = recorder(expected);
     const { code } = await runIn(["build"], dir, { spawnTool });
     expect(code).toBe(expected);
+  });
+});
+
+describe("term 10: the version line", () => {
+  /** Read from the manifest, not from the module under test, so a wrong answer cannot agree. */
+  const OWN_VERSION = (
+    JSON.parse(readFileSync(join(PKG_ROOT, "package.json"), "utf8")) as { version: string }
+  ).version;
+  const VERSION_LINE = `cosyte-process ${OWN_VERSION}\n`;
+
+  it("names a real semver version, never a placeholder", () => {
+    expect(OWN_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
+  });
+
+  it.each(DELEGATED_VERBS)("%s writes exactly one such line to stderr", async (verb) => {
+    const dir = useFixture("wired");
+    const { calls, spawnTool } = recorder();
+    const { code, stderr } = await runIn([verb], dir, { spawnTool });
+    expect(code).toBe(0);
+    expect(calls).toHaveLength(1);
+    expect(stderr).toBe(VERSION_LINE);
+  });
+
+  it("writes it BEFORE the tool is spawned", async () => {
+    const dir = useFixture("wired");
+    let written = "";
+    let seenAtSpawn: string | undefined;
+    const stderr = new Writable({
+      write(chunk: Buffer, _encoding, callback) {
+        written += chunk.toString("utf8");
+        callback();
+      },
+    });
+    const spawnTool: SpawnTool = () => {
+      seenAtSpawn = written;
+      return Promise.resolve(0);
+    };
+    await run(["build"], { cwd: dir, stderr, spawnTool });
+    expect(seenAtSpawn).toBe(VERSION_LINE);
+  });
+
+  it("check prints none of it", async () => {
+    const { code, stderr } = await runIn(["check"], useFixture("wired"));
+    expect(code).toBe(0);
+    expect(stderr).toBe("");
+  });
+
+  it("prints none when the invocation never reaches a tool", async () => {
+    const dir = useFixture("wired");
+    writeFileSync(join(dir, OVERRIDE_FILE), "{ not json");
+    const { calls, spawnTool } = recorder();
+    const { stderr } = await runIn(["build"], dir, { spawnTool });
+    expect(calls).toHaveLength(0);
+    expect(stderr).not.toContain(VERSION_LINE);
   });
 });
 
