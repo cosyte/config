@@ -8,7 +8,7 @@ the **`0.0.x`-until-first-alpha** ladder.
 > Because the generator is disabled, **`[Unreleased]` is promoted to a version heading BY HAND**, in
 > the pull request that adds the changeset. Nothing does it automatically.
 
-## [Unreleased]
+## [0.0.2] - 2026-08-13
 
 ### Added
 
