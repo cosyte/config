@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { constants } from "node:os";
 import { join } from "node:path";
 
@@ -53,6 +53,32 @@ export interface RunOptions {
 
 /** Exit code for every failure `cosyte-process` itself detects, as opposed to a tool's own. @internal */
 const SELF_ERROR = 1;
+
+/**
+ * This package's own manifest. `src/` and the built `dist/` are both one level below it, so the same
+ * relative path answers whether the code is running from source (tests) or from the tarball.
+ *
+ * @internal
+ */
+const OWN_MANIFEST = join(import.meta.dirname, "..", "package.json");
+
+/** The only field of our own manifest this module reads. @internal */
+interface OwnManifest {
+  version: string;
+}
+
+/**
+ * This package's own version, read from its manifest at run time (term 10).
+ *
+ * Read rather than inlined, because the line exists to say which `@cosyte/process` a consumer is
+ * actually running: a literal would survive the next version bump and lie about it.
+ *
+ * @returns The `version` field of `@cosyte/process`'s package.json.
+ * @internal
+ */
+function ownVersion(): string {
+  return (JSON.parse(readFileSync(OWN_MANIFEST, "utf8")) as OwnManifest).version;
+}
 
 /**
  * The supported verbs and modifiers, as `cosyte-process` prints them on a usage error.
@@ -202,5 +228,8 @@ export async function run(argv: readonly string[], options: RunOptions = {}): Pr
   }
 
   const [, ...args] = toArgv(invocation);
+  // Term 10: one line naming this package's version, written before the tool is spawned so it
+  // precedes the tool's own output. The five delegated verbs only; `check` prints nothing.
+  stderr.write(`cosyte-process ${ownVersion()}\n`);
   return spawnTool(bin, args, cwd);
 }

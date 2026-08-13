@@ -8,6 +8,16 @@ the **`0.0.x`-until-first-alpha** ladder.
 > Because the generator is disabled, **`[Unreleased]` is promoted to a version heading BY HAND**, in
 > the pull request that adds the changeset. Nothing does it automatically.
 
+## [Unreleased]
+
+### Added
+
+- **A version line on the delegated verbs.** `build`, `test`, `lint`, `typecheck` and `format` print
+  the single line `cosyte-process <version>` to stderr before the tool is spawned, so it precedes the
+  tool's own output and names the `@cosyte/process` that produced the run. The version is read from
+  this package's own manifest at run time rather than baked in, so it follows every bump. `check`
+  prints no such line and stdout is untouched.
+
 ## [0.0.1] - 2026-08-13
 
 ### Added

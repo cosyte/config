@@ -3,7 +3,14 @@ import { join } from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { cleanupTempDirs, ensureBuilt, makeTempDir, runCli, useFixture } from "./helpers.js";
+import {
+  cleanupTempDirs,
+  ensureBuilt,
+  makeTempDir,
+  PKG_ROOT,
+  runCli,
+  useFixture,
+} from "./helpers.js";
 import { OVERRIDE_FILE } from "../src/overrides.js";
 import { DELEGATED_VERBS, VERBS } from "../src/verbs.js";
 
@@ -21,8 +28,19 @@ import { DELEGATED_VERBS, VERBS } from "../src/verbs.js";
 beforeAll(ensureBuilt);
 afterAll(cleanupTempDirs);
 
-/** A version line would look like this; term 10 says the FIRST published version prints none. */
-const VERSION_LINE = /^cosyte-process \d+\.\d+\.\d+$/m;
+/** Any version line at all; term 10 says `check` prints none and stdout never carries one. */
+const ANY_VERSION_LINE = /^cosyte-process \d+\.\d+\.\d+$/m;
+
+/**
+ * The version this package's own manifest declares, read here rather than imported from the source
+ * under test, so the assertion cannot agree with a wrong answer.
+ */
+const OWN_VERSION = (
+  JSON.parse(readFileSync(join(PKG_ROOT, "package.json"), "utf8")) as { version: string }
+).version;
+
+/** Exactly the line term 10 requires of the successor version, newline terminated. */
+const VERSION_LINE = `cosyte-process ${OWN_VERSION}\n`;
 
 describe("the five delegated verbs in a wired consumer with no override file", () => {
   it.each(DELEGATED_VERBS)("%s exits 0", (verb) => {
@@ -43,13 +61,23 @@ describe("the five delegated verbs in a wired consumer with no override file", (
     expect(readFileSync(join(dir, "src", "messy.ts"), "utf8")).toBe("export const messy = 1;\n");
   });
 
-  it("prints no version line before the tool's output (term 10, first version)", () => {
+  it("prints the version line before the tool's output (term 10, successor version)", () => {
     const dir = useFixture("wired");
     for (const verb of DELEGATED_VERBS) {
       const result = runCli([verb], dir);
-      expect(result.stderr).not.toMatch(VERSION_LINE);
-      expect(result.stdout).not.toMatch(VERSION_LINE);
+      // First bytes on stderr, so it precedes whatever the tool itself writes there.
+      expect(result.stderr.startsWith(VERSION_LINE), `${verb}: ${result.stderr}`).toBe(true);
+      // Exactly one, and never on stdout, where it would corrupt a tool's own output.
+      expect(result.stderr.split(VERSION_LINE)).toHaveLength(2);
+      expect(result.stdout).not.toMatch(ANY_VERSION_LINE);
     }
+  });
+
+  it("check prints no version line at all (term 10: the delegated verbs only)", () => {
+    const result = runCli(["check"], useFixture("wired"));
+    expect(result.code).toBe(0);
+    expect(result.stderr).not.toMatch(ANY_VERSION_LINE);
+    expect(result.stdout).not.toMatch(ANY_VERSION_LINE);
   });
 });
 
@@ -135,9 +163,20 @@ describe("a tool that fails", () => {
     expect(`${result.stdout}${result.stderr}`).toContain("fails on purpose");
   });
 
-  it("adds nothing of its own to a tool's failure", () => {
+  it("adds nothing of its own to a tool's failure beyond the term-10 version line", () => {
     const result = runCli(["test"], useFixture("failing-test"));
+    // The version line is ours and is expected on every delegated verb, failing or not; a
+    // `cosyte-process:` diagnostic is not, and a tool's failure is still reported by the tool.
+    expect(result.stderr.startsWith(VERSION_LINE)).toBe(true);
     expect(result.stderr).not.toContain("cosyte-process:");
+  });
+
+  it("puts the version line ahead of the tool's own stderr output", () => {
+    const result = runCli(["lint"], useFixture("broken-eslint"));
+    expect(result.code).toBe(2);
+    expect(result.stderr.startsWith(VERSION_LINE)).toBe(true);
+    // eslint's own message is on stderr too, and it comes after ours.
+    expect(result.stderr.indexOf("deliberately broken")).toBeGreaterThan(VERSION_LINE.length - 1);
   });
 });
 
