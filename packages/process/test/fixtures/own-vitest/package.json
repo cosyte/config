@@ -1,0 +1,17 @@
+{
+  "name": "own-vitest-fixture",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "cosyte-process build",
+    "test": "cosyte-process test",
+    "lint": "cosyte-process lint",
+    "typecheck": "cosyte-process typecheck",
+    "format": "cosyte-process format",
+    "test:coverage": "cosyte-process test --coverage"
+  },
+  "devDependencies": {
+    "vitest": "0.0.0-rewritten-by-useFixtureWithOwnVitest"
+  }
+}
