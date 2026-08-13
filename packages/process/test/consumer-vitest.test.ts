@@ -33,6 +33,20 @@ import { resolveToolBin } from "../src/resolve.js";
 beforeAll(ensureBuilt);
 afterAll(cleanupTempDirs);
 
+/**
+ * Vitest colours its own output when it thinks it has a terminal, and CI is one of the places it
+ * thinks so, which splits phrases like "Coverage enabled with v8" across escape sequences. The
+ * assertions below are about words, not about styling, so the styling comes off first.
+ *
+ * The escape byte is built rather than written, so the pattern carries no control character.
+ */
+const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
+
+/** The same text with any colour escapes removed. */
+function plain(text: string): string {
+  return text.replace(ANSI, "");
+}
+
 /** The environment with the consumer's own `node_modules/.bin` ahead of everything else on PATH. */
 function pathFirst(fixture: OwnVitestFixture): Record<string, string> {
   const env: Record<string, string> = {};
@@ -44,6 +58,16 @@ function pathFirst(fixture: OwnVitestFixture): Record<string, string> {
   env["PATH"] = `${dirname(fixture.consumerBin)}${delimiter}${env["PATH"] ?? ""}`;
   return env;
 }
+
+describe("reading the spawned runner's output", () => {
+  it("sees through the colouring vitest applies on a CI runner", () => {
+    // The exact shape a GitHub Actions runner produced for this suite before `plain` existed.
+    const escape = String.fromCharCode(27);
+    const coloured = `${escape}[2mCoverage enabled with ${escape}[33mv8${escape}[39m`;
+    expect(coloured).not.toContain("Coverage enabled with v8");
+    expect(plain(coloured)).toBe("Coverage enabled with v8");
+  });
+});
 
 describe("a consumer that declares its own vitest on the same major line", () => {
   it("is set up as term 5's Amendment 1 describes: same major, different patch, no coverage provider", () => {
@@ -81,13 +105,13 @@ describe("a consumer that declares its own vitest on the same major line", () =>
     });
     expect(bare.error).toBeUndefined();
     expect(bare.status).toBe(DECOY_VITEST_EXIT);
-    expect(`${bare.stdout}${bare.stderr}`).toContain(DECOY_VITEST_MARKER);
+    expect(plain(`${bare.stdout}${bare.stderr}`)).toContain(DECOY_VITEST_MARKER);
   });
 
   it("runs THIS package's vitest and resolves @vitest/coverage-v8 from THIS package's tree", () => {
     const fixture = useFixtureWithOwnVitest();
     const result = runCli(["test", "--coverage"], fixture.dir);
-    const output = `${result.stdout}${result.stderr}`;
+    const output = plain(`${result.stdout}${result.stderr}`);
 
     expect(result.code, output).toBe(0);
     // (a) the provider's vitest ran: its banner carries the provider's version, and the decoy - the
@@ -110,7 +134,7 @@ describe("a consumer that declares its own vitest on the same major line", () =>
     const result = runCli(["test", "--coverage"], fixture.dir, {
       PATH: pathFirst(fixture)["PATH"] ?? "",
     });
-    const output = `${result.stdout}${result.stderr}`;
+    const output = plain(`${result.stdout}${result.stderr}`);
 
     // Same PATH the control above proved reaches the decoy, and the decoy still never runs.
     expect(result.code, output).toBe(0);
