@@ -1,0 +1,166 @@
+# @cosyte/process
+
+The shared per-repo process scripts for the `@cosyte/*` repos, behind one bin.
+
+Every parser repo hand-maintains the same five `package.json` scripts, plus a handful of variants,
+plus the tool versions behind them. `@cosyte/process` is the single source of truth for all of it: a
+consumer's script body becomes `cosyte-process <verb>` and never changes again, and a shared change
+to what a verb does, or to which version of a tool runs it, arrives as a version bump of this package
+and `pnpm install`.
+
+## Install
+
+```sh
+pnpm add -D @cosyte/process
+```
+
+Nothing else. The tools the verbs run (tsup, vitest and its `@vitest/coverage-v8` provider, eslint,
+prettier, typescript) are dependencies of this package and resolve from it. A wired consumer declares
+**no direct devDependency** on any of them.
+
+## Wire the consumer
+
+Five scripts, each body exactly the delegation:
+
+```json
+{
+  "scripts": {
+    "build": "cosyte-process build",
+    "test": "cosyte-process test",
+    "lint": "cosyte-process lint",
+    "typecheck": "cosyte-process typecheck",
+    "format": "cosyte-process format"
+  }
+}
+```
+
+Four **reserved variant** script names exist. Carry any subset of them, including none; each one you
+do carry has exactly this body:
+
+```json
+{
+  "scripts": {
+    "test:watch": "cosyte-process test --watch",
+    "test:coverage": "cosyte-process test --coverage",
+    "lint:fix": "cosyte-process lint --fix",
+    "format:check": "cosyte-process format --check"
+  }
+}
+```
+
+Script bodies are never edited per repo. If a repo needs something different, that is what the
+override file below is for.
+
+## What each verb runs
+
+Absent an override, each verb executes exactly this in the invoking repo's working directory, and
+exits with the tool's own exit code:
+
+| verb        | invocation                                                                                               |
+| ----------- | -------------------------------------------------------------------------------------------------------- |
+| `build`     | `tsup`                                                                                                   |
+| `test`      | `vitest run`                                                                                             |
+| `lint`      | `eslint --max-warnings=0 --no-error-on-unmatched-pattern "src/**/*.ts" "scripts/**/*.ts" "test/**/*.ts"` |
+| `typecheck` | `tsc --noEmit`                                                                                           |
+| `format`    | `prettier --write "src/**/*.{ts,md}" "test/**/*.ts" "scripts/**/*.{ts,mjs}" "*.{json,md,yml}"`           |
+| `check`     | nothing: it verifies this repo's own wiring (see below)                                                  |
+
+Your tool config files stay yours. `tsup.config.ts`, `eslint.config.js`, `vitest.config.ts`,
+`tsconfig.json` and the `prettier` field in your `package.json` live in your repo and are what these
+invocations pick up. What this package owns is which tool runs, at which version, with which
+arguments.
+
+### The token partition
+
+Every invocation splits into four parts, and the split is what the modifiers and the override file
+are defined against:
+
+| verb        | tool       | core tokens | flag tokens                                          | glob tokens        |
+| ----------- | ---------- | ----------- | ---------------------------------------------------- | ------------------ |
+| `build`     | `tsup`     |             |                                                      |                    |
+| `test`      | `vitest`   | `run`       |                                                      |                    |
+| `lint`      | `eslint`   |             | `--max-warnings=0` `--no-error-on-unmatched-pattern` | the three patterns |
+| `typecheck` | `tsc`      | `--noEmit`  |                                                      |                    |
+| `format`    | `prettier` | `--write`   |                                                      | the four patterns  |
+
+An invocation is always emitted in that order: **tool, core, flags, globs.** Core tokens are the
+mode-selecting ones, and they survive everything.
+
+## Modifiers
+
+Exactly four exist, at most one per invocation:
+
+| invocation                       | effect                                           |
+| -------------------------------- | ------------------------------------------------ |
+| `cosyte-process test --watch`    | replaces the core token `run` with `watch`       |
+| `cosyte-process test --coverage` | appends `--coverage` after the flag tokens       |
+| `cosyte-process lint --fix`      | appends `--fix` after the flag tokens            |
+| `cosyte-process format --check`  | replaces the core token `--write` with `--check` |
+
+A modifier composes over the **effective** invocation: the baseline as your override file has already
+adjusted it. With a `globs` override on `lint`, `lint --fix` fixes your globs, not the baseline ones.
+
+## Overrides
+
+Repo-specific deviation lives in one file, `cosyte-process.config.json`, at the repo root:
+
+```json
+{
+  "lint": { "globs": ["src/**/*.ts", "bin/**/*.ts"] },
+  "test": { "flags": ["--reporter=dot"] }
+}
+```
+
+The rules, in full:
+
+- Top-level keys are verb names, among `build`, `test`, `lint`, `typecheck`, `format`. `check` is
+  never overridable.
+- Each value is an object with optional `globs` and optional `flags`, each an array of strings.
+- `globs` replaces that verb's baseline glob tokens; `flags` replaces its baseline flag tokens. An
+  absent key keeps the baseline tokens.
+- The tool name and the core tokens are never added, removed, replaced or reordered. A `test` flags
+  override of `["--coverage"]` yields `vitest run --coverage`, never `vitest --coverage`.
+- No other keys at either level.
+
+Any violation makes **every** verb exit non-zero, naming the file and the first violation, rather
+than silently running something else.
+
+One common reason to reach for this: the baseline `format` globs name `src/`, `test/`, `scripts/` and
+the repo root. `prettier` fails on a pattern that matches nothing, so a repo with no `scripts/`
+directory overrides `format`'s `globs` rather than creating an empty directory. (`lint` carries
+`--no-error-on-unmatched-pattern` and needs no such care.)
+
+## `cosyte-process check`
+
+Run it in CI. It exits 0 when this repo's process wiring conforms:
+
+- the five verb scripts are present and delegate exactly as above,
+- every reserved variant script that is present delegates exactly as above (absent ones are fine),
+- `cosyte-process.config.json` is absent or valid.
+
+Otherwise it exits non-zero and names each violation. That scope, the five scripts, any present
+reserved variants, and the override file, is exactly what "process wiring" means here; nothing else
+in your `package.json` is graded.
+
+```json
+{
+  "scripts": {
+    "check:process": "cosyte-process check"
+  }
+}
+```
+
+## Compatibility
+
+Node `>=22.0.0` and pnpm `10.0.0` are the floor, which is what the consumer repos declare. The
+package is tested against exactly that floor, installed from a packed tarball into a fixture outside
+this workspace.
+
+## Updating
+
+A shared-process change reaches a wired consumer as a dependency version bump plus `pnpm install`.
+There is no other consumer-side edit for the five verbs: not to a script body, not to a tool version,
+not to a config file. If a change to this package would require one, that is a bug in the change.
+
+Part of [cosyte/config](https://github.com/cosyte/config), one enforced toolchain for the `@cosyte/*`
+suite.

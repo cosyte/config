@@ -1,0 +1,7 @@
+dist
+coverage
+# The fixture consumers are INPUT to the real tools, not source. One of them is deliberately
+# unformatted: it is how `format` and `format --check` are proven to do anything at all, and
+# formatting it here would delete the evidence. Another carries a missing semicolon that `lint --fix`
+# is expected to add. The root .prettierignore carries the same exemption for `pnpm format` there.
+test/fixtures
