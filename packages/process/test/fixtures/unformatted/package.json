@@ -1,0 +1,14 @@
+{
+  "name": "unformatted-fixture",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "cosyte-process build",
+    "test": "cosyte-process test",
+    "lint": "cosyte-process lint",
+    "typecheck": "cosyte-process typecheck",
+    "format": "cosyte-process format",
+    "format:check": "cosyte-process format --check"
+  }
+}

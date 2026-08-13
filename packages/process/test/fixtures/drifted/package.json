@@ -1,0 +1,15 @@
+{
+  "name": "drifted-fixture",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "cosyte-process build",
+    "test": "vitest run",
+    "lint": "cosyte-process lint --max-warnings=0",
+    "typecheck": "cosyte-process typecheck",
+    "format": "cosyte-process format",
+    "test:coverage": "vitest run --coverage",
+    "lint:fix": "cosyte-process lint --fix"
+  }
+}

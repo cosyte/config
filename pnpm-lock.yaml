@@ -72,6 +72,43 @@ importers:
 
   packages/prettier-config: {}
 
+  packages/process:
+    dependencies:
+      '@vitest/coverage-v8':
+        specifier: 4.1.4
+        version: 4.1.4(vitest@4.1.4)
+      eslint:
+        specifier: 10.5.0
+        version: 10.5.0
+      prettier:
+        specifier: 3.8.3
+        version: 3.8.3
+      tsup:
+        specifier: 8.5.1
+        version: 8.5.1(postcss@8.5.15)(typescript@5.9.3)
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 4.1.4
+        version: 4.1.4(@types/node@22.20.0)(@vitest/coverage-v8@4.1.4)(vite@8.1.0(@types/node@22.20.0)(esbuild@0.28.1))
+    devDependencies:
+      '@cosyte/eslint-config':
+        specifier: workspace:^
+        version: link:../eslint-config
+      '@cosyte/prettier-config':
+        specifier: workspace:^
+        version: link:../prettier-config
+      '@cosyte/tsconfig':
+        specifier: workspace:^
+        version: link:../tsconfig
+      '@cosyte/tsup-config':
+        specifier: workspace:^
+        version: link:../tsup-config
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.20.0
+
   packages/script-utils: {}
 
   packages/test-utils:

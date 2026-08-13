@@ -10,3 +10,7 @@ pnpm-lock.yaml
 scripts/parser-template
 # PERF-P0 calibration datasets: machine-written evidence, formatted by the experiment not by us.
 experiments/perf-calibration/data
+# @cosyte/process fixture consumers: input to the real tools, not source. One of them is
+# DELIBERATELY unformatted (it is how `format` and `format --check` are proven to do anything at
+# all), so formatting them here would delete the evidence.
+packages/process/test/fixtures

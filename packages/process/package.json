@@ -1,0 +1,79 @@
+{
+  "name": "@cosyte/process",
+  "version": "0.0.0",
+  "description": "The shared per-repo process scripts for @cosyte/* repos: one `cosyte-process` bin behind build, test, lint, typecheck, format and check.",
+  "keywords": [
+    "cli",
+    "scripts",
+    "toolchain",
+    "monorepo",
+    "delegation",
+    "cosyte"
+  ],
+  "homepage": "https://github.com/cosyte/config/tree/main/packages/process#readme",
+  "bugs": {
+    "url": "https://github.com/cosyte/config/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cosyte/config.git",
+    "directory": "packages/process"
+  },
+  "license": "MIT",
+  "author": "Cosyte <hello@cosyte.com> (https://cosyte.com)",
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "packageManager": "pnpm@10.0.0",
+  "main": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "cosyte-process": "./dist/cli.mjs"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "prettier": "@cosyte/prettier-config",
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\" --max-warnings=0",
+    "lint:fix": "eslint \"src/**/*.ts\" \"test/**/*.ts\" --fix",
+    "format": "prettier --write \"src/**/*.{ts,md}\" \"test/**/*.ts\" \"*.{json,md,yml}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,md}\" \"test/**/*.ts\" \"*.{json,md,yml}\"",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:floor": "vitest run --config vitest.floor.config.ts",
+    "clean": "rm -rf dist coverage",
+    "prepublishOnly": "pnpm clean && pnpm typecheck && pnpm lint && pnpm test && pnpm build"
+  },
+  "dependencies": {
+    "@vitest/coverage-v8": "4.1.4",
+    "eslint": "10.5.0",
+    "prettier": "3.8.3",
+    "tsup": "8.5.1",
+    "typescript": "5.9.3",
+    "vitest": "4.1.4"
+  },
+  "devDependencies": {
+    "@cosyte/eslint-config": "workspace:^",
+    "@cosyte/prettier-config": "workspace:^",
+    "@cosyte/tsconfig": "workspace:^",
+    "@cosyte/tsup-config": "workspace:^",
+    "@types/node": "^22.0.0"
+  }
+}
