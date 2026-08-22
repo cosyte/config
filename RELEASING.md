@@ -1,170 +1,241 @@
 # Releasing `@cosyte/*` config packages
 
-How the published toolchain packages (`@cosyte/tsconfig`, `eslint-config`, `prettier-config`,
-`tsup-config`, `vitest-config`, `test-utils`, `script-utils`) get to npm, and the gotchas worth not
-rediscovering.
+How the eight published toolchain packages get to npm, who is waiting on whom at each step, what to
+do when a step does not finish, and the gotchas worth not rediscovering.
 
-## The pipeline
+**The eight packages this repository publishes**, all public `@cosyte/*` scoped:
+`@cosyte/eslint-config`, `@cosyte/prettier-config`, `@cosyte/process`, `@cosyte/script-utils`,
+`@cosyte/test-utils`, `@cosyte/tsconfig`, `@cosyte/tsup-config`, `@cosyte/vitest-config`.
 
-Releases run on [Changesets](https://github.com/changesets/changesets). The flow:
+The root manifest `cosyte-config` is `private: true` and is never published and never versioned. That
+flag is about npm publishability and says nothing about repository visibility: **this repository is
+public**, which is what makes npm provenance and protected-environment required reviewers available
+here at all.
 
-1. A change lands with a changeset (`pnpm changeset`) describing the bump. Every package stays on the
-   **`0.0.x`-until-first-alpha** ladder (patch bumps only; a published version is never moved back).
-2. On push to `main` with pending changesets, `.github/workflows/release.yml` opens/updates a
-   **"Version Packages"** PR that consumes the changesets and bumps versions + per-package changelogs.
-3. Merging that PR triggers the workflow again; with no pending changesets it runs
-   `pnpm run release` (`build` → `changeset publish`) and publishes the bumped packages.
+## What changed on 2026-08-22, and why
 
-Both steps run inside the **`release` environment**, which is **protected**. It is the approval gate,
-so nothing reaches npm without a deliberate human ack.
+Until 2026-08-22 the whole release workflow was a single job carrying `environment: release`, so
+GitHub held it in `Waiting` before step one: **a human had to approve a run merely to have a "Version
+Packages" PR opened or refreshed.** That is now split. The version step is ungated; the publish step
+still waits for a human.
 
-### The two gates that run before any of it
+The change is not a preference. It is what
+[`documentation/release-stall-evidence.md`](documentation/release-stall-evidence.md) measured across
+every `.changeset/`-carrying repository in the organization: 185 Version Packages PRs ever opened,
+183 merged at a median of three minutes after their last push, exactly two ever stalled past 72 idle
+hours, both of them green and mergeable with a held release run sitting behind them, and **62
+`Release` runs waiting on one reviewer at the moment of measurement**. Read that file before
+proposing to change any of this.
 
-Both are zero-dependency node, both run in `ci.yml`'s required `verify` job **and** first in
-`release.yml`, before install and before an approver is asked for anything.
+**The acknowledgment itself did not move.** A published npm version is permanent and cannot be
+withdrawn by this process, so the protected `release` environment stays in front of the publish
+exactly as it was, with the same reviewer and the same `main`-only branch policy. What stopped
+waiting on a human is the step that produces a pull request, which anyone can close.
 
-**`pnpm changeset:guard`** refuses a changeset that cannot bump anything. This is not hygiene: given
-only inert changesets, `changesets/action` logs `All changesets are empty; not creating PR`,
-publishes nothing, and **exits 0**. Run 30640138565 (2026-07-31) was approved through this
-environment as a real publish, reported success, and shipped **none** of the six packages that were
-already a patch ahead of the registry. Three shapes bump nothing and only the first is what the
-action calls empty:
+## The pipeline, step by step
 
-- **frontmatter declaring no packages.** `@changesets/parse` does not throw on this; `yaml.load` of
-  an empty block returns falsy and it sets `releases = []`. The file parses cleanly and carries a
-  human summary, so it looks entirely normal in a diff.
+Every step names its actor, what triggers it, and how you know it finished. Steps that wait on a
+human carry a budget.
+
+| #   | step                                                                         | actor                                                                                       | trigger                                                              | signal it completed                                                                                                                            | wait budget                                           |
+| --- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| 1   | Land a change with a changeset (`pnpm changeset`)                            | contributor                                                                                 | a pull request into `main`                                           | the PR merges with a `.changeset/*.md` file in it                                                                                              | none (ordinary review)                                |
+| 2   | `preflight` job: both release gates, then the verify ladder                  | automation, ungated                                                                         | push to `main`                                                       | the `preflight` job is green in the `Release` run                                                                                              | none, nothing waits                                   |
+| 3   | `version` job: open or refresh the "Version Packages" PR                     | automation, ungated                                                                         | `preflight` green **and** at least one pending changeset             | a PR titled `Version Packages` on branch `changeset-release/main` exists or was force-pushed, and its required checks are running              | none, nothing waits                                   |
+| 4   | Merge the "Version Packages" PR                                              | **release owner** (today: `NSchatz`)                                                        | that PR is open and its required checks are green                    | the PR is merged; a version commit lands on `main`                                                                                             | **24 hours** from the moment the PR's checks go green |
+| 5   | `publish` job: `changeset publish`, then tag and release each bumped package | automation, **gated on the protected `release` environment**                                | push to `main` with **no** pending changesets, and `preflight` green | the run leaves `waiting`, `npm view <pkg>@<version>` answers for every bumped package, and one GitHub release per `<pkg>@<version>` tag exists | **24 hours** from the run entering `waiting`          |
+| 6   | Approve the publish                                                          | **release approver** (today: `NSchatz`, the required reviewer on the `release` environment) | the `publish` job enters `waiting`                                   | the deployment is approved and the job starts                                                                                                  | counted inside step 5's budget                        |
+
+The two arms in steps 3 and 5 are exclusive and the workflow chooses between them by asking the same
+question `changesets/action` asks itself: **are there pending changesets in `.changeset/`?** If yes,
+the ungated version arm runs and nothing is published. If no, the gated publish arm runs. Nothing
+else decides it, and in particular the `release-notes.mjs` classifier does not: a classifier that
+wrongly said "not a release" would withhold a publish on a green run, which is the exact failure the
+changeset guard exists to close.
+
+### Roles, named
+
+- **Release owner.** Merges the Version Packages PR (step 4) and owns the stall rule below. Today
+  this is `NSchatz`.
+- **Release approver.** The required reviewer on the `release` environment (step 6). Today this is
+  also `NSchatz`. The two roles are separable and should be separated the moment there is a second
+  maintainer; nothing in the pipeline assumes they are the same person.
+
+## When a Version Packages PR exceeds its budget
+
+**The rule: a Version Packages PR whose required checks have been green for more than 24 hours is the
+release owner's to end, and it ends in exactly one of two terminal states.**
+
+- **Merged and published.** The default, and correct whenever the PR is mergeable and its bump is
+  wanted. Merge it, then approve the publish run it triggers. The stall is over when every bumped
+  package answers `npm view` and carries a tag.
+- **Closed with its changesets preserved.** Correct when the bump is not wanted yet (a dependency is
+  mid-flight, a package is about to be renamed). Close the PR and **leave the `.changeset/*.md` files
+  on `main` untouched**. The next push to `main` reopens an equivalent PR from the same changesets.
+  **Never delete a changeset to make a Version Packages PR go away.** Deleting it discards the bump
+  and the changelog entry with no record that anything was dropped.
+
+Anything else is not a terminal state. A PR that is red, unmergeable, or waiting on a fix is in one
+of the failure states below and is resolved there first, then ended here.
+
+**How to see the queue.** These two commands are the whole dashboard:
+
+```bash
+gh pr list --repo cosyte/config --search 'head:changeset-release/main is:open'
+gh run list  --repo cosyte/config --workflow Release --status waiting
+```
+
+A non-empty second list is the thing this document exists to keep short: every entry is a publish
+sitting on a human. Approve or cancel each one deliberately; do not let them accumulate.
+
+## Failure states, and what the operator does
+
+Four states, each with a terminal outcome you can reach from this section alone.
+
+### (a) Required checks never report on the Version PR head
+
+**Symptom.** The Version Packages PR shows checks as _pending_ forever, never failing. The merge
+button is blocked and no admin can override it.
+
+**Cause.** GitHub does not start workflow runs for events produced by `GITHUB_TOKEN`. That is
+deliberate anti-recursion and nothing surfaces it. A required status check that never reports counts
+as pending rather than failing, and with `bypass_actors: []` on the org rulesets nobody can merge past
+it. A Version PR is force-pushed every time another changeset lands, and required checks are evaluated
+against the PR's **current** head sha, so an update pushed by `GITHUB_TOKEN` returns it to zero
+applicable checks even if the `opened` event was fine.
+
+**Terminal action.**
+
+1. Confirm the cause: `gh pr view <n> --repo cosyte/config --json author` returns `github-actions`
+   rather than a human login. The `version` job also prints a `::warning` on every run when
+   `RELEASE_PR_TOKEN` is unset.
+2. Set `RELEASE_PR_TOKEN` (repository secret). Scope it narrowly: a fine-grained PAT with
+   `Contents: read+write`, `Pull requests: read+write`, `Metadata: read` on this repository and
+   nothing else. It does **not** need `Workflows: write`, because `pnpm run version` only changes
+   `packages/*/package.json`, `packages/*/CHANGELOG.md` and `.changeset/`.
+3. Close the stuck PR and push any trivial commit to `main` (or re-run the `Release` workflow) so the
+   `version` job opens a fresh PR under the new token. The old PR cannot be rescued: its head sha was
+   pushed by the wrong identity and no check will ever attach to it.
+4. Terminal state: a new Version Packages PR with reporting checks, then the ordinary step 4 merge.
+
+**Two implementation facts that make this fix fail silently if you get them wrong**, both already
+wired in `release.yml` and both easy to undo by accident:
+
+- The token must be set as `GITHUB_TOKEN` **in the action's `env`**, not through the `github-token:`
+  input. The action reads `process.env.GITHUB_TOKEN || core.getInput("github-token")`, so the env
+  wins and adding the input while leaving the env in place is a silent no-op.
+- `persist-credentials: false` must stay on the `version` job's checkout. The version commit is
+  pushed by `git push` out of that checkout, not through the API. Left at its default,
+  `actions/checkout` persists an `http.<host>.extraheader` that git sends preemptively, so the
+  `~/.netrc` the action writes with our token is never consulted and the push stays
+  `GITHUB_TOKEN`-authored. Fixing only the env fixes the `opened` event and leaves `synchronize`
+  broken.
+
+### (b) A release gate refuses the changesets
+
+**Symptom.** The `preflight` job reds on `Changesets must be able to bump something` or on
+`Release notes must be derivable`. No PR is opened and nothing is published. Since 2026-08-22 this
+happens **before** anyone is asked to approve anything.
+
+**The two gates**, both zero-dependency node, both run in `preflight` in `release.yml` **and** in
+`ci.yml`'s required `verify` job. The workflows invoke the scripts directly
+(`node scripts/changeset-guard.mjs`, `node scripts/release-notes.mjs prepare --repo . --out ...`);
+`pnpm changeset:guard` and `pnpm release:notes prepare` are the local aliases for the same scripts.
+
+**`changeset-guard.mjs` refuses a changeset that cannot bump anything.** This is not hygiene. Given
+only inert changesets, `changesets/action` logs `All changesets are empty; not creating PR`, publishes
+nothing, and **exits 0**. Run 30640138565 (2026-07-31) was approved through the release environment as
+a real publish, reported success, and shipped **none** of the six packages that were already a patch
+ahead of the registry. Three shapes bump nothing and only the first is what the action calls empty:
+
+- **frontmatter declaring no packages.** `@changesets/parse` does not throw on this; `yaml.load` of an
+  empty block returns falsy and it sets `releases = []`. The file parses cleanly and carries a human
+  summary, so it looks entirely normal in a diff.
 - **every entry typed `none`.** `none` is a _valid_ type, so the releases list is non-empty and the
-  action's own emptiness check does not fire. It opens a Version PR that changes no version.
-  (`none` **alongside** a real bump is fine, and is what `none` is for.)
+  action's own emptiness check does not fire. It opens a Version PR that changes no version. (`none`
+  **alongside** a real bump is fine, and is what `none` is for.)
 - **a misspelled package name.**
 
 > **This bans an idiom this repo used deliberately three times.** `changeset add --empty` writes
 > exactly that empty-frontmatter file, and `perf-measurement-contract-adr.md`,
-> `phi-scan-scaffold-and-drift.md` and `prepublish-attw.md` each used it to record a repo-level
-> change that bumped no package. Two were consumed harmlessly next to real changesets; the third was
-> alone, and it is the one that cost a six-package publish. **There is no longer a changeset-shaped
-> home for a repo-level note. Put it in the root `CHANGELOG.md`**, which is where this repo already
-> says repo-level entries belong, and add no changeset at all. That is what `cf07086` concluded, and
-> the guard now enforces it.
+> `phi-scan-scaffold-and-drift.md` and `prepublish-attw.md` each used it to record a repo-level change
+> that bumped no package. Two were consumed harmlessly next to real changesets; the third was alone,
+> and it is the one that cost a six-package publish. **There is no longer a changeset-shaped home for
+> a repo-level note. Put it in the root `CHANGELOG.md`** and add no changeset at all.
 
-**`pnpm release:notes prepare`** refuses a release that cannot say what it shipped, deriving one body
-per bumped package from the changesets the version commit consumed. See the next section for why
-that is the source rather than the changelog.
+**`release-notes.mjs prepare` refuses a release that cannot say what it shipped**, deriving one body
+per bumped package from the changesets the version commit consumed.
 
-### After the publish: tags and releases
+**Terminal action.** Read the annotation, which names the offending file and what is wrong with it.
+Then either fix the frontmatter (`"@cosyte/<pkg>": patch`) and the summary, or **delete the changeset
+and put the note in the root `CHANGELOG.md`**. Push the fix to `main`. Terminal state: `preflight`
+green, and the version arm opens a PR on the next run.
 
-`createGithubReleases: false` means the action no longer pushes the tags `changeset publish` creates
-in the runner's local clone, so `release.yml` creates them itself. That step is driven by **what the
-version commit bumped**, not by what a given run published, and it asks the **registry** whether each
-package is actually there. Both choices exist to close the same hole:
+### (c) A publish partially succeeds, leaving bumped packages unpublished
 
-> With the step keyed on `published == 'true'`, a `gh release create` that failed on the third of six
-> packages would red the run; the re-run would then find all six already on npm, publish nothing,
-> **skip the step**, and go **green**, leaving four packages on npm with no tag and no GitHub release,
-> permanently. Losing the tag is specific to `createGithubReleases: false` and matters more here than
-> it looks, because this repo's changelog headings are dated from tags by hand.
+**Symptom.** The `publish` job reds with `Bumped but never published`, naming the packages that are
+missing from the registry, or with `Release accounting does not balance`.
 
-So the step is **idempotent**: a re-run completes whatever is missing rather than skipping it, and a
-package that was bumped but never reached the registry is named and reds the run. If you ever see it
-fail, re-running the job is the correct first move.
+**Why the job can tell you this at all.** The tag-and-release step is driven by **what the version
+commit bumped**, not by what a given run published, and it asks the **registry** whether each package
+is actually there. Both choices exist to close the same hole:
 
-### Release bodies: why `createGithubReleases` is off
+> With the step keyed on `published == 'true'`, a `gh release create` that failed on the third of
+> eight packages would red the run; the re-run would then find all eight already on npm, publish
+> nothing, **skip the step**, and go **green**, leaving five packages on npm with no tag and no GitHub
+> release, permanently. Losing the tag matters more than it looks here, because this repository's
+> changelog headings are dated from tags by hand.
 
-`changesets/action` defaults `createGithubReleases` to **true**, and builds each body by finding a
-`## <version>` heading in that package's `CHANGELOG.md`. This repo sets `"changelog": false` and
-hand-maintains its changelogs, so `changeset version` writes no such heading, the action finds none,
-and **its fallback is to use the whole file**. On 2026-07-31 all six release bodies published as the
-raw `CHANGELOG.md`, `# Changelog` preamble and `## [Unreleased]` included. They were corrected by
-hand afterwards, which is not a gate.
+**Terminal action.**
 
-So the flag is **false**, which removes the dumping behaviour outright, and `scripts/release-notes.mjs`
-supplies the replacement. Two consequences worth knowing:
+1. **Re-run the failed job.** This is the correct first move and usually the only one. The step is
+   idempotent and self-healing: it runs on `!cancelled()`, so a partial publish still tags whatever
+   reached npm, and a re-run completes what is missing instead of skipping it. `changeset publish`
+   will publish nothing on the re-run for packages already on the registry, which is fine, because
+   the accounting reads `npm view` rather than the run's own output.
+2. If the re-run reports the same packages missing, the publish genuinely failed for them. Open the
+   run's `npm-debug-log-config-run<id>-attempt<n>` artifact, which the workflow uploads on failure
+   with credentials redacted, and read the npm error. The usual causes are an expired or wrong-typed
+   `NPM_TOKEN` (see the authentication section) and an npm-side 403 on a scoped package.
+3. Fix the cause and re-run again. **Do not hand-publish and do not bump the version to get past it.**
+   A version consumed by a failed publish is not burned: the same version can be published again
+   because nothing reached the registry under it.
+4. Terminal state: the job is green and it has said `All N bumped package(s) are published, tagged and
+released`. That sentence is the only thing that means the release is done.
 
-- **The bodies come from the changesets, not from the changelog.** Deriving from the changelog would
-  need a `## [0.0.6]` heading for a version that does not exist yet when the changeset is written,
-  and with the generator disabled nothing writes it, so the gate would refuse every release until
-  someone predicted the next version by hand. A changeset is written per change and deleted by the
-  version commit, which is exactly what makes "what did this version consume" answerable from git.
-- **With the flag off, the action no longer pushes the tags** that `changeset publish` creates in the
-  runner's local clone. `release.yml` therefore creates them itself with `gh release create --target`:
-  one tag, one release, both created there. Tags are `<pkg>@<version>`, which is what Changesets uses
-  in a multi-package repo and what this repo's existing tags are. **Do not "simplify" that to
-  `v<version>`**: six packages publishing in one run would collide on a single tag.
+### (d) A publish succeeds on a commit the release-notes gate did not recognise
 
-**`[Unreleased]` is promoted to a version heading BY HAND**, in the pull request that adds the
-changeset. Nothing does it automatically. Until 2026-08-04 nothing did it at all, so shipped content
-stayed under `[Unreleased]` in the file that shipped and each release republished the previous
-release's notes. The six changelogs were corrected by hand; whether to turn the Changesets changelog
-generator back on is a separate founder-owned call (`CHANGELOG-PREAMBLE-FUTURE-TENSE`), and the
-release path above does not depend on the answer, because it reads changesets either way.
+**Symptom.** The `publish` job reds on `Published without a derived release body`. npm has already
+published. No tag and no GitHub release were created.
 
-### Why this repo is not a thin caller of the shared workflow
+**What it means.** `changeset publish` uploaded packages on a commit that `release-notes.mjs` did not
+classify as a version commit, so no body was derived and the tag step never ran. This is unreachable
+unless the wiring broke, and the check exists precisely to make the classifier's correctness
+observable rather than assumed. It cannot withhold anything: the registry has already been written.
 
-Every parser calls `cosyte/.github/.github/workflows/release.yml@main` and inherits its
-`RELEASE_PR_TOKEN` wiring and release-notes gate. This repo cannot, measured 2026-08-04:
+**Terminal action.** This one needs a human and does not have a re-run fix.
 
-1. **The shared gate would withhold every config publish, permanently, on a green run.** It answers
-   "is a release pending" from the **root** `package.json`'s version. This repo's root manifest is
-   `cosyte-config`, `private: true`, pinned at `0.0.0`; Changesets does not version a private root
-   package, so that value has never changed and never will. Running the shared `prepare` against this
-   repo returns `is-release=false`, code `never-versioned`, and the shared workflow supplies
-   `publish:` only when that is `true`. That is a strictly worse instance of the silent-withholding
-   class the changeset guard exists to close.
-2. **It tags `v<version>`.** Its own comment states the assumption: "Every caller of this workflow is
-   a single-package repo."
+1. Find what actually reached the registry:
+   `npm view <pkg> versions --json` for each of the eight packages, compared against
+   `git show HEAD:packages/<pkg>/package.json`.
+2. For every package published on that commit, create the tag and release by hand:
+   `gh release create '<pkg>@<version>' --target <sha> --title '<pkg>@<version>' --notes-file <file>`,
+   writing the body yourself from the changesets that commit consumed (`git show HEAD^:.changeset/`).
+   The tag form is `<pkg>@<version>` and **must not** be simplified to `v<version>`: several packages
+   publishing in one run would collide on a single tag.
+3. Then work out why the classifier missed it, because that is the actual defect. The usual cause is a
+   shallow checkout: the gate classifies `HEAD` against `HEAD^` and reads the changesets a version
+   commit consumed out of the parent tree, so `fetch-depth: 0` is load-bearing in both `ci.yml` and
+   all three jobs of `release.yml`.
+4. Terminal state: every published package has a tag and a release, and the classifier defect has an
+   issue or a fix.
 
-The two portable halves were ported instead: the `RELEASE_PR_TOKEN` wiring, and a notes gate rebuilt
-for the six-package shape. If the shared workflow ever grows a multi-package mode, revisit this.
+## The `release` environment (the approval gate)
 
-### `RELEASE_PR_TOKEN`, and why the Version PR needs it
+The `publish` job in `release.yml` references `environment: release`, so the publish waits for a
+human. The `preflight` and `version` jobs do not reference it and never wait.
 
-GitHub does not start workflow runs for events produced by `GITHUB_TOKEN`. That is deliberate
-anti-recursion and nothing surfaces it, so a "Version Packages" PR opened with that token arrives
-with **zero checks**, and a required status check that never reports is **pending**, not failing:
-with `bypass_actors: []` on the rulesets nobody can merge past it, an admin included.
-
-Two things are needed and the second is the one that is easy to miss:
-
-1. **`GITHUB_TOKEN` in the action's `env`**, which is what it opens the PR with. The action reads
-   `process.env.GITHUB_TOKEN || core.getInput("github-token")`, so **the env wins**: adding a
-   `github-token:` input while leaving the env in place would be a silent no-op.
-2. **`persist-credentials: false` on the checkout.** The version commit is pushed by `git push` out
-   of that checkout, not through the API. Left at its default, `actions/checkout` persists an
-   `http.<host>.extraheader` that git sends preemptively, so the `~/.netrc` the action writes with
-   our token is never consulted and the push stays `GITHUB_TOKEN`-authored.
-
-Fixing only (1) fixes the `opened` event and leaves `synchronize` broken. A Version PR is
-force-pushed every time another changeset lands, and required checks are evaluated against the PR's
-**current** head sha, so an update pushed by `GITHUB_TOKEN` returns it to zero applicable checks.
-
-**Scope it narrowly:** a fine-grained PAT with `Contents: read+write`, `Pull requests: read+write`,
-`Metadata: read` on this repo and nothing else. It does **not** need `Workflows: write`:
-`pnpm run version` changes `packages/*/package.json`, `packages/*/CHANGELOG.md` and `.changeset/`,
-none of which is under `.github/workflows/`.
-
-**Absent, it falls back to `GITHUB_TOKEN` and says so loudly** in the run log. Failing closed instead
-would take this repo's release path down to protect against a state it is already in.
-
-### Authentication today
-
-This repo is **public**, so publishing authenticates with `NPM_TOKEN`, an org-level secret shared
-across the `@cosyte/*` repos, and **with provenance**. `NPM_CONFIG_PROVENANCE` is wired to
-`github.event.repository.visibility == 'public'`, so provenance is on with no workflow edit.
-
-`NPM_TOKEN` **must be an npm _Automation_ token** (or a granular token). A classic _Publish_ token
-demands a 2FA one-time password that CI cannot supply, and the publish dies with `EOTP This
-operation requires a one-time password from your authenticator`: after a green build, at the very
-last step. Note that a repo-level `NPM_TOKEN` silently overrides the org-level one, so keep the
-token in exactly one place.
-
-## The `release` environment (approval gate)
-
-The `release` job in `release.yml` references `environment: release`, so both the version-PR step and
-the publish step pass through this gate. Pre-launch this also gates version-PR creation; that mild
-friction is intentional (nothing in the release workflow runs unattended). If it becomes annoying
-post-launch, split into an ungated `version` job and a gated `publish` job.
-
-> ### ✅ The protected environment exists
+> ### The protected environment exists
 >
 > `release` carries a **required reviewer** (`NSchatz`) and a **`main`-only** deployment-branch
 > policy. Publishing stops for a human: the run sits at `waiting` until approved.
@@ -174,15 +245,15 @@ post-launch, split into an ungated `version` job and a gated `publish` job.
 > - **Required reviewers need a public repo on GitHub Team.** On Free / Pro / Team they are
 >   public-repo-only; a private repo needs Enterprise Cloud. The API refuses with a `422` naming the
 >   "billing plan", which reads like a plan problem and is really a visibility one.
-> - **Create the environment BEFORE a workflow references it.** Reference it first and GitHub
->   silently auto-creates an _unprotected_ environment of that name on the first run: a gate that
->   gates nothing while looking like it does, with no error and no warning.
+> - **Create the environment BEFORE a workflow references it.** Reference it first and GitHub silently
+>   auto-creates an _unprotected_ environment of that name on the first run: a gate that gates nothing
+>   while looking like it does, with no error and no warning.
 >
-> **Via the UI**. Settings → Environments → **New environment** `release`, then add:
+> **Via the UI**. Settings, then Environments, then **New environment** `release`, then add:
 >
-> - **Required reviewers** → the maintainer (e.g. `NSchatz`). Leave **Prevent self-review** _off_
+> - **Required reviewers**: the maintainer (e.g. `NSchatz`). Leave **Prevent self-review** _off_
 >   (solo-maintainer self-approval must be allowed).
-> - **Deployment branches** → **Selected branches** → add `main`.
+> - **Deployment branches**: **Selected branches**, then add `main`.
 >
 > **Via the API** (needs a token with `Environments: write`):
 >
@@ -198,23 +269,101 @@ post-launch, split into an ungated `version` job and a gated `publish` job.
 > gh api -X POST repos/cosyte/config/environments/release/deployment-branch-policies -f name=main
 > ```
 >
-> (`26444422` = `NSchatz`. Required reviewers need the repo to be **public** on GitHub Team: see
-> above; a private repo would need Enterprise Cloud.)
+> (`26444422` = `NSchatz`.)
+
+**If the approval budget lapses.** A `publish` run sitting in `waiting` for more than 24 hours is the
+release owner's to end: approve it, or cancel the run and say why in the version PR's thread. A
+cancelled publish is recoverable (the version commit is on `main` and the next push re-runs the
+publish arm); a forgotten one is what produces the backlog this pipeline was rebuilt to stop.
+
+**Do not widen the reviewer set to admit an automation identity, and do not remove
+`environment: release` from the `publish` job.** Either would mean a package could reach npm with no
+human acknowledgment, a published version is permanent, and there is no operator decision authorizing
+it. If the queue is still painful after the organization-wide split lands, the next levers are a
+second human reviewer or npm Trusted Publishers with OIDC, and both are the operator's call.
+
+## Release bodies: why `createGithubReleases` is off
+
+`changesets/action` defaults `createGithubReleases` to **true**, and builds each body by finding a
+`## <version>` heading in that package's `CHANGELOG.md`. This repository sets `"changelog": false` and
+hand-maintains its changelogs, so `changeset version` writes no such heading, the action finds none,
+and **its fallback is to use the whole file**. On 2026-07-31 all six release bodies published as the
+raw `CHANGELOG.md`, `# Changelog` preamble and `## [Unreleased]` included. They were corrected by
+hand afterwards, which is not a gate.
+
+So the flag is **false**, which removes the dumping behaviour outright, and `scripts/release-notes.mjs`
+supplies the replacement. Two consequences worth knowing:
+
+- **The bodies come from the changesets, not from the changelog.** Deriving from the changelog would
+  need a `## [0.0.6]` heading for a version that does not exist yet when the changeset is written, and
+  with the generator disabled nothing writes it, so the gate would refuse every release until someone
+  predicted the next version by hand. A changeset is written per change and deleted by the version
+  commit, which is exactly what makes "what did this version consume" answerable from git.
+- **With the flag off, the action no longer pushes the tags** that `changeset publish` creates in the
+  runner's local clone. `release.yml` therefore creates them itself with `gh release create --target`:
+  one tag, one release, both created there. Tags are `<pkg>@<version>`.
+
+**`[Unreleased]` is promoted to a version heading BY HAND**, in the pull request that adds the
+changeset. Nothing does it automatically. Until 2026-08-04 nothing did it at all, so shipped content
+stayed under `[Unreleased]` in the file that shipped and each release republished the previous
+release's notes. Whether to turn the Changesets changelog generator back on is a separate
+founder-owned call (`CHANGELOG-PREAMBLE-FUTURE-TENSE`), and the release path does not depend on the
+answer, because it reads changesets either way.
+
+## Why this repository is not a thin caller of the shared workflow
+
+Thirteen of the fourteen `.changeset/`-carrying repositories that have a release workflow call
+`cosyte/.github/.github/workflows/release.yml@main` and inherit its `RELEASE_PR_TOKEN` wiring and
+release-notes gate. This one cannot, measured 2026-08-04 and re-measured 2026-08-22:
+
+1. **The shared gate would withhold every config publish, permanently, on a green run.** It answers
+   "is a release pending" from the **root** `package.json`'s version. This repository's root manifest
+   is `cosyte-config`, `private: true`, pinned at `0.0.0`; Changesets does not version a private root
+   package, so that value has never changed and never will. Running the shared `prepare` against this
+   repository returns `is-release=false`, code `never-versioned`, and the shared workflow supplies
+   `publish:` only when that is `true`. That is a strictly worse instance of the silent-withholding
+   class the changeset guard exists to close.
+2. **It tags `v<version>`.** Its own comment states the assumption: "Every caller of this workflow is
+   a single-package repo." This repository publishes eight.
+
+`config/.github/workflows/ci.yml` used to carry a NOTE saying Phase C would replace the hand-rolled
+workflow with a thin caller. That NOTE was stale and is corrected: Phase C was measured against this
+repository and declined for the two reasons above.
+
+The portable halves were ported instead: the `RELEASE_PR_TOKEN` wiring, a notes gate rebuilt for the
+multi-package shape, and now the ungated-version / gated-publish split, which is filed as a follow-on
+against `cosyte/.github` in the evidence record. If the shared workflow ever grows a multi-package
+mode, revisit this.
+
+## Authentication today
+
+This repository is **public**, so publishing authenticates with `NPM_TOKEN`, an org-level secret
+shared across the `@cosyte/*` repositories, and **with provenance**. `NPM_CONFIG_PROVENANCE` is wired
+to `github.event.repository.visibility == 'public'`, so provenance is on with no workflow edit.
+
+`NPM_TOKEN` **must be an npm _Automation_ token** (or a granular token). A classic _Publish_ token
+demands a 2FA one-time password that CI cannot supply, and the publish dies with `EOTP This operation
+requires a one-time password from your authenticator`: after a green build, at the very last step.
+Note that a repository-level `NPM_TOKEN` silently overrides the org-level one, so keep the token in
+exactly one place.
+
+`NPM_TOKEN` and `NODE_AUTH_TOKEN` are supplied to the `publish` job **only**. The ungated `version`
+job has neither, and is given no `publish:` input either, so reaching the registry from an ungated job
+would take two independent mistakes rather than one. Keep it that way.
 
 ## Proving the pipeline without burning a version
 
-The `release-dry-run` job in `.github/workflows/ci.yml` runs on every push/PR:
+The `release-dry-run` job in `.github/workflows/ci.yml` runs on every push and pull request:
 
 - `pnpm -r publish --dry-run --no-git-checks`: exercises the publish command path (auth-free, never
   uploads). The real release publishes via `changeset publish`, so this is a faithful proxy for the
   pack/manifest/access path rather than the literal release command. Green as "no new packages" until
-  a changeset bumps a version, then it packs + validates that new version.
+  a changeset bumps a version, then it packs and validates that new version.
 - `pnpm -r --filter "./packages/*" exec npm pack --dry-run`: asserts each publishable tarball
-  assembles with the correct file set + built `dist`, **independent of what's already on npm** (a
+  assembles with the correct file set and built `dist`, **independent of what is already on npm** (a
   plain `publish --dry-run` skips already-published versions and would prove nothing for them).
 
-A red here means a real release would fail. This is the "prove the pipe, burn nothing" gate: no real
-publish, no version consumed.
+A red here means a real release would fail. This is the "prove the pipe, burn nothing" gate.
 
 ### Keep packing tools out of `prepublishOnly`
 
@@ -228,9 +377,7 @@ pack at all, and the step died with `ENOENT: cosyte-test-utils-0.0.2.tgz`.
 
 `attw` still runs where it belongs: `pnpm attw`, as its own step in `verify`. Coverage is unchanged.
 **Do not put a tool that packs, publishes, or installs back into a lifecycle script that publishing
-itself invokes.** (This paragraph used to say attw ran "twice", counting the `Pack integrity` job.
-That job runs `npm pack --dry-run` and never invokes attw. It is a second net on the tarball, not a
-second attw run.)
+itself invokes.**
 
 #### The mechanism, measured, and two claims retracted
 
@@ -259,29 +406,38 @@ Two earlier claims about this are therefore **RETRACTED**:
 published, and it is fine.** `packages/test-utils/test/attw-gate.test.ts` shells out to a real
 `attw --pack` against fixtures in `os.tmpdir()`, and `prepublishOnly` runs `pnpm test`, which is how
 `CONFIG-PREPUBLISH-ATTW-ENOENT` reached the `0.0.3` Version PR ([#46](https://github.com/cosyte/config/pull/46))
-with seven red cases on a tree whose only change was a `CHANGELOG.md`. The fix is at the source
-rather than in the caller: **`scripts/attw.mjs` strips those two keys from the environment of the
-`attw` child**, in both copies of the wrapper, so every scaffolded parser inherits it. The rule above
-is unchanged, and the reason to keep it is now the sharper one: a tool that packs THE PACKAGE BEING
-PUBLISHED, inside the publish, writes a tarball into the tree that is about to be packed.
+with seven red cases on a tree whose only change was a `CHANGELOG.md`. The fix is at the source rather
+than in the caller: **`scripts/attw.mjs` strips those two keys from the environment of the `attw`
+child**, in both copies of the wrapper, so every scaffolded parser inherits it.
 
 ## Still deferred: OIDC trusted publishing
 
-**Provenance is live** (the repo is public). **OIDC trusted publishing**, publishing with no token
-at all, is the remaining step, and it needs a toolchain bump first. A turnkey sequence:
+**Provenance is live** (the repository is public). **OIDC trusted publishing**, publishing with no
+token at all, is the remaining step. A turnkey sequence:
 
 1. ~~**Bump the runner toolchain floor**~~: **DONE.** `packageManager` is now `pnpm@10.34.5`
-   (≥ 10.16) and the `setup-node` pins are `22.14` (≥ 22.14) across `ci.yml` (`release-dry-run`) and
-   `release.yml`; `engines.node` is `>=22.14`. Since publish runs via `pnpm run release`, **pnpm**
-   carries OIDC trusted publishing, so the npm-CLI floor (npm ≥ 11.5.1) is not on the publish path and
-   no `npm i -g npm@…` step is needed. `pnpm/action-setup@v6` reads `packageManager`, so the dry-run
-   and release jobs install 10.34.5. Proven green by `release-dry-run`.
-2. **Configure the Trusted Publisher on npm**: for each `@cosyte/*` package: Settings → Trusted
-   Publisher → GitHub org `cosyte`, repository `config`, workflow filename `release.yml`, environment
-   name `release`, allowed action `npm publish`.
-3. **Remove `NPM_TOKEN` / `NODE_AUTH_TOKEN`** from the workflow and repo secrets; keep
-   `permissions: id-token: write` (already present). Provenance auto-enables on the public flip.
-4. **Harden npm**: set the package/org to "Require two-factor authentication and disallow tokens";
+   (>= 10.16) and the `setup-node` pins are `22.14` (>= 22.14) across `ci.yml` (`release-dry-run`)
+   and `release.yml`; `engines.node` is `>=22.14`. Since publish runs via `pnpm run release`, **pnpm**
+   carries OIDC trusted publishing, so the npm-CLI floor (npm >= 11.5.1) is not on the publish path
+   and no `npm i -g npm@...` step is needed. `pnpm/action-setup@v6` reads `packageManager`, so the
+   dry-run and release jobs install 10.34.5.
+2. **Configure the Trusted Publisher on npm**: for each of the eight `@cosyte/*` packages: Settings,
+   then Trusted Publisher, then GitHub org `cosyte`, repository `config`, workflow filename
+   `release.yml`, environment name `release`, allowed action `npm publish`. **The environment name is
+   still `release` after the 2026-08-22 split**, because the publish job is the one that kept it.
+3. **Remove `NPM_TOKEN` / `NODE_AUTH_TOKEN`** from the workflow and repository secrets; keep
+   `permissions: id-token: write` on the `publish` job (already present).
+4. **Harden npm**: set the package and org to "Require two-factor authentication and disallow tokens";
    OIDC trusted publishers keep working, stolen tokens become useless.
 
-Reference: `operations/plans/GITHUB-TEAM-MATURITY-PLAN.md` (Decision D1, Phase C) in the umbrella repo.
+Steps 2 to 4 are founder steps, not a build.
+
+## The evidence behind all of this
+
+[`documentation/release-stall-evidence.md`](documentation/release-stall-evidence.md) carries the
+measurement: how the population of `.changeset/`-carrying repositories was enumerated, all 185 Version
+Packages PRs with their idle times, the attribution of the two stalls, the gap analysis against what
+the other repositories actually run, the disposition recorded for the acknowledgment, and the
+follow-on list of changes this process implies in repositories other than this one. The per-PR table
+is `documentation/release-stall-evidence/version-packages-prs.csv` and the raw API responses are
+deposited under `documentation/release-stall-evidence/raw/`.
