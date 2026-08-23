@@ -174,7 +174,9 @@ green, and the version arm opens a PR on the next run.
 ### (c) A publish partially succeeds, leaving bumped packages unpublished
 
 **Symptom.** The `publish` job reds with `Bumped but never published`, naming the packages that are
-missing from the registry, or with `Release accounting does not balance`.
+missing from the registry, or with `Release accounting does not balance`. **Or** the `version` job
+reds with `Bumped but never published (version arm)`, which is the same state reached by a different
+route and has its own terminal action below.
 
 **Why the job can tell you this at all.** The tag-and-release step is driven by **what the version
 commit bumped**, not by what a given run published, and it asks the **registry** whether each package
@@ -202,6 +204,28 @@ is actually there. Both choices exist to close the same hole:
    because nothing reached the registry under it.
 4. Terminal state: the job is green and it has said `All N bumped package(s) are published, tagged and
 released`. That sentence is the only thing that means the release is done.
+
+**The version-arm variant, and why it exists.** The two arms are chosen by "are there pending
+changesets", and a single push can be both a version commit and a push carrying a pending changeset:
+merge a Version Packages PR while a newer changeset has landed on `main` since that PR was last
+refreshed, and the merge bumps versions while `.changeset/` is still non-empty. That push takes the
+ungated `version` arm, so the `publish` job does not run and nothing reaches the registry, while
+`main` already carries the bumped manifests. It is legitimate and self-clearing, but it must not be
+silent, so the `version` job carries its own copy of the registry accounting and reds on
+`Bumped but never published (version arm)`.
+
+**Terminal action for that variant** (the `version` job has no npm credentials, so it cannot fix this
+itself and does not try):
+
+1. **Merge the Version Packages PR that same run just opened or refreshed.** It consumes the pending
+   changeset, so the next push to `main` has none, takes the publish arm, and publishes everything
+   still owed, the earlier bump included. This is the normal move.
+2. If that PR is not wanted yet, land any changeset-free commit on `main` instead. Same effect: the
+   publish arm runs.
+3. Terminal state: a `publish` run has said `All N bumped package(s) are published, tagged and
+released`. Until then, `main` is ahead of the registry and the red version run is the record of it.
+   **Do not delete the pending changeset to force the publish arm** - that discards a bump, and rule
+   1 of the stall section applies here too.
 
 ### (d) A publish succeeds on a commit the release-notes gate did not recognise
 
@@ -439,5 +463,7 @@ measurement: how the population of `.changeset/`-carrying repositories was enume
 Packages PRs with their idle times, the attribution of the two stalls, the gap analysis against what
 the other repositories actually run, the disposition recorded for the acknowledgment, and the
 follow-on list of changes this process implies in repositories other than this one. The per-PR table
-is `documentation/release-stall-evidence/version-packages-prs.csv` and the raw API responses are
-deposited under `documentation/release-stall-evidence/raw/`.
+is `documentation/release-stall-evidence/version-packages-prs.csv`. **No raw API responses are
+committed**, deliberately, and that record's retrieval section says per query whether re-running it
+reproduces the answer or merely returns whatever is true now. Read that section before quoting a
+number from it back at anyone.

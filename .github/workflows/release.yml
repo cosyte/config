@@ -35,6 +35,9 @@ permissions:
 #     succeed. They now run before anyone is asked for anything.
 #   * `version` (UNGATED) opens or refreshes the Version Packages PR. It is given NO `publish:` input
 #     and NO npm credentials, so it cannot reach the registry even if something else here is wrong.
+#     It carries its own copy of the Gate 1 accounting check, because the split would otherwise have
+#     let one push (a version commit that ALSO carries a pending changeset) skip both arms' checks
+#     and go green with packages bumped and unpublished. See that step for the full argument.
 #   * `publish` (GATED, `environment: release`) is the only job that can publish, and it still waits
 #     for the required reviewer. NOTHING REACHES npm ANY MORE EASILY THAN IT DID BEFORE. A published
 #     version is permanent and this workflow cannot withdraw one, which is why the gate stays exactly
@@ -276,6 +279,82 @@ jobs:
           # NOTE THE ABSENCE OF NPM_TOKEN / NODE_AUTH_TOKEN HERE. That absence is a control, not an
           # oversight: see the `publish:` comment above.
           GITHUB_TOKEN: ${{ secrets.RELEASE_PR_TOKEN || secrets.GITHUB_TOKEN }}
+
+      # THE GATE 1 SAFETY NET, RESTORED ON THIS ARM. Do not delete it as a duplicate of the step in
+      # `publish`: it covers the one push that reaches NEITHER of them otherwise.
+      #
+      # When this file was a single job, `Every bumped package must be published, tagged and
+      # released` ran on `!cancelled() && is-release == 'true'` whichever arm the single
+      # `changesets/action` call took, so it covered this case for free. The split moved it into
+      # `publish`, which this arm skips, and the two conditions are INDEPENDENT: `is-release` asks
+      # whether a publishable version moved between HEAD^ and HEAD, `has-changesets` asks whether
+      # `.changeset/` still holds pending changesets at HEAD. Both are true on a push that merges a
+      # Version Packages PR while a NEWER changeset has landed on `main` since that PR was last
+      # refreshed. Before the split that push reddened with `Bumped but never published`; without
+      # this step it would go GREEN with packages bumped on `main` and nothing on the registry, which
+      # is the silent-withholding class run 30640138565 (2026-07-31) taught this repo to refuse.
+      #
+      # IT CANNOT PUBLISH AND IS NOT MEANT TO: this job has no npm credentials, deliberately, and
+      # that absence is the version arm's whole safety property. It reads the PUBLIC registry and
+      # reports. The state is real and needs a human, so it exits non-zero, and it does so AFTER the
+      # step above, so the run reds without withholding the Version Packages PR.
+      #
+      # `!cancelled()` rather than a bare `if:` for the same reason as in `publish`: an earlier step
+      # failing on a version commit is exactly when this is worth saying, and the message names both
+      # readings.
+      - name: A version commit taking this arm must not go green unpublished
+        if: ${{ !cancelled() && needs.preflight.outputs.is-release == 'true' }}
+        env:
+          BUMPED_PACKAGES: ${{ needs.preflight.outputs.packages }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          worklist="$RUNNER_TEMP/bumped-version-arm.tsv"
+          # shellcheck disable=SC2016  # single quotes are deliberate: this is JS reading process.env,
+          # not shell expansion. Interpolating the JSON into the script would break on any quote in it.
+          node -e '
+            const packages = JSON.parse(process.env.BUMPED_PACKAGES ?? "[]");
+            if (!Array.isArray(packages) || packages.length === 0) {
+              throw new Error("the notes gate reported a release but named no packages");
+            }
+            for (const entry of packages) process.stdout.write(`${entry.name}\t${entry.version}\n`);
+          ' > "$worklist"
+
+          missing=()
+          while IFS=$'\t' read -r name version; do
+            [ -n "$name" ] || continue
+
+            # Retried for the same reason the publish arm retries: a version that has just reached
+            # the registry can 404 for a few seconds while it propagates.
+            onnpm=false
+            for attempt in 1 2 3; do
+              if npm view "${name}@${version}" version >/dev/null 2>&1; then
+                onnpm=true
+                break
+              fi
+              [ "$attempt" -eq 3 ] || sleep 5
+            done
+
+            if [ "$onnpm" != "true" ]; then
+              missing+=("${name}@${version}")
+            fi
+          done < "$worklist"
+
+          if [ ${#missing[@]} -eq 0 ]; then
+            echo "This commit bumped versions and this push still carries pending changesets, so the"
+            echo "publish arm did not run. Every bumped package is already on the registry, so"
+            echo "nothing is being withheld."
+            exit 0
+          fi
+
+          echo "::error title=Bumped but never published (version arm)::${#missing[@]} package(s) were" \
+               "bumped by this commit but are not on the registry: ${missing[*]}. This push carries a" \
+               "pending changeset AS WELL AS a version bump, so it took the ungated version arm and the" \
+               "gated publish arm never ran; or an earlier step in this job failed. RELEASING.md failure" \
+               "state (c) has the terminal action: merge the Version Packages PR this run just opened," \
+               "or land a changeset-free commit on main. Either takes the publish arm and publishes these."
+          exit 1
 
   # ---------------------------------------------------------------------------
   # PUBLISH ARM. GATED on the protected `release` environment, which is the human acknowledgment and

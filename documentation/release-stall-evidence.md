@@ -51,9 +51,9 @@ can move.
 row's own recorded as-of instant" for "the observation timestamp". Two places say something close to
 it without being in that list, so they are settled here: (i) the required check set is "determined
 per repository at the observation timestamp", which here means the instant that repository's rule
-read answered, recorded per repository below; (ii) where a query is offered as bounded rather than
-deposited, the bound is to **the window end**, `2026-08-22T21:55:00Z`, not to the instant the query
-was issued. Bounding to the later instant returns a superset and is the conservative direction.
+read answered, recorded per repository below; (ii) wherever a query is offered below as bounded, the
+bound is to **the window end**, `2026-08-22T21:55:00Z`, not to the instant the query was issued.
+Bounding to the later instant returns a superset and is the conservative direction.
 
 ### The credential, limb by limb (AC38)
 
@@ -88,20 +88,36 @@ GraphQL has no equivalent (workflow runs, check runs, pending deployments, branc
 per-PR "last push" is read inside the PR list query as `commits(last: 1)`, so the whole 185-row
 history cost 18 documents rather than 185 follow-up requests.
 
-| #   | query                                                                                                                                                                | surface | requests | AC29 limb                                                                                     |
-| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | -------- | --------------------------------------------------------------------------------------------- |
-| q00 | capability probes (the table above)                                                                                                                                  | REST    | 15       | deposited                                                                                     |
-| q01 | `GET /orgs/cosyte/repos?type=all&per_page=100` (paginated)                                                                                                           | REST    | 1        | deposited                                                                                     |
-| q02 | GraphQL: 36 repository objects, `defaultBranchRef.target.oid`, `pullRequests.totalCount`                                                                             | GraphQL | 1        | deposited                                                                                     |
-| qB  | GraphQL: `object(expression: "<oid>:.changeset")` and `"<oid>:.github/workflows"` for all 34 repositories that have a default branch                                 | GraphQL | 1        | **bounded** (pinned to an immutable commit sha)                                               |
-| qC  | GraphQL: `"<oid>:package.json"`, `"<oid>:pnpm-workspace.yaml"`, `"<oid>:packages"`, `"<oid>:.github/workflows/release.yml"` for the 16 members plus `cosyte/.github` | GraphQL | 1        | **bounded** (same)                                                                            |
-| qD  | GraphQL: every workspace `packages/<name>/package.json` for `config` and `pathways`, plus `config`'s `ci.yml`                                                        | GraphQL | 1        | **bounded** (same)                                                                            |
-| q03 | GraphQL: `branchProtectionRules` and `rulesets(includeParents: true)` for all 18 in-scope repositories                                                               | GraphQL | 1        | deposited                                                                                     |
-| q04 | GraphQL: every pull request (all states, `CREATED_AT` ascending, `commits(last: 1)`) for all 18 in-scope repositories                                                | GraphQL | 21       | deposited                                                                                     |
-| q05 | REST: `pulls/{n}`, `commits/{head}/check-runs` and `actions/runs/{id}/pending_deployments` for `fhir#73` and `terminology#62`                                        | REST    | 6        | deposited                                                                                     |
-| q06 | REST: `actions/runs?status=waiting&created=<=2026-08-22T21:50:00Z&per_page=100`, once per member repository                                                          | REST    | 16       | **bounded** (`created<=`)                                                                     |
-| q07 | REST: `actions/runs?created=>2026-08-05` for `fhir` and `terminology` (the held-run identification)                                                                  | REST    | 2        | deposited within q05's family narrative; the run ids it produced are cited individually below |
-| q08 | REST: `GET /repos/cosyte/config/rules/branches/main` (corroborating the effective rule set on the enumerating surface)                                               | REST    | 1        | deposited within q00                                                                          |
+The AC29 column says, per query, whether re-issuing it reproduces what this record derived from it.
+It is the honest three-way answer, not a two-way one: **bounded** (a re-run returns the same thing,
+because the query admits no event after the window), **live** (the query is a read of current state
+and a re-run returns whatever is true then), or **bounded set, live fields** (the set of objects the
+query returns is fixed by a date bound, but a field this record read off them is current state).
+
+| #   | query                                                                                                                                                                | surface | requests | AC29 limb                                                                                                                                                                                         |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| q00 | capability probes (the table above)                                                                                                                                  | REST    | 15       | **live** (identity, permissions and rule state as they stand)                                                                                                                                     |
+| q01 | `GET /orgs/cosyte/repos?type=all&per_page=100` (paginated)                                                                                                           | REST    | 1        | **live** (the org listing as it stands)                                                                                                                                                           |
+| q02 | GraphQL: 36 repository objects, `defaultBranchRef.target.oid`, `pullRequests.totalCount`                                                                             | GraphQL | 1        | **live**, and it is what resolved the default-branch shas that make qB, qC and qD bounded                                                                                                         |
+| qB  | GraphQL: `object(expression: "<oid>:.changeset")` and `"<oid>:.github/workflows"` for all 34 repositories that have a default branch                                 | GraphQL | 1        | **bounded** (pinned to an immutable commit sha)                                                                                                                                                   |
+| qC  | GraphQL: `"<oid>:package.json"`, `"<oid>:pnpm-workspace.yaml"`, `"<oid>:packages"`, `"<oid>:.github/workflows/release.yml"` for the 16 members plus `cosyte/.github` | GraphQL | 1        | **bounded** (same)                                                                                                                                                                                |
+| qD  | GraphQL: every workspace `packages/<name>/package.json` for `config` and `pathways`, plus `config`'s `ci.yml`                                                        | GraphQL | 1        | **bounded** (same)                                                                                                                                                                                |
+| q03 | GraphQL: `branchProtectionRules` and `rulesets(includeParents: true)` for all 18 in-scope repositories                                                               | GraphQL | 1        | **live** (the effective rules as they stand)                                                                                                                                                      |
+| q04 | GraphQL: every pull request (all states, `CREATED_AT` ascending, `commits(last: 1)`) for all 18 in-scope repositories                                                | GraphQL | 21       | **bounded set, live fields**: the 185 rows are re-selected from a re-run by `opened_at <= 2026-08-22T21:55:00Z`, a column on every row; each row's terminal state and last push are current state |
+| q05 | REST: `pulls/{n}`, `commits/{head}/check-runs` and `actions/runs/{id}/pending_deployments` for `fhir#73` and `terminology#62`                                        | REST    | 6        | **live**, but every object is cited below by id, so each is re-readable one at a time                                                                                                             |
+| q06 | REST: `actions/runs?status=waiting&created=<=2026-08-22T21:50:00Z&per_page=100`, once per member repository                                                          | REST    | 16       | **bounded set, live fields**, and here the live field IS the filter: see the note on the 62 below                                                                                                 |
+| q07 | REST: `actions/runs?created=2026-08-05..2026-08-22T21:55:00Z` for `fhir` and `terminology` (the held-run identification)                                             | REST    | 2        | **bounded set, live fields** as restated; **it was ISSUED as `created=>2026-08-05`, which bounds below only**, and the upper bound was added here. See the note under the table                   |
+| q08 | REST: `GET /repos/cosyte/config/rules/branches/main` (corroborating the effective rule set on the enumerating surface)                                               | REST    | 1        | **live**, and it establishes nothing on its own: q03 is the enumerating surface for `config` and this only agreed with it                                                                         |
+
+**The one query whose stated form is not the form that was issued: q07.** It went out as
+`created=>2026-08-05`, which bounds the listing below and not above, so as issued it does not admit
+"no event after the window". It is restated above with the upper bound because that is the form a
+reader should re-run, and the restatement is sound rather than cosmetic: every run this record cites
+from q07 carries a `created_at` inside the window (`31497105267` 2026-08-11, `31701709401`
+2026-08-13, `32495980284` 2026-08-21, `32462897354` 2026-08-21, `31269174845` 2026-08-08), so the
+bounded form returns all of them and drops only runs created after the window, which this record does
+not use. The bounded form was **not** itself issued: re-issuing it now would be a read outside the
+declared window, which a DISCLOSE record may not quietly fold into the window it declared.
 
 **Cost, reported honestly.** REST: 41 requests against a 5,000/hour limit. GraphQL: 27 documents,
 costing roughly 30 points. **A further ~4,940 GraphQL points were burned by a defect in the scan
@@ -109,50 +125,66 @@ itself**: `gh api graphql --paginate` only advances a cursor variable literally 
 the first query named it `after`, and for the three repositories with more than 100 pull requests
 (`ccda`, `dicom`, `x12`) that produced a loop re-fetching page one. It was detected from output file
 sizes, the three queries were re-issued with the correct variable name, and **the looped output was
-discarded and is not the source of any number here** (the re-issued responses are what q04 deposits).
-Reported because a retrieval plan that hides what it actually spent is not a plan.
+discarded and is not the source of any number here** (every q04-derived number comes from the
+re-issued responses). Reported because a retrieval plan that hides what it actually spent is not a
+plan.
 
 **Resume point.** The scan is resumable per query at the granularity of the table above: each row is
 an independent document or request set, and q04 additionally resumes per repository. No interruption
 occurred, so no AC34 stop was reported under this head.
 
-### The raw deposit, and the route taken (AC41, AC29)
+### There is no raw deposit, and this is exactly what that costs (AC41, AC29)
 
-**One location: [`documentation/release-stall-evidence/raw/`](release-stall-evidence/raw/).**
-Total deposited: **1,408,186 bytes** across 6 files.
+**Total raw response bytes committed: none.** The first implementation pass of this work deposited
+six base64-encoded blobs, about 1.4 MB, under `documentation/release-stall-evidence/raw/`. They were
+**removed** on operator decision, recorded in the commissioning spec folder as
+`operator-decision-drop-the-raw-deposit.md` (2026-08-23): the payload was judged too large for what
+it bought, and base64 makes it undiffable and ungreppable besides, so a later reader could not see
+what changed between two scans anyway. The readable record and the per-PR CSV stay.
 
-**Route taken: the deposit is shaped so the repository's own gates do not match it, and the shaping
-is base64.** Two facts force it, and neither is negotiable:
+That is a real cost and it is stated here rather than left for a reader to discover. AC41's deposit
+clause is conditional ("where raw responses are committed") and no longer applies; its closing clause
+directs what is left: "where neither route is open, AC29's query-bounding limb is used for those
+queries instead." So the table above is the reproduction route, and it does not reach everywhere.
 
-1. `pnpm check:no-emdash` scans **every tracked file** in this repository (it is a `git ls-files`
-   sweep, not a glob), and it bans U+2014 in literal and encoded form.
-2. Historical pull request titles and repository descriptions across the organization contain U+2014
-   in quantity: `ASTM-1 <U+2014> record foundation`, `CLI-1 <U+2014> cosyte parse`, and dozens more.
-   A literal deposit of those responses would red this repository's own brand gate on arrival.
+**Where it reaches.** qB, qC and qD are pinned to immutable commit shas, so every tree fact in this
+record, every membership decision and every workflow divergence re-reads identically forever. q04's
+185 rows are re-selected from a re-run by an `opened_at` bound, and the derived per-PR table is
+committed as `version-packages-prs.csv`, so AC3's rows, AC4's distributions and the stalled set are
+checkable against a re-run column by column rather than on trust.
 
-So neither of the two routes the plain deposit allows was open (there is no glob to exclude, and no
-extension shaping can hide a file from a tracked-file sweep), and the deposit is base64 of the
-**exact** response bytes instead. It is lossless and checkable:
+**Where it does not, named individually rather than summarised.** For q00, q01, q02, q03, q05 and
+q08 this record supplies neither a bounded query nor a committed response, so for those six it does
+not satisfy AC29's second limb. What stands in their place is weaker and is not offered as
+equivalent: every capability answer, every listing count, every default-branch sha, every required
+check set and every attribution observation is reproduced IN THIS DOCUMENT as a literal value with
+the endpoint that produced it, and every object behind an attribution is cited by id (PR numbers,
+run ids `31497105267` and `31701709401`, deployment environment ids `18532539175` and `18532353981`,
+head shas, check names) so a reader can re-read each one individually and compare. That makes the
+record contestable point by point; it does not make it byte-reproducible.
 
-```bash
-base64 -d documentation/release-stall-evidence/raw/q04-pull-requests.ndjson.b64 | sha256sum
-```
+**The 62 held runs are the weakest-supported number in this record, and here is why.** q06 is
+bounded on `created`, so it satisfies AC29's letter, but the filter that produces the count is
+`status=waiting`, which is **current state evaluated at request time**: a run approved or cancelled
+after `2026-08-22T21:50:00Z` simply drops out of a re-run, so re-issuing the identical bounded query
+does not return 62 and is not expected to. Nothing anywhere in this repository records an individual
+held run. What re-derives from this document alone is the SHAPE of the finding, not the integer: the
+per-repository breakdown below sums to exactly 62; the two runs that carry the two attributions
+(`31497105267`, `31701709401`) are cited by id with their `created_at`, their environment id and
+their single required reviewer, and each is still re-readable by id; and the mechanism that produces
+held runs (`environment: release` at job level, so GitHub holds the whole job before step one) is a
+tree fact read at a pinned sha and therefore permanently checkable. **Treat 62 as a census taken once
+at a stated instant, not as a reproducible measurement.** It is quoted in this record's opening, in
+D1, in follow-ons F1 and F6, in `RELEASING.md` and in `release.yml`, and everywhere it is quoted it
+is dated. Re-take the census before relying on it:
+`gh run list --repo cosyte/<repo> --workflow Release --status waiting`.
 
-| file                                  | decoded sha256                                                     | decoded bytes |
-| ------------------------------------- | ------------------------------------------------------------------ | ------------- |
-| `q00-capability.ndjson.b64`           | `61867c4a7ddd22a91c9f86e5b04d28928746814043c2d2219da77bafb35a2b08` | 1,337         |
-| `q01-org-repos.json.b64`              | `248fd29d9242b91b54f230e619ab0d1d7d7bcb67af714ca635a8c695307a1766` | 193,881       |
-| `q02-repo-heads.json.b64`             | `a2994da7187db11eef5b417713606b94fab8d1d2b6e171746c4685a8e2ee8461` | 12,798        |
-| `q03-required-checks.json.b64`        | `de138371d7f7d94228677df9df8f319fa8c7c84798be094104ba05c18462e168` | 15,672        |
-| `q04-pull-requests.ndjson.b64`        | `1928c5a8a45e8d26bae0f136e80cdb7466ee8565cde153202ddf5e8dcbdcd081` | 713,600       |
-| `q05-stalled-observations.ndjson.b64` | `d131a47bff1ee2b5775792e4f9c55ac4f9806b7c330a7d18a4697041caefe3ff` | 105,088       |
-
-`q04` is the concatenation of 21 responses in this order: `astm`, `bridgelink-mcp`, `cli`, `config`,
-`deid`, `fhir`, `hl7`, `minions`, `mllp`, `ncpdp`, `pathways`, `synth`, `terminology`, `transform`,
-`web`, then `ccda` (2 pages), `dicom` (2 pages), `x12` (2 pages). `q05` is, in order: `fhir#73` PR
-object, its check runs, run `31497105267` pending deployments, `terminology#62` PR object, its check
-runs, run `31701709401` pending deployments. `q00` is: `/user`, org counts,
-`/repos/cosyte/config` (permissions), the protection probe, the rulesets probe.
+**Why re-depositing is not a one-line fix, if anyone reconsiders.** `pnpm check:no-emdash` sweeps
+**every tracked file** in this repository (`git ls-files`, not a glob) and bans U+2014 in literal and
+encoded form, and historical pull request titles across the organization carry U+2014 in quantity
+(`ASTM-1 <U+2014> record foundation`, `CLI-1 <U+2014> cosyte parse`, dozens more). A plain-text
+deposit reds the brand gate on arrival and there is no glob to exclude it from, which is why the
+first pass encoded it. Any future deposit has to solve that again.
 
 ### Which mechanism read which fact (AC28)
 
@@ -270,7 +302,9 @@ recorded rather than omitted: `cosyte/pathways` (0), `cosyte/bridgelink-mcp` (0)
 branch is exactly `changeset-release/main`.** Both conditions, every repository, no exceptions.
 
 **What the rule excluded that a reader might reasonably have counted: nothing.** Both directions were
-checked over all 8,000-odd pull requests in the deposit:
+checked over **all 1,157 pull requests q04 returned** across the 18 in-scope repositories, which is
+every pull request those repositories have ever had and is also the sum of `pullRequests.totalCount`
+over the same 18 in q02:
 
 - pull requests raised from `changeset-release/main` carrying some other title: **0**
 - pull requests titled `Version Packages` raised from some other branch: **0**
@@ -376,12 +410,22 @@ between about 23 hours and about 269 hours selects the same two PRs.
 | 48 to 72 h        | 1   |
 | > 72 h            | 4   |
 
-**The two clocks disagree about three PRs, and the disagreement is the reason the last-push clock was
-chosen.** `ccda#61` (48.78 h open, 0.03 h idle), `deid#14` (189.79 h open, 0.06 h idle) and
-`transform#10` (186.94 h open, 0.03 h idle) each sat open for days and then merged within two minutes
-of a fresh force-push. On an `opened-at` bar they would be counted as stalls; on the last-push bar
-they are not, because the automation was refreshing them and a human merged promptly once it settled.
-Counting them would have made the stalled set 5 and changed the disposition arithmetic below.
+**At the 72-hour bar the two clocks disagree about exactly two PRs, and the disagreement is the
+reason the last-push clock was chosen.** `deid#14` (189.79 h open, 0.06 h idle) and `transform#10`
+(186.94 h open, 0.03 h idle) each sat open for days and then merged within two minutes of a fresh
+force-push. An `opened-at` bar at 72 hours counts them as stalls; the last-push bar does not, because
+the automation was refreshing them and a human merged promptly once it settled. `ccda#61` (48.78 h
+open, 0.03 h idle) is the same pattern one bucket down and **is not a disagreement at 72 hours**: it
+clears neither bar, which is what the `48 to 72 h: 1` row above says.
+
+**What the rejected clock would have produced, arithmetically.** An `opened-at` bar at 72 hours
+selects **4** PRs, not 5: `deid#14`, `transform#10`, `fhir#73` (353.27 h) and `terminology#62`
+(269.77 h). Four is still below AC32 clause 1's threshold of 5 stalled PRs, so **the rejected clock
+would not have cleared the weakening threshold either**, and nothing in the disposition below turns
+on the choice. The clock is fixed by operator decision in any case
+(`operator-decision-stalled-is-measured-from-the-last-commit.md`), and NARROW is not a publish-gate
+weakening, so AC32 is reported rather than relied on. This paragraph exists so nobody reads the
+clock choice as having been load-bearing for the outcome. It was not.
 
 ## The stalled set (AC5, AC6, AC7, AC26, AC33, AC39)
 
@@ -537,10 +581,22 @@ release` at line 223) and in `config`'s hand-rolled `release.yml` at the pin. Gi
 - **Consequence, measured:** **62 `Release` runs were sitting in `status: waiting` at
   `2026-08-22T21:50:00Z`**, per repository: `fhir` 12, `x12` 10, `dicom` 9, `terminology` 6, `hl7` 4,
   `mllp` 4, `transform` 4, `deid` 4, `ccda` 3, `cli` 2, `ncpdp` 2, `astm` 1, `synth` 1, `config` 0,
-  `pathways` 0, `bridgelink-mcp` 0. The oldest was created `2026-08-04T15:02:54Z`.
+  `pathways` 0, `bridgelink-mcp` 0. The oldest was created `2026-08-04T15:02:54Z`. **This is a census
+  at that instant and does not re-derive from a re-run**, for the reason set out under the retrieval
+  plan: `status=waiting` is current state, so an approved or cancelled run leaves the count. The
+  divergence itself does not depend on the integer; it is established by the tree read.
 - **Disposition: REQUIRED CHANGE.** `cosyte/config`: split into an ungated version job and a gated
   publish job. Done in this branch. The other 13: follow-on F1 below, because it lives in
   `cosyte/.github` and this work may not edit it.
+- **One thing the split breaks and this branch repairs, disclosed because a silent regression here
+  would be worse than the stall.** The `Every bumped package must be published, tagged and released`
+  accounting used to sit in the single job and therefore covered both arms. Moving it into `publish`
+  leaves one push uncovered: a version commit that ALSO carries a changeset landed since the Version
+  PR was last refreshed is both `is-release` and `has-changesets`, takes the ungated arm, and would
+  have gone green with packages bumped on `main` and nothing on the registry. `release.yml` on this
+  branch carries a second copy of the accounting in the `version` job for exactly that push, and
+  `RELEASING.md` failure state (c) carries its terminal action. **Anyone adopting F1 must port that
+  step with the split, not just the split.**
 
 ### D2. `config` is the one hand-rolled release workflow
 
@@ -781,18 +837,22 @@ F2 and F3 rather than performed.
 
 No file outside the `config` checkout is modified by this work. Everything below is filed, not done.
 
-| #      | repository                                                                                                                                                                                                    | change                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **F1** | `cosyte/.github`                                                                                                                                                                                              | Split `.github/workflows/release.yml` the way `config`'s is split in this branch: an ungated preflight job running the release gates, an ungated `version` job with no `publish:` input and no npm credentials, and a gated `publish` job keeping `environment: release`. This is the change that matters: 13 of the 14 publishing repositories inherit their pipeline from this one file, and 62 held runs are the current cost of not making it. `config`'s `release.yml` on this branch is the reference implementation, including the `has-changesets` arm condition and the argument for why that condition is not the `is-release` classifier. |
-| **F2** | `cosyte/fhir`                                                                                                                                                                                                 | Merge PR 73. It is green, mergeable, and 294 idle hours old. Then approve the publish run it triggers, and clear the 12 held `Release` runs (the oldest, `31269174845`, dates from 2026-08-08).                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| **F3** | `cosyte/terminology`                                                                                                                                                                                          | Merge PR 62, on the same terms. Then clear the 6 held `Release` runs.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| **F4** | organization (npm and GitHub settings, not a repository edit)                                                                                                                                                 | If the release backlog persists after F1, the next lever is a `wait_timer`-plus-second-reviewer arrangement on the `release` environment, or npm Trusted Publishers with OIDC so no long-lived `NPM_TOKEN` exists. **Neither is enacted and neither may be**, since either would touch the publish acknowledgment and there is no operator decision artifact deciding it. Raise it with the operator; do not infer it from this record.                                                                                                                                                                                                              |
-| **F5** | `cosyte/deid`                                                                                                                                                                                                 | Add `no-emdash.yml` and make `no-emdash` a required check, matching the other twelve publishers. Not a release-process change; filed so D6 is not lost.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| **F6** | `cosyte/astm`, `cosyte/ccda`, `cosyte/cli`, `cosyte/deid`, `cosyte/dicom`, `cosyte/fhir`, `cosyte/hl7`, `cosyte/mllp`, `cosyte/ncpdp`, `cosyte/synth`, `cosyte/terminology`, `cosyte/transform`, `cosyte/x12` | After F1 lands, clear the 50 remaining held `Release` runs (62 minus fhir's 12 and terminology's 6, plus those two once F2 and F3 are done). Each is a decision about a specific publish, so they are approved or cancelled one at a time by the release owner, not swept.                                                                                                                                                                                                                                                                                                                                                                           |
+| #      | repository                                                                                                                                                                                                    | change                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **F1** | `cosyte/.github`                                                                                                                                                                                              | Split `.github/workflows/release.yml` the way `config`'s is split in this branch: an ungated preflight job running the release gates, an ungated `version` job with no `publish:` input and no npm credentials, and a gated `publish` job keeping `environment: release`. This is the change that matters, because 13 of the 14 publishing repositories inherit their pipeline from this one file. **What it removes, stated precisely: the wait on every push that carries a pending changeset**, which is the class both stalled PRs sit in. It does NOT remove all 62 held runs. The `publish` job is gated on `has-changesets != 'true'`, so every ordinary push to `main` with no pending changeset still enters `waiting` and still needs a human, which is correct and deliberate: that arm is the one that can reach npm. The residue is what `RELEASING.md`'s step 5 budget and lapsed-budget rule exist to bound. `config`'s `release.yml` on this branch is the reference implementation, including the `has-changesets` arm condition, the argument for why that condition is not the `is-release` classifier, and the version-arm copy of the release accounting that the split makes necessary (see D1). |
+| **F2** | `cosyte/fhir`                                                                                                                                                                                                 | Merge PR 73. It is green, mergeable, and 294 idle hours old. Then approve the publish run it triggers, and clear the 12 held `Release` runs (the oldest, `31269174845`, dates from 2026-08-08).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| **F3** | `cosyte/terminology`                                                                                                                                                                                          | Merge PR 62, on the same terms. Then clear the 6 held `Release` runs.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| **F4** | organization (npm and GitHub settings, not a repository edit)                                                                                                                                                 | If the release backlog persists after F1, the next lever is a `wait_timer`-plus-second-reviewer arrangement on the `release` environment, or npm Trusted Publishers with OIDC so no long-lived `NPM_TOKEN` exists. **Neither is enacted and neither may be**, since either would touch the publish acknowledgment and there is no operator decision artifact deciding it. Raise it with the operator; do not infer it from this record.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| **F5** | `cosyte/deid`                                                                                                                                                                                                 | Add `no-emdash.yml` and make `no-emdash` a required check, matching the other twelve publishers. Not a release-process change; filed so D6 is not lost.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| **F6** | `cosyte/astm`, `cosyte/ccda`, `cosyte/cli`, `cosyte/deid`, `cosyte/dicom`, `cosyte/fhir`, `cosyte/hl7`, `cosyte/mllp`, `cosyte/ncpdp`, `cosyte/synth`, `cosyte/terminology`, `cosyte/transform`, `cosyte/x12` | After F1 lands, clear the 50 remaining held `Release` runs (62 minus fhir's 12 and terminology's 6, plus those two once F2 and F3 are done). Each is a decision about a specific publish, so they are approved or cancelled one at a time by the release owner, not swept.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 
 ## Reproducing this
 
-Every query is in the method table with its exact endpoint and filters. For the deposited ones, the
-committed response is the answer as of the window; for the bounded ones, re-running the query with
-the same bound reproduces it. Rows will legitimately differ where a PR, run or repository has changed
-state since `2026-08-22T21:55:00Z`, which is what a DISCLOSE record means.
+Every query is in the retrieval table with its exact endpoint and filters, and that table is the
+whole reproduction route: **no raw responses are committed**, by the operator decision recorded
+above. Re-running a **bounded** query reproduces its answer exactly. Re-running a **live** one
+returns current state, and this record's answer for it is the literal value printed here beside the
+endpoint that produced it, which is a claim a reader can contradict but not re-derive. Rows will
+legitimately differ where a PR, run or repository has changed state since `2026-08-22T21:55:00Z`,
+which is what a DISCLOSE record means, and the two things most likely to have moved by the time you
+read this are the 62-run census and the state of `fhir#73` and `terminology#62`.
