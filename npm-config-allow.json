@@ -1,0 +1,147 @@
+{
+  "version": 1,
+  "$comment": [
+    "THE ALLOW-SET FOR scripts/npm-config-allow.mjs. Read that file's header first.",
+    "",
+    "This is the committed answer to 'what may a release of this repository be configured with'.",
+    "The gate runs inside the GATED publish job of .github/workflows/release.yml, before the",
+    "publish command, and refuses the release unless every value contributed by any configuration",
+    "source is permitted here. An npm publish is permanent and cannot be withdrawn, so a value",
+    "nobody wrote down here does not get to ship.",
+    "",
+    "ABSENT, EMPTY OR UNPARSEABLE IS A REFUSAL, NOT A PERMISSION. Deleting this file does not turn",
+    "the gate off, it turns every release off. That is deliberate: 'missing' reading as 'permit",
+    "everything' is the single most likely way a control like this stops controlling anything.",
+    "",
+    "THREE MATCH MODES, exactly one per entry: `value` pins an exact value, `pattern` is an",
+    "unanchored regular expression over the value, and `anyValue: true` permits the key at any",
+    "value. A credential-denoting key may ONLY use `anyValue`: this file is committed to a PUBLIC",
+    "repository and the check refuses an allow-set that pins a secret.",
+    "",
+    "HOW TO ADD AN ENTRY: RELEASING.md, section 'The configuration allow-check'. In short, run",
+    "`pnpm run release:config-allow`, read the source it names for the value it refused, decide",
+    "whether that source SHOULD be contributing it, and only then add the entry with a `why`."
+  ],
+  "allow": [
+    {
+      "key": "registry",
+      "value": "https://registry.npmjs.org/",
+      "why": "The public npm registry, which is where these eight packages belong. actions/setup-node writes this into the user config it generates for the publish job, so it arrives as a contributed value rather than as npm's default. Only this one URL is permitted, and the `require` rule below re-checks it against the resolvers' full maps so a permissive entry here could not widen it."
+    },
+    {
+      "key": "provenance",
+      "value": true,
+      "why": "release.yml sets NPM_CONFIG_PROVENANCE from the repository's public visibility, and provenance attestations are wanted. `true` is the ONLY permitted value: a source contributing `provenance=false` is a disabled attestation and is exactly what this gate exists to refuse."
+    },
+    {
+      "key": "//registry.npmjs.org/:_authToken",
+      "anyValue": true,
+      "why": "The registry credential actions/setup-node writes into the generated user config. Permitted by KEY and never by value: the token is a secret, this file is public, and the check refuses an allow-set that pins one. The registry it authenticates to is pinned by the `require` rule below, so this cannot become a credential offered to somewhere else."
+    },
+    {
+      "key": "always-auth",
+      "anyValue": true,
+      "why": "actions/setup-node has written this alongside the token in some versions and it is not pinned here because which value it writes varies by version. It only decides whether the credential is sent preemptively, and the registry that credential goes to is pinned by the `require` rule below, so neither value can offer the token to somewhere else."
+    },
+    {
+      "key": "userconfig",
+      "anyValue": true,
+      "why": "Where npm's user config lives. actions/setup-node GENERATES that file under RUNNER_TEMP and exports NPM_CONFIG_USERCONFIG to point at it, so the path is runner-specific and cannot be pinned. Permitting the pointer is safe because the check reads the file it points AT through npm's own resolver: whatever that file contributes is itself observed and judged by this allow-set."
+    },
+    {
+      "key": "globalconfig",
+      "anyValue": true,
+      "why": "Where pnpm's global rc lives, derived from HOME and therefore machine-specific. Same argument as `userconfig`: the pointer is permitted, the contents of the file it points at are observed and judged."
+    },
+    {
+      "key": "npm-globalconfig",
+      "anyValue": true,
+      "why": "Where npm's global rc lives, derived from the npm installation prefix and therefore machine-specific. Same argument as `userconfig`."
+    },
+    {
+      "key": "prefix",
+      "anyValue": true,
+      "why": "The working prefix the package manager resolved, which is the checkout directory and differs on every runner. It names a location this check already reads (the repository .npmrc under it is an enumerated source), not a publish behaviour."
+    },
+    {
+      "key": "dir",
+      "anyValue": true,
+      "why": "pnpm's report of the directory it ran in. Machine-specific and, like `prefix`, a location this check already reads rather than a publish behaviour."
+    },
+    {
+      "key": "global-bin-dir",
+      "anyValue": true,
+      "why": "pnpm/action-setup writes this when it installs pnpm on the runner. It decides where globally-linked binaries go and has no bearing on what is packed or where it is published."
+    },
+    {
+      "key": "user-agent",
+      "anyValue": true,
+      "why": "The package manager's own version banner. It embeds the pnpm, npm and node versions, so it differs between a runner and a laptop by construction."
+    },
+    {
+      "key": "packages",
+      "value": ["packages/*"],
+      "why": "The workspace glob in pnpm-workspace.yaml. It decides WHICH packages a release covers, so it is pinned exactly: widening it silently is how a package nobody meant to publish gets published."
+    },
+    {
+      "key": "pnpm-field:overrides",
+      "value": {
+        "esbuild@>=0.27.3 <0.28.1": "0.28.1",
+        "js-yaml@>=4.0.0 <4.2.0": "4.2.0"
+      },
+      "why": "The root manifest's pnpm.overrides block, which forces transitive dependency versions and therefore decides what ends up inside a build. Pinned exactly: changing an override is a supply-chain decision and must be a reviewed diff here as well as in package.json."
+    },
+    {
+      "key": "publishConfig:access",
+      "value": "public",
+      "why": "Every one of the eight published packages declares `publishConfig.access`. `public` is the only permitted value: a scoped package flipped to `restricted` publishes somewhere nobody can install it from, and a private package flipped to `public` is the opposite accident."
+    },
+    {
+      "key": "changesets:access",
+      "value": "public",
+      "why": "The access `changeset publish` passes to `pnpm publish`. Pinned for the same reason as publishConfig:access."
+    },
+    {
+      "key": "changesets:baseBranch",
+      "value": "main",
+      "why": "The branch Changesets diffs against. Pinned so a change to it is reviewed here too."
+    },
+    {
+      "key": "changesets:changelog",
+      "value": false,
+      "why": "Changesets does not generate changelogs in this repository; every package hand-maintains its CHANGELOG.md and release bodies come from scripts/release-notes.mjs. Turning this on would silently change what release automation writes."
+    },
+    {
+      "key": "changesets:commit",
+      "value": false,
+      "why": "Changesets does not commit on its own here; the version arm of release.yml pushes the version commit. Turning this on would change who authors a release commit."
+    },
+    {
+      "key": "changesets:fixed",
+      "value": [],
+      "why": "No fixed version groups. A group added here bumps packages together, which changes what a release publishes."
+    },
+    {
+      "key": "changesets:linked",
+      "value": [],
+      "why": "No linked version groups, for the same reason as `fixed`."
+    },
+    {
+      "key": "changesets:ignore",
+      "value": [],
+      "why": "No package is excluded from releases. An entry here WITHHOLDS a package from publishing, which is the silent-withholding class this repository's release gates exist to refuse, so it may never appear without a reviewed diff."
+    },
+    {
+      "key": "changesets:updateInternalDependencies",
+      "value": "patch",
+      "why": "How Changesets bumps intra-workspace dependency ranges. It decides what version of a sibling a published package asks for."
+    }
+  ],
+  "require": [
+    {
+      "key": "registry",
+      "value": "https://registry.npmjs.org/",
+      "why": "The tarballs go to the public npm registry and nowhere else. Stated as a REQUIREMENT rather than left to the `allow` entry above because a requirement is checked against the resolvers' FULL effective maps, defaults included, and against every resolver that knows the key. It therefore catches a redirected registry even if some future allow entry were widened, and it catches a disagreement between npm's answer and pnpm's."
+    }
+  ]
+}

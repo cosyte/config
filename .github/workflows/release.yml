@@ -383,6 +383,59 @@ jobs:
           registry-url: https://registry.npmjs.org
           cache: pnpm
 
+      # GATE 3: THE EFFECTIVE CONFIGURATION OF THIS PUBLISH MUST BE ONE SOMEBODY APPROVED.
+      #
+      # THE HOLE THIS CLOSES (S0055 finding F9). Everything that decides WHERE these tarballs go,
+      # WHAT goes inside them and WHAT METADATA rides along is npm/pnpm configuration, and that
+      # configuration is assembled at publish time out of sources nothing in this repository used to
+      # inspect: a global npmrc, the user npmrc `actions/setup-node` GENERATES two steps above and
+      # points NPM_CONFIG_USERCONFIG at, a repository or per-package `.npmrc`, `pnpm-workspace.yaml`,
+      # the root manifest's `pnpm` block, each package's `publishConfig`, `.changeset/config.json`,
+      # and this job's environment. A redirected `registry`, a disabled `provenance`, a widened
+      # `access` or an injected lifecycle-script setting changes what reaches the public registry
+      # WITHOUT changing a tracked file in a way review would see.
+      #
+      # WHY IT RUNS HERE AND NOT IN `preflight`, and this is the part not to "simplify". Effective
+      # configuration is a property of a SPECIFIC PROCESS: its environment, its working directory,
+      # and the home directory of the runner in a specific job. `preflight` runs with different
+      # permissions, no npm credentials and no `release` environment, so a configuration observed
+      # there is not evidence about this publish. A green answer about the wrong process is worse
+      # than no answer, because the conclusion is the only thing anyone reads. The accepted cost is
+      # that a refusal here happens after an approver has already approved the run.
+      #
+      # THE `env:` BLOCK BELOW IS THE PUBLISH STEP'S, MINUS EXACTLY ONE VARIABLE, AND BOTH HALVES OF
+      # THAT ARE DELIBERATE. It is DECLARED in .github/credential-surface.json (S0080), which is what
+      # made this decision a reviewed one rather than a default.
+      #
+      #   * NPM_CONFIG_PROVENANCE is npm CONFIGURATION supplied at STEP level, so a check that ran
+      #     without it would be reporting on a configuration the publish does not have. That is the
+      #     same class of error as running this check in `preflight`.
+      #   * NODE_AUTH_TOKEN is here because the user npmrc `actions/setup-node` generates two steps
+      #     above contains `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}`, and npm expands
+      #     that reference when it resolves configuration. Without the variable this step would be
+      #     reading a DIFFERENT state of that file than the publish reads: an unresolvable
+      #     reference, which this gate is fail-closed about. It would refuse every release, or worse
+      #     depend on the npm version's tolerance for it.
+      #   * NPM_TOKEN is NOT here, and that omission is the point of naming this block at all.
+      #     Nothing on the configuration path reads it: npm reads only `npm_config_*` variables, and
+      #     the registry credential reaches npm through the generated npmrc above. It is in the
+      #     publish step because `changesets/action` wants it. Copying it here would widen this
+      #     repository's declared credential surface by one step and buy this check nothing, and a
+      #     surface that grows for nothing is exactly what credential-surface.mjs exists to refuse.
+      #
+      # If the publish step's npm CONFIGURATION env changes, change this with it, and update
+      # .github/credential-surface.json in the same commit. The check never prints a credential
+      # value; see its redaction rule and the suite that proves it (test/npm-config-allow.test.ts).
+      #
+      # IT RUNS BEFORE `pnpm install`, so nothing has been fetched or built under a configuration
+      # nobody approved, and it is zero-dependency for that reason. It ADDS a refusal after the
+      # existing environment gate; it removes, loosens and relocates nothing.
+      - name: The publish configuration must be one the allow-set permits
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: ${{ github.event.repository.visibility == 'public' }}
+        run: node scripts/npm-config-allow.mjs
+
       # Re-derived here rather than carried across the job boundary as an artifact. It is a pure
       # function of the checked-out git history, `preflight` has already refused the run if it cannot
       # be derived, and re-running it is cheaper and less fragile than uploading and downloading a
