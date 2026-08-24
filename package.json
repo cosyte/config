@@ -28,6 +28,8 @@
     "check:no-emdash": "bash scripts/check-no-emdash.sh",
     "changeset:guard": "node scripts/changeset-guard.mjs",
     "release:notes": "node scripts/release-notes.mjs",
+    "credentials:check": "node scripts/credential-surface.mjs",
+    "publish:preflight": "node scripts/publish-preflight.mjs",
     "test:root": "vitest run",
     "test:packages": "pnpm --filter \"./packages/*\" run test",
     "test": "pnpm run test:root && pnpm run test:packages",
@@ -38,7 +40,7 @@
     "attw": "pnpm --filter \"./packages/*\" run attw",
     "changeset": "changeset",
     "version": "changeset version",
-    "release": "pnpm run build && changeset publish",
+    "release": "node scripts/publish-preflight.mjs && pnpm run build && changeset publish",
     "drift": "node scripts/drift-check.js"
   },
   "devDependencies": {

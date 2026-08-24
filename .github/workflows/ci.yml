@@ -61,6 +61,24 @@ jobs:
       # see, one merge earlier.
       - run: node scripts/changeset-guard.mjs
       - run: node scripts/release-notes.mjs prepare --repo . --out "$RUNNER_TEMP/release-notes"
+      # THE CREDENTIAL-SURFACE GATE, HERE FOR THE SAME REASON AS THE TWO ABOVE, and it is the half of
+      # this change that makes the declaration binding rather than decorative. It compares
+      # `.github/credential-surface.json` against `release.yml` and against RELEASING.md's rotation
+      # procedures, and fails on any disagreement in either direction: an undeclared secret, a
+      # declared credential that is no longer where it says, a credential exposed at a wider scope
+      # than declared, a `GITHUB_TOKEN` grant beyond the declared one (or a job with no
+      # `permissions:` block, which silently inherits the workflow-level grants), a registry-reaching
+      # job that does not reference the protected environment, an issued form the log scrubbing does
+      # not cover, or a declared credential the documentation omits.
+      #
+      # It belongs in `verify` rather than only in release.yml's `preflight` because `verify` is a
+      # REQUIRED status check in this repo's `config-ci-required-checks` ruleset, so this is the copy
+      # that can REFUSE A MERGE. Running it only on the release path would catch a credential
+      # regression after the merge that triggers a release, which for a credential is after an
+      # approver has already been asked to approve a deployment carrying it.
+      #
+      # Zero-dependency node, like the two gates above, so it runs before install.
+      - run: node scripts/credential-surface.mjs
       - run: pnpm install --frozen-lockfile
       # The em-dash brand gate's FILE half also runs in no-emdash.yml, which additionally
       # covers the PR title, body and commit messages and carries the `edited` trigger those

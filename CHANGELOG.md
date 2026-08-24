@@ -16,6 +16,57 @@ no package, so entries here are **dated** rather than versioned.
 
 ### Added
 
+- **The publish path's credential surface is now DECLARED AND ENFORCED rather than described**
+  (`S0080-config-npm-cred-surface`). The credentials this repository publishes with lived only in
+  prose: comment blocks in `.github/workflows/release.yml` and narrative sections of `RELEASING.md`.
+  Nothing machine-checked that the described surface was the actual one, so adding a secret, hoisting
+  a token from a step to a whole job, widening a `permissions:` grant, or dropping a credential the
+  docs still promised all rode a green build. That is the silent-drift class this repository already
+  spent two incidents closing on the publish path itself, applied to the one input where the failure
+  is not a bad release but a leaked or over-scoped publish credential.
+  - **`.github/credential-surface.json` is the declaration.** Every credential the publish path
+    consumes, and for each one its required token class, the single storage location it may occupy,
+    the job and step permitted to receive it, and the condition that retires it. `NPM_TOKEN`
+    (organization secret, Automation or granular, retired by the OIDC trusted-publisher cutover),
+    `RELEASE_PR_TOKEN` (repository secret, fine-grained PAT, optional by design), and `GITHUB_TOKEN`
+    (never stored, and declared by its `permissions:` grants at both workflow and job level). The
+    non-secret `NPM_CONFIG_PROVENANCE` switch is declared too, because deleting it turns provenance
+    off silently and nothing else here would notice.
+  - **`scripts/credential-surface.mjs` refuses any disagreement, in either direction, in one run.**
+    An undeclared secret; a declared credential no longer where it says; a credential exposed at a
+    wider scope than declared (workflow level, job level, another job, another step, or a value
+    passed where a presence test was declared); a `GITHUB_TOKEN` grant beyond the declared one, or a
+    job with **no** `permissions:` block, which silently inherits the workflow-level grants,
+    `id-token: write` included; a registry-reaching job that does not reference the protected
+    `release` environment; an issued credential form the npm-debug-log scrubbing does not cover in
+    both halves (the rules that redact and the assertion that re-reads the redacted bytes); and a
+    declared credential `RELEASING.md` has no rotation procedure for. An absent, empty or
+    unparseable declaration, or an unreadable or unparseable workflow, is a **failure**: it refuses
+    to report success on having compared nothing.
+  - **It parses the workflow rather than grepping it**, with a small YAML subset reader that
+    REFUSES what it does not understand. Half the question is about scope, and scope is structure;
+    a text scan also cannot tell prose from wiring, and `release.yml`'s header comments name
+    `NPM_TOKEN` and `RELEASE_PR_TOKEN` in ordinary English several times.
+  - **Wired into the required `verify` job in `ci.yml`**, next to the changeset guard and the
+    release-notes gate and before install, so a credential-surface regression is refused **at merge
+    time**, before any approver is asked for a deployment. Locally: `pnpm credentials:check`.
+  - **`scripts/publish-preflight.mjs` refuses an absent or empty required credential before the
+    registry is contacted**, and it runs FIRST in `pnpm run release`, ahead of `pnpm run build`. It
+    sits on the publish command path rather than in the workflow's step list, so a release run by
+    hand or by a future workflow gets the same refusal. It never reads a credential value into a
+    message, and it honours the declaration's `requiredForPublish` flag rather than hardcoding
+    names, so `RELEASE_PR_TOKEN` (optional by design, warned about loudly by the workflow) cannot
+    fail the release closed.
+  - **`RELEASING.md` gained "Credential rotation, revocation, and compensating actions"**: one
+    procedure per credential covering issue, install, verify, revoke and the manual compensating
+    action, plus the two statements the gate checks for once. **There is no automated rollback for a
+    credential change**, and **a version already published to the registry is permanent and is not
+    undone by revoking the credential that published it**. Reverting the commit restores the
+    workflow text and nothing else.
+  - **60 negative controls**, in `test/credential-surface.test.ts` and
+    `test/publish-preflight.test.ts`. Each mutates a real copy of this repository's own declaration,
+    workflow and release documentation, one defect at a time, and asserts the gate refuses it by
+    name. The positive control is the repository as committed.
 - **The parser template's PHI scanner is now a THIN CALLER of `@cosyte/script-utils/phi-scan`, and
   the scaffold's own `SCAN_ROOTS` hole is closed** (`PHI-SCAN`). A founder architecture decision:
   "I should not have to continually update the PHI scan. That defeats the purpose."
