@@ -375,6 +375,155 @@ exactly one place.
 job has neither, and is given no `publish:` input either, so reaching the registry from an ungated job
 would take two independent mistakes rather than one. Keep it that way.
 
+### The surface is declared, not described
+
+Everything above used to live only in prose, here and in `release.yml`'s comments, and nothing
+machine-checked that the described surface was the actual one. **`.github/credential-surface.json` is
+now the declaration**: every credential the publish path consumes, and for each one its required
+token class, the single storage location it may occupy, the job and step permitted to receive it, and
+the condition that retires it. `scripts/credential-surface.mjs` compares that declaration against
+`release.yml` and against this document, and **fails on any disagreement in either direction**: a
+secret the workflow references and the declaration does not name, a credential the declaration names
+that is no longer where it says, a credential exposed at a wider scope than declared, a
+`GITHUB_TOKEN` permission grant beyond the declared one (or a job with no `permissions:` block, which
+silently inherits the workflow-level grants), a registry-reaching job that does not reference the
+protected environment, an issued credential form the log scrubbing does not cover, and a declared
+credential this section omits.
+
+It runs in `ci.yml`'s **required** `verify` job, so a credential-surface change is refused **at merge
+time**, before anyone is asked to approve a deployment. Locally it is `pnpm credentials:check`.
+
+**Change the declaration in the same commit as the workflow change it describes.** A pull request
+that moves a credential and leaves this file alone does not merge, which is the entire point.
+
+**What it cannot see.** Whether the `release` environment actually carries its required reviewer and
+`main`-only policy is a GitHub-side fact, and referencing an environment that does not exist makes
+GitHub silently auto-create an unprotected one of that name. The check asserts that the publish job
+**asks** for the gate. That the gate exists is verified out of band, with the API call in "The
+`release` environment" above.
+
+## Credential rotation, revocation, and compensating actions
+
+One procedure per declared credential, each covering issue, install, verify and revoke, plus the
+manual compensating action for when the credential has already been used. `credential-surface.mjs`
+fails if a credential in `.github/credential-surface.json` has no subsection here, or if a subsection
+is missing one of those five steps, so this section cannot fall behind the declaration.
+
+**No automated rollback.** There is no automated rollback for a credential change in this repository,
+at any tier. Reverting the commit that changed a credential's wiring restores the workflow text and
+restores nothing else: it does not un-issue a token, does not remove a secret from the organization or
+the repository, does not revoke a token already copied elsewhere, and does not recall anything that
+token published. Every remedy below is a human action taken against npm or GitHub, in that order, and
+the compensating action per credential is the whole of it.
+
+**A published version is permanent.** A version that has reached the registry stays there and is not
+undone by revoking the credential that published it. Revoking `NPM_TOKEN` stops the **next** publish;
+it does nothing about the one that already happened. npm's unpublish window is narrow and its use is a
+founder decision with consumers on the other side of it, so the compensating action for a bad publish
+is a **new version**, not a withdrawal. Treat "the credential was compromised" and "the wrong bytes
+shipped" as two separate incidents with two separate remedies, and do not let revoking a token feel
+like it addressed the second.
+
+### `NPM_TOKEN`
+
+**Blast radius before you start.** This is an **organization** secret shared by every `@cosyte/*`
+repository. Rotating it affects all of them, not just this one, and there is no per-repository
+override that is safe to introduce: a repository-level `NPM_TOKEN` silently outranks the
+organization-level one, which is exactly how two tokens end up live with nobody sure which one
+published.
+
+- **Issue.** On npmjs.com as the `@cosyte` scope owner: Access Tokens, then Generate New Token, then
+  **Granular Access Token** (or **Automation**). Grant it read and write on the `@cosyte` scope,
+  nothing else, and set the shortest expiry the release cadence tolerates. **Do not issue a classic
+  Publish token**: it demands a 2FA one-time password that CI cannot supply, and the publish dies with
+  `EOTP This operation requires a one-time password from your authenticator` after a green build, at
+  the very last step.
+- **Install.** Set it in **exactly one place**: the `cosyte` organization secrets
+  (`gh secret set NPM_TOKEN --org cosyte --visibility all`). Then confirm no repository-level copy
+  exists anywhere it would shadow the organization one:
+  `gh secret list --repo cosyte/config` must not list `NPM_TOKEN`. Delete any that does.
+- **Verify.** Do not verify by publishing. Run the `Release` workflow on a `main` with no pending
+  changesets, approve the `publish` deployment, and read the run: `changeset publish` reports "no new
+  packages" and the accounting step says every bumped package is on the registry. A wrong-typed token
+  fails there with `EOTP` and an expired one with `E401`, both **before** anything is written, because
+  the publish preflight (`scripts/publish-preflight.mjs`) refuses an absent or empty token before the
+  build even runs.
+- **Revoke.** On npmjs.com, Access Tokens, revoke the old token **after** the new one is installed and
+  verified, not before: the two steps overlap deliberately so no release window is left with no
+  working token. Then re-read `gh secret list --org cosyte` and confirm one entry, one value.
+- **Compensating action.** If the token is believed compromised, invert the order: **revoke first**,
+  accept that every `@cosyte/*` publish is blocked until a replacement is installed, and say so in the
+  org channel because thirteen other repositories share it. Then `npm token list` and audit recent
+  versions of all eight packages (`npm view <pkg> versions --json`) against this repository's tags. A
+  version that reached the registry cannot be pulled back by revoking the token that published it: if
+  the bytes are wrong, publish a corrected **new** version and, only if the content is genuinely
+  dangerous, take the unpublish question to the founder. Finally, harden: set the packages and the org
+  to "Require two-factor authentication and disallow tokens", which makes a stolen token useless and
+  is the same setting the OIDC cutover wants anyway.
+
+### `RELEASE_PR_TOKEN`
+
+**Optional by design.** Absent, the version arm still runs and the workflow prints a loud warning; the
+only symptom is a Version Packages PR that arrives with zero applicable checks and therefore cannot be
+merged by anyone. **Never make its absence fail the release closed.** That would take the release path
+down to protect against a state this repository is already able to be in.
+
+- **Issue.** As the release owner, on github.com: Settings, Developer settings, Personal access
+  tokens, **Fine-grained tokens**, Generate new token. Resource owner `cosyte`, **Only select
+  repositories** and select `config` alone. Repository permissions: **Contents** read and write,
+  **Pull requests** read and write, **Metadata** read. Nothing else, and in particular **not**
+  `Workflows: write`: `pnpm run version` only touches `packages/*/package.json`,
+  `packages/*/CHANGELOG.md` and `.changeset/`. Set an expiry and diary it.
+- **Install.** `gh secret set RELEASE_PR_TOKEN --repo cosyte/config`. Repository level, not
+  organization level: it is scoped to this repository and there is no reason for another to hold it.
+- **Verify.** Push any commit to `main` that leaves a changeset pending, then read the `version` job's
+  first step. With the token set it prints that the Version PR's required checks will actually run;
+  without it, a `::warning` with the title `Version PR will land with zero checks`. Then confirm the
+  PR it opened is authored by a human login:
+  `gh pr view <n> --repo cosyte/config --json author` must not return `github-actions`.
+- **Revoke.** Delete the token on github.com, then
+  `gh secret delete RELEASE_PR_TOKEN --repo cosyte/config`.
+  Removing the secret and leaving the token live is the wrong half to do first: the
+  workflow falls back to `secrets.GITHUB_TOKEN` immediately, so there is no outage to race, and a
+  token nobody uses is the one that gets forgotten.
+- **Compensating action.** A Version PR already opened under a revoked or wrong token **cannot be
+  rescued**: its head sha was pushed by the wrong identity and no check will ever attach to it. Close
+  it, leave its `.changeset/*.md` files on `main` untouched, install a working token, and push a
+  trivial commit so a fresh PR opens under it. See failure state (a) above for the full sequence. If
+  the token itself leaked, revoking it is sufficient harm reduction: it cannot publish to npm, it
+  cannot edit workflows, and its blast radius is this repository's contents and pull requests.
+
+### `GITHUB_TOKEN`
+
+**Nothing to rotate.** GitHub mints this token at job start and revokes it at job end, so there is no
+stored value, no expiry to diary, and no revocation request to make. What can drift is its **scope**,
+and that is what the declaration pins: a per-job `permissions:` block for every job, checked grant by
+grant, plus a refusal when a job declares no block at all and would silently inherit the
+workflow-level grants, `id-token: write` included.
+
+- **Issue.** Not applicable, and deliberately so: no human issues this credential. The equivalent act
+  is granting it a permission, which is an edit to a `permissions:` block in `release.yml` **and** to
+  `.github/credential-surface.json` in the same commit. A grant added to only one of the two does not
+  merge.
+- **Install.** Not applicable. The token is never stored. What is installed is the grant: keep every
+  job's `permissions:` block explicit and minimal, and keep the workflow-level block as the ceiling
+  rather than as a default anyone inherits by accident.
+- **Verify.** `pnpm credentials:check` reports every grant that differs from the declaration, in both
+  directions, and names any job without a block of its own. In a run, the deployment's log shows the
+  token's permissions in the "Set up job" group; `id-token: write` must appear on `publish` and on
+  nothing else.
+- **Revoke.** Narrow or remove the grant in `release.yml` and in the declaration together, then merge.
+  The next job mints a token without it; there is no live credential to invalidate. Removing
+  `id-token: write` from `publish` also turns npm provenance off, so treat that grant as part of the
+  publish contract rather than as hygiene.
+- **Compensating action.** A leak of this token is bounded by the job that held it and expires with
+  that job, so the remedy is not revocation but audit: read the run's log, list what the token could
+  reach under that job's declared grants, and check `main`'s history and this repository's releases
+  and pull requests for anything it wrote. If a grant turns out to have been wider than the work
+  needed, narrow it in both files in one commit. Anything the token published to npm is out of its
+  reach by construction: it has never held registry credentials, and the version arm holds no npm
+  token at all.
+
 ## Proving the pipeline without burning a version
 
 The `release-dry-run` job in `.github/workflows/ci.yml` runs on every push and pull request:
