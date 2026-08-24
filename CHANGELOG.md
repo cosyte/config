@@ -187,8 +187,11 @@ no package, so entries here are **dated** rather than versioned.
     `terminology#62`), both with every required check GREEN and nothing blocking the merge; and
     **62 `Release` runs sitting in `waiting`** on one required reviewer. The leading hypothesis going
     in, the `GITHUB_TOKEN` version-PR trap, was retired on evidence: the worst idle time over all 44
-    `GITHUB_TOKEN`-authored Version PRs is 22.35 hours, under the bar. Full record, with the raw API
-    responses, in `documentation/release-stall-evidence.md`.
+    `GITHUB_TOKEN`-authored Version PRs is 22.35 hours, under the bar. Full record in
+    `documentation/release-stall-evidence.md`, with the per-PR table beside it as
+    `documentation/release-stall-evidence/version-packages-prs.csv` and the raw API responses for the
+    queries that carry no time bound, base64-encoded, under
+    `documentation/release-stall-evidence/raw/`.
   - **WHAT CHANGED.** Three jobs. `preflight` (ungated) runs `changeset-guard`, the release-notes
     gate and the whole verify ladder. `version` (ungated) opens or refreshes the Version Packages PR
     and is given **no `publish:` input, no `NPM_TOKEN`, and no `id-token: write`**, so it cannot

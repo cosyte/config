@@ -88,38 +88,74 @@ GraphQL has no equivalent (workflow runs, check runs, pending deployments, branc
 per-PR "last push" is read inside the PR list query as `commits(last: 1)`, so the whole 185-row
 history cost 18 documents rather than 185 follow-up requests.
 
-The AC29 column says, per query, whether re-issuing it reproduces what this record derived from it.
-It is the honest three-way answer, not a two-way one: **bounded** (a re-run returns the same thing,
-because the query admits no event after the window), **live** (the query is a read of current state
-and a re-run returns whatever is true then), or **bounded set, live fields** (the set of objects the
-query returns is fixed by a date bound, but a field this record read off them is current state).
+The AC29 column names, per query, WHICH OF AC29's TWO LIMBS it takes, and the rule behind the column
+is one line: **a query is deposited wherever it carries no bound AND this record derives a value from
+it.** Four answers, of which the first two are AC29's limbs proper: **deposited** (the raw response
+it derived from is committed under `raw/`, the second limb), **bounded** (the query admits no event
+after the window, so a re-run returns the same thing, the first limb), **bounded set, live fields**
+(the set of objects is fixed by a date bound and re-selectable from a re-run, but a field this record
+read off them is current state), and **live** (a read of current state with no bound available). No
+row below is left on **live** alone: every live query that fed a value into this record is deposited.
 
-| #   | query                                                                                                                                                                | surface | requests | AC29 limb                                                                                                                                                                                         |
-| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| q00 | capability probes (the table above)                                                                                                                                  | REST    | 15       | **live** (identity, permissions and rule state as they stand)                                                                                                                                     |
-| q01 | `GET /orgs/cosyte/repos?type=all&per_page=100` (paginated)                                                                                                           | REST    | 1        | **live** (the org listing as it stands)                                                                                                                                                           |
-| q02 | GraphQL: 36 repository objects, `defaultBranchRef.target.oid`, `pullRequests.totalCount`                                                                             | GraphQL | 1        | **live**, and it is what resolved the default-branch shas that make qB, qC and qD bounded                                                                                                         |
-| qB  | GraphQL: `object(expression: "<oid>:.changeset")` and `"<oid>:.github/workflows"` for all 34 repositories that have a default branch                                 | GraphQL | 1        | **bounded** (pinned to an immutable commit sha)                                                                                                                                                   |
-| qC  | GraphQL: `"<oid>:package.json"`, `"<oid>:pnpm-workspace.yaml"`, `"<oid>:packages"`, `"<oid>:.github/workflows/release.yml"` for the 16 members plus `cosyte/.github` | GraphQL | 1        | **bounded** (same)                                                                                                                                                                                |
-| qD  | GraphQL: every workspace `packages/<name>/package.json` for `config` and `pathways`, plus `config`'s `ci.yml`                                                        | GraphQL | 1        | **bounded** (same)                                                                                                                                                                                |
-| q03 | GraphQL: `branchProtectionRules` and `rulesets(includeParents: true)` for all 18 in-scope repositories                                                               | GraphQL | 1        | **live** (the effective rules as they stand)                                                                                                                                                      |
-| q04 | GraphQL: every pull request (all states, `CREATED_AT` ascending, `commits(last: 1)`) for all 18 in-scope repositories                                                | GraphQL | 21       | **bounded set, live fields**: the 185 rows are re-selected from a re-run by `opened_at <= 2026-08-22T21:55:00Z`, a column on every row; each row's terminal state and last push are current state |
-| q05 | REST: `pulls/{n}`, `commits/{head}/check-runs` and `actions/runs/{id}/pending_deployments` for `fhir#73` and `terminology#62`                                        | REST    | 6        | **live**, but every object is cited below by id, so each is re-readable one at a time                                                                                                             |
-| q06 | REST: `actions/runs?status=waiting&created=<=2026-08-22T21:50:00Z&per_page=100`, once per member repository                                                          | REST    | 16       | **bounded set, live fields**, and here the live field IS the filter: see the note on the 62 below                                                                                                 |
-| q07 | REST: `actions/runs?created=2026-08-05..2026-08-22T21:55:00Z` for `fhir` and `terminology` (the held-run identification)                                             | REST    | 2        | **bounded set, live fields** as restated; **it was ISSUED as `created=>2026-08-05`, which bounds below only**, and the upper bound was added here. See the note under the table                   |
-| q08 | REST: `GET /repos/cosyte/config/rules/branches/main` (corroborating the effective rule set on the enumerating surface)                                               | REST    | 1        | **live**, and it establishes nothing on its own: q03 is the enumerating surface for `config` and this only agreed with it                                                                         |
+| #   | query                                                                                                                                                                | surface | requests (`+n` = post-window, declared below) | AC29 limb                                                                                                                                                                                                                                   |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| q00 | capability probes (the table above)                                                                                                                                  | REST    | 15                                            | **deposited** (5 of its 15 probes; see the note on the other ten under the table)                                                                                                                                                           |
+| q01 | `GET /orgs/cosyte/repos?type=all&per_page=100` (paginated)                                                                                                           | REST    | 1                                             | **deposited** (`q01-org-repos.json.b64`, the whole listing as it answered)                                                                                                                                                                  |
+| q02 | GraphQL: 36 repository objects, `defaultBranchRef.target.oid`, `pullRequests.totalCount`                                                                             | GraphQL | 1                                             | **deposited** (`q02-repo-heads.json.b64`), and it is what resolved the default-branch shas that make qB, qC and qD bounded                                                                                                                  |
+| qB  | GraphQL: `object(expression: "<oid>:.changeset")` and `"<oid>:.github/workflows"` for all 34 repositories that have a default branch                                 | GraphQL | 1                                             | **bounded** (pinned to an immutable commit sha)                                                                                                                                                                                             |
+| qC  | GraphQL: `"<oid>:package.json"`, `"<oid>:pnpm-workspace.yaml"`, `"<oid>:packages"`, `"<oid>:.github/workflows/release.yml"` for the 16 members plus `cosyte/.github` | GraphQL | 1                                             | **bounded** (same)                                                                                                                                                                                                                          |
+| qD  | GraphQL: every workspace `packages/<name>/package.json` for `config` and `pathways`, plus `config`'s `ci.yml`                                                        | GraphQL | 1                                             | **bounded** (same)                                                                                                                                                                                                                          |
+| q03 | GraphQL: `branchProtectionRules` and `rulesets(includeParents: true)` for all 18 in-scope repositories                                                               | GraphQL | 1                                             | **deposited** (`q03-required-checks.json.b64`, the enumerating surface for all 18)                                                                                                                                                          |
+| q04 | GraphQL: every pull request (all states, `CREATED_AT` ascending, `commits(last: 1)`) for all 18 in-scope repositories                                                | GraphQL | 21                                            | **bounded set, live fields**: the 185 rows are re-selected from a re-run by `opened_at <= 2026-08-22T21:55:00Z`, a column on every row; each row's terminal state and last push are current state                                           |
+| q05 | REST: `pulls/{n}`, `commits/{head}/check-runs` and `actions/runs/{id}/pending_deployments` for `fhir#73` and `terminology#62`                                        | REST    | 6                                             | **deposited** (`q05-stalled-observations.ndjson.b64`), and every object in it is cited below by id, so each is also re-readable one at a time                                                                                               |
+| q06 | REST: `actions/runs?status=waiting&created=<=2026-08-22T21:50:00Z&per_page=100`, once per member repository                                                          | REST    | 16                                            | **bounded set, live fields**, and here the live field IS the filter: see the note on the 62 below                                                                                                                                           |
+| q07 | REST: `actions/runs?created=2026-08-05..2026-08-22T21:55:00Z` for `fhir` and `terminology` (the held-run identification)                                             | REST    | 2 (+10)                                       | **bounded**, and the bounded form above is now the form that was ISSUED. The scan issued `created=>2026-08-05`, which bounds below only; the bounded form was issued afterwards, on `2026-08-24T00:47:00Z`. See the note under the table    |
+| q08 | REST: `GET /repos/cosyte/config/rules/branches/main` (corroborating the effective rule set on the enumerating surface)                                               | REST    | 1 (+1)                                        | **deposited** (`q08-config-effective-rules.json.b64`, a re-read taken `2026-08-24T00:49:07Z`, not the scan's own response), and it establishes nothing on its own: q03 is the enumerating surface for `config` and this only agreed with it |
 
-**The one query whose stated form is not the form that was issued: q07.** It went out as
-`created=>2026-08-05`, which bounds the listing below and not above, so as issued it does not admit
-"no event after the window". It is restated above with the upper bound because that is the form a
-reader should re-run, and the restatement is sound rather than cosmetic: every run this record cites
-from q07 carries a `created_at` inside the window (`31497105267` 2026-08-11, `31701709401`
-2026-08-13, `32495980284` 2026-08-21, `32462897354` 2026-08-21, `31269174845` 2026-08-08), so the
-bounded form returns all of them and drops only runs created after the window, which this record does
-not use. The bounded form was **not** itself issued: re-issuing it now would be a read outside the
-declared window, which a DISCLOSE record may not quietly fold into the window it declared.
+**q07, the one query the scan did not issue in its bounded form, and what was done about it.** It
+went out as `created=>2026-08-05`, which bounds the listing below and not above, so AS ISSUED it did
+not admit "no event after the window", and a bounded form nobody issued is a proposal rather than a
+bounded query. So the bounded form was issued, on **`2026-08-24T00:47:00Z`**, two days after the
+window closed. That read is declared here rather than folded into the window, and the fence around it
+is exact: **it contributes no row, no field and no number to this record.** What it establishes is
+only AC29's first limb, that the query stated above is a query that was actually issued and admits no
+run created after `2026-08-22T21:55:00Z`. It returned **454** runs for `fhir` and **258** for
+`terminology`, and every run id this record cites from q07 is inside that bounded result:
 
-**Cost, reported honestly.** REST: 41 requests against a 5,000/hour limit. GraphQL: 27 documents,
+| repository    | run id        | `created_at` from the bounded re-issue | workflow | status at re-issue |
+| ------------- | ------------- | -------------------------------------- | -------- | ------------------ |
+| `fhir`        | `31269174845` | `2026-08-08T17:20:25Z`                 | Release  | `waiting`          |
+| `fhir`        | `31497105267` | `2026-08-11T13:37:02Z`                 | Release  | `waiting`          |
+| `fhir`        | `32495980284` | `2026-08-21T15:08:29Z`                 | Release  | `waiting`          |
+| `terminology` | `31701709401` | `2026-08-13T12:47:22Z`                 | Release  | `waiting`          |
+| `terminology` | `32462897354` | `2026-08-21T08:22:38Z`                 | Release  | `waiting`          |
+
+All five carry a `created_at` inside the window, so the bounded form returns all of them and drops
+only runs created after the window, which this record does not use. All five were still `waiting` at
+the re-issue, which is a **post-window corroboration and not a row**: it is recorded because a reader
+is entitled to know that the two attributions had not moved by the time this was written, and it
+changes no measurement above. The window itself is unchanged, `2026-08-22T21:13:00Z` to
+`2026-08-22T21:55:00Z`, so the comparability band computed from its span is unchanged too.
+
+**q00, and the ten probes the deposit does not carry.** q00 is one table row over 15 capability
+requests, and `q00-capability.ndjson.b64` holds five of them: `GET /user`, `GET /orgs/cosyte`, `GET
+/repos/cosyte/config`, the branch-protection probe with its 404 body, and `GET
+/repos/cosyte/config/rulesets`. Those are the five whose CONTENT this record quotes as evidence (the
+identity, the 19 private repositories, `permissions.admin = true`, the 404 that is an enumeration
+result rather than a denial, the two active rulesets), and they are exactly the ones AC38's protection
+limb and AC27's private limb turn on. The other ten (contents, pulls, check runs, workflow runs,
+deployments, approvals) are limbs of a different kind: AC38 says "a limb is established by an
+authorized read that ANSWERS, never by what the answer contains", so what this record derives from
+them is that they answered, which the AC38 table above states read by read. **The counts printed in
+that table's result column for those ten (11 check runs, 533 workflow runs, and the like) are
+incidental observations of the window, not deposited and not reproducible, and no population row, no
+share, no attribution and no part of the disposition derives from them.** That is the one place this
+record's deposit rule leaves a residue, it is named here rather than left to be found, and it reaches
+nothing any conclusion below rests on.
+
+**Cost, reported honestly.** REST: 41 requests against a 5,000/hour limit, plus **11 further REST
+requests after the window** (2 bounded counts, 8 paginated pages of the bounded q07 re-issue, and the
+q08 read), each of them declared where it is used. GraphQL: 27 documents,
 costing roughly 30 points. **A further ~4,940 GraphQL points were burned by a defect in the scan
 itself**: `gh api graphql --paginate` only advances a cursor variable literally named `endCursor`,
 the first query named it `after`, and for the three repositories with more than 100 pull requests
@@ -133,35 +169,84 @@ plan.
 an independent document or request set, and q04 additionally resumes per repository. No interruption
 occurred, so no AC34 stop was reported under this head.
 
-### There is no raw deposit, and this is exactly what that costs (AC41, AC29)
+### The raw deposit: what it holds, and what it deliberately does not (AC41, AC29)
 
-**Total raw response bytes committed: none.** The first implementation pass of this work deposited
-six base64-encoded blobs, about 1.4 MB, under `documentation/release-stall-evidence/raw/`. They were
-**removed** on operator decision, recorded in the commissioning spec folder as
-`operator-decision-drop-the-raw-deposit.md` (2026-08-23): the payload was judged too large for what
-it bought, and base64 makes it undiffable and ungreppable besides, so a later reader could not see
-what changed between two scans anyway. The readable record and the per-PR CSV stay.
+**One location: [`documentation/release-stall-evidence/raw/`](release-stall-evidence/raw/).** Total
+deposited: **445,763 bytes across 6 files**, decoding to **329,939 bytes** of response body.
 
-That is a real cost and it is stated here rather than left for a reader to discover. AC41's deposit
-clause is conditional ("where raw responses are committed") and no longer applies; its closing clause
-directs what is left: "where neither route is open, AC29's query-bounding limb is used for those
-queries instead." So the table above is the reproduction route, and it does not reach everywhere.
+**The rule the deposit follows**, so it can be checked against the table above rather than taken on
+trust: **a query is deposited wherever it carries no bound AND this record derives a value from it.**
+Every query that would otherwise sit on **live** is deposited, because an unbounded live query with
+no committed response is precisely what AC29 says fails. Nothing with a real bound is deposited: a
+bounded query re-runs to the same answer, so a copy of its response buys a reader nothing the query
+does not already hand them.
 
-**Where it reaches.** qB, qC and qD are pinned to immutable commit shas, so every tree fact in this
-record, every membership decision and every workflow divergence re-reads identically forever. q04's
-185 rows are re-selected from a re-run by an `opened_at` bound, and the derived per-PR table is
-committed as `version-packages-prs.csv`, so AC3's rows, AC4's distributions and the stalled set are
-checkable against a re-run column by column rather than on trust.
+**Route taken: the deposit is shaped so this repository's own gates do not match it**, which is the
+second of AC41's two routes, for BOTH gates. The first route (adding the location to the gates' own
+exclusion lists) was available for the formatter and was refused, because it means editing
+`.prettierignore` to fit the evidence; it is not available at all for the brand gate, which has no
+globs to exclude anything from. One shaping answers both:
 
-**Where it does not, named individually rather than summarised.** For q00, q01, q02, q03, q05 and
-q08 this record supplies neither a bounded query nor a committed response, so for those six it does
-not satisfy AC29's second limb. What stands in their place is weaker and is not offered as
-equivalent: every capability answer, every listing count, every default-branch sha, every required
-check set and every attribution observation is reproduced IN THIS DOCUMENT as a literal value with
-the endpoint that produced it, and every object behind an attribution is cited by id (PR numbers,
-run ids `31497105267` and `31701709401`, deployment environment ids `18532539175` and `18532353981`,
-head shas, check names) so a reader can re-read each one individually and compare. That makes the
-record contestable point by point; it does not make it byte-reproducible.
+1. `pnpm format:check` runs `prettier --check "**/*.{js,mjs,ts,json,md,yml,yaml}"`. A `.b64`
+   extension matches none of those globs, so the formatter never opens the deposit and cannot rewrite
+   a byte of it.
+2. `pnpm check:no-emdash` sweeps **every tracked file** in this repository (`git ls-files`, with no
+   glob at all), so there is nothing to exclude it from and the shaping has to do the work. It bans
+   U+2014 in six forms: the literal character, its URL encoding, its JS escape, and three HTML entity
+   spellings, all six listed in `scripts/check-no-emdash.sh` (which is the only file the sweep skips,
+   because it has to name them). Historical pull request titles across the organization carry U+2014
+   in quantity, so a plain-text deposit reds this repository's own brand gate on arrival. The base64
+   alphabet is `A-Za-z0-9+/=` and none of the six forms can be spelled inside it, so the shaped
+   deposit passes a gate that reads every byte of it.
+
+Shaping is not free and the cost is stated rather than buried: the deposit is undiffable and
+ungreppable as it sits, so a reader has to decode it, and two scans cannot be compared line by line.
+Decoding is also how a reader proves nothing was edited, since the digests below are of the DECODED
+bytes:
+
+```
+base64 -d documentation/release-stall-evidence/raw/q03-required-checks.json.b64 | sha256sum
+```
+
+| file                                  | what it holds                                                                                                                                                | as of                              | decoded sha256                                                     | decoded bytes |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------- | ------------------------------------------------------------------ | ------------- |
+| `q00-capability.ndjson.b64`           | 5 of q00's 15 capability probes: identity, org counts, the `config` repository object with its permissions, the branch-protection 404 body, the ruleset list | window (`2026-08-22`)              | `61867c4a7ddd22a91c9f86e5b04d28928746814043c2d2219da77bafb35a2b08` | 1,337         |
+| `q01-org-repos.json.b64`              | q01, the whole `cosyte` listing, 36 repository objects                                                                                                       | window (`2026-08-22`)              | `248fd29d9242b91b54f230e619ab0d1d7d7bcb67af714ca635a8c695307a1766` | 193,881       |
+| `q02-repo-heads.json.b64`             | q02, the default-branch oids every pinned tree read below resolves against                                                                                   | window (`2026-08-22`)              | `a2994da7187db11eef5b417713606b94fab8d1d2b6e171746c4685a8e2ee8461` | 12,798        |
+| `q03-required-checks.json.b64`        | q03, branch protection and rulesets for all 18, the enumerating surface AC5 and AC39 turn on                                                                 | window (`2026-08-22`)              | `de138371d7f7d94228677df9df8f319fa8c7c84798be094104ba05c18462e168` | 15,672        |
+| `q05-stalled-observations.ndjson.b64` | q05, the PR objects, check runs and pending deployments behind both attributions                                                                             | window (`2026-08-22`)              | `d131a47bff1ee2b5775792e4f9c55ac4f9806b7c330a7d18a4697041caefe3ff` | 105,088       |
+| `q08-config-effective-rules.json.b64` | q08, the effective rules for `cosyte/config` `main`                                                                                                          | **re-read `2026-08-24T00:49:07Z`** | `ce53f12aa73d24b46b1d348a7a6f14db728842f6902f1f591eaf62275937aa5a` | 1,163         |
+
+**Five of the six are the scan's own responses**, restored byte for byte and verifiable against the
+digests above. **The sixth is not, and is labelled so in the table**: the scan's q08 response was
+never kept, so what is deposited is a re-read taken two days later. That is disclosed rather than
+smoothed over, and the reason nothing rests on the difference is that **q08 derives no value in this
+record at all** - it corroborates `config`'s required check set, which q03 ENUMERATES and q03's own
+window response is deposited above. The two agree: q03 gives `config` the ruleset
+`config-ci-required-checks` requiring `verify (22)`, `verify (24)` and `actionlint`, and the q08
+re-read returns the same three contexts under `required_status_checks` plus the four non-check rules.
+If a reader holds that a re-read cannot satisfy AC29's second limb for the query it re-reads, the
+consequence is bounded to q08 and q08 carries nothing.
+
+**What is deliberately NOT deposited.** q04, the pull request graph, at 713,600 decoded bytes the
+single largest response in the scan: its limb is **bounded set, live fields**, its 185 rows are
+re-selected from a re-run by an `opened_at` bound, and every value this record takes from it is
+committed in derived form as `version-packages-prs.csv`. Depositing it would add 964 KB and satisfy
+no criterion that is not already satisfied. q06, qB, qC, qD and q07 are bounded and need no deposit
+for the same reason. The first implementation pass deposited 1,408,186 bytes; this deposit is
+445,763, **32 percent of it**, because the rule is "deposit where no bound exists and a value is
+derived" rather than "deposit everything".
+
+**The history of this deposit, because it has one.** The first pass committed six blobs including
+q04. They were removed in the second pass on an operator decision recorded in the commissioning spec
+folder as `operator-decision-drop-the-raw-deposit.md` (2026-08-23), which judged the payload too
+large for what it bought. Removing them left six queries meeting NEITHER of AC29's limbs, which the
+record said of itself and the implementation gate then refuted (`verdict-impl-2.md`, F56): AC29's
+second limb was never narrowed, and it says an unbounded live query with no committed response fails.
+This deposit is the minimum that satisfies the criterion, and it answers the size objection as far as
+a contract requiring committed responses allows: q04 stays out, the payload is a third, and the
+retrieval table says per query why each file is or is not there. Removing the deposit entirely is
+available only by amending AC29 in the commissioning spec, not by deleting from here again.
 
 **The 62 held runs are the weakest-supported number in this record, and here is why.** q06 is
 bounded on `created`, so it satisfies AC29's letter, but the filter that produces the count is
@@ -179,12 +264,13 @@ D1, in follow-ons F1 and F6, in `RELEASING.md` and in `release.yml`, and everywh
 is dated. Re-take the census before relying on it:
 `gh run list --repo cosyte/<repo> --workflow Release --status waiting`.
 
-**Why re-depositing is not a one-line fix, if anyone reconsiders.** `pnpm check:no-emdash` sweeps
-**every tracked file** in this repository (`git ls-files`, not a glob) and bans U+2014 in literal and
-encoded form, and historical pull request titles across the organization carry U+2014 in quantity
-(`ASTM-1 <U+2014> record foundation`, `CLI-1 <U+2014> cosyte parse`, dozens more). A plain-text
-deposit reds the brand gate on arrival and there is no glob to exclude it from, which is why the
-first pass encoded it. Any future deposit has to solve that again.
+**What the brand gate costs anyone who extends this deposit.** `pnpm check:no-emdash` sweeps **every
+tracked file** in this repository (`git ls-files`, not a glob) and bans U+2014 in literal and encoded
+form, and historical pull request titles across the organization carry U+2014 in quantity (`ASTM-1
+<U+2014> record foundation`, `CLI-1 <U+2014> cosyte parse`, dozens more). A plain-text deposit reds
+the brand gate on arrival and there is no glob to exclude it from, which is why every file under
+`raw/` is base64. Add a file there the same way or the gate reds, and never fix such a red by
+editing the gate.
 
 ### Which mechanism read which fact (AC28)
 
@@ -848,11 +934,12 @@ No file outside the `config` checkout is modified by this work. Everything below
 
 ## Reproducing this
 
-Every query is in the retrieval table with its exact endpoint and filters, and that table is the
-whole reproduction route: **no raw responses are committed**, by the operator decision recorded
-above. Re-running a **bounded** query reproduces its answer exactly. Re-running a **live** one
-returns current state, and this record's answer for it is the literal value printed here beside the
-endpoint that produced it, which is a claim a reader can contradict but not re-derive. Rows will
+Every query is in the retrieval table with its exact endpoint and filters, and that table plus the
+deposit under [`documentation/release-stall-evidence/raw/`](release-stall-evidence/raw/) is the whole
+reproduction route. Re-running a **bounded** query reproduces its answer exactly. A query with no
+bound is **deposited** instead, so its answer is checkable byte for byte by decoding the file beside
+it rather than on this record's word: `base64 -d <file> | sha256sum` against the digests in the
+deposit table. Rows will
 legitimately differ where a PR, run or repository has changed state since `2026-08-22T21:55:00Z`,
 which is what a DISCLOSE record means, and the two things most likely to have moved by the time you
 read this are the 62-run census and the state of `fhir#73` and `terminology#62`.

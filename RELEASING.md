@@ -463,7 +463,10 @@ measurement: how the population of `.changeset/`-carrying repositories was enume
 Packages PRs with their idle times, the attribution of the two stalls, the gap analysis against what
 the other repositories actually run, the disposition recorded for the acknowledgment, and the
 follow-on list of changes this process implies in repositories other than this one. The per-PR table
-is `documentation/release-stall-evidence/version-packages-prs.csv`. **No raw API responses are
-committed**, deliberately, and that record's retrieval section says per query whether re-running it
-reproduces the answer or merely returns whatever is true now. Read that section before quoting a
-number from it back at anyone.
+is `documentation/release-stall-evidence/version-packages-prs.csv`. The **raw API responses for every
+query that could not be bounded** are committed, base64-encoded, under
+`documentation/release-stall-evidence/raw/` (446 KB across six files; the record's deposit table
+carries a sha256 of each decoded body). That record's retrieval section says per query whether
+re-running it reproduces the answer, or whether the deposit is the thing to read instead, or whether
+the query merely returns whatever is true now. Read that section before quoting a number from it back
+at anyone: the 62-run census in particular is dated and does not re-derive.
