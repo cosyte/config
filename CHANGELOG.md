@@ -169,6 +169,46 @@ no package, so entries here are **dated** rather than versioned.
     `node_modules` for a bare specifier to resolve through. That is also why the package carries no
     dependencies and no build step.
 
+### Changed
+
+- **`release.yml` is split into an ungated version job and a gated publish job, and the release
+  process is rewritten against a measurement rather than an assumption** (`S0074`, 2026-08-22). No
+  package code changes, so there is no changeset: this is the repo-level home the release process
+  itself prescribes for a note like this.
+  - **WHAT WAS WRONG.** `environment: release` sat at JOB level on the single `release` job, so
+    GitHub held the whole job in `Waiting` before step one and **a human had to approve a run merely
+    to have a "Version Packages" PR opened or refreshed**. Two consequences, both measured: the two
+    release gates ran AFTER the approval rather than before it (so an approver could be asked to
+    approve a run that could not succeed, which `RELEASING.md` had claimed was impossible), and
+    version-arm runs piled up behind the reviewer alongside publish-arm runs.
+  - **WHAT THE MEASUREMENT FOUND**, across all 16 `.changeset/`-carrying repositories in the
+    organization and all 185 Version Packages PRs ever opened: 183 merged at a median of **3.0
+    minutes** after their last push; exactly **two** ever exceeded 72 idle hours (`fhir#73`,
+    `terminology#62`), both with every required check GREEN and nothing blocking the merge; and
+    **62 `Release` runs sitting in `waiting`** on one required reviewer. The leading hypothesis going
+    in, the `GITHUB_TOKEN` version-PR trap, was retired on evidence: the worst idle time over all 44
+    `GITHUB_TOKEN`-authored Version PRs is 22.35 hours, under the bar. Full record in
+    `documentation/release-stall-evidence.md`, with the per-PR table beside it as
+    `documentation/release-stall-evidence/version-packages-prs.csv` and the raw API responses for the
+    queries that carry no time bound, base64-encoded, under
+    `documentation/release-stall-evidence/raw/`.
+  - **WHAT CHANGED.** Three jobs. `preflight` (ungated) runs `changeset-guard`, the release-notes
+    gate and the whole verify ladder. `version` (ungated) opens or refreshes the Version Packages PR
+    and is given **no `publish:` input, no `NPM_TOKEN`, and no `id-token: write`**, so it cannot
+    reach the registry. `publish` keeps `environment: release` and is the only job that can publish.
+  - **THE ACKNOWLEDGMENT DID NOT MOVE, AND THAT IS THE POINT.** A published npm version is permanent
+    and this pipeline cannot withdraw one, so nothing reaches npm any more easily than before. The
+    arm condition is `has-changesets`, the same question `changesets/action` asks itself, and
+    deliberately NOT the `release-notes.mjs` classifier: gating a publish on a classifier is how a
+    green run silently withholds a release, which is the failure `changeset-guard` exists to close.
+  - **`RELEASING.md` is rewritten** around a step table with actors, triggers, completion signals and
+    wait budgets; a stall rule with two terminal states for a Version Packages PR past budget; and
+    the operator action for four failure states. Four documented claims were re-checked and all four
+    were wrong: the package list said seven (and elsewhere six) where the repo publishes **eight**
+    (`@cosyte/process` was unnamed), the gates did not run before the approval, `ci.yml`'s Phase C
+    NOTE contradicted the two documents that explain why this repo cannot be a thin caller, and the
+    documented gate commands were not the invoked ones. All four are corrected.
+
 ### Fixed
 
 - **The attw gate was SILENTLY blind to the one form of `license` that names a file**

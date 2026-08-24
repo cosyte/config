@@ -13,8 +13,17 @@ concurrency:
 permissions:
   contents: read
 
-# NOTE: Phase C of the standardization campaign replaces this hand-rolled workflow with a thin caller
-# of the reusable workflow in cosyte/.github, and pins every action to a commit SHA.
+# NOTE, CORRECTED 2026-08-22 (S0074). This note used to say that Phase C of the standardization
+# campaign REPLACES this hand-rolled workflow with a thin caller of the reusable workflow in
+# cosyte/.github. That was stale and contradicted both release.yml and RELEASING.md, which argue at
+# length that this repo structurally cannot be a caller. Phase C was measured against this repo and
+# DECLINED, for two reasons that are properties of the multi-package shape rather than of effort: the
+# shared release-notes gate answers "is a release pending" from the ROOT package.json version, which
+# here is `cosyte-config` `private: true` pinned at 0.0.0 and never versioned by Changesets, so
+# adopting it would withhold every publish on a green run; and the shared workflow tags `v<version>`,
+# which collides when eight packages publish in one run. See RELEASING.md, "Why this repository is not
+# a thin caller of the shared workflow". Pinning every action to a commit SHA is still owed and is
+# unrelated to the caller question.
 jobs:
   verify:
     runs-on: ubuntu-latest
