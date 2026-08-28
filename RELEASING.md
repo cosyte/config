@@ -90,7 +90,7 @@ sitting on a human. Approve or cancel each one deliberately; do not let them acc
 
 ## Failure states, and what the operator does
 
-Four states, each with a terminal outcome you can reach from this section alone.
+Five states, each with a terminal outcome you can reach from this section alone.
 
 ### (a) Required checks never report on the Version PR head
 
@@ -253,6 +253,104 @@ observable rather than assumed. It cannot withhold anything: the registry has al
    all three jobs of `release.yml`.
 4. Terminal state: every published package has a tag and a release, and the classifier defect has an
    issue or a fix.
+
+### (e) The publish configuration is not one the allow-set permits
+
+**Symptom.** The `publish` job reds on `The publish configuration must be one the allow-set permits`,
+**after** the deployment was approved and **before** anything was packed or uploaded. Nothing reached
+the registry. See [The configuration allow-check](#the-configuration-allow-check) below for what the
+gate is and how to extend it; this section is the operator's five refusal states and their terminal
+actions.
+
+| exit | refusal state                                     | what it means                                                                          | terminal action                                                                                                                                   |
+| ---- | ------------------------------------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1    | a value no entry permits                          | some source contributed a setting `npm-config-allow.json` does not allow at that value | Read the source the annotation names. Either change that source, or add the entry (below). Land the fix on `main` and re-run.                     |
+| 1    | a required key does not hold                      | a `require` rule states a value and the publish would use a different one, or none     | Same: fix the source, or change the requirement in a reviewed PR. A `require` failing is the stronger signal; treat it as a defect first.         |
+| 2    | the allow-set is absent, empty or unparseable     | the gate cannot know what is permitted                                                 | Restore or repair `npm-config-allow.json`. **This never means "permit everything"**, and deleting the file turns off releases, not the gate.      |
+| 2    | a configuration source is unreadable or malformed | a file the publish reads exists but this gate could not read or parse it               | Fix the named file. A source that cannot be read is refused rather than skipped, because a skipped source is a green run over a value nobody saw. |
+| 2    | a resolver could not be run                       | `npm config ls` or `pnpm config list` failed, or answered something unparseable        | Read the resolver's own error in the annotation. Usually a broken runner toolchain step; re-run the job once the toolchain step is fixed.         |
+
+**Exit 1 and exit 2 are deliberately different**, the same way they are for `changeset-guard.mjs`: a
+gate that could not read its input must not report the same code as a gate that read it and found a
+violation, or "broken" and "caught something" become one signal in CI.
+
+**Reproduce it locally before changing anything**: `pnpm run release:config-allow`. It needs no
+credentials and prints every setting it observed with the source that supplied it. Your own laptop
+contributes settings a runner does not (a personal `~/.npmrc`, a shell that exports `npm_config_*`),
+so a local refusal is not by itself evidence about the release. Read the source it names.
+
+## The configuration allow-check
+
+**What it protects.** Everything that decides **where** these tarballs go, **what** goes inside them
+and **what metadata rides along** is npm/pnpm configuration, and that configuration is assembled at
+publish time out of sources nothing in this repository used to inspect: a global npmrc, the user
+npmrc `actions/setup-node` **generates** on the runner and points `NPM_CONFIG_USERCONFIG` at, a
+repository or per-package `.npmrc`, `pnpm-workspace.yaml`, the root manifest's `pnpm` block, each
+package's `publishConfig`, `.changeset/config.json`, and the job's own environment. A redirected
+`registry`, a disabled `provenance`, a widened `access` or an injected lifecycle-script setting
+changes what reaches the public registry **without changing a tracked file in a way review would
+see**. An npm publish is permanent and cannot be withdrawn.
+
+**Where it runs, and why not earlier.** Inside the **gated** `publish` job, before the publish step
+and before `pnpm install`. Effective configuration is a property of a specific process: its
+environment, its working directory, and the home directory of the runner in a specific job. The
+`preflight` job runs with different permissions, no npm credentials and no `release` environment, so
+a configuration observed there is not evidence about this publish. The accepted cost is that a
+refusal here happens after an approver has already approved the run. There is deliberately **no**
+advisory copy in `preflight`: a green answer about the wrong process is exactly the evidence this
+gate exists to distrust.
+
+**How it decides.** It never re-implements anyone's precedence. It asks the package managers
+themselves, in the publish command's own context: `npm config ls` (npm's own report of every setting
+contributed by a source other than its built-in defaults, grouped by source, with values that lost to
+a higher-precedence source printed commented out), `npm config ls --json` (the full effective map,
+for the `require` rules), and `pnpm config list --json` (pnpm's effective map, which matters because
+`changeset publish` spawns `pnpm publish` and pnpm reads `pnpm-workspace.yaml` and the manifest's
+`pnpm` block, which npm does not). pnpm's built-in defaults are **measured** by running the same pnpm
+binary in a throwaway directory carrying no configuration at all, rather than written down as a table
+that would go stale on the next pnpm release.
+
+**Anything it cannot resolve is a refusal, not a skip.** That is what keeps the guarantee true when a
+future package-manager release adds a source nobody anticipated today.
+
+**Where it lives.** `scripts/npm-config-allow.mjs` (zero-dependency, so it runs before
+`pnpm install`), the allow-set in `npm-config-allow.json`, the local alias
+`pnpm run release:config-allow`, and the suite in `test/npm-config-allow.test.ts`. Read the script's
+header before changing it; it records why several apparently redundant refusals exist.
+
+### Adding an entry to the allow-set
+
+`npm-config-allow.json` is the committed answer to "what may a release of this repository be
+configured with". Changing it is a reviewed diff, which is the whole point of it being a file.
+
+1. Run `pnpm run release:config-allow` and read the line it refused. It names the key, the value and
+   the **source** that supplied it.
+2. **Decide whether that source should be contributing that value at all.** This is the step worth
+   the minute. The right fix is often to change the source, not to widen the allow-set.
+3. If the value is legitimate, add an entry to `allow`:
+
+   ```json
+   {
+     "key": "provenance",
+     "value": true,
+     "why": "release.yml sets NPM_CONFIG_PROVENANCE from the repository's public visibility."
+   }
+   ```
+
+   Exactly one of three match modes per entry: `value` pins an exact value (prefer this),
+   `pattern` is a regular expression over the value, and `anyValue: true` permits the key at any
+   value (use it only when the value is machine-specific, and say so in `why`). A non-empty `why` is
+   **required**: an entry nobody justified is the one a reviewer waves through.
+
+4. A **credential**-denoting key may only use `anyValue`. This file is committed to a public
+   repository, and the check refuses an allow-set that pins a secret.
+5. To require a key to hold a value whatever any source says, add to `require` instead. A requirement
+   is checked against the resolvers' full effective maps, so it also catches a key **no source
+   contributes at all**. `registry` is required at `https://registry.npmjs.org/` for exactly that
+   reason.
+6. Re-run `pnpm run release:config-allow`, then `pnpm test`. `test/npm-config-allow.test.ts` runs the
+   check against this repository in both the local context and the context the gated publish job
+   actually gives it, so an allow-set that would refuse the next release fails in CI first.
 
 ## The `release` environment (the approval gate)
 

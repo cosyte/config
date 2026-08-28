@@ -246,10 +246,18 @@ describe("a declared credential that is no longer where it says (AC3)", () => {
 
   it("reports the whole credential when every one of its declared locations is gone", () => {
     const root = fixture();
+    // `replaceAll`, not `replace`, and the difference is load-bearing rather than stylistic. This
+    // case is about the credential being gone EVERYWHERE, so the mutation has to remove every
+    // reference; a single-occurrence replace leaves one behind the moment a second step legitimately
+    // consumes the token, and the checker then correctly reports per-exposure findings instead of
+    // the whole-credential one. S0081 added exactly such a step (the configuration allow-check, which
+    // must resolve the same npmrc the publish resolves and therefore needs the same NODE_AUTH_TOKEN),
+    // and that is what turned this into a fixture bug rather than a checker bug. The assertion below
+    // is unchanged: the refusal this case exists for is intact.
     edit(root, WORKFLOW, (text) =>
       text
-        .replace("          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}\n", "")
-        .replace("          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}\n", ""),
+        .replaceAll("          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}\n", "")
+        .replaceAll("          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}\n", ""),
     );
     const result = run(["--repo", root]);
     expect(result.status).toBe(1);
