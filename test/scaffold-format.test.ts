@@ -107,18 +107,27 @@ const SPAWN_TIMEOUT = 120_000;
  * GENERATOR ACTUALLY EXISTS TO MINT. Nothing here is a list of names anyone has to maintain.
  *
  * Axis one is the package segment's length, which is what moves a line across `printWidth`. Its
- * real ends come from `drift-manifest.json`'s `targets`, the canonical roster of `@cosyte/*` parser
- * repos, so the probes track the ecosystem instead of going stale beside it: today the shortest is
- * three characters and the longest is eleven, and those two red disjoint file sets. Its ABSOLUTE
- * ends come from the generator's own rules: one character is the shortest name `[a-z][a-z0-9-]*`
- * admits, and a name of `printWidth` characters is past the point where any token-bearing line can
- * still fit, so no longer name reaches a regime that one does not.
+ * real ends come from `drift-manifest.json`'s PACKAGE BASELINE, the canonical roster of `@cosyte/*`
+ * parser repos, so the probes track the ecosystem instead of going stale beside it: today the
+ * shortest is three characters and the longest is eleven, and those two red disjoint file sets. Its
+ * ABSOLUTE ends come from the generator's own rules: one character is the shortest name
+ * `[a-z][a-z0-9-]*` admits, and a name of `printWidth` characters is past the point where any
+ * token-bearing line can still fit, so no longer name reaches a regime that one does not.
  *
  * Axis two is the PascalCase identifier the same name produces, which is a SEPARATE length: the
  * generator drops hyphens when it builds it. The hyphenated probe is therefore built to the same
  * segment length as the longest real target, which holds axis one fixed and moves only axis two.
+ *
+ * THE ROSTER MOVED IN S0226, from a flat top-level `targets` to `baselines.package.repos`, when the
+ * manifest gained a second baseline for the eleven repos that cannot share a build config. The
+ * scaffold generator mints PARSER repos, so it is the package baseline that decides these probes,
+ * and reading the whole estate here would hand this suite a Terraform repo as a probe name.
  */
-const TARGETS = (JSON.parse(readFileSync(DRIFT_MANIFEST, "utf8")) as { targets: string[] }).targets;
+const TARGETS = (
+  JSON.parse(readFileSync(DRIFT_MANIFEST, "utf8")) as {
+    baselines: { package: { repos: string[] } };
+  }
+).baselines.package.repos;
 const byLength = [...TARGETS].sort((a, b) => a.length - b.length || a.localeCompare(b));
 const SHORTEST_REAL = byLength[0] as string;
 const LONGEST_REAL = byLength[byLength.length - 1] as string;
