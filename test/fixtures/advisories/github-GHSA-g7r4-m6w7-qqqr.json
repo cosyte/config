@@ -1,0 +1,16 @@
+{
+  "ghsa_id": "GHSA-g7r4-m6w7-qqqr",
+  "cve_id": null,
+  "url": "https://api.github.com/advisories/GHSA-g7r4-m6w7-qqqr",
+  "vulnerabilities": [
+    {
+      "package": {
+        "ecosystem": "npm",
+        "name": "esbuild"
+      },
+      "vulnerable_version_range": ">= 0.27.3, < 0.28.1",
+      "first_patched_version": "0.28.1",
+      "vulnerable_functions": []
+    }
+  ]
+}

@@ -1,7 +1,7 @@
 {
   "$schema": "./drift-manifest.schema.json",
   "manifestVersion": 2,
-  "standing": "THIS FILE IS THE STANDARD. It is the cosyte estate's engineering baseline and it inherits its authority from no other document: there is no prose twin, and by operator decision none is to be written. Every requirement below carries its own provenance note saying where it was derived from, so no requirement is inherited unexamined. scripts/drift-check.js evaluates it and prints a per-repo WORKLIST; scripts/validate-drift-manifest.mjs validates this file against drift-manifest.schema.json, which ships beside it and needs no install to run. Drift is EXPECTED while the migration runs: the report is the worklist, never a claim of health.",
+  "standing": "THIS FILE IS THE STANDARD. It is the cosyte estate's engineering baseline and it inherits its authority from no other document: there is no prose twin, and by operator decision none is to be written. Every requirement below carries its own provenance note saying where it was derived from, so no requirement is inherited unexamined. scripts/drift-check.js evaluates it and prints a per-repo WORKLIST; scripts/validate-drift-manifest.mjs validates this file against drift-manifest.schema.json, which ships beside it and needs no install to run. THE AUTHOR IS A SUBJECT TOO: configSubject below states which of these requirements config itself is held to and which it is exempt from, so the repo that publishes the standard is graded by it rather than standing outside it. AND NO ADVISORY RANGE IS TRANSCRIBED HERE: an override cites advisory IDENTIFIERS, and the ranges are read from the advisory record at check time, because a transcribed range decays silently while the sentence beside it still reads true. Drift is EXPECTED while the migration runs: the report is the worklist, never a claim of health.",
   "estate": {
     "provenance": "The umbrella's .gitmodules is the list of record for repo names, PATHS and hazards. These are its 24 submodule PATHS as of 2026-08-29, read for S0226. Repos are addressed by PATH and never by submodule NAME: the org profile repo is NAMED `.github` and PATHED `github-profile`, and since the checker resolves a repo by joining the umbrella root with the name it is given, and the umbrella root has its own `.github/` directory, addressing that repo by name would silently grade the umbrella's own workflows.",
     "addressedBy": "path",
@@ -96,7 +96,7 @@
           }
         },
         "dependencies": {
-          "provenance": "devDepVersions, caretAllowed and pnpmOverrides carried unchanged from manifest version 1; scripts/parser-template/package.json carries the same override pair, which is where a new repo inherits it. The rationale that version 1 kept in a separate `pnpmOverridesComment` key is preserved here rather than dropped: the overrides are Dependabot dev/build-time advisory remediation. esbuild: GHSA dev-server path traversal, not reachable, since these repos build via tsup/vitest and never run `esbuild serve`. js-yaml@4: GHSA-h67p-54hq-rp68 quadratic merge-key DoS, advisory range extended to <4.3.0, so the pin is 4.3.0 (bumped 2026-07-21). KNOWN RESIDUAL, not pinnable: js-yaml@3.14.2 is reached via read-yaml-file@1.1.0 (@manypkg/get-packages, @changesets/cli) and calls yaml.safeLoad, which throws in js-yaml 4, so it cannot be force-upgraded without breaking release tooling; it only parses trusted local repo YAML at release time. caretAllowedScopes states what the checker used to hardcode: a workspace-internal @cosyte/* dependency may stay on a caret range.",
+          "provenance": "devDepVersions and caretAllowed carried unchanged from manifest version 1; scripts/parser-template/package.json carries the override block, which is where a new repo inherits it. caretAllowedScopes states what the checker used to hardcode: a workspace-internal @cosyte/* dependency may stay on a caret range. THE OVERRIDES ARE DEPENDABOT DEV/BUILD-TIME ADVISORY REMEDIATION, AND EACH ONE NOW CITES ITS ADVISORY IN pnpmOverrideAdvisories RATHER THAN IN PROSE. Version 1 argued from a sentence in `pnpmOverridesComment` that named advisories in English beside hand-transcribed ranges, and the transcription decayed: the pin sat at a version the advisory it argued from had already superseded, config's own manifest disagreed with this one, and nothing compared them. What survives here is the reachability argument, which no advisory record can supply. esbuild: a dev-server path traversal, not reachable, since these repos build via tsup/vitest and never run `esbuild serve`. js-yaml: a quadratic merge-key DoS and a prototype-pollution issue, reached at BUILD and RELEASE time only, over YAML this estate wrote itself. THE 3.x REACH IS NO LONGER A RESIDUAL: js-yaml 3.14.2 arrives through read-yaml-file@1.1.0 (@manypkg/get-packages, @changesets/cli) and calls yaml.safeLoad, which js-yaml 4 removed, so version 1 recorded the branch as not pinnable and left it un-remediated. That reasoning applied to the 4.x MAJOR, never to the 3.x branch: 3.x still ships safeLoad, so the branch is pinned on its own line and the release tooling keeps the API it calls. Which version each advisory first patches is NOT written here; the checker reads it from the advisory at check time and fails an override pinned below it.",
           "requirements": {
             "devDepVersions": {
               "typescript": "5.9",
@@ -113,7 +113,25 @@
             "caretAllowedScopes": ["@cosyte/"],
             "pnpmOverrides": {
               "esbuild@>=0.27.3 <0.28.1": "0.28.1",
-              "js-yaml@>=4.0.0 <4.3.0": "4.3.0"
+              "js-yaml@>=4.0.0 <4.3.1": "4.3.1",
+              "js-yaml@>=3.0.0 <3.15.1": "3.15.1"
+            },
+            "pnpmOverrideAdvisories": {
+              "esbuild@>=0.27.3 <0.28.1": {
+                "ecosystem": "npm",
+                "package": "esbuild",
+                "advisories": ["GHSA-g7r4-m6w7-qqqr"]
+              },
+              "js-yaml@>=4.0.0 <4.3.1": {
+                "ecosystem": "npm",
+                "package": "js-yaml",
+                "advisories": ["GHSA-5p4m-2wfm-xmqj", "GHSA-h67p-54hq-rp68"]
+              },
+              "js-yaml@>=3.0.0 <3.15.1": {
+                "ecosystem": "npm",
+                "package": "js-yaml",
+                "advisories": ["GHSA-5p4m-2wfm-xmqj", "GHSA-h67p-54hq-rp68"]
+              }
             }
           }
         },
@@ -234,6 +252,49 @@
       }
     }
   },
+  "configSubjectComment": "WHY THE AUTHOR IS GRADED SEPARATELY, AND WHY NOT BY ADDING IT TO A `repos` LIST. `baselines.package.repos` is the roster of @cosyte/* PARSER repos: the phi-scan capability probe iterates it, and a repo named there is expected to carry scripts/phi-scan.ts, codeql.yml and thirteen package scripts. config carries none of those, so putting it there would print drift that is not drift and would corrupt what the roster means. `baselines.light` is the other side of the same coin: it says what config owes as one of the eleven repos that cannot share a build config, and its ceiling is set by an operator decision to exactly three groups. Neither answers the question this block exists for, which is what the repo that PUBLISHES the standard owes to the standard. So config is graded as its own subject, against the package baseline minus a NAMED exemption per rule that does not apply. The exemptions are the point: a rule config is silently not held to is indistinguishable from a rule config passes, and the checker refuses an exemption naming a rule the baseline does not carry, so this list cannot outlive the requirements it excuses.",
+  "configSubject": {
+    "provenance": "S0091-config-2, 2026-08-29. Derived by reading config's own package.json and working tree against every requirement kind baselines.package declares, one at a time: eleven of them are graded and config satisfies all eleven, and the nine below are excused with the reason each was excused for. Nothing here was inherited: the exempted set is what was left after grading, not a list chosen in advance. The baseline named is `package` because that is the estate's real standard; the light baseline still holds config for the workflow requirements an operator decision put there, and those are excused here rather than graded twice under two names.",
+    "baseline": "package",
+    "exemptions": [
+      {
+        "rule": "sharedConfig.tsconfigExtends",
+        "why": "config PUBLISHES @cosyte/tsconfig; the workspace root compiles nothing of its own and carries no tsconfig.json to extend anything from. Each packages/* extends the base config itself, which is the requirement holding where there is source to compile."
+      },
+      {
+        "rule": "scripts.requiredScripts",
+        "why": "The thirteen script names describe a published parser package. config's root manifest is a workspace ROOT: build, test, lint and typecheck delegate with `pnpm --filter ./packages/*`, and phi-scan, clean and prepublishOnly belong to a package that has a corpus to scan and a tarball to publish. Each packages/* is where the names are owed."
+      },
+      {
+        "rule": "scripts.lintMustInclude",
+        "why": "config's root `lint` script runs no linter; it delegates to the workspace packages. The --max-warnings=0 flag is owed where eslint is actually invoked, which is each packages/* lint script, and asserting it on a delegating script would grade the delegation."
+      },
+      {
+        "rule": "dependencies.devDepVersions",
+        "why": "The pinned toolchain describes a package that bundles, lints and type-checks its own source. config's root declares only what the workspace itself runs (vitest, tsup, prettier, typescript, all at the pinned majors) and deliberately declares no eslint, vite or attw, because the packages that need them declare them. Grading the root against the full set would report four drifts nothing could fix without adding dependencies this repo does not use."
+      },
+      {
+        "rule": "ciWorkflows.requiredWorkflows",
+        "why": "config is held to the LIGHT baseline's workflow requirements (emdashGate, ciEntryPoint, securityWorkflows), which is where an operator decision put it. Grading the same .github/workflows directory twice would count one gap as two drifts under two names. The gaps that baseline reports today, codeql.yml and scorecard.yml, are real and are the worklist entry; they are owned by phase config#CONFIG-4, not excused here."
+      },
+      {
+        "rule": "phiScan.requiredFiles",
+        "why": "config hosts the shared PHI-scan engine (packages/script-utils/phi-scan.js) and the template scanner every parser repo is generated from. It has no scripts/phi-scan.ts, no allow-list and no corpus of its own, because it is the source of those files rather than a consumer of them."
+      },
+      {
+        "rule": "phiScan.phiScanCapabilityProbe",
+        "why": "The probe's own two controls already RUN config's engine, on every drift run, before any repo is graded, and the whole report is refused if either misbehaves. Grading config as a probe subject would run the same engine a third time with no scanner to point it at, and an inconclusive answer there would read as a config drift rather than as what it is."
+      },
+      {
+        "rule": "releaseTooling.packageJsonEquals",
+        "why": "The root manifest is `private: true` and publishes nothing, so it carries no publishConfig to grade. The eight published packages/* each declare publishConfig.access and provenance, and scripts/npm-config-allow.mjs pins both values for every one of them on the release path."
+      },
+      {
+        "rule": "agentDoc.agentDoc",
+        "why": "config carries no CLAUDE.md or AGENTS.md today. The overturned decision authorised a SHAPE rule for the thirteen package repos, and writing config's own agent doc is new prose rather than the transcription fix this slice is; deleting this entry is the single edit that puts config back on the rule, and until then the gap is stated here instead of being invisible."
+      }
+    ]
+  },
   "reDerivation": {
     "provenance": "S0226-config-drift-manifest, 2026-08-29. Manifest version 1 declared its own authority to be a prose document in the umbrella that had since been deleted, so every requirement in it was inherited from a file nobody could read. The operator decided to re-derive AND extend it, to add a second lighter baseline, and to write no prose companion. This record is what makes the re-derivation auditable: every top-level key version 1 carried is listed in preChangeKeys and accounted for in exactly one of the two lists below, so no requirement can vanish unmentioned.",
     "preChangeKeys": [
@@ -263,7 +324,6 @@
       "lintMustInclude",
       "devDepVersions",
       "caretAllowed",
-      "pnpmOverrides",
       "requiredCosyteConfigDeps",
       "phiScanProbeComment",
       "phiScanProbe"
@@ -281,8 +341,13 @@
       },
       {
         "was": "pnpmOverridesComment",
-        "now": "baselines.package.groups.dependencies.provenance (text preserved)",
-        "reason": "Every group carries a provenance note now, so a separate comment key beside one requirement is redundant and drifts from the requirement it describes. The advisory rationale and the known residual are preserved verbatim in the group note."
+        "now": "split: the reachability argument survives in baselines.package.groups.dependencies.provenance, and the advisory CITATIONS moved to the machine-readable pnpmOverrideAdvisories",
+        "reason": "Every group carries a provenance note now, so a separate comment key beside one requirement is redundant. The re-derivation preserved this one verbatim, and preserving it kept the defect it carried: it named advisories in English beside hand-transcribed version ranges, nothing read it, and both the range and the pin it argued for had gone stale. The half no advisory record can supply, why the dev/build-time reach is not exploitable, is prose and stays prose. The half a record CAN supply, which advisory and what it first patches, is now an identifier the checker resolves at check time."
+      },
+      {
+        "was": "pnpmOverrides",
+        "now": "baselines.package.groups.dependencies.requirements.pnpmOverrides, re-pinned and paired with pnpmOverrideAdvisories",
+        "reason": "The re-derivation carried the VALUE unchanged, and the value was wrong: js-yaml was pinned at a version below the first patched version of the advisory the comment beside it argued from, and the 3.x branch was written off as not pinnable on a premise (safeLoad is gone) that is true of js-yaml 4 and false of the 3.x line the release tooling actually resolves. Both branches are now pinned on their own line, and the checker grades every pin against the advisory rather than against this file."
       },
       {
         "was": "requiredWorkflows",

@@ -679,6 +679,12 @@ export const REQUIREMENT_KINDS = {
     },
   },
   caretAllowedScopes: { parameterOf: "caretAllowed" },
+  // The CITATION for each override, graded by `gradeOverrideAdvisories` against the advisory record
+  // itself rather than per repo: whether an override cites an advisory, and whether it pins below
+  // what that advisory first patched, is a property of the STANDARD and is the same answer in every
+  // repo. Declaring it a parameter here is what keeps it out of the per-repo loop while still making
+  // it a key the schema and this table both know.
+  pnpmOverrideAdvisories: { parameterOf: "pnpmOverrides" },
   pnpmOverrides: {
     needsPackageJson: true,
     check: ({ pkg }, wanted) => {
@@ -905,6 +911,666 @@ export function gradeEstate({ manifest: subject, root, probe = checkRepoPhiScan 
   return results;
 }
 
+// ===========================================================================
+// THE ADVISORY HALF: THE BASELINE'S OWN CLAIMS, GRADED AGAINST THE ADVISORIES
+// IT CITES RATHER THAN AGAINST THE SENTENCE BESIDE THEM.
+//
+// The manifest used to argue for its `pnpmOverrides` in English, in a comment
+// key nothing read, beside hand-transcribed version ranges. Transcription
+// decays and the prose does not: at the pinned tree the baseline pinned js-yaml
+// at a version the advisory it argued from had already superseded, config's own
+// package.json disagreed with the manifest, and both resolved copies of js-yaml
+// were inside a cited advisory's vulnerable range while the comment beside them
+// said the reach was remediated. Every one of those is a fact a machine can
+// check and no human reliably does.
+//
+// SO NOTHING BELOW READS A RANGE OUT OF THE MANIFEST. The manifest carries an
+// IDENTIFIER, an ecosystem and a package name; the ranges come from the advisory
+// record at check time, and the report says which record it read. A lookup that
+// cannot complete is `INCONCLUSIVE` and reds: it is not a pass, for the same
+// reason the phi-scan probe's `inconclusive` is not a pass, and the two failure
+// directions are not symmetric. Reporting drift that is not there costs a
+// reader five minutes; reporting a pass over an advisory nobody could reach
+// costs exactly what this file exists to prevent.
+//
+// THE LOOKUP IS INJECTED, WHICH IS WHY THE TEST SUITE NEEDS NO NETWORK. The
+// default consults OSV over `fetch`; `test/drift-advisory.test.ts` hands in a
+// stub that serves the committed advisory records instead, so every branch here
+// is graded offline against real response bodies rather than invented ones.
+// ===========================================================================
+
+/** The repo that publishes this standard, and is graded by it. */
+const CONFIG_REPO = "config";
+
+/** Split a version into numeric parts and a prerelease tag. Build metadata is dropped. */
+function splitVersion(value) {
+  const text = String(value).trim().replace(/^v/i, "");
+  const plus = text.indexOf("+");
+  const withoutBuild = plus === -1 ? text : text.slice(0, plus);
+  const dash = withoutBuild.indexOf("-");
+  return {
+    core: (dash === -1 ? withoutBuild : withoutBuild.slice(0, dash))
+      .split(".")
+      .map((part) => (Number.isFinite(Number(part)) ? Number(part) : 0)),
+    pre: dash === -1 ? "" : withoutBuild.slice(dash + 1),
+  };
+}
+
+/**
+ * Compare two versions the way npm's own ordering does, as far as an advisory range needs.
+ *
+ * MISSING PARTS ARE ZERO, which is what makes OSV's `introduced: "0"` comparable with `3.14.2`, and
+ * a released version outranks a prerelease of the same core, which is what keeps `4.3.1-rc.1` inside
+ * a range that `4.3.1` has left.
+ *
+ * @param {string} a
+ * @param {string} b
+ * @returns {number} -1, 0 or 1.
+ */
+export function compareVersions(a, b) {
+  const left = splitVersion(a);
+  const right = splitVersion(b);
+  const width = Math.max(left.core.length, right.core.length);
+  for (let index = 0; index < width; index += 1) {
+    const difference = (left.core[index] ?? 0) - (right.core[index] ?? 0);
+    if (difference !== 0) return difference < 0 ? -1 : 1;
+  }
+  if (left.pre === right.pre) return 0;
+  if (left.pre === "") return 1;
+  if (right.pre === "") return -1;
+  return left.pre < right.pre ? -1 : 1;
+}
+
+/**
+ * Is a version inside one normalized vulnerable range?
+ *
+ * @param {string} version
+ * @param {{ introduced?: string, introducedExclusive?: boolean, fixed?: string,
+ *   lastAffected?: string }} range
+ * @returns {boolean}
+ */
+export function versionInRange(version, range) {
+  if (range.introduced !== undefined) {
+    const comparison = compareVersions(version, range.introduced);
+    if (range.introducedExclusive ? comparison <= 0 : comparison < 0) return false;
+  }
+  if (range.fixed !== undefined) return compareVersions(version, range.fixed) < 0;
+  if (range.lastAffected !== undefined) return compareVersions(version, range.lastAffected) <= 0;
+  return true;
+}
+
+/** Render a normalized range in the comparator form both sources publish it in. */
+export function describeRange(range) {
+  const parts = [];
+  if (range.introduced !== undefined) {
+    parts.push(`${range.introducedExclusive ? ">" : ">="} ${range.introduced}`);
+  }
+  if (range.fixed !== undefined) parts.push(`< ${range.fixed}`);
+  else if (range.lastAffected !== undefined) parts.push(`<= ${range.lastAffected}`);
+  return parts.length > 0 ? parts.join(", ") : "every version";
+}
+
+/**
+ * Parse GitHub's `vulnerable_version_range` text, which is a comma-separated comparator list.
+ *
+ * @param {string} text e.g. `">= 4.0.0, < 4.3.1"`, `"<= 4.1.1"`, `"< 3.15.0"`.
+ * @returns {{ introduced?: string, introducedExclusive?: boolean, fixed?: string,
+ *   lastAffected?: string }}
+ */
+export function parseComparatorRange(text) {
+  const range = {};
+  for (const raw of String(text).split(",")) {
+    const part = raw.trim();
+    if (part === "") continue;
+    const match = /^(>=|<=|>|<|=)?\s*(\S+)$/.exec(part);
+    if (match === null) continue;
+    const [, operator = "=", version] = match;
+    if (operator === ">=") range.introduced = version;
+    else if (operator === ">") {
+      range.introduced = version;
+      range.introducedExclusive = true;
+    } else if (operator === "<") range.fixed = version;
+    else if (operator === "<=") range.lastAffected = version;
+    else {
+      range.introduced = version;
+      range.lastAffected = version;
+    }
+  }
+  return range;
+}
+
+/** GitHub reports `first_patched_version` as a string in some responses and `{identifier}` in others. */
+function firstPatchedOf(value) {
+  if (typeof value === "string" && value !== "") return value;
+  if (value !== null && typeof value === "object" && typeof value.identifier === "string") {
+    return value.identifier;
+  }
+  return undefined;
+}
+
+/**
+ * Read the vulnerable ranges one advisory record states for one ecosystem and package.
+ *
+ * BOTH PUBLISHED SHAPES ARE ACCEPTED AND THE ANSWER SAYS WHICH IT READ. GitHub's
+ * `/advisories/<GHSA>` carries `vulnerabilities[]` with a comparator string and a first patched
+ * version; OSV's `/v1/vulns/<GHSA>` carries `affected[]` with SEMVER introduced/fixed events. They
+ * do not always agree (for GHSA-h67p-54hq-rp68 GitHub says `<= 4.1.1` where OSV says fixed at
+ * 4.2.0), which is precisely why a check that READS an advisory has to name the record it read
+ * instead of asserting "the advisory says".
+ *
+ * @param {unknown} record A parsed advisory record.
+ * @param {{ ecosystem: string, package: string }} citation What the manifest is reading it for.
+ * @returns {{ ok: true, shape: string, ranges: object[] } | { ok: false, reason: string }}
+ */
+export function advisoryRangesFor(record, citation) {
+  if (typeof record !== "object" || record === null || Array.isArray(record)) {
+    return { ok: false, reason: "the record is not a JSON object" };
+  }
+  const wantEcosystem = String(citation.ecosystem).toLowerCase();
+  const wantPackage = citation.package;
+  const ranges = [];
+  let shape;
+
+  if (Array.isArray(record.vulnerabilities)) {
+    shape = "github";
+    for (const entry of record.vulnerabilities) {
+      const pkg = entry?.package ?? {};
+      if (String(pkg.ecosystem ?? "").toLowerCase() !== wantEcosystem) continue;
+      if (pkg.name !== wantPackage) continue;
+      if (typeof entry.vulnerable_version_range !== "string") continue;
+      ranges.push({
+        ...parseComparatorRange(entry.vulnerable_version_range),
+        firstPatched: firstPatchedOf(entry.first_patched_version),
+      });
+    }
+  } else if (Array.isArray(record.affected)) {
+    shape = "osv";
+    for (const entry of record.affected) {
+      const pkg = entry?.package ?? {};
+      if (String(pkg.ecosystem ?? "").toLowerCase() !== wantEcosystem) continue;
+      if (pkg.name !== wantPackage) continue;
+      for (const declared of entry.ranges ?? []) {
+        const type = String(declared.type ?? "").toUpperCase();
+        if (type !== "SEMVER" && type !== "ECOSYSTEM") continue;
+        let open = null;
+        for (const event of declared.events ?? []) {
+          if (typeof event.introduced === "string") {
+            if (open !== null) ranges.push(open);
+            open = { introduced: event.introduced };
+          } else if (typeof event.fixed === "string") {
+            open = { ...(open ?? {}), fixed: event.fixed, firstPatched: event.fixed };
+            ranges.push(open);
+            open = null;
+          } else if (typeof event.last_affected === "string") {
+            open = { ...(open ?? {}), lastAffected: event.last_affected };
+            ranges.push(open);
+            open = null;
+          }
+        }
+        if (open !== null) ranges.push(open);
+      }
+    }
+  } else {
+    return {
+      ok: false,
+      reason:
+        "the record carries neither a `vulnerabilities` array (the GitHub shape) nor an " +
+        "`affected` array (the OSV shape), so no version range could be read from it",
+    };
+  }
+
+  if (ranges.length === 0) {
+    return {
+      ok: false,
+      reason:
+        `the ${shape} record names no vulnerable range for ${citation.ecosystem} ` +
+        `${wantPackage}, so this citation cannot be read for that package`,
+    };
+  }
+  return { ok: true, shape, ranges };
+}
+
+/**
+ * The default lookup: OSV, unauthenticated, over `fetch`.
+ *
+ * OSV RATHER THAN GITHUB BY DEFAULT, and the choice is recorded rather than assumed: both publish
+ * the same advisory and this file accepts either shape, but GitHub's unauthenticated endpoint is
+ * rate-limited per IP, and a rate-limited gate answers `inconclusive` for a reason that has nothing
+ * to do with the code under test.
+ *
+ * EVERY FAILURE IS A REASON STRING, NEVER A THROW AND NEVER A DEFAULT. No network, a non-2xx, a
+ * rate-limited response, a body that is not JSON and an identifier the source does not know are all
+ * the same verdict here: this advisory could not be consulted, and the caller must not report a pass.
+ *
+ * @param {string} id The advisory identifier.
+ * @param {{ fetchImpl?: Function, timeoutMs?: number }} options
+ * @returns {Promise<{ url: string, ok: true, record: unknown } |
+ *   { url: string, ok: false, reason: string }>}
+ */
+export async function fetchAdvisoryFromOsv(id, { fetchImpl, timeoutMs = 20_000 } = {}) {
+  const url = `https://api.osv.dev/v1/vulns/${encodeURIComponent(id)}`;
+  // `=== undefined` rather than `??`: a caller that passes something un-callable is asking for that
+  // to be the answer, and coalescing it to the global would put a real request behind a test that
+  // meant to prove there is none.
+  const call = fetchImpl === undefined ? globalThis.fetch : fetchImpl;
+  if (typeof call !== "function") {
+    return { url, ok: false, reason: "this runtime provides no fetch(), so nothing was consulted" };
+  }
+  let response;
+  try {
+    response = await call(url, {
+      headers: { accept: "application/json" },
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (cause) {
+    return { url, ok: false, reason: `the request to ${url} did not complete: ${String(cause)}` };
+  }
+  const status = Number(response?.status);
+  if (!Number.isFinite(status)) {
+    return { url, ok: false, reason: `${url} produced no HTTP status this check could read` };
+  }
+  if (status < 200 || status >= 300) {
+    const unknown = status === 404 ? ", which means the source does not know this identifier" : "";
+    const limited =
+      status === 403 || status === 429
+        ? ", which is how the unauthenticated endpoints report a per-IP rate limit"
+        : "";
+    return { url, ok: false, reason: `${url} answered ${status}${unknown}${limited}` };
+  }
+  try {
+    return { url, ok: true, record: await response.json() };
+  } catch (cause) {
+    return { url, ok: false, reason: `${url} returned a body that is not JSON: ${String(cause)}` };
+  }
+}
+
+/** The group of a baseline that declares `pnpmOverrides`, or `null`. Found, never hardcoded. */
+export function overrideRequirementsOf(baseline) {
+  for (const group of Object.values(baseline?.groups ?? {})) {
+    if (group?.requirements?.pnpmOverrides !== undefined) return group.requirements;
+  }
+  return null;
+}
+
+/**
+ * Consult every advisory the baseline's overrides cite, once each.
+ *
+ * @param {{ manifest: any, fetchAdvisory?: Function }} args
+ * @returns {Promise<Map<string, object>>} Keyed by identifier; each value is a lookup result.
+ */
+export async function loadAdvisories({ manifest: subject, fetchAdvisory = fetchAdvisoryFromOsv }) {
+  const results = new Map();
+  const baselineName = subject?.configSubject?.baseline ?? "package";
+  const requirements = overrideRequirementsOf(subject?.baselines?.[baselineName]);
+  const citations = requirements?.pnpmOverrideAdvisories ?? {};
+  const ids = new Set();
+  for (const citation of Object.values(citations)) {
+    for (const id of citation?.advisories ?? []) ids.add(id);
+  }
+  for (const id of ids) results.set(id, await fetchAdvisory(id));
+  return results;
+}
+
+/** The package an override key selects: `js-yaml@>=4.0.0 <4.3.1` names `js-yaml`. */
+export function overridePackageName(key) {
+  const match = /^((?:@[^/@\s]+\/)?[^@\s]+)(?:@.*)?$/.exec(String(key));
+  return match === null ? null : match[1];
+}
+
+/** One advisory, resolved to ranges for one citation, or a reason it could not be. */
+function consult(advisories, id, citation) {
+  const fetched = advisories instanceof Map ? advisories.get(id) : undefined;
+  if (fetched === undefined) {
+    return {
+      ok: false,
+      reason: "no advisory lookup was supplied to this run, so no record was consulted at all",
+    };
+  }
+  if (fetched.ok !== true) return { ok: false, reason: fetched.reason };
+  const read = advisoryRangesFor(fetched.record, citation);
+  if (!read.ok) return { ok: false, reason: `${read.reason} (read from ${fetched.url})` };
+  return { ok: true, ranges: read.ranges, url: fetched.url, shape: read.shape };
+}
+
+/**
+ * Grade every override the baseline declares against the advisory it cites.
+ *
+ * @param {{ requirements: any, advisories: Map<string, object> }} args
+ * @returns {{ group: string, line: string }[]}
+ */
+export function gradeOverrideAdvisories({ requirements, advisories }) {
+  const findings = [];
+  const overrides = requirements?.pnpmOverrides ?? {};
+  const citations = requirements?.pnpmOverrideAdvisories ?? {};
+
+  for (const [key, pinned] of Object.entries(overrides)) {
+    const citation = citations[key];
+    if (citation === undefined) {
+      findings.push({
+        group: "advisoryCitations",
+        line:
+          `pnpmOverrides["${key}"]: cites no advisory in machine-readable form. Add a ` +
+          `pnpmOverrideAdvisories entry under the same key; a prose note beside it is not a ` +
+          `citation, and nothing reads one.`,
+      });
+      continue;
+    }
+    const selected = overridePackageName(key);
+    if (selected !== null && selected !== citation.package) {
+      findings.push({
+        group: "advisoryCitations",
+        line:
+          `pnpmOverrideAdvisories["${key}"]: cites ${citation.ecosystem} ${citation.package}, but ` +
+          `the override selects ${selected}, so the citation grades a different package`,
+      });
+      continue;
+    }
+    for (const id of citation.advisories ?? []) {
+      const read = consult(advisories, id, citation);
+      if (!read.ok) {
+        findings.push({
+          group: "advisoryCitations",
+          line: `advisory ${id}, cited by pnpmOverrides["${key}"]: INCONCLUSIVE, ${read.reason}`,
+        });
+        continue;
+      }
+      for (const range of read.ranges) {
+        if (!versionInRange(pinned, range)) continue;
+        findings.push({
+          group: "advisoryCitations",
+          line:
+            `pnpmOverrides["${key}"] pins ${citation.package}@${pinned}, which ${id} reports as ` +
+            `vulnerable (${describeRange(range)}): its first patched version is ` +
+            `${range.firstPatched ?? "not recorded by this source"}. Read from ${read.url}.`,
+        });
+      }
+    }
+  }
+  return findings;
+}
+
+/**
+ * Grade the versions actually RESOLVED in a lockfile against the advisories the baseline cites.
+ *
+ * A PIN AND A RESOLUTION ARE DIFFERENT CLAIMS. An override says what should be installed; the
+ * lockfile says what is. Version 1's manifest recorded one resolved copy as an accepted residual on
+ * a premise about a different major, and it stayed inside a cited range for as long as the sentence
+ * stayed unread. Nothing here consults the manifest's opinion of a resolution.
+ *
+ * @param {{ requirements: any, advisories: Map<string, object>, resolved: Map<string, Set<string>>,
+ *   lockLabel: string }} args
+ * @returns {{ group: string, line: string }[]}
+ */
+export function gradeResolvedDependencies({ requirements, advisories, resolved, lockLabel }) {
+  const findings = [];
+  const citations = requirements?.pnpmOverrideAdvisories ?? {};
+  const done = new Set();
+
+  for (const citation of Object.values(citations)) {
+    for (const id of citation.advisories ?? []) {
+      const pair = `${citation.ecosystem} ${citation.package} ${id}`;
+      if (done.has(pair)) continue;
+      done.add(pair);
+      const read = consult(advisories, id, citation);
+      if (!read.ok) {
+        findings.push({
+          group: "resolvedDependencies",
+          line:
+            `advisory ${id}, cited for ${citation.ecosystem} ${citation.package}: INCONCLUSIVE, ` +
+            `${read.reason}. No resolved version of ${citation.package} was graded against it.`,
+        });
+        continue;
+      }
+      const versions = [...(resolved.get(citation.package) ?? [])].sort(compareVersions);
+      for (const version of versions) {
+        for (const range of read.ranges) {
+          if (!versionInRange(version, range)) continue;
+          findings.push({
+            group: "resolvedDependencies",
+            line:
+              `${lockLabel} resolves ${citation.package}@${version}, which is inside ${id}'s ` +
+              `vulnerable range (${describeRange(range)}); first patched at ` +
+              `${range.firstPatched ?? "no version this source records"}. A resolved dependency ` +
+              `inside a cited range is reported, not recorded as an accepted residual.`,
+          });
+        }
+      }
+    }
+  }
+  return findings;
+}
+
+/**
+ * Read the versions a pnpm lockfile RESOLVES, with no YAML parser.
+ *
+ * NARROW ON PURPOSE, AND ONLY OVER ONE BLOCK. `packages:` in lockfile v9 is a flat map whose keys
+ * are `name@version` (scoped names quoted) with no peer suffixes, which is the one shape this needs
+ * and the one shape a five-line reader can be right about. `snapshots:` carries peer-decorated keys
+ * and is deliberately not read. Adding a YAML dependency is not a route: the gates in this repo run
+ * before `pnpm install`.
+ *
+ * @param {string} text The lockfile's contents.
+ * @returns {Map<string, Set<string>>} Versions by package name.
+ */
+export function readLockfilePackages(text) {
+  const resolved = new Map();
+  let inPackages = false;
+  for (const line of String(text).split("\n")) {
+    if (/^\S/.test(line)) {
+      inPackages = /^packages:\s*$/.test(line);
+      continue;
+    }
+    if (!inPackages) continue;
+    const match = /^ {2}'?((?:@[^/'\s]+\/)?[^@'\s]+)@([^:'\s]+)'?:\s*$/.exec(line);
+    if (match === null) continue;
+    const [, name, version] = match;
+    if (!resolved.has(name)) resolved.set(name, new Set());
+    resolved.get(name).add(version);
+  }
+  return resolved;
+}
+
+// ===========================================================================
+// CONFIG AS A SUBJECT: THE REPO THAT PUBLISHES THE STANDARD, GRADED BY IT.
+//
+// Nothing here decides what config owes. The manifest's `configSubject` block
+// names one baseline and then names every rule of it config is NOT held to,
+// with a reason each; this code grades everything that block did not excuse,
+// and REDS an exemption naming a rule the baseline does not carry. An exemption
+// that lived in the tool would be an exemption nobody reading the standard
+// could find, which is the same rule the declarative half is written under.
+//
+// AND CONFIG IS NOT ADDED TO A `repos` LIST TO ACHIEVE THIS. `baselines.package.repos`
+// is the parser roster the phi-scan probe iterates; `baselines.light.repos`
+// holds config already, for the three groups an operator decision put there.
+// Neither can express "the author, held to the standard it publishes".
+// ===========================================================================
+
+/**
+ * Turn the manifest's `configSubject` declaration into a baseline to grade config against.
+ *
+ * @param {any} subject The manifest.
+ * @returns {{ baselineName: string, baseline: any, exempt: string[],
+ *   problems: { group: string, line: string }[] }}
+ */
+export function configSubjectRules(subject) {
+  const declaration = subject?.configSubject ?? {};
+  const baselineName = declaration.baseline ?? "package";
+  const source = subject?.baselines?.[baselineName];
+  const problems = [];
+  const exempt = [];
+
+  if (source === undefined) {
+    problems.push({
+      group: "configSubject",
+      line:
+        `configSubject.baseline: names the baseline ${JSON.stringify(baselineName)}, which this ` +
+        `manifest does not declare, so there is nothing to grade config against`,
+    });
+    return { baselineName, baseline: null, exempt, problems };
+  }
+
+  for (const [index, entry] of (declaration.exemptions ?? []).entries()) {
+    const dot = String(entry.rule).indexOf(".");
+    const groupName = String(entry.rule).slice(0, dot);
+    const kind = String(entry.rule).slice(dot + 1);
+    if (source.groups?.[groupName]?.requirements?.[kind] === undefined) {
+      problems.push({
+        group: "configSubject",
+        line:
+          `configSubject.exemptions[${index}]: "${entry.rule}" names no rule the ${baselineName} ` +
+          `baseline carries, so it excuses nothing and hides nothing. An exemption that outlives ` +
+          `its requirement is how a rule stops being graded without anyone deciding to stop.`,
+      });
+      continue;
+    }
+    exempt.push(entry.rule);
+  }
+
+  const excused = new Set(exempt);
+  const groups = {};
+  for (const [groupName, group] of Object.entries(source.groups ?? {})) {
+    const requirements = {};
+    for (const [kind, value] of Object.entries(group.requirements ?? {})) {
+      if (excused.has(`${groupName}.${kind}`)) continue;
+      requirements[kind] = value;
+    }
+    if (Object.keys(requirements).length > 0) {
+      groups[groupName] = { provenance: group.provenance, requirements };
+    }
+  }
+
+  return {
+    baselineName,
+    // `evaluate`, never `skip`: config HAS a package.json, and a subject that could be cleared by
+    // deleting one would be no subject at all.
+    baseline: { ...source, missingPackageJson: "evaluate", groups },
+    exempt,
+    problems,
+  };
+}
+
+/**
+ * The refusal AC8 exists for: config's own package.json present and unreadable.
+ *
+ * AN ABSENT `config/` IS NOT THIS. A checkout that has no config beside it is skipped with a reason
+ * like any other repo, and the estate-level refusal already covers a run that read nothing. A
+ * package.json that is THERE and broken is different in kind: grading zero rules over it and
+ * printing a report would clear the standard's author by way of a syntax error.
+ *
+ * @param {string} root The umbrella root.
+ * @returns {string | null} The problem, naming the file, or null.
+ */
+export function configSubjectFileProblem(root) {
+  const repoDir = repoDirFor(root, CONFIG_REPO);
+  if (!existsSync(repoDir) || readdirSync(repoDir).length === 0) return null;
+  const read = readRepoJson(join(repoDir, "package.json"));
+  if (!read.present) {
+    return `${CONFIG_REPO}/package.json: missing, so the repo that publishes the standard could not be graded against it`;
+  }
+  if (read.value === null) {
+    return `${CONFIG_REPO}/package.json: unparseable (${read.error}), so the repo that publishes the standard could not be graded against it`;
+  }
+  return null;
+}
+
+/**
+ * Grade config against the standard it publishes, and grade the standard's own citations.
+ *
+ * THE CITATIONS ARE GRADED WHETHER OR NOT CONFIG IS PRESENT TO GRADE. Whether an override cites an
+ * advisory, and whether it pins below what that advisory first patched, is a property of the
+ * MANIFEST and has the same answer in every checkout; only the RESOLVED versions need config's own
+ * lockfile.
+ *
+ * @param {{ manifest: any, root: string, advisories?: Map<string, object>, probe?: Function }} args
+ * @returns {{ name: string, baseline: string, exempt: string[], skipped: boolean, reason?: string,
+ *   findings: { group: string, line: string }[] }}
+ */
+export function gradeConfigSubject({
+  manifest: subject,
+  root,
+  advisories = new Map(),
+  probe = checkRepoPhiScan,
+}) {
+  const { baselineName, baseline, exempt, problems } = configSubjectRules(subject);
+  const requirements = overrideRequirementsOf(subject?.baselines?.[baselineName]) ?? {};
+  const findings = [...problems, ...gradeOverrideAdvisories({ requirements, advisories })];
+
+  if (baseline === null) {
+    return { name: CONFIG_REPO, baseline: baselineName, exempt, skipped: false, findings };
+  }
+
+  const graded = evaluateRepo({
+    name: CONFIG_REPO,
+    baselineName,
+    baseline,
+    root,
+    probe,
+  });
+  if (graded.skipped) {
+    return {
+      name: CONFIG_REPO,
+      baseline: baselineName,
+      exempt,
+      skipped: true,
+      reason: graded.reason,
+      findings,
+    };
+  }
+
+  const lockPath = join(repoDirFor(root, CONFIG_REPO), "pnpm-lock.yaml");
+  if (!existsSync(lockPath)) {
+    findings.push({
+      group: "resolvedDependencies",
+      line: `${CONFIG_REPO}/pnpm-lock.yaml: missing, so no resolved dependency could be graded against any cited advisory`,
+    });
+  } else {
+    findings.push(
+      ...gradeResolvedDependencies({
+        requirements,
+        advisories,
+        resolved: readLockfilePackages(readFileSync(lockPath, "utf8")),
+        lockLabel: `${CONFIG_REPO}/pnpm-lock.yaml`,
+      }),
+    );
+  }
+
+  return {
+    name: CONFIG_REPO,
+    baseline: baselineName,
+    exempt,
+    skipped: false,
+    findings: [...findings, ...graded.findings],
+  };
+}
+
+/**
+ * Render the config-subject block. It names every exemption, because a rule config is silently not
+ * held to reads exactly like a rule config passes.
+ *
+ * @param {ReturnType<typeof gradeConfigSubject>} subject
+ * @returns {string[]}
+ */
+export function formatConfigSubject(subject) {
+  const lines = [
+    "",
+    `CONFIG AS THE STANDARD'S OWN SUBJECT (the ${subject.baseline} baseline, minus ` +
+      `${subject.exempt.length} exemption(s) declared in drift-manifest.json)`,
+  ];
+  for (const rule of subject.exempt) lines.push(`    exempt: ${rule}`);
+  if (subject.skipped) {
+    // The repo could not be read, but the citations are a property of the manifest and were still
+    // graded. They are printed under the skip rather than dropped with it.
+    lines.push(`• ${subject.name}: SKIP (${subject.reason})`);
+  } else if (subject.findings.length === 0) {
+    lines.push(`✓ ${subject.name}: matches the baseline it publishes`);
+  } else {
+    lines.push(`✗ ${subject.name}: ${subject.findings.length} drift(s)`);
+  }
+  for (const finding of subject.findings) lines.push(`    - [${finding.group}] ${finding.line}`);
+  return lines;
+}
+
 /** Matching, drifted and skipped counts. Skipped is its own bucket and never joins `matching`. */
 export function summarize(results) {
   return {
@@ -970,14 +1636,19 @@ export function formatReport(results) {
 /**
  * Load, validate, grade, report.
  *
- * NOTHING IS GRADED UNTIL TWO GATES PASS, and both refuse in the same way: print why, grade
+ * NOTHING IS GRADED UNTIL THREE GATES PASS, and each refuses the same way: print why, grade
  * nothing, exit 2. A manifest that does not validate cannot say what any repo owes. A phi-scan
  * probe whose controls misbehave cannot say anything about any repo either, and printing confident
- * lines underneath a broken control would be worse than printing none.
+ * lines underneath a broken control would be worse than printing none. And config's own
+ * package.json, present and unparseable, cannot be graded by a standard config publishes: clearing
+ * the author by way of a syntax error is the third way this report could be a number with nothing
+ * behind it.
  *
  * @param {{ manifestPath?: string, root?: string, controls?: Function, probe?: Function,
- *   out?: (line: string) => void, err?: (line: string) => void }} options Injection points exist
- *   so the report can be exercised without sibling checkouts; the defaults are the real thing.
+ *   advisories?: Map<string, object>, out?: (line: string) => void,
+ *   err?: (line: string) => void }} options Injection points exist so the report can be exercised
+ *   without sibling checkouts and without a network; the defaults are the real thing. `advisories`
+ *   is what `loadAdvisories` returned; omitting it makes every citation INCONCLUSIVE, never a pass.
  * @returns {number} Process exit code: 0 clean, 1 drift, 2 nothing was graded.
  */
 export function runCheck({
@@ -985,6 +1656,7 @@ export function runCheck({
   root = umbrellaRoot,
   controls = phiScanProbeControls,
   probe = checkRepoPhiScan,
+  advisories = new Map(),
   out = (line) => console.log(line),
   err = (line) => console.error(line),
 } = {}) {
@@ -1004,6 +1676,16 @@ export function runCheck({
   }
   out("phi-scan capability probe: controls pass (shipped template ok, rule removed reds)");
 
+  const configProblem = configSubjectFileProblem(root);
+  if (configProblem !== null) {
+    err("✗ the standard's own author could not be read, so nothing was graded:");
+    err(`    - ${configProblem}`);
+    return 2;
+  }
+
+  const configSubject = gradeConfigSubject({ manifest: subject, root, advisories, probe });
+  for (const line of formatConfigSubject(configSubject)) out(line);
+
   const results = gradeEstate({ manifest: subject, root, probe });
   for (const line of formatReport(results)) out(line);
 
@@ -1011,19 +1693,45 @@ export function runCheck({
   // A RUN THAT READ NOTHING IS NOT A CLEAN RUN. Every repo skipped means no checkout was beside
   // `config` to read, and exit 0 there would be a green produced by an absent corpus, which is the
   // failure this repo's gates are written against. It is not a refusal either, so it says which.
-  if (summary.matching + summary.drifted === 0) {
+  if (summary.matching + summary.drifted === 0 && configSubject.skipped) {
     err(
       "✗ nothing was graded: no repo named by the baselines is checked out beside config, so this " +
         "run has no verdict about any of them",
     );
     return 2;
   }
-  return summary.drifted > 0 ? 1 : 0;
+  // The config subject reds the run like any other drift, and an INCONCLUSIVE advisory is one of
+  // the drifts it can carry: a lookup that could not complete must never leave a green behind.
+  return summary.drifted > 0 || configSubject.findings.length > 0 ? 1 : 0;
+}
+
+/**
+ * The CLI's own entry: consult the cited advisories, then grade.
+ *
+ * THE LOOKUP HAPPENS HERE AND NOT INSIDE `runCheck`, so that `runCheck` stays synchronous and every
+ * test of it stays offline by construction rather than by discipline. A suite that has to remember
+ * to stub a network call is a suite that will one day forget.
+ *
+ * @param {object} options Passed through to `runCheck`, plus `fetchAdvisory`.
+ * @returns {Promise<number>} The process exit code.
+ */
+export async function runCheckCli({ fetchAdvisory = fetchAdvisoryFromOsv, ...options } = {}) {
+  let advisories = new Map();
+  try {
+    advisories = await loadAdvisories({
+      manifest: readJson(options.manifestPath ?? MANIFEST_PATH),
+      fetchAdvisory,
+    });
+  } catch {
+    // An unreadable manifest is `runCheck`'s refusal to make, with its own message and exit code.
+    // Consulting nothing here leaves every citation INCONCLUSIVE, which is also not a pass.
+  }
+  return runCheck({ ...options, advisories });
 }
 
 // `isCliEntrypoint` is what lets the tests import the probe without running the
 // whole check: importing this file used to run it, so a test could not exercise
 // `probePhiScanCompleteness` at all.
 if (isCliEntrypoint(import.meta.url)) {
-  process.exit(runCheck());
+  process.exit(await runCheckCli());
 }

@@ -1,0 +1,53 @@
+{
+  "id": "GHSA-h67p-54hq-rp68",
+  "schema_version": "1.7.5",
+  "affected": [
+    {
+      "package": {
+        "name": "js-yaml",
+        "ecosystem": "npm",
+        "purl": "pkg:npm/js-yaml"
+      },
+      "ranges": [
+        {
+          "type": "SEMVER",
+          "events": [
+            {
+              "introduced": "4.0.0"
+            },
+            {
+              "fixed": "4.2.0"
+            }
+          ]
+        }
+      ],
+      "database_specific": {
+        "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/06/GHSA-h67p-54hq-rp68/GHSA-h67p-54hq-rp68.json",
+        "last_known_affected_version_range": "<= 4.1.1"
+      }
+    },
+    {
+      "package": {
+        "name": "js-yaml",
+        "ecosystem": "npm",
+        "purl": "pkg:npm/js-yaml"
+      },
+      "ranges": [
+        {
+          "type": "SEMVER",
+          "events": [
+            {
+              "introduced": "0"
+            },
+            {
+              "fixed": "3.15.0"
+            }
+          ]
+        }
+      ],
+      "database_specific": {
+        "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/06/GHSA-h67p-54hq-rp68/GHSA-h67p-54hq-rp68.json"
+      }
+    }
+  ]
+}

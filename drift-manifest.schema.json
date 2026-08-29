@@ -13,6 +13,8 @@
     "baselines",
     "phiScanProbeComment",
     "phiScanProbe",
+    "configSubjectComment",
+    "configSubject",
     "reDerivation"
   ],
   "properties": {
@@ -48,6 +50,12 @@
       "minLength": 1
     },
     "phiScanProbe": { "$ref": "#/$defs/phiScanProbe" },
+    "configSubjectComment": {
+      "description": "Why the repo that publishes the standard is graded as its own subject rather than by being added to a baseline's `repos` list.",
+      "type": "string",
+      "minLength": 80
+    },
+    "configSubject": { "$ref": "#/$defs/configSubject" },
     "reDerivation": { "$ref": "#/$defs/reDerivation" }
   },
   "$defs": {
@@ -160,6 +168,26 @@
           "type": "object",
           "minProperties": 1,
           "additionalProperties": { "type": "string", "minLength": 1 }
+        },
+        "pnpmOverrideAdvisories": {
+          "description": "The machine-readable citation for each pnpmOverrides entry, keyed by the SAME override key. A parameter of `pnpmOverrides`, which is the requirement that reads it. It carries identifiers and the ecosystem and package they are read for, and DELIBERATELY carries no version range: the checker resolves the advisory at check time and grades the pin against what the record says, because a range transcribed here is a claim that decays while the sentence beside it still reads true. An override with no entry here is reported as drift rather than excused by prose.",
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["ecosystem", "package", "advisories"],
+            "properties": {
+              "ecosystem": { "type": "string", "minLength": 1 },
+              "package": { "type": "string", "minLength": 1 },
+              "advisories": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9-]*$" }
+              }
+            }
+          }
         },
         "requiredCosyteConfigDeps": {
           "type": "array",
@@ -279,6 +307,33 @@
                 "uniqueItems": true,
                 "items": { "type": "string", "minLength": 1 }
               }
+            }
+          }
+        }
+      }
+    },
+    "configSubject": {
+      "description": "How config, the repo that publishes this standard, is graded BY it. It names one baseline and then names every rule of that baseline it is NOT held to, one entry per rule with the reason. Everything not named here is graded. The checker refuses an exemption whose rule the named baseline does not carry, so this list cannot outlive a requirement or excuse one that was never written.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provenance", "baseline", "exemptions"],
+      "properties": {
+        "provenance": { "$ref": "#/$defs/provenance" },
+        "baseline": {
+          "description": "Which baseline config is held to as the standard's author. `package` is the estate's real standard; the enum has one member so that widening it is a deliberate edit here.",
+          "enum": ["package"]
+        },
+        "exemptions": {
+          "description": "A rule config is not held to. `rule` is `<group>.<requirementKind>` and must name a rule the baseline actually carries. `why` is the reason, and its floor is long enough that a placeholder cannot satisfy it.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["rule", "why"],
+            "properties": {
+              "rule": { "type": "string", "pattern": "^[a-z][A-Za-z0-9]*\\.[a-z][A-Za-z0-9]*$" },
+              "why": { "type": "string", "minLength": 40 }
             }
           }
         }
