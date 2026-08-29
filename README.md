@@ -14,6 +14,43 @@ copies, no drift.
 The standard these encode is documented in the meta-repo's `documentation/conventions.md`
 ("Canonical toolchain (enforced)"). `hl7` is the reference consumer.
 
+## Install hardening
+
+Two pnpm resolution settings defend every install of this repository, and both ship switched **off**
+at the pinned `pnpm@10.34.5`, so both are in force only because
+[`pnpm-workspace.yaml`](pnpm-workspace.yaml) says so:
+
+| setting             | value          | what it refuses                                                                                          |
+| ------------------- | -------------- | -------------------------------------------------------------------------------------------------------- |
+| `minimumReleaseAge` | `1440`         | any dependency version, direct or transitive, published less than 24 hours ago                           |
+| `trustPolicy`       | `no-downgrade` | any version whose trust evidence is weaker than that of an earlier-published version of the same package |
+
+The 24 hours is pnpm's own number and its own reasoning: "Since malware is usually detected quickly,
+delaying updates by 24 hours will most likely prevent you from installing a bad version"
+([supply-chain security](https://pnpm.io/supply-chain-security)). The requirement itself is declared
+in [`drift-manifest.json`](drift-manifest.json)'s `installHardening` group, which is where the same
+two settings are required of every `@cosyte/*` package repo, so this repository is graded against the
+standard it publishes rather than exempt from it.
+
+**The exception route.** A package that has to be let through goes in `minimumReleaseAgeExclude` or
+`trustPolicyExclude` in `pnpm-workspace.yaml`, pinned to an exact version, with a
+`# reason: ...` comment on the line above it. The reason is not a courtesy:
+`scripts/install-hardening.mjs` fails and names any exemption that does not carry one, and a change
+to either setting or to the exclusion lists must also be a reviewed diff in
+[`npm-config-allow.json`](npm-config-allow.json), which pins what a release may be configured with.
+
+**What enforces it.** `pnpm run install-hardening` (`scripts/install-hardening.mjs`) runs in CI's
+required `verify` job, **before** `pnpm install --frozen-lockfile`. It reads the required floor out
+of `drift-manifest.json`, asks pnpm for the value it would actually use, and refuses rather than
+passing when the settings file is missing or unparseable, when an environment variable or CLI flag
+disagrees with it, or when the pnpm on the path predates the setting and would ignore the key.
+
+**What it does not do.** A cooldown is a detection-window bet, not a proof. `no-downgrade` says
+nothing about a package that never carried trust evidence at all. And at pnpm 10.34.5 both checks run
+during RESOLUTION, so `pnpm install --frozen-lockfile` skips them entirely: an entry already in
+`pnpm-lock.yaml` is not re-verified (the `trustLockfile` verification pass is a pnpm v11 feature).
+They defend the moment a dependency enters the lockfile, which is the moment that matters.
+
 ## Decisions
 
 Repo-scoped ADRs live in [`documentation/decisions/`](documentation/decisions). Cross-repo choices

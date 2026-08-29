@@ -79,6 +79,19 @@ jobs:
       #
       # Zero-dependency node, like the two gates above, so it runs before install.
       - run: node scripts/credential-surface.mjs
+      # THE INSTALL-HARDENING GATE, AND IT RUNS BEFORE THE INSTALL IT GUARDS. `minimumReleaseAge`
+      # and `trustPolicy` are the only two things between a compromised release and this runner
+      # during the window between its publication and its removal from the registry, and pnpm 10.34.5
+      # ships BOTH switched off: they are in force here only because pnpm-workspace.yaml says so.
+      # This asks pnpm what it would actually use, compares it to the floor drift-manifest.json
+      # requires, refuses an exemption nobody wrote a reason for, and refuses a pnpm too old to know
+      # the settings at all. Running it AFTER `pnpm install --frozen-lockfile` would report on an
+      # install that had already happened.
+      #
+      # It belongs in `verify` rather than only on the release path for the same reason as the three
+      # gates above: `verify` is a REQUIRED status check in this repo's `config-ci-required-checks`
+      # ruleset, so this is the copy that can REFUSE A MERGE. Zero-dependency node, like them.
+      - run: node scripts/install-hardening.mjs
       - run: pnpm install --frozen-lockfile
       # The em-dash brand gate's FILE half also runs in no-emdash.yml, which additionally
       # covers the PR title, body and commit messages and carries the `edited` trigger those

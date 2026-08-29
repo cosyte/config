@@ -13,6 +13,8 @@
     "baselines",
     "phiScanProbeComment",
     "phiScanProbe",
+    "installHardeningProbeComment",
+    "installHardeningProbe",
     "reDerivation"
   ],
   "properties": {
@@ -48,6 +50,12 @@
       "minLength": 1
     },
     "phiScanProbe": { "$ref": "#/$defs/phiScanProbe" },
+    "installHardeningProbeComment": {
+      "description": "Why scripts/install-hardening.mjs exists as a separate gate, and what was MEASURED rather than assumed about the pinned pnpm.",
+      "type": "string",
+      "minLength": 1
+    },
+    "installHardeningProbe": { "$ref": "#/$defs/installHardeningProbe" },
     "reDerivation": { "$ref": "#/$defs/reDerivation" }
   },
   "$defs": {
@@ -231,6 +239,46 @@
         "phiScanCapabilityProbe": {
           "description": "Run the repo's own scanner against a synthetic corpus. Parameters live in the top-level phiScanProbe key.",
           "const": true
+        },
+        "pnpmInstallHardening": {
+          "description": "The two pnpm resolution controls that defend a repo's INSTALL rather than its build: a publication cooldown and a no-downgrade trust policy, both read out of the repo's pnpm settings file. Both ship switched OFF at pnpm 10, so a repo that does not declare them does not have them.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["settingsFile", "minimumReleaseAgeMinutes", "trustPolicy"],
+          "properties": {
+            "settingsFile": {
+              "description": "The repo-relative file pnpm reads these settings from. pnpm's documented examples put them in pnpm-workspace.yaml, and .npmrc is not among the routes pnpm names for configuring them explicitly.",
+              "type": "string",
+              "minLength": 1
+            },
+            "minimumReleaseAgeMinutes": {
+              "description": "The floor in minutes. A repo declaring MORE than this satisfies the requirement; a repo declaring less does not.",
+              "type": "integer",
+              "minimum": 1
+            },
+            "trustPolicy": {
+              "description": "The exact value required. `off` is pnpm's default and is not a policy.",
+              "enum": ["no-downgrade"]
+            }
+          }
+        }
+      }
+    },
+    "installHardeningProbe": {
+      "description": "Parameters for scripts/install-hardening.mjs, which grades THIS repository rather than a target. It sits here for the same reason phiScanProbe does: it is an argument to a check, not a requirement of a repo.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["supportedFrom"],
+      "properties": {
+        "supportedFrom": {
+          "description": "The pnpm release each setting was added in. A pnpm older than this ignores the key entirely, which is a settings file that decorates rather than defends, and is one of the four states the gate refuses on.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["minimumReleaseAge", "trustPolicy"],
+          "properties": {
+            "minimumReleaseAge": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+            "trustPolicy": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" }
+          }
         }
       }
     },

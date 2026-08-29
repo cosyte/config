@@ -1,9 +1,13 @@
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterAll, describe, expect, it } from "vitest";
 
 import { extractRunnableSnippets, runSnippet } from "@cosyte/vitest-config/snippets";
+
+import { evaluateRepo } from "../scripts/drift-check.js";
+import { compareVersions, parseVersion } from "../scripts/install-hardening.mjs";
 
 /**
  * Guards `scripts/parser-template/docs-content`: the full-spine scaffold every new parser copies.
@@ -40,6 +44,85 @@ afterAll(() => {
   } catch {
     /* best effort */
   }
+});
+
+describe("a scaffolded repo is born carrying the install hardening the baseline requires", () => {
+  // AC-9. THE ASSERTION IS THE DRIFT CHECK'S OWN VERDICT, not a re-reading of the template's YAML:
+  // "born compliant" means the tool that grades thirteen repos finds nothing to say about this one,
+  // and asserting that by reading the same file the checker reads would only prove the file exists.
+  const manifest = JSON.parse(readFileSync(join(process.cwd(), "drift-manifest.json"), "utf8"));
+  const requirement =
+    manifest.baselines.package.groups.installHardening.requirements.pnpmInstallHardening;
+
+  it("produces no cooldown or trust-policy drift line", () => {
+    // The scaffold copies the template tree wholesale (`copyTree` in scripts/scaffold-parser.mjs),
+    // so a copy of the template under a repo-shaped name is the emitted tree for this requirement:
+    // nothing in it carries a substitutable token.
+    const root = mkdtempSync(join(tmpdir(), "scaffold-hardening-"));
+    try {
+      cpSync(TEMPLATE, join(root, "scaffolded"), { recursive: true });
+      const result = evaluateRepo({
+        name: "scaffolded",
+        baselineName: "package",
+        baseline: {
+          repos: ["scaffolded"],
+          missingPackageJson: "skip",
+          groups: {
+            installHardening: {
+              provenance: "the committed requirement, read from drift-manifest.json",
+              requirements: { pnpmInstallHardening: requirement },
+            },
+          },
+        },
+        root,
+        probe: () => null,
+      });
+      expect(result.skipped, "the scaffold must be GRADED, not skipped").toBe(false);
+      expect(result.findings).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("NEGATIVE CONTROL: a scaffold without the settings file WOULD be reported as drift", () => {
+    // Without this, the assertion above is satisfied by a checker that reports nothing at all.
+    const root = mkdtempSync(join(tmpdir(), "scaffold-no-settings-"));
+    try {
+      mkdirSync(join(root, "scaffolded"));
+      writeFileSync(join(root, "scaffolded", "package.json"), "{}", "utf8");
+      const result = evaluateRepo({
+        name: "scaffolded",
+        baselineName: "package",
+        baseline: {
+          repos: ["scaffolded"],
+          missingPackageJson: "skip",
+          groups: {
+            installHardening: {
+              provenance: "the committed requirement, read from drift-manifest.json",
+              requirements: { pnpmInstallHardening: requirement },
+            },
+          },
+        },
+        root,
+        probe: () => null,
+      });
+      expect(result.findings?.length).toBeGreaterThan(0);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("and it pins a pnpm new enough to actually read those settings", () => {
+    // A settings file an older pnpm ignores is decoration rather than defence: minimumReleaseAge
+    // arrived in 10.16.0 and trustPolicy in 10.21.0, and the template used to pin pnpm@10.0.0.
+    const pinned = JSON.parse(readFileSync(join(TEMPLATE, "package.json"), "utf8")).packageManager;
+    const [, version] = String(pinned).split("@");
+    const addedIn = manifest.installHardeningProbe.supportedFrom.trustPolicy as string;
+    expect(
+      compareVersions(parseVersion(version)!, parseVersion(addedIn)!),
+      `the template pins ${pinned}, older than the ${addedIn} that added trustPolicy`,
+    ).toBeGreaterThanOrEqual(0);
+  });
 });
 
 describe("parser-template docs-content spine", () => {

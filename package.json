@@ -30,6 +30,7 @@
     "release:config-allow": "node scripts/npm-config-allow.mjs",
     "release:notes": "node scripts/release-notes.mjs",
     "credentials:check": "node scripts/credential-surface.mjs",
+    "install-hardening": "node scripts/install-hardening.mjs",
     "publish:preflight": "node scripts/publish-preflight.mjs",
     "test:root": "vitest run",
     "test:packages": "pnpm --filter \"./packages/*\" run test",

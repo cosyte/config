@@ -84,6 +84,21 @@
       "why": "The workspace glob in pnpm-workspace.yaml. It decides WHICH packages a release covers, so it is pinned exactly: widening it silently is how a package nobody meant to publish gets published."
     },
     {
+      "key": "minimum-release-age",
+      "value": 1440,
+      "why": "The publication cooldown in pnpm-workspace.yaml: no dependency version younger than this many minutes may be resolved. Pinned EXACTLY rather than by a floor, because this allow-set answers `what may a release be configured with` and a release configured with a shorter cooldown than the baseline requires is precisely the configuration nobody approved. drift-manifest.json's installHardening group is where the 1440 is derived; a change has to be a reviewed diff in both."
+    },
+    {
+      "key": "trust-policy",
+      "value": "no-downgrade",
+      "why": "The trust policy in pnpm-workspace.yaml: an install fails when a package's trust evidence is weaker than that of an earlier-published version. `off` is pnpm's default and is not a policy, so it is not permitted here: a release configured with the check switched off is the state this gate exists to refuse."
+    },
+    {
+      "key": "trust-policy-exclude",
+      "value": ["undici-types@6.21.0", "chokidar@4.0.3"],
+      "why": "The two packages exempted from the trust policy, pinned EXACTLY as a list rather than permitted at any value. Each entry is a hole in the control, so widening the list must be a reviewed diff here as well as in pnpm-workspace.yaml, where each one also carries a `# reason:` comment that scripts/install-hardening.mjs refuses to do without. Version-pinned on both sides, so a later release of either package is graded again rather than inheriting the exemption."
+    },
+    {
       "key": "pnpm-field:overrides",
       "value": {
         "esbuild@>=0.27.3 <0.28.1": "0.28.1",

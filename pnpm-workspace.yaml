@@ -1,2 +1,53 @@
 packages:
   - "packages/*"
+
+# ---------------------------------------------------------------------------
+# INSTALL HARDENING (S0092-config-3). These two settings are the only defence
+# this repository has against a compromised release during the window between
+# its publication and its removal from the registry. pnpm 10.34.5 ships both
+# switched off (minimumReleaseAge defaults to 0 before v11, trustPolicy to
+# off), so every value below is load-bearing and none of it is a default.
+#
+# scripts/install-hardening.mjs GRADES THIS BLOCK and runs before install in
+# CI's required `verify` job. It reads the required floor out of
+# drift-manifest.json rather than out of this file, so the two cannot drift
+# apart, and it asks pnpm for the EFFECTIVE value rather than trusting what is
+# written here, because an environment variable or a CLI flag outranks a file.
+#
+# EVERY EXEMPTION NEEDS A REASON, ON THE LINE ABOVE IT, STARTING `# reason:`.
+# An exemption with no recorded reason fails the check by name. The lists are
+# absent rather than empty while nothing is exempted: an empty list is a place
+# for an entry to appear unremarked.
+# ---------------------------------------------------------------------------
+
+# 1440 minutes = 24 hours, the floor drift-manifest.json requires of every
+# package repo. pnpm's own rationale for the number: "Since malware is usually
+# detected quickly, delaying updates by 24 hours will most likely prevent you
+# from installing a bad version" (https://pnpm.io/supply-chain-security).
+minimumReleaseAge: 1440
+
+# Fail the install when a package's trust evidence is weaker than that of an
+# earlier-published version of the same package (a trusted publisher that
+# becomes provenance-only, or provenance that becomes nothing at all).
+trustPolicy: no-downgrade
+
+trustPolicyExclude:
+  # reason: measured 2026-08-29 on pnpm 10.34.5. Turning trustPolicy on reds a
+  # from-scratch resolution of this repository's own dependency set with
+  # ERR_PNPM_TRUST_DOWNGRADE on undici-types, reached as a transitive of
+  # @types/node and pinned at exactly this version by the committed
+  # pnpm-lock.yaml. Earlier undici-types releases carry a provenance
+  # attestation and 6.21.0 carries none, which is a publisher who stopped
+  # attaching provenance rather than a takeover: the package is a
+  # types-only tarball with no runtime code and no install scripts. Pinned to
+  # the one version the lockfile resolves, so a LATER undici-types release is
+  # graded again rather than inheriting this exemption.
+  - "undici-types@6.21.0"
+  # reason: measured 2026-08-29 on pnpm 10.34.5, same shape as the entry above and found by the
+  # same from-scratch resolution. chokidar is reached as a transitive of tsup and is pinned at
+  # exactly this version by the committed pnpm-lock.yaml; earlier chokidar releases carry a
+  # provenance attestation and 4.0.3 carries none. pnpm's own documentation uses this exact
+  # package and version as its worked example of a trustPolicyExclude entry
+  # (https://pnpm.io/settings/dependency-resolution). Pinned to the one version the lockfile
+  # resolves, so a LATER chokidar release is graded again rather than inheriting this exemption.
+  - "chokidar@4.0.3"
