@@ -763,10 +763,11 @@ describe("AC15: nothing the previous manifest required vanishes unmentioned", ()
       "prepublishOnly",
     ]);
     expect(groups.dependencies.requirements.caretAllowed).toEqual(["@types/node"]);
-    expect(groups.dependencies.requirements.pnpmOverrides).toEqual({
-      "esbuild@>=0.27.3 <0.28.1": "0.28.1",
-      "js-yaml@>=4.0.0 <4.3.0": "4.3.0",
-    });
+    // `pnpmOverrides` is deliberately NOT asserted here any more: S0091-config-2 re-pinned it and
+    // moved it out of `carriedUnchanged` into `droppedOrChanged`, because the value the
+    // re-derivation carried forward was pinned below the first patched version of the advisory the
+    // comment beside it argued from. test/drift-advisory.test.ts grades the new value against the
+    // advisory record instead of against a copy of it written down here.
     expect(groups.sharedConfig.requirements.requiredCosyteConfigDeps).toEqual([
       "@cosyte/tsconfig",
       "@cosyte/eslint-config",

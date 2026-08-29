@@ -1,0 +1,52 @@
+{
+  "id": "GHSA-5p4m-2wfm-xmqj",
+  "schema_version": "1.8.0",
+  "affected": [
+    {
+      "package": {
+        "name": "js-yaml",
+        "ecosystem": "npm",
+        "purl": "pkg:npm/js-yaml"
+      },
+      "ranges": [
+        {
+          "type": "SEMVER",
+          "events": [
+            {
+              "introduced": "4.0.0"
+            },
+            {
+              "fixed": "4.3.1"
+            }
+          ]
+        }
+      ],
+      "database_specific": {
+        "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/08/GHSA-5p4m-2wfm-xmqj/GHSA-5p4m-2wfm-xmqj.json"
+      }
+    },
+    {
+      "package": {
+        "name": "js-yaml",
+        "ecosystem": "npm",
+        "purl": "pkg:npm/js-yaml"
+      },
+      "ranges": [
+        {
+          "type": "SEMVER",
+          "events": [
+            {
+              "introduced": "3.0.0"
+            },
+            {
+              "fixed": "3.15.1"
+            }
+          ]
+        }
+      ],
+      "database_specific": {
+        "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/08/GHSA-5p4m-2wfm-xmqj/GHSA-5p4m-2wfm-xmqj.json"
+      }
+    }
+  ]
+}
