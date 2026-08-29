@@ -15,7 +15,10 @@
 // than encoded here: this file is the evaluator, not the standard.
 //
 // NOTE: until each repo is migrated onto the standard, this is EXPECTED to report drift: that
-// output IS the per-repo migration worklist, and it is not a health report.
+// output IS the per-repo migration worklist, and it is not a health report. `pnpmInstallHardening`
+// is the newest requirement and the clearest example: it asks every package repo for a publication
+// cooldown and a no-downgrade trust policy that NONE of them carries yet, so it lands as thirteen
+// worklist entries on the day it ships. That is the requirement being GRADED, not being satisfied.
 //
 // ===========================================================================
 // ONE ASSERTION HERE IS A CAPABILITY PROBE, NOT A MATCHER, AND THE DISTINCTION
@@ -86,6 +89,7 @@ import { writeFileSync } from "node:fs";
 
 import { isCliEntrypoint } from "../packages/script-utils/index.js";
 import { validateManifest } from "./validate-drift-manifest.mjs";
+import { parseYamlSubset } from "./install-hardening.mjs";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const configRoot = resolve(scriptDir, ".."); // .../config
@@ -774,6 +778,47 @@ export const REQUIREMENT_KINDS = {
     check: ({ name, repoDir, probe }) => {
       const problem = probe(name, repoDir);
       return problem === null ? [] : [problem];
+    },
+  },
+  pnpmInstallHardening: {
+    // EVERY LINE THIS EMITS STATES THE VALUE THAT WAS REQUIRED, and every one of those values comes
+    // out of the argument rather than out of this file. Editing the floor in the manifest therefore
+    // re-grades all thirteen repos and changes what the report says it wanted, with no edit here:
+    // this file is the evaluator, the manifest is the standard.
+    check: ({ repoDir }, want) => {
+      const relative = want.settingsFile;
+      const path = join(repoDir, ...relative.split("/"));
+      const wanted =
+        `minimumReleaseAge >= ${want.minimumReleaseAgeMinutes} and ` +
+        `trustPolicy "${want.trustPolicy}"`;
+      if (!existsSync(path)) {
+        return [`${relative}: missing, so ${wanted} could not be graded`];
+      }
+      let settings;
+      try {
+        settings = parseYamlSubset(readFileSync(path, "utf8"));
+      } catch (cause) {
+        return [`${relative}: unparseable (${cause.message}), so ${wanted} could not be graded`];
+      }
+      const violations = [];
+      const age = settings.minimumReleaseAge;
+      if (typeof age !== "number") {
+        violations.push(
+          `${relative} minimumReleaseAge: want a number of at least ` +
+            `${want.minimumReleaseAgeMinutes}, got ${JSON.stringify(age ?? null)}`,
+        );
+      } else if (age < want.minimumReleaseAgeMinutes) {
+        violations.push(
+          `${relative} minimumReleaseAge: want at least ${want.minimumReleaseAgeMinutes}, got ${age}`,
+        );
+      }
+      if (settings.trustPolicy !== want.trustPolicy) {
+        violations.push(
+          `${relative} trustPolicy: want "${want.trustPolicy}", got ` +
+            `${JSON.stringify(settings.trustPolicy ?? null)}`,
+        );
+      }
+      return violations;
     },
   },
 };

@@ -16,6 +16,53 @@ no package, so entries here are **dated** rather than versioned.
 
 ### Added
 
+- **The install is defended, and the defence is required of every package repo**
+  (`S0092-config-3`). `pnpm@10.34.5` ships two supply-chain controls SWITCHED OFF -
+  `minimumReleaseAge` defaults to 0 before v11 and `trustPolicy` defaults to `off` - and neither was
+  set here or asked of any target, so every install in this repository and in the thirteen it grades
+  accepted a dependency version the instant it appeared on the registry, and accepted a version whose
+  trust evidence had silently weakened. Both are now on where the baseline lives, and the baseline
+  now requires them.
+  - **`pnpm-workspace.yaml` carries `minimumReleaseAge: 1440` and `trustPolicy: no-downgrade`.** The
+    24 hours is pnpm's own number and its own reasoning ("Since malware is usually detected quickly,
+    delaying updates by 24 hours will most likely prevent you from installing a bad version"). Two
+    exemptions were needed and both are named with a recorded reason: `undici-types@6.21.0` and
+    `chokidar@4.0.3`, each pinned to exactly the version `pnpm-lock.yaml` resolves, each a publisher
+    who stopped attaching provenance rather than a takeover. A from-scratch resolution of this
+    repository's dependency set was measured against the settings to find them.
+  - **`drift-manifest.json` gains an `installHardening` group** in the `package` baseline, so all
+    thirteen parser repos are now graded on both settings. NONE of them carries either one yet: that
+    is thirteen new worklist entries on the day this lands, which is the requirement being graded
+    rather than satisfied, exactly as the manifest's own `standing` describes. `scripts/drift-check.js`
+    reads the required values out of the manifest and PRINTS the value it required in every drift
+    line, so changing the floor re-grades the estate with no edit to the checker. The phi-scan
+    capability probe and its controls are untouched.
+  - **`scripts/install-hardening.mjs` confirms the settings are IN FORCE rather than written down**,
+    and runs in CI's required `verify` job BEFORE `pnpm install --frozen-lockfile`. It refuses, by
+    name, when the settings file is missing or unparseable, when an environment variable or CLI flag
+    disagrees with it, when the pnpm on the path predates the setting and would ignore the key, or
+    when an exemption carries no `# reason:` comment. pnpm v11's two fail-safe knobs
+    (`minimumReleaseAgeStrict`, `minimumReleaseAgeIgnoreMissingTime`) do not exist at the pinned
+    version, so what 10.34.5 does in the states they govern was MEASURED against a throwaway registry
+    rather than assumed: a range in which no version meets the cooldown fails with
+    `ERR_PNPM_NO_MATURE_MATCHING_VERSION`, and a packument with no `time` field fails with
+    `ERR_PNPM_MISSING_TIME`. Both already fail closed, so this gate closes the four states pnpm
+    cannot report because in each of them pnpm is never asked.
+  - **`test/support/fixture-registry.mjs` is a zero-dependency npm registry**, so the two behaviours
+    are graded by running real installs against packuments this repository wrote rather than against
+    whatever the public registry holds today. It also scrubs every inherited `npm_config_*` variable
+    from the fixture's environment: `pnpm run <script>` exports its whole effective configuration to
+    its children, which silently configured the "no hardening" control and is the same precedence
+    the gate above now refuses to ignore.
+  - **The parser scaffold is born compliant.** `scripts/parser-template/pnpm-workspace.yaml` ships
+    both settings, and the template's `packageManager` moves from `pnpm@10.0.0` to `pnpm@10.34.5`
+    because `minimumReleaseAge` arrived in 10.16.0 and `trustPolicy` in 10.21.0: a settings file an
+    older pnpm ignores is decoration rather than defence.
+  - **Known limitation.** At 10.34.5 both checks run during RESOLUTION, so
+    `pnpm install --frozen-lockfile` skips them and a lockfile entry is never re-verified (pnpm's
+    `trustLockfile` verification pass is a v11 feature). They defend the moment a dependency enters
+    the lockfile. `pnpm-lock.yaml` is byte-identical after the change and its `settings:` block is
+    unchanged.
 - **The publish path's credential surface is now DECLARED AND ENFORCED rather than described**
   (`S0080-config-npm-cred-surface`). The credentials this repository publishes with lived only in
   prose: comment blocks in `.github/workflows/release.yml` and narrative sections of `RELEASING.md`.

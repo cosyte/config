@@ -157,6 +157,16 @@
             ]
           }
         },
+        "installHardening": {
+          "provenance": "NEW for S0092-config-3. Derived from pnpm's own settings documentation (https://pnpm.io/settings/dependency-resolution) read against the `pnpm@10` this baseline already requires: `minimumReleaseAge` was added in v10.16.0 and defaults to 0 before v11, `trustPolicy` was added in v10.21.0 and defaults to `off`, so NEITHER control is on anywhere in the estate without this requirement. The 1440-minute floor is pnpm's own number and its own rationale (https://pnpm.io/supply-chain-security: `Since malware is usually detected quickly, delaying updates by 24 hours will most likely prevent you from installing a bad version`), not a local preference. `pnpm-workspace.yaml` is the file because pnpm's documented examples put both settings there and because .npmrc is NOT among the routes pnpm names for configuring them explicitly. Blocking dependency postinstall scripts and blockExoticSubdeps are deliberately NOT here: both are already on by default at pnpm 10.34.5, so requiring them would be a no-op dressed as a requirement. Every repo in this baseline is EXPECTED to report drift on this group until it adopts the settings; that report is the worklist, exactly as `standing` says.",
+          "requirements": {
+            "pnpmInstallHardening": {
+              "settingsFile": "pnpm-workspace.yaml",
+              "minimumReleaseAgeMinutes": 1440,
+              "trustPolicy": "no-downgrade"
+            }
+          }
+        },
         "agentDoc": {
           "provenance": "NEW in manifest version 2, and SHAPE ONLY. The operator overturned decision 15 for shape alone on 2026-08-29 (documentation/decisions/operator-decision-shared-utilities-s0047.md, `Decision 15 is OVERTURNED, for SHAPE only`): the umbrella may standardize required sections and a line budget and NEVER content. documentation/documentation-standard.md row 16 already names this manifest as where that shape is defined and drift-check as its enforcer. The filename and the five headings are taken from scripts/parser-template/CLAUDE.md, the scaffold every parser repo is born from and the only agent-context doc this checkout can read: the research doc's `What was NOT checked` records that no repo's own AGENTS.md or CLAUDE.md was read, so nothing here is derived from one. AGENTS.md is accepted as an alternative filename because documentation/documentation-standard.md names both. The line budget is a DECLARED ceiling rather than a measurement: the scaffold is 166 lines, and 300 is that with headroom. A heading matches when the file carries a heading line that STARTS WITH the declared text, so a repo may qualify its own headings without failing the shape.",
           "requirements": {
@@ -232,6 +242,13 @@
         "marker": "RIVERA^JORDAN",
         "scaffoldFiles": ["src/index.ts", "README.md", "docs-content/intro.md"]
       }
+    }
+  },
+  "installHardeningProbeComment": "Parameters for scripts/install-hardening.mjs, the gate that confirms THIS repository's own cooldown and trust policy are IN FORCE rather than merely written down. It sits beside phiScanProbe for the same reason phiScanProbe sits here: it is an argument to a check, not a requirement of a repo, and a requirement nothing grades must never read as a requirement that passed. `supportedFrom` is what makes `the pinned pnpm does not support the setting` an answerable question rather than an assumption: pnpm's own documentation records the release each setting was added in, and a pnpm older than that ignores the key entirely, which is a settings file that decorates rather than defends. It is NOT a per-repo requirement and drift-check.js does not grade any target against it: `packageManagerPrefix: pnpm@10` is what the baseline asks of a target's package manager. MEASURED, NOT ASSUMED, at pnpm 10.34.5 against a throwaway registry (test/support/fixture-registry.mjs): a range in which no version satisfies the cooldown fails with ERR_PNPM_NO_MATURE_MATCHING_VERSION, and a packument carrying no `time` field fails with ERR_PNPM_MISSING_TIME. Both of those are the states pnpm v11's minimumReleaseAgeStrict and minimumReleaseAgeIgnoreMissingTime govern, and both already fail closed at the pinned version, so this gate exists for the four states pnpm cannot report because in each of them pnpm is never asked.",
+  "installHardeningProbe": {
+    "supportedFrom": {
+      "minimumReleaseAge": "10.16.0",
+      "trustPolicy": "10.21.0"
     }
   },
   "reDerivation": {
