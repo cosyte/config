@@ -14,7 +14,9 @@
  * function; every case hands in a stub over `test/fixtures/advisories/`, which are the response
  * bodies the two sources actually returned, trimmed to the keys under test and not retyped. See
  * that directory's README.md for provenance. A suite that reached the network would be a flaky
- * required gate, and one that could reach it by accident is the same thing waiting to happen.
+ * required gate, and one that could reach it by accident is the same thing waiting to happen, so
+ * `test/no-network.setup.ts` refuses `fetch` and DNS across the whole root suite and one case below
+ * asserts that guard is live rather than trusting it.
  *
  * SECURITY / PHI: no repository is read but this one, and every fixture is a public advisory.
  */
@@ -23,7 +25,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 
 import {
   advisoryRangesFor,
@@ -54,18 +56,8 @@ const ESBUILD = "GHSA-g7r4-m6w7-qqqr";
 const NO_PROBE = () => null;
 const CONTROLS_PASS = () => [];
 
-// AC12, ENFORCED RATHER THAN INTENDED. Every case here injects its lookup, and this makes that
-// structural: a case that reached the real network would have to go through `fetch`, and `fetch`
-// throws for the length of this file. Discipline is what a suite has until the day it does not.
-beforeAll(() => {
-  vi.stubGlobal("fetch", () => {
-    throw new Error("this suite makes no request: hand the lookup in instead");
-  });
-});
-
 const TEMP_DIRS: string[] = [];
 afterAll(() => {
-  vi.unstubAllGlobals();
   for (const dir of TEMP_DIRS) rmSync(dir, { recursive: true, force: true });
 });
 
@@ -542,6 +534,21 @@ describe("AC7: a lookup that cannot complete is INCONCLUSIVE and reds", () => {
     expect(result.ok).toBe(false);
     expect(result.reason).toMatch(expected);
     expect(result.url).toContain("api.osv.dev");
+  });
+
+  it("AC12: the suite's own network guard is LIVE, and the default lookup lands on it", async () => {
+    // Two things at once, and both matter. The guard in test/no-network.setup.ts is asserted to be
+    // in force rather than assumed, because a guard nobody has seen fire is indistinguishable from
+    // one that cannot. And the DEFAULT lookup, the one with no stub handed in, is shown to answer
+    // `ok: false` with a reason instead of throwing: that is the no-network branch of AC7 arriving
+    // through the real code path rather than through a fake.
+    const result = (await fetchAdvisoryFromOsv(JS_YAML_POLLUTION)) as {
+      ok: boolean;
+      reason: string;
+    };
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain("did not complete");
+    expect(result.reason).toContain("makes no network request");
   });
 
   it("makes no request when this runtime has no fetch", async () => {

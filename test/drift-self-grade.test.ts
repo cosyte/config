@@ -15,7 +15,9 @@
  * asserted once, over the real files, at the bottom; the cases in between build their own throwaway
  * estates so that a change to this checkout cannot silently turn a mechanism test into a tautology.
  *
- * OFFLINE: no network, no sibling checkout, no advisory lookup. Every case supplies its own inputs.
+ * OFFLINE: no network and no sibling checkout. Every case supplies its own inputs, and
+ * `test/no-network.setup.ts` refuses `fetch` and DNS for the whole root suite, so that is a refusal
+ * rather than a habit.
  *
  * SECURITY / PHI: every fixture written here is synthetic.
  */
@@ -24,7 +26,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 
 import {
   configSubjectFileProblem,
@@ -62,17 +64,8 @@ function fixtureAdvisories(): Map<string, unknown> {
   return advisories;
 }
 
-// AC12, ENFORCED RATHER THAN INTENDED: `fetch` throws for the length of this file, so a case that
-// reached the network could not pass by accident.
-beforeAll(() => {
-  vi.stubGlobal("fetch", () => {
-    throw new Error("this suite makes no request: hand the lookup in instead");
-  });
-});
-
 const TEMP_DIRS: string[] = [];
 afterAll(() => {
-  vi.unstubAllGlobals();
   for (const dir of TEMP_DIRS) rmSync(dir, { recursive: true, force: true });
 });
 
