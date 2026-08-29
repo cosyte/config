@@ -1,0 +1,324 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cosyte.com/schemas/drift-manifest.schema.json",
+  "title": "cosyte drift manifest",
+  "description": "The shape of drift-manifest.json, which IS the cosyte engineering baseline. Validated by scripts/validate-drift-manifest.mjs, which implements the subset of JSON Schema used here and nothing more: a manifest that needs a keyword the validator does not know is a change to BOTH files. The subset is type, required, properties, additionalProperties, patternProperties, propertyNames, items, minItems, minProperties, minLength, minimum, uniqueItems, enum, const, pattern and local $ref into $defs. No remote references: this file must validate with no network and no node_modules.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "manifestVersion",
+    "standing",
+    "estate",
+    "baselines",
+    "phiScanProbeComment",
+    "phiScanProbe",
+    "reDerivation"
+  ],
+  "properties": {
+    "$schema": {
+      "description": "The schema this manifest is validated against, resolved relative to the manifest.",
+      "type": "string",
+      "minLength": 1
+    },
+    "manifestVersion": {
+      "description": "2 is the re-derived, two-baseline shape. 1 was the flat, single-target shape whose authority was a prose document that no longer exists.",
+      "type": "integer",
+      "minimum": 2
+    },
+    "standing": {
+      "description": "What this file's authority IS. It may not defer to a prose document, because the last one it deferred to was deleted and took the provenance of every requirement with it.",
+      "type": "string",
+      "minLength": 80
+    },
+    "estate": { "$ref": "#/$defs/estate" },
+    "baselines": {
+      "description": "Exactly two, and together they cover the whole estate. The operator refused both `one baseline for all 24 repos` and `only the 13 with the rest excluded`.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["package", "light"],
+      "properties": {
+        "package": { "$ref": "#/$defs/baseline" },
+        "light": { "$ref": "#/$defs/baseline" }
+      }
+    },
+    "phiScanProbeComment": {
+      "description": "Why the phi-scan check is a capability probe and not a matcher. Carried unchanged from manifest version 1.",
+      "type": "string",
+      "minLength": 1
+    },
+    "phiScanProbe": { "$ref": "#/$defs/phiScanProbe" },
+    "reDerivation": { "$ref": "#/$defs/reDerivation" }
+  },
+  "$defs": {
+    "repoName": {
+      "description": "A submodule PATH from the umbrella's .gitmodules, never a submodule NAME. The pattern is load-bearing: the org profile repo is NAMED `.github` and PATHED `github-profile`, the checker resolves a repo by joining the umbrella root with the name it is given, and the umbrella root has its own `.github/` directory. A leading dot cannot be written here, so that repo cannot be addressed by name even by accident.",
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "provenance": {
+      "description": "Where this group's requirements were DERIVED from. Not a description of what they are: a claim about their source, so a later reader can argue with it. The floor is long enough that a placeholder cannot satisfy it.",
+      "type": "string",
+      "minLength": 40
+    },
+    "estate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provenance", "addressedBy", "submodulePaths"],
+      "properties": {
+        "provenance": { "$ref": "#/$defs/provenance" },
+        "addressedBy": {
+          "description": "Repos are addressed by PATH. The enum has one member so that widening it is a deliberate edit here.",
+          "enum": ["path"]
+        },
+        "submodulePaths": {
+          "description": "Every submodule path in the umbrella. Each one must be claimed by exactly one baseline; the validator enforces that, and it is how `every repo owes something` stops being a claim.",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/repoName" }
+        }
+      }
+    },
+    "baseline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "provenance", "repos", "missingPackageJson", "groups"],
+      "properties": {
+        "title": { "type": "string", "minLength": 1 },
+        "provenance": { "$ref": "#/$defs/provenance" },
+        "ceiling": {
+          "description": "What this baseline may NOT grow to cover, where an operator decision set one.",
+          "type": "string",
+          "minLength": 1
+        },
+        "repos": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/repoName" }
+        },
+        "missingPackageJson": {
+          "description": "What the checker does with a repo that is present but carries no package.json. `skip` is the version-1 greenfield behaviour and is right for a baseline made of npm packages; `evaluate` is required for a baseline whose repos mostly have no package.json at all, where skipping would silently clear nearly every one of them.",
+          "enum": ["skip", "evaluate"]
+        },
+        "groups": {
+          "description": "Requirement groups. Every one carries its own provenance, so a requirement can never again be inherited from a document nobody can read.",
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": { "pattern": "^[a-z][A-Za-z0-9]*$" },
+          "additionalProperties": { "$ref": "#/$defs/group" }
+        }
+      }
+    },
+    "group": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provenance", "requirements"],
+      "properties": {
+        "provenance": { "$ref": "#/$defs/provenance" },
+        "requirements": { "$ref": "#/$defs/requirements" }
+      }
+    },
+    "requirements": {
+      "description": "One or more requirement kinds. The kind names are a CLOSED set, shared with the evaluator table in scripts/drift-check.js: a kind the checker cannot evaluate must not be expressible here, or the manifest would declare a requirement nothing grades.",
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "packageManagerPrefix": { "type": "string", "minLength": 1 },
+        "nodeEngineMinMajor": { "type": "integer", "minimum": 1 },
+        "prettier": { "type": "string", "minLength": 1 },
+        "tsconfigExtends": { "type": "string", "minLength": 1 },
+        "requiredScripts": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "lintMustInclude": { "type": "string", "minLength": 1 },
+        "devDepVersions": {
+          "description": "Wanted version prefixes, matched part by part. An empty string means presence only.",
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": { "type": "string" }
+        },
+        "caretAllowed": {
+          "description": "Dependency names exempt from the exact-pin rule.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "caretAllowedScopes": {
+          "description": "Name prefixes exempt from the exact-pin rule. A parameter of `caretAllowed`, which is the requirement that reads it; declared here because it was hardcoded in the checker before.",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "pnpmOverrides": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": { "type": "string", "minLength": 1 }
+        },
+        "requiredCosyteConfigDeps": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "requiredDevDeps": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "packageJsonEquals": {
+          "description": "Dotted paths into package.json that must hold the given value.",
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": { "pattern": "^[A-Za-z0-9_$@/.-]+$" }
+        },
+        "jsonFileEquals": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["file", "pointer", "value"],
+            "properties": {
+              "file": { "type": "string", "minLength": 1 },
+              "pointer": { "type": "string", "minLength": 1 },
+              "value": {}
+            }
+          }
+        },
+        "requiredFiles": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "requiredWorkflows": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "agentDoc": {
+          "description": "SHAPE ONLY. Presence of the file, presence of the declared headings, and a line ceiling. Nothing here may describe CONTENT: the operator overturned decision 15 for shape alone, and the checker is written so that no line other than a heading is read, reported or asserted.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["files", "requiredHeadings", "maxLines"],
+          "properties": {
+            "files": {
+              "description": "Accepted agent-context filenames, canonical first. The first one present is the one graded; when none is present the canonical name is what the drift line reports.",
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": { "type": "string", "minLength": 1 }
+            },
+            "requiredHeadings": {
+              "description": "A heading matches when the file carries a heading line that STARTS WITH this text, so a repo may qualify its own headings.",
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": { "type": "string", "pattern": "^#" }
+            },
+            "maxLines": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "phiScanCapabilityProbe": {
+          "description": "Run the repo's own scanner against a synthetic corpus. Parameters live in the top-level phiScanProbe key.",
+          "const": true
+        }
+      }
+    },
+    "phiScanProbe": {
+      "description": "Parameters for the one BEHAVIOURAL check. Carried unchanged from manifest version 1: changing what the probe asks is out of scope for a re-derivation, and loosening it turns a PHI-detection assertion into a vacuous pass across every PHI-bearing repo.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["default"],
+      "properties": {
+        "default": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["violator", "decoy", "payload", "marker", "clean", "scaffoldFiles"],
+          "properties": {
+            "violator": { "type": "string", "minLength": 1 },
+            "decoy": { "type": "string", "minLength": 1 },
+            "payload": { "type": "string", "minLength": 1 },
+            "marker": { "type": "string", "minLength": 1 },
+            "clean": { "type": "string", "minLength": 1 },
+            "scaffoldFiles": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        "perRepo": {
+          "description": "Overrides for a repo whose scanner does not read the default fixture. The validator refuses an entry for a repo no baseline names, so an override cannot outlive its repo.",
+          "type": "object",
+          "propertyNames": { "pattern": "^[a-z0-9][a-z0-9-]*$" },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "minProperties": 1,
+            "properties": {
+              "$why": { "type": "string", "minLength": 1 },
+              "violator": { "type": "string", "minLength": 1 },
+              "decoy": { "type": "string", "minLength": 1 },
+              "payload": { "type": "string", "minLength": 1 },
+              "marker": { "type": "string", "minLength": 1 },
+              "clean": { "type": "string", "minLength": 1 },
+              "scaffoldFiles": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": { "type": "string", "minLength": 1 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "reDerivation": {
+      "description": "The record of what this file used to require and what became of it. Every key the previous manifest carried is accounted for here, so no requirement can vanish unmentioned.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provenance", "preChangeKeys", "carriedUnchanged", "droppedOrChanged"],
+      "properties": {
+        "provenance": { "$ref": "#/$defs/provenance" },
+        "preChangeKeys": {
+          "description": "Every top-level key the pre-change manifest carried. The validator requires each one to appear in exactly one of carriedUnchanged or droppedOrChanged.",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "carriedUnchanged": {
+          "description": "Keys whose requirement survived re-derivation with its value intact. The validator refuses one that is no longer present anywhere in this file, so this list cannot become a claim about a requirement that was quietly deleted.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "droppedOrChanged": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["was", "now", "reason"],
+            "properties": {
+              "was": { "type": "string", "minLength": 1 },
+              "now": { "type": "string", "minLength": 1 },
+              "reason": { "type": "string", "minLength": 40 }
+            }
+          }
+        }
+      }
+    }
+  }
+}

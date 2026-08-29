@@ -42,7 +42,8 @@
     "changeset": "changeset",
     "version": "changeset version",
     "release": "node scripts/publish-preflight.mjs && pnpm run build && changeset publish",
-    "drift": "node scripts/drift-check.js"
+    "drift": "node scripts/drift-check.js",
+    "drift:validate": "node scripts/validate-drift-manifest.mjs"
   },
   "devDependencies": {
     "@changesets/cli": "2.31.0",

@@ -222,6 +222,35 @@ no package, so entries here are **dated** rather than versioned.
 
 ### Changed
 
+- **`drift-manifest.json` is re-derived, extended, and no longer inherits its authority from a
+  document that does not exist** (`S0226-config-drift-manifest`, 2026-08-29). No package code
+  changes, so there is no changeset. Its `$comment` named the umbrella's `conventions.md` as the
+  authoritative prose and called this file its machine-checkable shadow; that document had been
+  deleted, so every requirement in the file was inherited from something nobody could read. By
+  operator decision nothing replaces it and no prose companion is to be written: the manifest IS the
+  standard.
+  - **Every requirement now sits in a GROUP that carries a provenance note** saying what it was
+    derived from, and `drift-manifest.schema.json` refuses a group without one. Validation is a new
+    entry point, `pnpm drift:validate`, zero-dependency for the same reason the other gates here are:
+    a file that calls itself the standard must be checkable with nothing installed.
+  - **A SECOND, LIGHTER BASELINE** for the eleven repos that cannot share a build config, holding
+    exactly what the decision allows it (the em-dash gate, one CI entry point, the security
+    workflows). The decision asked for eleven and named ten; the missing one is `config` itself, and
+    the arithmetic is recorded in the baseline's own provenance note rather than left to be
+    rediscovered. The two baselines together now assign all 24 submodule paths, once each, and the
+    validator refuses a manifest where that stops being true.
+  - **The package baseline reaches past build config** to the CI workflow baseline (six workflows,
+    the measured common core, up from the four the scaffold ships), PHI scan, release tooling and
+    agent-doc SHAPE. Shape means presence, section headings and a line ceiling, and nothing else:
+    decision 15 was overturned for shape alone, so `gradeAgentDoc` reduces the file to its headings
+    and a line count on its first statement and no other line can reach a verdict.
+  - **The checker reports a WORKLIST rather than a verdict.** Repos are addressed by `.gitmodules`
+    PATH (the org profile repo is NAMED `.github` and PATHED `github-profile`, and resolving it by
+    name would have graded the umbrella's own `.github/`, so both the schema and the resolver refuse
+    the name); a repo that is absent or not checked out is SKIPPED with a reason and never counted as
+    matching; a light repo with no `package.json` is graded rather than skipped as greenfield; and a
+    run that could read nothing exits 2 rather than green. The phi-scan capability probe is unchanged,
+    parameters and all, and still gates the entire report.
 - **`release.yml` is split into an ungated version job and a gated publish job, and the release
   process is rewritten against a measurement rather than an assumption** (`S0074`, 2026-08-22). No
   package code changes, so there is no changeset: this is the repo-level home the release process

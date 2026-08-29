@@ -1,56 +1,219 @@
 {
-  "$comment": "Canonical engineering baseline for the @cosyte/* parser repos. scripts/drift-check.js fails when a repo diverges. The authoritative prose is the meta-repo documentation/conventions.md; this is its machine-checkable shadow. Until Phases D/E migrate each parser, drift here is EXPECTED. It is the worklist.",
-  "targets": [
-    "hl7",
-    "mllp",
-    "dicom",
-    "x12",
-    "ccda",
-    "ncpdp",
-    "fhir",
-    "astm",
-    "terminology",
-    "transform",
-    "cli",
-    "deid",
-    "synth"
-  ],
-  "packageManagerPrefix": "pnpm@10",
-  "nodeEngineMinMajor": 22,
-  "tsconfigExtends": "@cosyte/tsconfig/base.json",
-  "prettier": "@cosyte/prettier-config",
-  "requiredScripts": [
-    "build",
-    "typecheck",
-    "lint",
-    "lint:fix",
-    "format",
-    "format:check",
-    "test",
-    "test:watch",
-    "test:coverage",
-    "phi-scan",
-    "attw",
-    "clean",
-    "prepublishOnly"
-  ],
-  "lintMustInclude": "--max-warnings=0",
-  "devDepVersions": {
-    "typescript": "5.9",
-    "eslint": "10",
-    "vitest": "4",
-    "vite": "7",
-    "@vitest/coverage-v8": "4",
-    "tsup": "8",
-    "prettier": "3.8",
-    "@types/node": "22",
-    "@arethetypeswrong/cli": ""
+  "$schema": "./drift-manifest.schema.json",
+  "manifestVersion": 2,
+  "standing": "THIS FILE IS THE STANDARD. It is the cosyte estate's engineering baseline and it inherits its authority from no other document: there is no prose twin, and by operator decision none is to be written. Every requirement below carries its own provenance note saying where it was derived from, so no requirement is inherited unexamined. scripts/drift-check.js evaluates it and prints a per-repo WORKLIST; scripts/validate-drift-manifest.mjs validates this file against drift-manifest.schema.json, which ships beside it and needs no install to run. Drift is EXPECTED while the migration runs: the report is the worklist, never a claim of health.",
+  "estate": {
+    "provenance": "The umbrella's .gitmodules is the list of record for repo names, PATHS and hazards. These are its 24 submodule PATHS as of 2026-08-29, read for S0226. Repos are addressed by PATH and never by submodule NAME: the org profile repo is NAMED `.github` and PATHED `github-profile`, and since the checker resolves a repo by joining the umbrella root with the name it is given, and the umbrella root has its own `.github/` directory, addressing that repo by name would silently grade the umbrella's own workflows.",
+    "addressedBy": "path",
+    "submodulePaths": [
+      "assets",
+      "astm",
+      "ccda",
+      "claude-containers",
+      "cli",
+      "config",
+      "crew",
+      "dates",
+      "deid",
+      "dicom",
+      "docs",
+      "fhir",
+      "github-profile",
+      "hl7",
+      "iac",
+      "knowledgebase",
+      "mllp",
+      "ncpdp",
+      "pathways",
+      "synth",
+      "terminology",
+      "transform",
+      "website",
+      "x12"
+    ]
   },
-  "caretAllowed": ["@types/node"],
-  "pnpmOverridesComment": "Canonical pnpm.overrides every parser must carry; the rationale is Dependabot dev/build-time advisory remediation. esbuild: GHSA dev-server path-traversal (not reachable; repos build via tsup/vitest, never `esbuild serve`). js-yaml@4: GHSA-h67p-54hq-rp68 quadratic merge-key DoS, advisory range extended to <4.3.0, so the pin is 4.3.0 (bumped 2026-07-21). KNOWN RESIDUAL (not pinnable): js-yaml@3.14.2 reached via read-yaml-file@1.1.0 (@manypkg/get-packages → @changesets/cli) calls yaml.safeLoad, which throws in js-yaml 4, so it cannot be force-upgraded without breaking release tooling; it only parses trusted local repo YAML at release time.",
-  "pnpmOverrides": {
-    "esbuild@>=0.27.3 <0.28.1": "0.28.1",
-    "js-yaml@>=4.0.0 <4.3.0": "4.3.0"
+  "baselines": {
+    "package": {
+      "title": "The 13 @cosyte/* package repos",
+      "provenance": "The same thirteen the pre-change manifest named as `targets`, re-derived rather than inherited: documentation/research/shared-utilities-current-state.md measured every one of them as a published-or-publishable npm package consuming five or six of the shared @cosyte/* config packages, and scripts/parser-template/ in this checkout is the scaffold they are generated from, so what a package repo owes can be read off a tree that exists here. The operator decision (documentation/decisions/operator-decision-shared-utilities-s0047.md, `The baseline`) directed that this baseline be re-derived AND extended beyond build config.",
+      "repos": [
+        "hl7",
+        "mllp",
+        "dicom",
+        "x12",
+        "ccda",
+        "ncpdp",
+        "fhir",
+        "astm",
+        "terminology",
+        "transform",
+        "cli",
+        "deid",
+        "synth"
+      ],
+      "missingPackageJson": "skip",
+      "groups": {
+        "toolchain": {
+          "provenance": "Carried unchanged from manifest version 1 and re-derived against documentation/research/shared-utilities-current-state.md, which measured `pnpm@10` across all thirteen (fhir pins the full sha512 form, which satisfies a prefix rule and is recorded there as a weaker guarantee rather than a violation) and Node >= 22 as the estate floor. scripts/parser-template/package.json, the scaffold every parser is born from, ships `packageManager: pnpm@10.0.0` and `engines.node: >=22.0.0`.",
+          "requirements": {
+            "packageManagerPrefix": "pnpm@10",
+            "nodeEngineMinMajor": 22
+          }
+        },
+        "sharedConfig": {
+          "provenance": "Carried unchanged from manifest version 1. documentation/research/shared-utilities-current-state.md measured every package sampled (hl7, x12, dicom, deid, cli) as depending on five or six of the published @cosyte/* config packages, and named the five below as the published-and-in-use set. scripts/parser-template/package.json declares `prettier: @cosyte/prettier-config` and scripts/parser-template/tsconfig.json extends `@cosyte/tsconfig/base.json`.",
+          "requirements": {
+            "prettier": "@cosyte/prettier-config",
+            "tsconfigExtends": "@cosyte/tsconfig/base.json",
+            "requiredCosyteConfigDeps": [
+              "@cosyte/tsconfig",
+              "@cosyte/eslint-config",
+              "@cosyte/prettier-config",
+              "@cosyte/tsup-config",
+              "@cosyte/vitest-config"
+            ]
+          }
+        },
+        "scripts": {
+          "provenance": "Carried unchanged from manifest version 1 and re-derived against scripts/parser-template/package.json in this checkout, which declares every one of these thirteen script names and lints at `--max-warnings=0`. The scaffold is the derivation: a name required here that the scaffold does not create would be a requirement no new parser repo could satisfy on the day it is born.",
+          "requirements": {
+            "requiredScripts": [
+              "build",
+              "typecheck",
+              "lint",
+              "lint:fix",
+              "format",
+              "format:check",
+              "test",
+              "test:watch",
+              "test:coverage",
+              "phi-scan",
+              "attw",
+              "clean",
+              "prepublishOnly"
+            ],
+            "lintMustInclude": "--max-warnings=0"
+          }
+        },
+        "dependencies": {
+          "provenance": "devDepVersions, caretAllowed and pnpmOverrides carried unchanged from manifest version 1; scripts/parser-template/package.json carries the same override pair, which is where a new repo inherits it. The rationale that version 1 kept in a separate `pnpmOverridesComment` key is preserved here rather than dropped: the overrides are Dependabot dev/build-time advisory remediation. esbuild: GHSA dev-server path traversal, not reachable, since these repos build via tsup/vitest and never run `esbuild serve`. js-yaml@4: GHSA-h67p-54hq-rp68 quadratic merge-key DoS, advisory range extended to <4.3.0, so the pin is 4.3.0 (bumped 2026-07-21). KNOWN RESIDUAL, not pinnable: js-yaml@3.14.2 is reached via read-yaml-file@1.1.0 (@manypkg/get-packages, @changesets/cli) and calls yaml.safeLoad, which throws in js-yaml 4, so it cannot be force-upgraded without breaking release tooling; it only parses trusted local repo YAML at release time. caretAllowedScopes states what the checker used to hardcode: a workspace-internal @cosyte/* dependency may stay on a caret range.",
+          "requirements": {
+            "devDepVersions": {
+              "typescript": "5.9",
+              "eslint": "10",
+              "vitest": "4",
+              "vite": "7",
+              "@vitest/coverage-v8": "4",
+              "tsup": "8",
+              "prettier": "3.8",
+              "@types/node": "22",
+              "@arethetypeswrong/cli": ""
+            },
+            "caretAllowed": ["@types/node"],
+            "caretAllowedScopes": ["@cosyte/"],
+            "pnpmOverrides": {
+              "esbuild@>=0.27.3 <0.28.1": "0.28.1",
+              "js-yaml@>=4.0.0 <4.3.0": "4.3.0"
+            }
+          }
+        },
+        "ciWorkflows": {
+          "provenance": "EXTENDED here, and the extension is measured rather than chosen. The operator decision puts `the CI workflow baseline` in scope. documentation/research/shared-utilities-current-state.md measured the common core across the thirteen packages as ci, codeql, no-emdash, no-internal-refs, release and scorecard, and recorded exactly two gaps in it: dicom carries no no-internal-refs, deid carries no no-emdash. Manifest version 1 required only the four that scripts/parser-template/.github/workflows ships (ci, codeql, release, scorecard), so those two gaps were invisible to the checker. Requiring all six is what puts them on the worklist. Filenames follow the measured convention that each repo's workflow is a thin caller named after the reusable workflow it calls.",
+          "requirements": {
+            "requiredWorkflows": [
+              "ci.yml",
+              "release.yml",
+              "codeql.yml",
+              "scorecard.yml",
+              "no-emdash.yml",
+              "no-internal-refs.yml"
+            ]
+          }
+        },
+        "phiScan": {
+          "provenance": "PHI scan is in scope by the operator's own words in the decision (`PHI SCAN, etc`). The three required files are measured: documentation/research/shared-utilities-current-state.md records that all 13 packages reference the shared pipeline's PHI-scan step and all 13 carry phi-scan-overrides.md, and that hl7, dicom and deid each ship their own scripts/phi-scan.ts and scripts/phi-allow-list.txt; scripts/parser-template/ scaffolds all three. The capability probe is carried unchanged from manifest version 1, parameters and all: it RUNS each repo's scanner against a synthetic corpus rather than matching its source, and its own controls gate the entire report. Publishing the scanner as a shared package is a separate component item and is NOT required here.",
+          "requirements": {
+            "requiredFiles": [
+              "scripts/phi-scan.ts",
+              "scripts/phi-allow-list.txt",
+              "phi-scan-overrides.md"
+            ],
+            "phiScanCapabilityProbe": true
+          }
+        },
+        "releaseTooling": {
+          "provenance": "NEW in manifest version 2; `release tooling` is named in the operator decision's Scope. Every requirement is read off scripts/parser-template/ in this checkout, which is the tree every parser repo is generated from: its package.json declares the `changeset` and `release` scripts, `publishConfig.access: public` and `publishConfig.provenance: true`, and `@changesets/cli` as a devDependency, and it ships .changeset/config.json with `access: public` and `baseBranch: main`. `prepublishOnly` is required by the scripts group and is not restated. release.yml is required by the ciWorkflows group and is not restated either.",
+          "requirements": {
+            "requiredScripts": ["changeset", "release"],
+            "requiredDevDeps": ["@changesets/cli"],
+            "packageJsonEquals": {
+              "publishConfig.access": "public",
+              "publishConfig.provenance": true
+            },
+            "requiredFiles": [".changeset/config.json"],
+            "jsonFileEquals": [
+              { "file": ".changeset/config.json", "pointer": "access", "value": "public" },
+              { "file": ".changeset/config.json", "pointer": "baseBranch", "value": "main" }
+            ]
+          }
+        },
+        "agentDoc": {
+          "provenance": "NEW in manifest version 2, and SHAPE ONLY. The operator overturned decision 15 for shape alone on 2026-08-29 (documentation/decisions/operator-decision-shared-utilities-s0047.md, `Decision 15 is OVERTURNED, for SHAPE only`): the umbrella may standardize required sections and a line budget and NEVER content. documentation/documentation-standard.md row 16 already names this manifest as where that shape is defined and drift-check as its enforcer. The filename and the five headings are taken from scripts/parser-template/CLAUDE.md, the scaffold every parser repo is born from and the only agent-context doc this checkout can read: the research doc's `What was NOT checked` records that no repo's own AGENTS.md or CLAUDE.md was read, so nothing here is derived from one. AGENTS.md is accepted as an alternative filename because documentation/documentation-standard.md names both. The line budget is a DECLARED ceiling rather than a measurement: the scaffold is 166 lines, and 300 is that with headroom. A heading matches when the file carries a heading line that STARTS WITH the declared text, so a repo may qualify its own headings without failing the shape.",
+          "requirements": {
+            "agentDoc": {
+              "files": ["CLAUDE.md", "AGENTS.md"],
+              "requiredHeadings": [
+                "## Project",
+                "## Status",
+                "## Tech Stack",
+                "## Engineering Guardrails",
+                "## Standing disciplines"
+              ],
+              "maxLines": 300
+            }
+          }
+        }
+      }
+    },
+    "light": {
+      "title": "The 11 repos that cannot share a build config",
+      "provenance": "The authorizing decision asks for `A SECOND, LIGHTER baseline for the other 11 repos` and then names TEN of them (crew, pathways, website, iac, docs, knowledgebase, assets, claude-containers, github-profile, dates). The COUNT is right and the LIST is one short. Resolved against .gitmodules, the list of record: 24 submodules, minus the 13 package repos, minus those ten, leaves exactly one repo unaccounted for, `config` ITSELF. So CONFIG IS THE ELEVENTH LIGHT REPO: counted by the decision, not named by it. config is a pnpm workspace but has never been one of the 13 package targets, and the decision explicitly REFUSED both `one baseline for all 24 repos` and `only the 13 with the rest excluded`, which only adds up if the two baselines together cover all 24. documentation/research/shared-utilities-current-state.md independently records config as an outlier on exactly the axes this baseline covers: no codeql, no no-internal-refs, no scorecard. If the operator intended config to be exempt from BOTH baselines, the reversal is one entry here and one line in estate.submodulePaths.",
+      "ceiling": "Exactly three groups: the em-dash gate, ONE CI entry point, and the security workflows. The decision's words are `A Terraform repo and a parser cannot share a build config; they can share no-emdash, a CI entry point and the security workflows`, and nothing else may be added to this baseline without a new operator decision. In particular no build, lint, format, dependency or agent-doc requirement belongs here.",
+      "repos": [
+        "crew",
+        "pathways",
+        "website",
+        "iac",
+        "docs",
+        "knowledgebase",
+        "assets",
+        "claude-containers",
+        "github-profile",
+        "dates",
+        "config"
+      ],
+      "missingPackageJson": "evaluate",
+      "groups": {
+        "emdashGate": {
+          "provenance": "The decision names no-emdash as one of the three things these repos can share. documentation/research/shared-utilities-current-state.md measured pathways and claude-containers as already carrying a `no-emdash` workflow, so the requirement describes something two of these repos already do. The requirement is the WORKFLOW rather than a package script because most repos in this baseline carry no package.json at all, and a requirement they cannot express is a requirement that only ever reports drift.",
+          "requirements": {
+            "requiredWorkflows": ["no-emdash.yml"]
+          }
+        },
+        "ciEntryPoint": {
+          "provenance": "The decision names `a CI entry point`. The NAME is derived rather than invented: documentation/research/shared-utilities-current-state.md records that each repo's workflow is a thin CALLER of the reusable workflow in cosyte/.github (hl7's ci.yml is `uses: cosyte/.github/.github/workflows/ci.yml@main`), and ci.yml is what the package baseline and scripts/parser-template/.github/workflows already require. Measured today, this is a WORKLIST entry for most of these repos rather than a description of them: crew carries `lint` only, assets `pr-check`, knowledgebase `format`, and dates NO workflows at all. Wiring dates is explicitly the first task of S0188 by the same decision, not of this item.",
+          "requirements": {
+            "requiredWorkflows": ["ci.yml"]
+          }
+        },
+        "securityWorkflows": {
+          "provenance": "The decision names `the security workflows`. WHICH two they are is read off the package baseline and the scaffold rather than assumed: scripts/parser-template/.github/workflows ships codeql.yml and scorecard.yml, and manifest version 1 already required both of the thirteen. documentation/research/shared-utilities-current-state.md measures config itself as carrying NEITHER, which is one of the three drifts that put config in this baseline.",
+          "requirements": {
+            "requiredWorkflows": ["codeql.yml", "scorecard.yml"]
+          }
+        }
+      }
+    }
   },
   "phiScanProbeComment": "Parameters for the one BEHAVIOURAL check in scripts/drift-check.js: it RUNS each repo's scripts/phi-scan.ts against a throwaway corpus and asks whether it refuses over a target it enumerated and never read. THE MACHINERY NOW LIVES IN @cosyte/script-utils/phi-scan, so the probe PLANTS that package into the throwaway repository before running, and WHICH copy it plants is the adoption check: the controls plant config's own working copy, a target repo is graded against the version THAT repo has installed, and a repo that has not adopted carries a self-contained scanner and needs nothing planted. A repo that HAS adopted but has no node_modules yields a scanner that cannot start, prints no marker, and lands on `inconclusive` rather than on a pass. It is a capability probe, never a regex over the scanner's source: this class has produced six defects that lived in a prose carrier while the code was right, so matching prose would grade the comment. NOTHING HERE NAMES AN EXIT CODE, deliberately. The siblings do not agree on their codes, so the probe derives each repo's HITS code from a control run and treats only exit 0 as `reported clean`. A perRepo entry exists for a repo whose scanner does not read the default fixture (dicom tiers by EXTENSION), and the probe answers `inconclusive` rather than passing when it cannot ground its own premise.",
   "phiScanProbe": {
@@ -71,12 +234,71 @@
       }
     }
   },
-  "requiredCosyteConfigDeps": [
-    "@cosyte/tsconfig",
-    "@cosyte/eslint-config",
-    "@cosyte/prettier-config",
-    "@cosyte/tsup-config",
-    "@cosyte/vitest-config"
-  ],
-  "requiredWorkflows": ["ci.yml", "release.yml", "codeql.yml", "scorecard.yml"]
+  "reDerivation": {
+    "provenance": "S0226-config-drift-manifest, 2026-08-29. Manifest version 1 declared its own authority to be a prose document in the umbrella that had since been deleted, so every requirement in it was inherited from a file nobody could read. The operator decided to re-derive AND extend it, to add a second lighter baseline, and to write no prose companion. This record is what makes the re-derivation auditable: every top-level key version 1 carried is listed in preChangeKeys and accounted for in exactly one of the two lists below, so no requirement can vanish unmentioned.",
+    "preChangeKeys": [
+      "$comment",
+      "targets",
+      "packageManagerPrefix",
+      "nodeEngineMinMajor",
+      "tsconfigExtends",
+      "prettier",
+      "requiredScripts",
+      "lintMustInclude",
+      "devDepVersions",
+      "caretAllowed",
+      "pnpmOverridesComment",
+      "pnpmOverrides",
+      "phiScanProbeComment",
+      "phiScanProbe",
+      "requiredCosyteConfigDeps",
+      "requiredWorkflows"
+    ],
+    "carriedUnchanged": [
+      "packageManagerPrefix",
+      "nodeEngineMinMajor",
+      "tsconfigExtends",
+      "prettier",
+      "requiredScripts",
+      "lintMustInclude",
+      "devDepVersions",
+      "caretAllowed",
+      "pnpmOverrides",
+      "requiredCosyteConfigDeps",
+      "phiScanProbeComment",
+      "phiScanProbe"
+    ],
+    "droppedOrChanged": [
+      {
+        "was": "$comment",
+        "now": "dropped; replaced by `standing` plus a per-group provenance note",
+        "reason": "It named an umbrella prose document as the authoritative source and called this file its machine-checkable shadow. That document no longer exists, so the claim made every requirement here unfalsifiable. The operator ruled that nothing replaces it and that this manifest IS the standard, so the authority claim is dropped rather than repointed, and provenance moves down to each group where it can be checked."
+      },
+      {
+        "was": "targets",
+        "now": "baselines.package.repos",
+        "reason": "There are two baselines now, and a single flat list cannot say which one a repo is held to. The thirteen names are unchanged; only their location and the fact that the other eleven repos are now named as well have changed."
+      },
+      {
+        "was": "pnpmOverridesComment",
+        "now": "baselines.package.groups.dependencies.provenance (text preserved)",
+        "reason": "Every group carries a provenance note now, so a separate comment key beside one requirement is redundant and drifts from the requirement it describes. The advisory rationale and the known residual are preserved verbatim in the group note."
+      },
+      {
+        "was": "requiredWorkflows",
+        "now": "baselines.package.groups.ciWorkflows.requirements.requiredWorkflows, extended from four to six",
+        "reason": "Version 1 required ci.yml, release.yml, codeql.yml and scorecard.yml, which is the set scripts/parser-template ships. The research doc measured the common core across the thirteen as six, including no-emdash and no-internal-refs, and measured exactly two repos as missing one each. Requiring four could never surface those two gaps, and surfacing them is what a worklist is for."
+      },
+      {
+        "was": "checker rule, hardcoded in scripts/drift-check.js: a @cosyte/* devDependency may stay on a caret range",
+        "now": "baselines.package.groups.dependencies.requirements.caretAllowedScopes",
+        "reason": "Behaviour is unchanged; the rule is now declared in the file that calls itself the standard instead of living only in the tool that reads it. A requirement nobody can find in the manifest is the failure this whole re-derivation exists to undo."
+      },
+      {
+        "was": "checker rule, hardcoded in scripts/drift-check.js: a repo with no package.json is SKIPPED as greenfield",
+        "now": "baselines.<name>.missingPackageJson, `skip` for the package baseline and `evaluate` for the light one",
+        "reason": "Unchanged for the package baseline, where a repo with no package.json is genuinely greenfield. Applied unchanged to the light baseline it would have silently skipped nearly every repo in it, since most carry no package.json at all, and a baseline that skips its own members reports health it never measured."
+      }
+    ]
+  }
 }
