@@ -45,15 +45,39 @@ pnpm add -D @cosyte/eslint-config eslint typescript
 
 ## Usage
 
-`eslint.config.js`:
+`eslint.config.js` exports the array the factory returns:
 
-```js
+```ts runnable
 import cosyte from "@cosyte/eslint-config";
 
-export default cosyte(import.meta.dirname);
+const config = cosyte(import.meta.dirname);
+Array.isArray(config); // => true
 ```
 
-Lint at `--max-warnings=0`.
+The argument is `tsconfigRootDir`: the directory holding the `tsconfig.json` the type-checked rules
+resolve against, which is why `import.meta.dirname` is the normal value. Lint at
+`--max-warnings=0`, which is what every `@cosyte/*` repo's `lint` script passes.
+
+## Entry points
+
+| entry point             | what it is                                                                       |
+| ----------------------- | -------------------------------------------------------------------------------- |
+| `@cosyte/eslint-config` | the default export `cosyte(tsconfigRootDir, opts?)`, a flat-config array factory |
+
+One entry point, so `@cosyte/eslint-config` is the only specifier a consumer ever writes.
+
+## Overrides
+
+The second argument is the whole override surface: `opts.ignores` appends ignore globs, `opts.files`
+replaces which globs the type-checked rules apply to, and `opts.library` drops the JSDoc, `@example`
+and `no-console` gates for an application. The [API](#api) below states each one's default.
+
+Every type-safety rule (no `any`, no unjustified casts, exhaustiveness, strict imports) stays on
+either way. An application has no published API surface to document and legitimately logs; it has no
+licence to be less type-safe, so that half is not reachable through `opts` at all. Appending your
+own config object after the factory's array is ESLint's own escape hatch and nothing here can stop
+it, but a rule switched off that way is switched off in one repo while every sibling still enforces
+it. Change it here and take a version bump instead.
 
 ## PHI and safety
 

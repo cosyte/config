@@ -14,11 +14,7 @@ import { join, relative } from "node:path";
 
 import { afterAll, describe, expect, it } from "vitest";
 
-import {
-  docSnippetSuite,
-  extractRunnableSnippets,
-  runSnippet,
-} from "@cosyte/vitest-config/snippets";
+import { docSnippetSuite, extractRunnableSnippets } from "@cosyte/vitest-config/snippets";
 
 import { parseYamlSubset } from "../scripts/install-hardening.mjs";
 
@@ -26,29 +22,37 @@ import { parseYamlSubset } from "../scripts/install-hardening.mjs";
  * THE PER-PACKAGE DOCUMENTATION GATE.
  *
  * Each published package's README is the only documentation a consumer of that package gets: it is
- * what npm renders, and it ships inside the tarball. Before this gate the eight READMEs ranged from
- * 22 lines to 240, three of the eleven published entry points were documented nowhere, and the same
- * topic carried a different heading in each file. None of that was visible until a consumer hit it,
+ * what npm renders, and it ships inside the tarball. Three of the eleven published entry points were
+ * documented nowhere, no README said what a consumer may change about what the package enforces, and
+ * no documented example was executed by anything. None of that was visible until a consumer hit it,
  * because nothing in the repository looked.
+ *
+ * WHAT THIS GRADES THAT `scripts/readme-check.mjs` DOES NOT. That gate owns the house SHAPE: the
+ * banner, the badge row, the tagline, the seven required sections and the claims a published README
+ * may not make. This one owns what the sections SAY about the published interface: that every entry
+ * point in the `exports` map is documented, that a consumer is told what may be overridden, and that
+ * the usage example is executed against this repo's own sources. The two share a vocabulary on
+ * purpose (`## Install`, `## Usage`, `## License` last) rather than each demanding its own.
  *
  * WHAT IS GRADED, and why each half exists.
  *
  *   1. TOPIC COVERAGE. Five topics per package: what it is, how to install it, how to consume it,
  *      every entry point its `exports` map declares, and how to override what it enforces. A README
  *      that omits one is named with the topic it omits, so the failure says what to write rather
- *      than that something is missing.
+ *      than that something is missing. A topic is covered by what its section SAYS: a heading with
+ *      nothing under it is the pre-seeded template, and it is refused as a missing topic.
  *   2. ONE VOCABULARY. The heading text for a topic is identical across every package, and every
- *      README ends with the same footer line. Near-miss spellings (`Usage` for `Use`) are refused BY
+ *      README ends with the same footer line. Near-miss spellings (`Use` for `Usage`) are refused BY
  *      NAME rather than reported as an absent topic, because "you wrote the wrong word" and "you
  *      wrote nothing" are different repairs.
- *   3. A COPYABLE EXAMPLE, ALWAYS. The `## Use` section of every published package must carry a
+ *   3. A COPYABLE EXAMPLE, ALWAYS. The `## Usage` section of every published package must carry a
  *      fenced block. "How to consume it" answered in prose alone gives a consumer nothing to paste,
  *      and that is true of a package whose entry point is a JSON config just as much as of one that
  *      ships code.
  *   4. EXECUTABLE EXAMPLES. The usage example is the block a consumer copies, so when it is written
  *      in TypeScript or JavaScript it must be one the snippet harness executes against this repo's
  *      own sources. A documented call that no longer matches the code then fails here instead of in
- *      a consumer's editor. Script-language blocks OUTSIDE `## Use` are illustrative - anti-patterns,
+ *      a consumer's editor. Script-language blocks OUTSIDE `## Usage` are illustrative - anti-patterns,
  *      fragments, and integrations written against parser packages this repo does not contain - and
  *      are not executed; the boundary between the two is this section heading, checked rather than
  *      left to whoever wrote the fence.
@@ -69,16 +73,20 @@ const REPO_ROOT = join(import.meta.dirname, "..");
 const SNIPPET_TMP = join(REPO_ROOT, ".cosyte-doc-snippets-package-docs");
 
 // ---------------------------------------------------------------------------
-// The vocabulary. Chosen from what the eight READMEs already said, not invented:
-// `Install` was already in six of them and `Use` in five, and the footer below was already the last
-// line of six. `Entry points` is the one heading with no incumbent, because no README had a section
-// for its subpaths at all, which is the gap this gate exists to close.
+// The vocabulary. TAKEN FROM THE INCUMBENT, never invented, and re-derived after the house skeleton
+// landed: `scripts/readme-check.mjs` requires `## Install` and `## Usage` in all nine READMEs and
+// requires `## License` to close the file, so those are the words every published package already
+// uses and this gate adopts them rather than competing with them. A gate that demanded `## Use`
+// where the house gate demands `## Usage` would be two vocabularies, which is the exact defect the
+// criterion exists to prevent. `Entry points` and `Overrides` are the two headings with no
+// incumbent, because no README carried a section for its subpaths or for what a consumer may change
+// at all, which is the gap this gate exists to close.
 // ---------------------------------------------------------------------------
 
 /** Topic id -> the exact level-2 heading text every package must use for it. */
 const CANONICAL_HEADINGS = {
   install: "Install",
-  usage: "Use",
+  usage: "Usage",
   "entry points": "Entry points",
   overrides: "Overrides",
 } as const;
@@ -92,7 +100,7 @@ type HeadingTopic = keyof typeof CANONICAL_HEADINGS;
  */
 const CONFUSABLE_HEADINGS: Record<HeadingTopic, string[]> = {
   install: ["installation", "installing", "setup", "getting started"],
-  usage: ["usage", "using it", "use it", "quick start", "quickstart", "example", "examples"],
+  usage: ["use", "using it", "use it", "quick start", "quickstart", "example", "examples"],
   "entry points": ["entrypoints", "entry point", "exports", "subpaths", "sub-paths", "modules"],
   overrides: ["override", "overriding", "customization", "customisation", "opting out", "opt out"],
 };
@@ -103,14 +111,21 @@ const CONFUSABLE_HEADINGS: Record<HeadingTopic, string[]> = {
  * Deliberately WIDER than the set `@cosyte/vitest-config/snippets` executes (`ts`, `typescript`,
  * `tsx`): a usage example fenced ` ```js ` is a script example that nothing runs, and the whole
  * point of the check below is to name that gap rather than to inherit it. A block in one of these
- * languages inside `## Use` must be one the harness actually picks up.
+ * languages inside `## Usage` must be one the harness actually picks up.
  */
 const SCRIPT_LANGS = new Set(["ts", "typescript", "tsx", "js", "javascript", "jsx", "mjs", "cjs"]);
 
-/** The last line of every published README, compared with runs of whitespace collapsed. */
+/**
+ * The last line of every published README, compared with runs of whitespace collapsed.
+ *
+ * The INCUMBENT line, for the same reason the headings above are: the house skeleton requires
+ * `## License` to be the last heading of every governed README and all eight already close with
+ * this exact sentence. Adding a second closing line below it would be this gate inventing a house
+ * style beside the one the repository already enforces; what the criterion asks for is that the
+ * closing line is THE SAME in every published README, and this is that line.
+ */
 const FOOTER =
-  "Part of [cosyte/config](https://github.com/cosyte/config), one enforced toolchain for the " +
-  "`@cosyte/*` suite.";
+  "MIT, copyright Cosyte. See [LICENSE](https://github.com/cosyte/config/blob/main/LICENSE).";
 
 // ---------------------------------------------------------------------------
 // Workspace discovery
@@ -330,6 +345,34 @@ export function specifierFor(name: string, subpath: string): string {
   return subpath === "." ? name : `${name}${subpath.slice(1)}`;
 }
 
+/**
+ * Does this text NAME a specifier, as opposed to merely containing its characters?
+ *
+ * SUBSTRING CONTAINMENT IS WRONG HERE, and wrong in the direction that credits documentation nobody
+ * wrote: a package's own specifiers are prefixes of each other by construction, `@scope/kit` being a
+ * prefix of `@scope/kit/strict`, so a section that names only the subpath would clear the root entry
+ * point too and a consumer would never learn the root exists. The same trap catches a neighbouring
+ * package name: `@cosyte/process` is a prefix of `@cosyte/process-utils`.
+ *
+ * So a match has to END the specifier. What may not follow it is anything that would make the text a
+ * LONGER specifier: another path segment, or a character a package name may contain. A trailing
+ * sentence period is not one of those, and neither is a closing backtick, quote or bracket, so the
+ * ordinary ways a README writes a specifier all still count. What may not PRECEDE it is the same
+ * set, so the tail of a longer specifier is not read as this one.
+ *
+ * @param body - The section text.
+ * @param specifier - The public specifier the `exports` map declares.
+ * @returns `true` when the text names exactly that specifier somewhere.
+ */
+export function namesSpecifier(body: string, specifier: string): boolean {
+  const escaped = specifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // `.` is excluded only when a name character follows it, so `@cosyte/x/base.json` does not credit
+  // `@cosyte/x/base` while a specifier at the end of a sentence still does.
+  return new RegExp(`(?<![A-Za-z0-9@._/-])${escaped}(?![A-Za-z0-9_/-])(?!\\.[A-Za-z0-9])`).test(
+    body,
+  );
+}
+
 /** The file one `exports` entry resolves to, following conditions the way a bundler would. */
 export function exportTarget(entry: unknown): string | null {
   if (typeof entry === "string") return entry;
@@ -483,31 +526,39 @@ export function sentenceCount(paragraph: string): number {
 }
 
 /**
- * The paragraph directly under the top-level heading: the package's one-sentence summary.
+ * The block directly under the top-level heading: the package's one-sentence summary.
  *
- * "Directly under" is taken literally. The first thing after the `#` line must be prose, so a README
- * that opens with a badge row, a fenced block or another heading has no summary, which is the state
- * this returns `null` for.
+ * "Directly under" is taken literally, and it is measured from the H1 rather than from the top of
+ * the file. What sits ABOVE the H1 is not this gate's business: the house skeleton opens every
+ * governed README with the Cosyte banner, which is an HTML block and not a heading, and a README
+ * that opened with a badge row instead would still have to answer what the package is in the first
+ * thing under its title. What sits BELOW the H1 is: the very next block must be prose a reader can
+ * take the answer from, so a title followed by a badge row, a fenced block or another heading has no
+ * summary, which is the state this returns `null` for.
+ *
+ * A one-line blockquote counts, because that is the shape the house skeleton's tagline takes and a
+ * tagline is a one-sentence statement of what the package is rendered in a different weight. The
+ * marker is stripped before the sentence is counted.
  *
  * @param markdown - README contents.
- * @returns The summary paragraph, or `null` when the H1 is not followed by prose.
+ * @returns The summary text, or `null` when the H1 is not followed by prose.
  */
 export function summaryParagraph(markdown: string): string | null {
   const lines = markdown.split(/\r?\n/);
-  let i = 0;
-  while (i < lines.length && (lines[i] as string).trim() === "") i += 1;
-  if (i >= lines.length || !/^#\s+/.test(lines[i] as string)) return null;
-  i += 1;
+  const title = headings(markdown).find((h) => h.level === 1);
+  if (title === undefined) return null;
+  let i = title.line; // `line` is 1-based, so this is the line after the heading.
   while (i < lines.length && (lines[i] as string).trim() === "") i += 1;
   const paragraph: string[] = [];
   while (i < lines.length) {
     const line = lines[i] as string;
     if (line.trim() === "") break;
     if (/^#{1,6}\s/.test(line) || /^\s*(`{3,}|~{3,})/.test(line)) break;
-    paragraph.push(line);
+    paragraph.push(line.replace(/^\s*>\s?/, ""));
     i += 1;
   }
-  return paragraph.length === 0 ? null : paragraph.join("\n");
+  if (paragraph.length === 0) return null;
+  return paragraph.join("\n").trim() === "" ? null : paragraph.join("\n");
 }
 
 /** The body of the section opened by a heading with exactly this level and text. */
@@ -600,7 +651,23 @@ export function gradeReadme(pkg: WorkspacePackage): string[] {
   for (const topic of required) {
     const canonical = CANONICAL_HEADINGS[topic];
     const exact = all.find((h) => h.level === 2 && h.text === canonical);
-    if (exact !== undefined) continue;
+    if (exact !== undefined) {
+      // THE HEADING ALONE IS NOT THE TOPIC, for every topic and not only for the two that grew a
+      // content check first. A README scaffolded from a template with the five headings pre-seeded
+      // and never filled in states nothing about installing the package and nothing about what may
+      // be overridden, and a gate that reads only the heading reports it green. `## Install` and
+      // `## Overrides` had exactly that hole. What follows the heading is checked here for every
+      // topic; the topics that also have a SHAPE (a copyable example, the declared specifiers) are
+      // checked again below.
+      const body = sectionBody(pkg.readme, 2, canonical);
+      if (body === null || body.trim() === "") {
+        say(
+          `missing topic \`${topic}\`: the \`## ${canonical}\` section is a heading with no body. ` +
+            `A topic is what the section says, not that a section exists.`,
+        );
+      }
+      continue;
+    }
 
     const variant = all.find(
       (h) =>
@@ -659,10 +726,10 @@ export function gradeReadme(pkg: WorkspacePackage): string[] {
   // Topic 4's content: every declared entry point named in the entry-point section.
   if (subpaths !== null && subpaths.length > 0) {
     const body = sectionBody(pkg.readme, 2, CANONICAL_HEADINGS["entry points"]);
-    if (body !== null) {
+    if (body !== null && body.trim() !== "") {
       for (const subpath of subpaths) {
         const specifier = specifierFor(pkg.name, subpath);
-        if (!body.includes(specifier)) {
+        if (!namesSpecifier(body, specifier)) {
           say(
             `missing topic \`entry points\`: \`exports\` declares ${JSON.stringify(subpath)} but ` +
               `the \`## ${CANONICAL_HEADINGS["entry points"]}\` section never names ` +
@@ -839,7 +906,7 @@ describe("the documentation gate's own failure modes", () => {
     "pnpm add -D @acme/widget",
     "```",
     "",
-    "## Use",
+    "## Usage",
     "",
     "```ts runnable",
     "import { widget } from '@acme/widget';",
@@ -852,6 +919,8 @@ describe("the documentation gate's own failure modes", () => {
     "## Overrides",
     "",
     "Nothing here can be overridden.",
+    "",
+    "## License",
     "",
     FOOTER,
     "",
@@ -893,6 +962,102 @@ describe("the documentation gate's own failure modes", () => {
     expect(report).not.toContain("missing topic `install`");
   });
 
+  it("refuses a topic whose section is a heading with nothing under it", () => {
+    // The pre-seeded template: all five headings, a conforming summary, a real usage example, a
+    // complete entry-point section and the shared footer, with two sections left empty. Every topic
+    // is present as a HEADING and two of them say nothing, which is the state a check that reads
+    // only the heading reports green.
+    const hollow = CONFORMING.replace("```sh\npnpm add -D @acme/widget\n```\n\n", "").replace(
+      "Nothing here can be overridden.\n\n",
+      "",
+    );
+    const dir = fixture("hollow", { name: "@acme/widget", exports: { ".": "./index.js" } }, hollow);
+    const report = gradeReadme(readWorkspacePackage(dir, scratch) as WorkspacePackage).join("\n");
+    expect(report).toContain("@acme/widget: missing topic `install`");
+    expect(report).toContain("@acme/widget: missing topic `overrides`");
+    expect(report).toContain("is a heading with no body");
+    // The topics that DO say something are not reported, so the message is a repair list.
+    expect(report).not.toContain("missing topic `entry points`");
+    expect(report).not.toContain("missing topic `summary`");
+  });
+
+  it("does not credit an entry point the section never names", () => {
+    const manifest = {
+      name: "@acme/kit",
+      exports: { ".": "./index.js", "./strict": "./strict.js" },
+    };
+    const subpathOnly = CONFORMING.replace(/@acme\/widget/g, "@acme/kit")
+      .replace("- `@acme/kit`", "- `@acme/kit/strict`")
+      .replace(
+        "import { widget } from '@acme/kit';",
+        ["import { widget } from '@acme/kit';", "import { strict } from '@acme/kit/strict';"].join(
+          "\n",
+        ),
+      );
+
+    // `@acme/kit` is a PREFIX of `@acme/kit/strict` by construction, so substring containment would
+    // read the subpath as documenting the root and a consumer would never learn the root exists.
+    const dir = fixture("subpath-only", manifest, subpathOnly);
+    const report = gradeReadme(readWorkspacePackage(dir, scratch) as WorkspacePackage).join("\n");
+    expect(report).toContain("missing topic `entry points`");
+    expect(report).toContain('`exports` declares "." but');
+    expect(report).toContain("never names `@acme/kit`");
+    expect(report).not.toContain('declares "./strict"');
+
+    // Naming both clears it, so the rule is a boundary and not a ban on the shorter specifier.
+    const both = fixture(
+      "both-entry-points",
+      manifest,
+      subpathOnly.replace("- `@acme/kit/strict`", "- `@acme/kit`\n- `@acme/kit/strict`"),
+    );
+    expect(gradeReadme(readWorkspacePackage(both, scratch) as WorkspacePackage)).toEqual([]);
+  });
+
+  it("reads a specifier's boundary rather than its characters", () => {
+    // A neighbouring package name contains this one; naming it documents nothing about this one.
+    expect(namesSpecifier("see `@cosyte/process-utils`", "@cosyte/process")).toBe(false);
+    expect(namesSpecifier("`@cosyte/tsconfig/base.json`", "@cosyte/tsconfig/base")).toBe(false);
+    expect(namesSpecifier("`@acme/kit/strict`", "@acme/kit")).toBe(false);
+    // The ordinary ways a README writes a specifier all count, trailing punctuation included.
+    expect(namesSpecifier("`@acme/kit`, the root entry point", "@acme/kit")).toBe(true);
+    expect(namesSpecifier("Install @acme/kit.", "@acme/kit")).toBe(true);
+    expect(namesSpecifier("| `@acme/kit/strict` | strict mode |", "@acme/kit/strict")).toBe(true);
+    expect(namesSpecifier('import x from "@acme/kit";', "@acme/kit")).toBe(true);
+  });
+
+  it("takes the one-sentence summary from the block under the title, blockquote included", () => {
+    // The house skeleton opens with the Cosyte banner (an HTML block, not a heading) and states the
+    // package in a one-line blockquote tagline under the H1. That IS the summary; the banner above
+    // the title is not this gate's business, and what follows the title is.
+    const housed = [
+      '<a href="https://cosyte.com">',
+      '  <img alt="Cosyte" src="https://cosyte.com/tile/x.png">',
+      "</a>",
+      "",
+      "# @acme/widget",
+      "",
+      "> A widget.",
+      "",
+      "[![npm version](https://img.shields.io/npm/v/@acme/widget.svg)](https://npmjs.com/@acme/widget)",
+      "",
+      ...CONFORMING.split("\n").slice(4),
+    ].join("\n");
+    const dir = fixture("housed", { name: "@acme/widget", exports: { ".": "./index.js" } }, housed);
+    const pkg = readWorkspacePackage(dir, scratch) as WorkspacePackage;
+    expect(summaryParagraph(pkg.readme ?? "")).toBe("A widget.");
+    expect(gradeReadme(pkg)).toEqual([]);
+
+    // A title followed by the badge row and no tagline says nothing about what the package is.
+    const untagged = fixture(
+      "housed-no-tagline",
+      { name: "@acme/widget", exports: { ".": "./index.js" } },
+      housed.replace("> A widget.\n\n", ""),
+    );
+    expect(
+      gradeReadme(readWorkspacePackage(untagged, scratch) as WorkspacePackage).join("\n"),
+    ).toContain("missing topic `summary`");
+  });
+
   it("requires a copyable example in the usage section, JSON-config-only packages included", () => {
     const proseOnly = [
       "# @acme/editorconfig",
@@ -905,7 +1070,7 @@ describe("the documentation gate's own failure modes", () => {
       "pnpm add -D @acme/editorconfig",
       "```",
       "",
-      "## Use",
+      "## Usage",
       "",
       "Consume it the way the other shared configs are consumed.",
       "",
@@ -916,6 +1081,8 @@ describe("the documentation gate's own failure modes", () => {
       "## Overrides",
       "",
       "Nothing here can be overridden.",
+      "",
+      "## License",
       "",
       FOOTER,
       "",
@@ -971,7 +1138,7 @@ describe("the documentation gate's own failure modes", () => {
       "topic `usage`",
     );
 
-    // Outside `## Use` a script block is illustrative - an anti-pattern, a fragment, or an example
+    // Outside `## Usage` a script block is illustrative - an anti-pattern, a fragment, or an example
     // written against a package this repo does not contain - and is not required to run.
     const illustrative = fixture(
       "illustrative",
@@ -1016,11 +1183,11 @@ describe("the documentation gate's own failure modes", () => {
     const dir = fixture(
       "synonym",
       { name: "@acme/synonym", exports: { ".": "./index.js" } },
-      CONFORMING.replace("## Use", "## Usage"),
+      CONFORMING.replace("## Usage", "## Use"),
     );
     const pkg = readWorkspacePackage(dir, scratch) as WorkspacePackage;
     const report = gradeReadme(pkg).join("\n");
-    expect(report).toContain("topic `usage` is documented under `## Usage`");
+    expect(report).toContain("topic `usage` is documented under `## Use`");
     expect(report).not.toContain("missing topic `usage`");
   });
 
@@ -1153,13 +1320,27 @@ describe("documentation examples are executed against this repo's sources", () =
   const exempt = PACKAGES.filter((pkg) => isJsonConfigOnly(pkg));
 
   it("exempts exactly the packages whose only entry points are JSON config files", () => {
-    // Pinned as a control on the DERIVATION: at this tree those two are the JSON-config packages,
-    // and if the derivation ever starts excusing a package that ships real code, this reds.
-    expect(exempt.map((p) => p.name).sort()).toEqual([
-      "@cosyte/prettier-config",
-      "@cosyte/tsconfig",
-    ]);
+    // A control on the DERIVATION, in the direction that can go wrong. Every exempt package is
+    // re-derived here from its own manifest rather than compared against a list: a name list inside
+    // the check is the thing criterion 3 refuses, and a ninth JSON-config package must join the
+    // exemption without an edit here, exactly as a ninth package of any kind joins the graded set.
+    for (const pkg of exempt) {
+      const targets = (exportSubpaths(pkg.manifest) ?? []).map((subpath) =>
+        exportTarget((pkg.manifest.exports as Record<string, unknown>)[subpath]),
+      );
+      expect(targets.length, `${pkg.name} is exempt but declares no entry point`).toBeGreaterThan(
+        0,
+      );
+      for (const target of targets) expect(target).toMatch(/\.json$/);
+    }
+
+    // The two the spec names at this tree ARE exempt, and a package that ships real code never is:
+    // if the derivation ever starts excusing one, the run that excuses it reds here.
+    const exemptNames = exempt.map((p) => p.name);
+    expect(exemptNames).toContain("@cosyte/prettier-config");
+    expect(exemptNames).toContain("@cosyte/tsconfig");
     expect(executable.length).toBeGreaterThan(0);
+    for (const pkg of executable) expect(isJsonConfigOnly(pkg)).toBe(false);
   });
 
   it.each(executable.map((pkg) => [pkg.name, pkg] as const))(

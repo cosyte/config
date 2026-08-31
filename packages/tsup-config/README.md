@@ -45,20 +45,47 @@ pnpm add -D @cosyte/tsup-config tsup
 
 ## Usage
 
-`tsup.config.ts`:
+`tsup.config.ts` is one call, and `entry` is the one option every consumer supplies, because only
+the package knows what it builds:
 
-```ts
+```ts runnable
 import { cosyteTsup } from "@cosyte/tsup-config";
 
-export default cosyteTsup({ entry: ["src/index.ts"] });
+const config = cosyteTsup({ entry: ["src/index.ts"] });
+config.format; // => ["esm", "cjs"]
+config.outExtension({ format: "esm" }); // => { js: ".mjs" }
 ```
 
-Pass any tsup `Options` to override the baseline (for example multiple `entry` points). Everything
-else is the enforced standard.
+Export that object as the file's default (`export default cosyteTsup({ entry: ["src/index.ts"] })`)
+and everything else is the enforced standard.
 
 Pair it with `@arethetypeswrong/cli` (`attw`) as a publish gate. A dual build that emits the wrong
 declaration for one of its two module systems still packs and still publishes; `attw` is what turns
 that into a red before it reaches npm.
+
+## Entry points
+
+| entry point           | what it is                                                           |
+| --------------------- | -------------------------------------------------------------------- |
+| `@cosyte/tsup-config` | the `cosyteTsup(overrides?)` factory, returning a tsup config object |
+
+One entry point, so `@cosyte/tsup-config` is the only specifier a consumer ever writes.
+
+## Overrides
+
+Anything in tsup's own `Options` can be passed to `cosyteTsup` and is merged over the baseline, so
+adding a second entry point or switching a format off is one argument:
+
+```ts
+export default cosyteTsup({
+  entry: ["src/index.ts", "src/perf/index.ts"],
+  sourcemap: false,
+});
+```
+
+The merge is shallow and the overrides win, so nothing here is unreachable. That is deliberate: a
+build config that cannot be adjusted per package is one a package works around by not using it. The
+baseline is what you get for free, not what you are held to.
 
 ## PHI and safety
 

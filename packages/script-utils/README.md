@@ -66,20 +66,62 @@ Installing the package does not, on its own, give a pre-install gate the propert
 
 ## Usage
 
-```js
+Guard a script's CLI side effect so a test can import it for its exports. That guard wraps the exit,
+so this is the whole shape of a real gate:
+
+```ts runnable
 import { isCliEntrypoint } from "@cosyte/script-utils";
 
-export function main(argv) {
-  /* ... */
+/** Your gate's body, exported so a test can import it without the CLI running. */
+export function main(argv: string[]): number {
+  return argv.length;
 }
 
-if (isCliEntrypoint(import.meta.url)) {
-  process.exit(main(process.argv.slice(2)));
-}
+// This module was imported, not pointed at, so the guard is closed: `main` does not run and nothing
+// exits. The assertion is deliberately ahead of the branch, so the example cannot exit a test
+// process even if that answer ever changed.
+const runAsCli = isCliEntrypoint(import.meta.url);
+runAsCli; // => false
+if (runAsCli) process.exit(main(process.argv.slice(2)));
 ```
 
 That guard is what lets a test import the module for its exports without the CLI executing as a side
 effect, while the script still runs normally when invoked.
+
+The PHI scanner is the other half, on its own subpath. Its shared read filter is exported so a
+caller can compose with it rather than restate it:
+
+```ts runnable
+import { exemptsMarkdown } from "@cosyte/script-utils/phi-scan";
+
+exemptsMarkdown("docs/adopting.md"); // => false
+exemptsMarkdown("src/patient.ts"); // => true
+```
+
+## Entry points
+
+| entry point                     | what it is                                                               |
+| ------------------------------- | ------------------------------------------------------------------------ |
+| `@cosyte/script-utils`          | `isCliEntrypoint(moduleUrl)`, the entry-point guard                      |
+| `@cosyte/script-utils/phi-scan` | `runPhiScan(config)` and `exemptsMarkdown(relPath)`, the shared PHI gate |
+
+They are separate subpaths because they are separately adoptable: a repo can take the entry-point
+guard without taking a position on PHI scanning, and importing the root never loads the scanner.
+
+## Overrides
+
+`isCliEntrypoint` has no options and cannot be overridden. It answers one question and its
+tie-breaking direction is the whole design, so a knob to invert it would be a knob to turn the gate
+off.
+
+`runPhiScan` is configured entirely through its `config` argument, along the five axes tabulated
+under [the five per-repo axes](#the-five-per-repo-axes) below: three are required because they are
+the ones a port gets wrong, and the defaulted ones move for every repo at once through a version
+bump.
+
+The engine's own cross-cutting detection floor is not on that list, and it is not overridable.
+Neither is the completeness rule that refuses a run which enumerated a target and never read it. A
+caller can widen what is scanned and can add detection, and cannot subtract either of those two.
 
 ## PHI and safety
 

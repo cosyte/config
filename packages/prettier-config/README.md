@@ -61,6 +61,32 @@ Keep the two globs identical. A `--write` that covers a file `--check` does not 
 violation that can never fail CI, which is how a repository ends up with a green check over files
 nobody reads.
 
+## Entry points
+
+| entry point               | what it is                                                                    |
+| ------------------------- | ----------------------------------------------------------------------------- |
+| `@cosyte/prettier-config` | the config object itself (`index.json`), ready for the `prettier` field above |
+
+There is no JavaScript entry point, because the package is one JSON file a tool reads rather than a
+module a consumer calls. That is also why no example here is executed by this repository's test run:
+there is nothing to call.
+
+## Overrides
+
+Every key is overridable: Prettier has no enforcement of its own, so a divergence costs nothing but
+the divergence. Point the `prettier` field at your own module and spread this one, which is the
+shape Prettier supports for extending a shared config:
+
+```js
+// prettier.config.js
+import cosyte from "@cosyte/prettier-config" with { type: "json" };
+
+export default { ...cosyte, printWidth: 80 };
+```
+
+Prefer changing it here and taking a version bump. A per-repo override is a formatting dialect, and
+the point of a shared config is that there is one.
+
 ## PHI and safety
 
 This package is formatter configuration. It contains no code, reads no input, and never sees patient

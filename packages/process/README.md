@@ -81,6 +81,56 @@ do carry has exactly this body:
 Script bodies are never edited per repo. If a repo needs something different, that is what the
 override file below is for.
 
+## Entry points
+
+| entry point       | what it is                                                                       |
+| ----------------- | -------------------------------------------------------------------------------- |
+| `cosyte-process`  | the bin, which is how a wired repo consumes this package                         |
+| `@cosyte/process` | the same contract programmatically: the baseline, the verbs and the wiring check |
+
+The bin is the product; the module entry point exists so that the wiring check, the tests and any
+future tooling read the contract from one place instead of restating it:
+
+```ts runnable
+import { BASELINE, expectedScriptBody, toArgv, VERBS } from "@cosyte/process";
+
+toArgv(BASELINE.typecheck); // => ["tsc", "--noEmit"]
+expectedScriptBody("build"); // => "cosyte-process build"
+VERBS.includes("check"); // => true
+```
+
+Nothing on that entry point has side effects, so importing it never runs a tool.
+
+## Overrides
+
+Repo-specific deviation lives in one file, `cosyte-process.config.json`, at the repo root:
+
+```json
+{
+  "lint": { "globs": ["src/**/*.ts", "bin/**/*.ts"] },
+  "test": { "flags": ["--reporter=dot"] }
+}
+```
+
+The rules, in full:
+
+- Top-level keys are verb names, among `build`, `test`, `lint`, `typecheck`, `format`. `check` is
+  never overridable.
+- Each value is an object with optional `globs` and optional `flags`, each an array of strings.
+- `globs` replaces that verb's baseline glob tokens; `flags` replaces its baseline flag tokens. An
+  absent key keeps the baseline tokens.
+- The tool name and the core tokens are never added, removed, replaced or reordered. A `test` flags
+  override of `["--coverage"]` yields `vitest run --coverage`, never `vitest --coverage`.
+- No other keys at either level.
+
+Any violation makes **every** verb exit non-zero, naming the file and the first violation, rather
+than silently running something else.
+
+One common reason to reach for this: the baseline `format` globs name `src/`, `test/`, `scripts/` and
+the repo root. `prettier` fails on a pattern that matches nothing, so a repo with no `scripts/`
+directory overrides `format`'s `globs` rather than creating an empty directory. (`lint` carries
+`--no-error-on-unmatched-pattern` and needs no such care.)
+
 ## PHI and safety
 
 This package runs your build, test, lint, typecheck and format tools. It processes no patient data
@@ -142,36 +192,6 @@ Exactly four exist, at most one per invocation:
 
 A modifier composes over the **effective** invocation: the baseline as your override file has already
 adjusted it. With a `globs` override on `lint`, `lint --fix` fixes your globs, not the baseline ones.
-
-### Overrides
-
-Repo-specific deviation lives in one file, `cosyte-process.config.json`, at the repo root:
-
-```json
-{
-  "lint": { "globs": ["src/**/*.ts", "bin/**/*.ts"] },
-  "test": { "flags": ["--reporter=dot"] }
-}
-```
-
-The rules, in full:
-
-- Top-level keys are verb names, among `build`, `test`, `lint`, `typecheck`, `format`. `check` is
-  never overridable.
-- Each value is an object with optional `globs` and optional `flags`, each an array of strings.
-- `globs` replaces that verb's baseline glob tokens; `flags` replaces its baseline flag tokens. An
-  absent key keeps the baseline tokens.
-- The tool name and the core tokens are never added, removed, replaced or reordered. A `test` flags
-  override of `["--coverage"]` yields `vitest run --coverage`, never `vitest --coverage`.
-- No other keys at either level.
-
-Any violation makes **every** verb exit non-zero, naming the file and the first violation, rather
-than silently running something else.
-
-One common reason to reach for this: the baseline `format` globs name `src/`, `test/`, `scripts/` and
-the repo root. `prettier` fails on a pattern that matches nothing, so a repo with no `scripts/`
-directory overrides `format`'s `globs` rather than creating an empty directory. (`lint` carries
-`--no-error-on-unmatched-pattern` and needs no such care.)
 
 ### `cosyte-process check`
 

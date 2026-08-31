@@ -48,19 +48,54 @@ happily keep an incompatible vite 5. Node `>=22.14`. ESM only.
 
 ## Usage
 
-`vitest.config.ts`:
+`vitest.config.ts` exports what the factory returns:
 
-```ts
+```ts runnable
 import { cosyteVitest } from "@cosyte/vitest-config";
 
-export default cosyteVitest({
-  coverageDirs: ["parser", "model", "serialize", "helpers"],
-});
+const { thresholds } = cosyteVitest({ coverageDirs: ["parser", "model"] }).test.coverage;
+thresholds.lines; // => 90
+thresholds["src/parser/**"].lines; // => 90
 ```
 
 Each entry in `coverageDirs` adds a per-directory `src/<dir>/**` gate at >= 90 on top of the global
-gate. Use `coverageThresholds` to add or override specific keys, and `test` for any other Vitest
-options.
+gate, which is what stops a well-covered helper directory paying for an untested parser.
+
+## Entry points
+
+| entry point                      | what it is                                                          |
+| -------------------------------- | ------------------------------------------------------------------- |
+| `@cosyte/vitest-config`          | the `cosyteVitest(opts?)` factory, returning a Vitest config object |
+| `@cosyte/vitest-config/snippets` | the doc/code-agreement harness described under the API below        |
+
+They are separate subpaths because they are separately adoptable, and importing the config never
+loads the harness. `extractRunnableSnippets` is the primitive that decides what runs, and it reports
+each block's 1-based first code line so a failure points at the snippet rather than at the fence:
+
+```ts runnable
+import { extractRunnableSnippets } from "@cosyte/vitest-config/snippets";
+
+const fence = "`".repeat(3);
+const doc = ["# Title", "", fence + "ts runnable", "const dose = 5;", fence].join("\n");
+extractRunnableSnippets(doc).length; // => 1
+extractRunnableSnippets(doc)[0].line; // => 4
+```
+
+## Overrides
+
+Both entry points are configured entirely through their arguments, and neither enforces anything a
+consumer cannot reach:
+
+- `cosyteVitest` takes `coverageThresholds` to add or override specific coverage keys, and `test`
+  for any other Vitest option. Both are merged last, so a repo that genuinely cannot hold >= 90 in
+  one directory lowers that one key rather than abandoning the config.
+- `docSnippetSuite` takes `docsDir` or `files`, `include` (default `.md` and `.mdx`), `resolve`,
+  `runnableTag` (default `"runnable"`), `name`, `requireSnippet` and `tmpDir`.
+
+A package with no runnable snippets yields an empty, passing suite unless `requireSnippet` is set:
+absence degrades quietly, a _wrong_ snippet fails loudly. Lowering a coverage threshold is the
+override worth arguing about in review, because unlike the others it changes what CI will let
+through.
 
 ## PHI and safety
 

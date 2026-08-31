@@ -69,6 +69,30 @@ Two configs:
 }
 ```
 
+## Entry points
+
+Two configs, and the root specifier `@cosyte/tsconfig` deliberately resolves to neither: a
+`tsconfig.json` names the file it extends, so each one is reached by its own subpath.
+
+| entry point                     | what it is                                                                    |
+| ------------------------------- | ----------------------------------------------------------------------------- |
+| `@cosyte/tsconfig/base.json`    | the type-check baseline, no emit. Extend this for `tsc --noEmit`              |
+| `@cosyte/tsconfig/library.json` | `base.json` plus declaration and sourcemap emit, for building a published lib |
+
+Both are JSON files the compiler reads, so neither carries an example this repository's test run
+executes: there is nothing to call.
+
+## Overrides
+
+Anything in `compilerOptions` is overridable by declaring it again in the extending file, which is
+how `outDir`, `rootDir`, `noEmit` and `include` are meant to be set. TypeScript resolves the nearest
+declaration, so your value wins over the one inherited from here.
+
+Turning a rigor flag back off is the one override to think twice about. It is not blocked, and
+nothing here can block it, but it silently widens what every downstream `@cosyte/*` consumer of your
+types is allowed to assume. Change it here and take a version bump instead, so the whole suite moves
+together.
+
 ## PHI and safety
 
 This package is build configuration. It contains no code, reads no input, and never sees patient
