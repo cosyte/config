@@ -153,10 +153,15 @@ only `config` binds.
 
 ## Versioning
 
-Every package follows the cosyte ladder: **`0.0.x` until first alpha**. Releases are managed with
-Changesets and, once the environment is created (a one-time setup step), gated on a protected
-`release` environment; the full pipeline (and the OIDC and npm provenance migration deferred to launch)
-is documented in [`RELEASING.md`](RELEASING.md).
+Every published package is on the **`0.1.x`** line: its surface is settled, and bump types follow
+ordinary semver (`patch` for a fix, `minor` for an addition, `major` for a removal or a rename)
+rather than a pre-alpha rule. `0.1.0` is not a `1.0.0` stability promise; the reasoning and what the
+line does and does not claim are in
+[ADR 0002](documentation/decisions/0002-the-0-1-0-version-line.md), and the per-package audit behind
+it is [`documentation/release-0.1.0-audit.md`](documentation/release-0.1.0-audit.md). Releases are
+managed with Changesets and, once the environment is created (a one-time setup step), gated on a
+protected `release` environment; the full pipeline (and the OIDC and npm provenance migration
+deferred to launch) is documented in [`RELEASING.md`](RELEASING.md).
 
 ## Contributing
 

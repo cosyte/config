@@ -6,8 +6,8 @@ scaffold, release plumbing, and supply-chain / governance hygiene. Follows
 
 **Per-package changes live in each package's own `packages/*/CHANGELOG.md`**:
 `@cosyte/tsconfig`, `@cosyte/eslint-config`, `@cosyte/prettier-config`, `@cosyte/tsup-config`,
-`@cosyte/vitest-config`, `@cosyte/test-utils`, `@cosyte/script-utils`, each hand-maintained on the
-**`0.0.x`-until-first-alpha** ladder (Changesets' own changelog generation is disabled). This file
+`@cosyte/vitest-config`, `@cosyte/test-utils`, `@cosyte/script-utils`, `@cosyte/process`, each
+hand-maintained on the **`0.1.x`** line (Changesets' own changelog generation is disabled). This file
 tracks only what those don't own: the workspace root, the drift manifest/check, the scaffold
 generator, CI/release, and dependency/governance hygiene. The root workspace is `private` and ships
 no package, so entries here are **dated** rather than versioned.
@@ -15,6 +15,36 @@ no package, so entries here are **dated** rather than versioned.
 ## [Unreleased]
 
 ### Added
+
+- **The eight published packages are prepared for a single `0.1.0` line, with the audit and the
+  decision record that justify it** (`S0200-config-release-prep-1`, 2026-08-31). This entry is
+  repo-level and bumps no package, so it carries **no changeset**, which is the home `RELEASING.md`
+  prescribes for a note like this and the reason `changeset add --empty` is banned by name.
+  - **`documentation/release-0.1.0-audit.md`** is the audit: per package, the version at the audited
+    commit, the registry's `latest`, the highest `<pkg>@<version>` tag, the classification and the
+    concrete unreleased change it rests on; the classification rules, each cited to the file in this
+    repository that carries it; the public API stability certification; the break candidates with a
+    disposition on each; and the release plan. It records that `S0161-release-frequency-policy` had
+    not landed and that **no cadence rule from it was applied**, so a later reader can tell which
+    questions are re-openable once it does.
+  - **There were ZERO pending changesets at the audited commit**, which is the publish arm and the
+    ordinary starting state. The audit says so and resolves the unreleased record from the packages'
+    own records instead, rather than reporting an empty audit that answers nothing.
+  - **The workspace was at parity with the registry.** Manifest version, highest tag and npm
+    `latest` agree for all eight, and the two packages with commits since their release tag
+    (`@cosyte/process`, `@cosyte/test-utils`) moved only paths outside their own `files`, which is
+    the "no changeset" precedent this file has already recorded four times.
+  - **[ADR 0002](documentation/decisions/0002-the-0-1-0-version-line.md) is the disposition**: all
+    eight move together, all eight carry `minor` (the only changeset type that reaches `0.1.0` from a
+    `0.0.z` version), and the pre-alpha bump rule is replaced by ordinary semver on a `0.1.x` line.
+  - **Eight changesets, one per package**, so each release body is derived from a summary written
+    about that package. Nothing is published, tagged or versioned here: `changeset version` is step 4
+    of `RELEASING.md` and belongs to the release owner.
+  - **`test/release-0-1-0-plan.test.ts`** asserts the prepared state rather than describing it: the
+    resolved version of every package, the promotion of the already-shipped content, the private root
+    manifest still at `0.0.0`, that no `0.1.0` tag was created, that every bumped package has a
+    derivable and publishable release body through the real `scripts/release-notes.mjs`, and that no
+    tracked file still asserts the retired ladder.
 
 - **The install is defended, and the defence is required of every package repo**
   (`S0092-config-3`). `pnpm@10.34.5` ships two supply-chain controls SWITCHED OFF -

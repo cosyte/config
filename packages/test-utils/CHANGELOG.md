@@ -2,14 +2,33 @@
 
 All notable changes to `@cosyte/test-utils` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions are managed with Changesets;
-this file is hand-maintained (Changesets' own changelog generation is disabled). The package stays on
-the **`0.0.x`-until-first-alpha** ladder.
+this file is hand-maintained (Changesets' own changelog generation is disabled). The package is on the
+**`0.1.x`** line: its surface is settled, and bump types follow ordinary semver rather than a
+pre-alpha rule. See
+[ADR 0002](../../documentation/decisions/0002-the-0-1-0-version-line.md).
 
 > Because the generator is disabled, **`[Unreleased]` is promoted to a version heading BY HAND**, in
 > the pull request that adds the changeset. Nothing does it automatically. Until 2026-08-04 nothing
 > did it at all, so shipped content stayed under `[Unreleased]` and every release republished it.
 
 ## [Unreleased]
+
+## [0.1.0] - Unreleased
+
+### Changed
+
+- **The package leaves the pre-alpha version ladder for the `0.1.x` line.** No runner, API, or type
+  change: the conformance runners, the scaling gate on the `./perf` subpath and the frozen
+  `PERF_CONTRACT` constants are byte-identical to `0.0.4`. What moves is the version policy this
+  package states about itself, and the reasoning is in
+  [ADR 0002](../../documentation/decisions/0002-the-0-1-0-version-line.md). A consumer pinned at
+  `^0.0.4` does not resolve this release and has to widen its range once.
+- The `0.0.4` and `0.0.3` sections below were relabelled: both had shipped and both were still
+  sitting under `[Unreleased]`, which is the same defect the note above describes, recurring twice
+  after it was written down. This is the package where the gap was widest, at two releases. The
+  `CHANGELOG.md` inside the published tarball is the only thing that differs.
+
+## [0.0.4] - 2026-08-06
 
 ### Added
 
@@ -70,6 +89,8 @@ the **`0.0.x`-until-first-alpha** ladder.
   slowdown passes, and always will: from a single cloud instance only 17–22% of configurations
   reliably detect one, so it is a property of the technique); complexity regressions whose fixture is
   too small; and anything that only manifests under real I/O, network or concurrency.
+
+## [0.0.3] - 2026-08-04
 
 ### Changed
 
