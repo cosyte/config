@@ -31,27 +31,23 @@ Installing the package does not, on its own, give a pre-install gate the propert
 
 ## Use
 
-Guard a script's CLI side effect so a test can import it for its exports:
+Guard a script's CLI side effect so a test can import it for its exports. That guard wraps the exit,
+so this is the whole shape of a real gate:
 
 ```ts runnable
 import { isCliEntrypoint } from "@cosyte/script-utils";
 
-// This module was imported, not pointed at, so the guard is closed and `main` does not run.
-isCliEntrypoint(import.meta.url); // => false
-```
-
-In a real gate that guard wraps the exit:
-
-```js
-import { isCliEntrypoint } from "@cosyte/script-utils";
-
-export function main(argv) {
-  /* ... */
+/** Your gate's body, exported so a test can import it without the CLI running. */
+export function main(argv: string[]): number {
+  return argv.length;
 }
 
-if (isCliEntrypoint(import.meta.url)) {
-  process.exit(main(process.argv.slice(2)));
-}
+// This module was imported, not pointed at, so the guard is closed: `main` does not run and nothing
+// exits. The assertion is deliberately ahead of the branch, so the example cannot exit a test
+// process even if that answer ever changed.
+const runAsCli = isCliEntrypoint(import.meta.url);
+runAsCli; // => false
+if (runAsCli) process.exit(main(process.argv.slice(2)));
 ```
 
 The PHI scanner is the other half, on its own subpath. Its shared read filter is exported so a
@@ -193,6 +189,12 @@ and reaches all of them through a version bump.
 The engine's own cross-cutting floor is not on that list, and it is not overridable. Neither is the
 completeness rule. A caller can widen what is scanned and can add detection, and cannot subtract
 either of those two.
+
+## License
+
+MIT, [in full in the repository](https://github.com/cosyte/config/blob/main/LICENSE). This section is
+here because the published tarball's `files` list carries no `LICENSE`, so this README is the only
+licence text a consumer who reads the package rather than the repository ever sees.
 
 Part of [cosyte/config](https://github.com/cosyte/config), one enforced toolchain for the `@cosyte/*`
 suite.

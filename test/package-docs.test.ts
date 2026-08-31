@@ -41,9 +41,17 @@ import { parseYamlSubset } from "../scripts/install-hardening.mjs";
  *      README ends with the same footer line. Near-miss spellings (`Usage` for `Use`) are refused BY
  *      NAME rather than reported as an absent topic, because "you wrote the wrong word" and "you
  *      wrote nothing" are different repairs.
- *   3. EXECUTABLE EXAMPLES. Every usage example that is TypeScript is executed against this repo's
- *      own sources through `@cosyte/vitest-config/snippets`, so a documented call that no longer
- *      matches the code fails here instead of in a consumer's editor.
+ *   3. A COPYABLE EXAMPLE, ALWAYS. The `## Use` section of every published package must carry a
+ *      fenced block. "How to consume it" answered in prose alone gives a consumer nothing to paste,
+ *      and that is true of a package whose entry point is a JSON config just as much as of one that
+ *      ships code.
+ *   4. EXECUTABLE EXAMPLES. The usage example is the block a consumer copies, so when it is written
+ *      in TypeScript or JavaScript it must be one the snippet harness executes against this repo's
+ *      own sources. A documented call that no longer matches the code then fails here instead of in
+ *      a consumer's editor. Script-language blocks OUTSIDE `## Use` are illustrative - anti-patterns,
+ *      fragments, and integrations written against parser packages this repo does not contain - and
+ *      are not executed; the boundary between the two is this section heading, checked rather than
+ *      left to whoever wrote the fence.
  *
  * THE PACKAGE SET IS DERIVED ON EVERY RUN, NEVER WRITTEN DOWN. It comes from `pnpm-workspace.yaml`
  * through the repo's own YAML-subset parser, minus anything marked `private`. A list maintained by
@@ -88,6 +96,16 @@ const CONFUSABLE_HEADINGS: Record<HeadingTopic, string[]> = {
   "entry points": ["entrypoints", "entry point", "exports", "subpaths", "sub-paths", "modules"],
   overrides: ["override", "overriding", "customization", "customisation", "opting out", "opt out"],
 };
+
+/**
+ * Fence languages that are "TypeScript or JavaScript" for the purpose of the usage example.
+ *
+ * Deliberately WIDER than the set `@cosyte/vitest-config/snippets` executes (`ts`, `typescript`,
+ * `tsx`): a usage example fenced ` ```js ` is a script example that nothing runs, and the whole
+ * point of the check below is to name that gap rather than to inherit it. A block in one of these
+ * languages inside `## Use` must be one the harness actually picks up.
+ */
+const SCRIPT_LANGS = new Set(["ts", "typescript", "tsx", "js", "javascript", "jsx", "mjs", "cjs"]);
 
 /** The last line of every published README, compared with runs of whitespace collapsed. */
 const FOOTER =
@@ -388,6 +406,59 @@ export function headings(markdown: string): Heading[] {
   return out;
 }
 
+export interface FencedBlock {
+  /** The lowercased language token of the info string, or `""` when the fence names none. */
+  lang: string;
+  /** The remaining info-string tokens, so ` ```ts runnable ` arrives as `["runnable"]`. */
+  meta: string[];
+  /** 1-based line of the OPENING fence, relative to the text handed in. */
+  line: number;
+  /** The block's contents, fences excluded. */
+  body: string;
+}
+
+/**
+ * Every top-level fenced block, in document order.
+ *
+ * NESTING IS RESPECTED, which is the whole reason this is not a regex over the lines: a four-backtick
+ * ` ````md ` block that documents the tagging convention contains a three-backtick ` ```ts runnable `
+ * fence, and that inner fence is prose about a tag, not a block of this document. Scanning past the
+ * outer block's close is what keeps the two apart, and it is the same rule
+ * `extractRunnableSnippets` applies, so the two agree about what a block is.
+ *
+ * @param markdown - Any markdown text; a section body is the usual argument.
+ * @returns One entry per top-level fenced block.
+ */
+export function fencedBlocks(markdown: string): FencedBlock[] {
+  const lines = markdown.split(/\r?\n/);
+  const out: FencedBlock[] = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    const open = /^\s*(`{3,}|~{3,})(.*)$/.exec(lines[i] as string);
+    if (open === null) continue;
+    const fence = open[1] as string;
+    const tokens = (open[2] as string)
+      .trim()
+      .split(/\s+/)
+      .filter((token) => token !== "");
+    const body: string[] = [];
+    let j = i + 1;
+    for (; j < lines.length; j += 1) {
+      const close = /^\s*(`{3,}|~{3,})\s*$/.exec(lines[j] as string);
+      const marker = close === null ? null : (close[1] as string);
+      if (marker !== null && marker[0] === fence[0] && marker.length >= fence.length) break;
+      body.push(lines[j] as string);
+    }
+    out.push({
+      lang: (tokens[0] ?? "").toLowerCase(),
+      meta: tokens.slice(1),
+      line: i + 1,
+      body: body.join("\n"),
+    });
+    i = j;
+  }
+  return out;
+}
+
 /** Runs of whitespace collapsed to one space, so a hard-wrapped sentence compares as one line. */
 export function collapse(text: string): string {
   return text.replace(/\s+/g, " ").trim();
@@ -546,6 +617,43 @@ export function gradeReadme(pkg: WorkspacePackage): string[] {
       continue;
     }
     say(`missing topic \`${topic}\`: no \`## ${canonical}\` section.`);
+  }
+
+  // Topic 3's content: "how to consume it, WITH A COPYABLE EXAMPLE". The heading alone is not the
+  // topic. This is unconditional - a package whose only entry point is a JSON config is excused an
+  // EXECUTABLE example, never a copyable one - and it is graded here rather than left to the snippet
+  // suite, which by construction never looks at the packages it exempts.
+  const usageHeading = all.find((h) => h.level === 2 && h.text === CANONICAL_HEADINGS.usage);
+  const usageBody =
+    usageHeading === undefined ? null : sectionBody(pkg.readme, 2, CANONICAL_HEADINGS.usage);
+  if (usageHeading !== undefined && usageBody !== null) {
+    const blocks = fencedBlocks(usageBody).filter((block) => block.body.trim() !== "");
+    if (blocks.length === 0) {
+      say(
+        `missing topic \`usage\`: the \`## ${CANONICAL_HEADINGS.usage}\` section carries no ` +
+          `example. It answers how to consume the package in prose and leaves a consumer nothing ` +
+          `to copy. Add a fenced block showing the shortest real use; a package whose only entry ` +
+          `point is a JSON config is excused an executable example, not a copyable one.`,
+      );
+    }
+    // Criterion 7 binds THE USAGE EXAMPLE: the block a consumer copies. When that block is
+    // TypeScript or JavaScript it has to be one the harness runs, or the promise that a documented
+    // example cannot drift is carried by a tag nobody is required to write. What the harness will
+    // actually execute is asked of the harness, never restated here.
+    const executed = new Set(extractRunnableSnippets(usageBody).map((snippet) => snippet.line));
+    for (const block of blocks) {
+      if (!SCRIPT_LANGS.has(block.lang)) continue;
+      // `extractRunnableSnippets` reports a block by its FIRST CODE line, one past the fence.
+      if (executed.has(block.line + 1)) continue;
+      say(
+        `topic \`usage\`: the \`${block.lang}\` example at line ${usageHeading.line + block.line} ` +
+          `is inside \`## ${CANONICAL_HEADINGS.usage}\`, so it is the example a consumer copies, ` +
+          `and nothing executes it. Fence it \`\`\`ts runnable\`\`\` (the harness runs \`ts\`, ` +
+          `\`typescript\` and \`tsx\`) so it fails when the code stops agreeing with it, or move ` +
+          `it out of the usage section, where a block is illustrative rather than the documented ` +
+          `way to consume the package.`,
+      );
+    }
   }
 
   // Topic 4's content: every declared entry point named in the entry-point section.
@@ -733,7 +841,7 @@ describe("the documentation gate's own failure modes", () => {
     "",
     "## Use",
     "",
-    "```ts",
+    "```ts runnable",
     "import { widget } from '@acme/widget';",
     "```",
     "",
@@ -783,6 +891,125 @@ describe("the documentation gate's own failure modes", () => {
     expect(report).toContain("@acme/thin: missing topic `overrides`");
     // The topic it DOES cover is not reported.
     expect(report).not.toContain("missing topic `install`");
+  });
+
+  it("requires a copyable example in the usage section, JSON-config-only packages included", () => {
+    const proseOnly = [
+      "# @acme/editorconfig",
+      "",
+      "Shared editor configuration.",
+      "",
+      "## Install",
+      "",
+      "```sh",
+      "pnpm add -D @acme/editorconfig",
+      "```",
+      "",
+      "## Use",
+      "",
+      "Consume it the way the other shared configs are consumed.",
+      "",
+      "## Entry points",
+      "",
+      "- `@acme/editorconfig/base.json`",
+      "",
+      "## Overrides",
+      "",
+      "Nothing here can be overridden.",
+      "",
+      FOOTER,
+      "",
+    ].join("\n");
+    const manifest = { name: "@acme/editorconfig", exports: { "./base.json": "./base.json" } };
+
+    const dir = fixture("json-only", manifest, proseOnly);
+    const pkg = readWorkspacePackage(dir, scratch) as WorkspacePackage;
+    // This is the class criterion 7 excuses an EXECUTABLE example, so the snippet suite skips it
+    // entirely and `gradeReadme` is the only thing between this README and a green run. Criterion 1
+    // is unconditional, and a shared-config repo is exactly where the next JSON-only package lands.
+    expect(isJsonConfigOnly(pkg)).toBe(true);
+    const report = gradeReadme(pkg).join("\n");
+    expect(report).toContain("@acme/editorconfig: missing topic `usage`");
+    expect(report).toMatch(/example/i);
+
+    // A JSON block IS a copyable example. The criterion asks for something to paste, not for code.
+    const withExample = fixture(
+      "json-only-example",
+      manifest,
+      proseOnly.replace(
+        "Consume it the way the other shared configs are consumed.",
+        ["```json", '{ "extends": "@acme/editorconfig/base.json" }', "```"].join("\n"),
+      ),
+    );
+    expect(gradeReadme(readWorkspacePackage(withExample, scratch) as WorkspacePackage)).toEqual([]);
+  });
+
+  it("refuses a usage example nothing executes, and only when it is script code", () => {
+    const manifest = { name: "@acme/widget", exports: { ".": "./index.js" } };
+
+    const untagged = fixture(
+      "untagged-usage",
+      manifest,
+      CONFORMING.replace("```ts runnable", "```ts"),
+    );
+    const untaggedReport = gradeReadme(
+      readWorkspacePackage(untagged, scratch) as WorkspacePackage,
+    ).join("\n");
+    expect(untaggedReport).toContain("@acme/widget: topic `usage`");
+    // The line named is the fence's line in the FILE, not in the section body.
+    expect(untaggedReport).toContain("at line 13");
+    expect(untaggedReport).toContain("```ts runnable```");
+
+    // The trap a tag check alone would miss: the harness runs `ts`, `typescript` and `tsx`, so a
+    // JavaScript block WEARING the tag is still never executed, and must still be refused.
+    const js = fixture(
+      "js-usage",
+      manifest,
+      CONFORMING.replace("```ts runnable", "```js runnable"),
+    );
+    expect(gradeReadme(readWorkspacePackage(js, scratch) as WorkspacePackage).join("\n")).toContain(
+      "topic `usage`",
+    );
+
+    // Outside `## Use` a script block is illustrative - an anti-pattern, a fragment, or an example
+    // written against a package this repo does not contain - and is not required to run.
+    const illustrative = fixture(
+      "illustrative",
+      manifest,
+      CONFORMING.replace(
+        "Nothing here can be overridden.",
+        ["```ts", "// Do not do this.", "widget({ unsafe: true });", "```"].join("\n"),
+      ),
+    );
+    expect(gradeReadme(readWorkspacePackage(illustrative, scratch) as WorkspacePackage)).toEqual(
+      [],
+    );
+
+    // A JSON usage example is not script code, so criterion 7's condition never arises for it.
+    const json = fixture(
+      "json-usage",
+      manifest,
+      CONFORMING.replace("```ts runnable", "```json").replace(
+        "import { widget } from '@acme/widget';",
+        '{ "widget": true }',
+      ),
+    );
+    expect(gradeReadme(readWorkspacePackage(json, scratch) as WorkspacePackage)).toEqual([]);
+  });
+
+  it("counts a fence nested inside a wider one as prose, not as a block of the document", () => {
+    // A ````md block documenting the tagging convention holds a ```ts runnable fence that is TEXT.
+    // Reading it as a block of the document would credit a usage section with an example it does
+    // not have, and would then demand that example be executed.
+    const blocks = fencedBlocks(
+      ["````md", "```ts runnable", "const x = 1;", "```", "````", "", "```sh", "ls", "```"].join(
+        "\n",
+      ),
+    );
+    expect(blocks.map((b) => [b.lang, b.line])).toEqual([
+      ["md", 1],
+      ["sh", 7],
+    ]);
   });
 
   it("names a near-miss heading as the wrong word, not as an absent topic", () => {

@@ -63,6 +63,15 @@ by file and line, compiles it, and executes it: a line of the form `<expr>; // =
 `expect(<expr>).toStrictEqual(<value>)`. A block tagged ` ```ts runnable throws ` must throw
 instead.
 
+**Where the tag goes in this repository, and where it deliberately does not.** The `## Use` section
+holds the example a consumer copies, so when that example is TypeScript or JavaScript it carries the
+tag and runs on every `pnpm test`. A script block anywhere else illustrates a pattern rather than
+being the documented way to consume the package: an anti-example, a fragment with no imports, or an
+integration written against a parser package this repo does not contain, none of which can be
+executed here without asserting something untrue. `test/package-docs.test.ts` enforces that split
+instead of trusting it, and refuses an untagged TypeScript or JavaScript block inside a `## Use`
+section by file and line.
+
 ```ts
 // test/docs-content.test.ts
 import { join } from "node:path";
