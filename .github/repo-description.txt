@@ -1,0 +1,1 @@
+Shared build, lint, format, and typecheck configuration for Cosyte's healthcare interoperability packages on Node.js and TypeScript: the presets every @cosyte/* repo extends, including the suite's PHI-scan rules.

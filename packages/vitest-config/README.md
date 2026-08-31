@@ -1,11 +1,40 @@
+<a href="https://cosyte.com">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://cosyte.com/tile/cosyte-lockup-tile-on-dark-1200x300.png">
+    <img alt="The Cosyte logo on its own white ground: the icon beside the word Cosyte." src="https://cosyte.com/tile/cosyte-lockup-tile-on-light-1200x300.png">
+  </picture>
+</a>
+
 # @cosyte/vitest-config
 
-Shared [Vitest](https://vitest.dev) config for the `@cosyte/*` packages: v8 coverage with the
-standard reporters and excludes, and enabled, gating per-directory thresholds at >= 90.
+> Gating coverage thresholds by default, plus a suite that runs the examples in your docs.
 
-The excludes are the ones that would otherwise inflate a score for free: barrels, fixtures,
-generated code and declarations. A second entry point, `/snippets`, executes the examples in a
-package's documentation against its code.
+[![npm version](https://img.shields.io/npm/v/@cosyte/vitest-config.svg)](https://www.npmjs.com/package/@cosyte/vitest-config)
+[![CI](https://img.shields.io/github/actions/workflow/status/cosyte/config/ci.yml?branch=main&label=CI)](https://github.com/cosyte/config/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/cosyte/config/blob/main/LICENSE)
+[![Node](https://img.shields.io/badge/node-%3E%3D22.14-brightgreen.svg)](https://nodejs.org)
+
+Shared Vitest config (v8 coverage, per-directory >=90 gates) for @cosyte/\* packages.
+
+## Why this exists
+
+Coverage that is reported but not gated is a number nobody acts on, and a repo-wide threshold hides
+the one directory that has none: a package can sit at 92% overall while its serializer is at 40%.
+The cosyte baseline gates per directory, and it ships enabled rather than as a setting each repo
+remembers to switch on.
+
+The nearest alternative is a hand-written `vitest.config.ts` per repository with `coverage.thresholds`
+copied in. That is the drift this removes, and it is also where the second half of this package comes
+from: nothing in that alternative proves the examples in your documentation still work.
+
+## Status
+
+`@cosyte/vitest-config` is on the cosyte 0.0.x ladder: the public API is not yet settled and may change in any release.
+
+Still moving: the coverage exclude list and the snippet-suite options (`runnableTag`, `resolve`,
+`requireSnippet`), which have changed shape as the first consumers adopted them. The 90 threshold and
+the `cosyteVitest(options)` signature are the settled-looking parts, but they are not covered by a
+stability promise at `0.0.x`.
 
 ## Install
 
@@ -13,41 +42,54 @@ package's documentation against its code.
 pnpm add -D @cosyte/vitest-config vitest @vitest/coverage-v8 vite
 ```
 
-`vitest`, `@vitest/coverage-v8` and `vite` are peer dependencies. Install `vite` explicitly: Vitest
-4 needs `vite` >= 6, and without a direct declaration a resolver will happily keep an incompatible
-vite 5 that some other dependency asked for.
+`vitest`, `@vitest/coverage-v8`, and `vite` are peer dependencies. Install `vite` explicitly:
+Vitest 4 requires major version 6 or later, and without a direct declaration the resolver will
+happily keep an incompatible vite 5. Node `>=22.14`. ESM only.
 
-## Use
+## Usage
 
 `vitest.config.ts`:
 
-```ts runnable
+```ts
 import { cosyteVitest } from "@cosyte/vitest-config";
 
-const { thresholds } = cosyteVitest({ coverageDirs: ["parser", "model"] }).test.coverage;
-thresholds.lines; // => 90
-thresholds["src/parser/**"].lines; // => 90
+export default cosyteVitest({
+  coverageDirs: ["parser", "model", "serialize", "helpers"],
+});
 ```
 
 Each entry in `coverageDirs` adds a per-directory `src/<dir>/**` gate at >= 90 on top of the global
-gate, which is what stops a well-covered helper directory paying for an untested parser.
+gate. Use `coverageThresholds` to add or override specific keys, and `test` for any other Vitest
+options.
 
-## Entry points
+## PHI and safety
 
-| entry point                      | what it is                                                          |
-| -------------------------------- | ------------------------------------------------------------------- |
-| `@cosyte/vitest-config`          | the `cosyteVitest(opts?)` factory, returning a Vitest config object |
-| `@cosyte/vitest-config/snippets` | the doc/code-agreement harness described below                      |
+This package is test configuration. It processes no patient data: it configures a test runner and,
+through `/snippets`, compiles and executes the code blocks you point it at.
 
-### `@cosyte/vitest-config/snippets`: doc/code agreement
+Two consequences worth stating plainly, because `/snippets` does run code. It executes the snippets
+in your own documentation, in your own process, so a documentation example must never contain real
+patient data: it would then be executed, and it is already committed. And the transient module
+`runSnippet` writes is written under your project root, so a snippet's inputs land on disk exactly as
+a test fixture's would. Use synthetic data in documentation, as in tests.
 
-The `/snippets` subpath is the documentation analog of the conformance runners: it proves the
-examples in a package's documentation still do what the prose claims. A copy-pasteable snippet that
+## API
+
+### `cosyteVitest(options)`
+
+The baseline config: v8 coverage with `text` / `html` / `lcov` reporters, the standard excludes
+(barrels, fixtures, generated code, declarations), and **enabled, gating** per-directory thresholds
+at **>= 90**.
+
+### Doc/code agreement: `@cosyte/vitest-config/snippets`
+
+The `/snippets` subpath is the **documentation analog of the conformance runners**: it proves the
+examples in a package's `docs-content/` still do what the prose claims. A copy-pasteable snippet that
 silently returns the wrong field (a dose, a code, an identifier) is a clinical-harm failure mode
 wearing a documentation costume, so a green docs build carrying a wrong snippet is exactly what this
 prevents.
 
-Mark a fenced block opt-in with ` ```ts runnable ` and assert its output inline with `// =>`:
+Mark a fenced block **opt-in** with ` ```ts runnable ` and assert its output inline with `// =>`:
 
 ````md
 ```ts runnable
@@ -58,19 +100,9 @@ warnings.length; // => 0
 ```
 ````
 
-`docSnippetSuite()` walks a docs directory, turns each runnable block into a Vitest `test` labelled
-by file and line, compiles it, and executes it: a line of the form `<expr>; // => <value>` becomes
-`expect(<expr>).toStrictEqual(<value>)`. A block tagged ` ```ts runnable throws ` must throw
-instead.
-
-**Where the tag goes in this repository, and where it deliberately does not.** The `## Use` section
-holds the example a consumer copies, so when that example is TypeScript or JavaScript it carries the
-tag and runs on every `pnpm test`. A script block anywhere else illustrates a pattern rather than
-being the documented way to consume the package: an anti-example, a fragment with no imports, or an
-integration written against a parser package this repo does not contain, none of which can be
-executed here without asserting something untrue. `test/package-docs.test.ts` enforces that split
-instead of trusting it, and refuses an untagged TypeScript or JavaScript block inside a `## Use`
-section by file and line.
+`docSnippetSuite()` walks a docs directory, turns each runnable block into a Vitest `test` labelled by
+file and line, compiles it, and executes it: a line of the form `<expr>; // => <value>` becomes
+`expect(<expr>).toStrictEqual(<value>)`. A block tagged ` ```ts runnable throws ` must throw instead.
 
 ```ts
 // test/docs-content.test.ts
@@ -86,42 +118,25 @@ docSnippetSuite({
 });
 ```
 
-The primitives are exported too, for bespoke wiring. `extractRunnableSnippets` is the one that
-decides what runs, and it reports each block's 1-based first code line so a failure points at the
-snippet rather than at the fence:
+Options: `docsDir` / `files`, `include` (default `.md` / `.mdx`), `resolve` (import-specifier
+remapper), `runnableTag` (default `"runnable"`), `name`, `requireSnippet`, `tmpDir`. A package with no
+runnable snippets yields an empty, passing suite: absence degrades quietly; a _wrong_ snippet fails
+loudly. The primitives (`extractRunnableSnippets`, `rewriteAssertions`, `remapImports`, `runSnippet`)
+are exported too, for bespoke wiring.
 
-```ts runnable
-import { extractRunnableSnippets } from "@cosyte/vitest-config/snippets";
+> `runSnippet` writes a transient `.ts` module under `tmpDir` (default `.cosyte-doc-snippets/` in the
+> project root) and imports it so Vitest transforms the TypeScript: add `.cosyte-doc-snippets*/` to
+> `.gitignore`. It must stay inside the project root; files under `node_modules` are not transformed.
 
-const fence = "`".repeat(3);
-const doc = ["# Title", "", fence + "ts runnable", "const dose = 5;", fence].join("\n");
-extractRunnableSnippets(doc).length; // => 1
-extractRunnableSnippets(doc)[0].line; // => 4
-```
+## Contributing
 
-`rewriteAssertions`, `remapImports` and `runSnippet` are the remaining three, in the order
-`docSnippetSuite` applies them.
+Questions, bug reports and proposals go to
+[the issue tracker](https://github.com/cosyte/config/issues). Pull requests are welcome, in
+[cosyte/config](https://github.com/cosyte/config), where this package lives.
 
-> `runSnippet` writes a transient `.ts` module under `tmpDir` (default `.cosyte-doc-snippets/` in
-> the project root) and imports it so Vitest transforms the TypeScript: add `.cosyte-doc-snippets*/`
-> to `.gitignore`. It must stay inside the project root, because files under `node_modules` are not
-> transformed.
+A change has to clear the required `verify` job, and a change to the thresholds or the excludes needs
+a changeset saying what moved: it can red a consumer that was passing.
 
-## Overrides
+## License
 
-Both entry points are configured entirely through their arguments, and neither enforces anything a
-consumer cannot reach:
-
-- `cosyteVitest` takes `coverageThresholds` to add or override specific coverage keys, and `test`
-  for any other Vitest option. Both are merged last, so a repo that genuinely cannot hold >= 90 in
-  one directory lowers that one key rather than abandoning the config.
-- `docSnippetSuite` takes `docsDir` or `files`, `include` (default `.md` and `.mdx`), `resolve`,
-  `runnableTag` (default `"runnable"`), `name`, `requireSnippet` and `tmpDir`.
-
-A package with no runnable snippets yields an empty, passing suite unless `requireSnippet` is set:
-absence degrades quietly, a _wrong_ snippet fails loudly. Lowering a coverage threshold is the
-override worth arguing about in review, because unlike the others it changes what CI will let
-through.
-
-Part of [cosyte/config](https://github.com/cosyte/config), one enforced toolchain for the `@cosyte/*`
-suite.
+MIT, copyright Cosyte. See [LICENSE](https://github.com/cosyte/config/blob/main/LICENSE).

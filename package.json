@@ -27,6 +27,7 @@
     "format:check": "prettier --check \"**/*.{js,mjs,ts,json,md,yml,yaml}\"",
     "check:no-emdash": "bash scripts/check-no-emdash.sh",
     "changeset:guard": "node scripts/changeset-guard.mjs",
+    "readme-check": "node scripts/readme-check.mjs",
     "release:config-allow": "node scripts/npm-config-allow.mjs",
     "release:notes": "node scripts/release-notes.mjs",
     "credentials:check": "node scripts/credential-surface.mjs",
