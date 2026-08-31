@@ -1,8 +1,40 @@
+<a href="https://cosyte.com">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://cosyte.com/tile/cosyte-lockup-tile-on-dark-1200x300.png">
+    <img alt="The Cosyte logo on its own white ground: the icon beside the word Cosyte." src="https://cosyte.com/tile/cosyte-lockup-tile-on-light-1200x300.png">
+  </picture>
+</a>
+
 # @cosyte/vitest-config
 
-Shared [Vitest](https://vitest.dev) config for the `@cosyte/*` packages: v8 coverage with
-`text` / `html` / `lcov` reporters, the standard excludes (barrels, fixtures, generated code,
-declarations), and **enabled, gating** per-directory thresholds at **>= 90**.
+> Gating coverage thresholds by default, plus a suite that runs the examples in your docs.
+
+[![npm version](https://img.shields.io/npm/v/@cosyte/vitest-config.svg)](https://www.npmjs.com/package/@cosyte/vitest-config)
+[![CI](https://img.shields.io/github/actions/workflow/status/cosyte/config/ci.yml?branch=main&label=CI)](https://github.com/cosyte/config/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/cosyte/config/blob/main/LICENSE)
+[![Node](https://img.shields.io/badge/node-%3E%3D22.14-brightgreen.svg)](https://nodejs.org)
+
+Shared Vitest config (v8 coverage, per-directory >=90 gates) for @cosyte/\* packages.
+
+## Why this exists
+
+Coverage that is reported but not gated is a number nobody acts on, and a repo-wide threshold hides
+the one directory that has none: a package can sit at 92% overall while its serializer is at 40%.
+The cosyte baseline gates per directory, and it ships enabled rather than as a setting each repo
+remembers to switch on.
+
+The nearest alternative is a hand-written `vitest.config.ts` per repository with `coverage.thresholds`
+copied in. That is the drift this removes, and it is also where the second half of this package comes
+from: nothing in that alternative proves the examples in your documentation still work.
+
+## Status
+
+`@cosyte/vitest-config` is on the cosyte 0.0.x ladder: the public API is not yet settled and may change in any release.
+
+Still moving: the coverage exclude list and the snippet-suite options (`runnableTag`, `resolve`,
+`requireSnippet`), which have changed shape as the first consumers adopted them. The 90 threshold and
+the `cosyteVitest(options)` signature are the settled-looking parts, but they are not covered by a
+stability promise at `0.0.x`.
 
 ## Install
 
@@ -10,10 +42,11 @@ declarations), and **enabled, gating** per-directory thresholds at **>= 90**.
 pnpm add -D @cosyte/vitest-config vitest @vitest/coverage-v8 vite
 ```
 
-`vitest`, `@vitest/coverage-v8`, and `vite` are peer dependencies (Vitest 4 needs `vite` >= 6: install
-it explicitly so the resolver doesn't keep an incompatible vite 5).
+`vitest`, `@vitest/coverage-v8`, and `vite` are peer dependencies. Install `vite` explicitly:
+Vitest 4 requires major version 6 or later, and without a direct declaration the resolver will
+happily keep an incompatible vite 5. Node `>=22.14`. ESM only.
 
-## Use
+## Usage
 
 `vitest.config.ts`:
 
@@ -29,7 +62,26 @@ Each entry in `coverageDirs` adds a per-directory `src/<dir>/**` gate at >= 90 o
 gate. Use `coverageThresholds` to add or override specific keys, and `test` for any other Vitest
 options.
 
-## Doc/code agreement: `@cosyte/vitest-config/snippets`
+## PHI and safety
+
+This package is test configuration. It processes no patient data: it configures a test runner and,
+through `/snippets`, compiles and executes the code blocks you point it at.
+
+Two consequences worth stating plainly, because `/snippets` does run code. It executes the snippets
+in your own documentation, in your own process, so a documentation example must never contain real
+patient data: it would then be executed, and it is already committed. And the transient module
+`runSnippet` writes is written under your project root, so a snippet's inputs land on disk exactly as
+a test fixture's would. Use synthetic data in documentation, as in tests.
+
+## API
+
+### `cosyteVitest(options)`
+
+The baseline config: v8 coverage with `text` / `html` / `lcov` reporters, the standard excludes
+(barrels, fixtures, generated code, declarations), and **enabled, gating** per-directory thresholds
+at **>= 90**.
+
+### Doc/code agreement: `@cosyte/vitest-config/snippets`
 
 The `/snippets` subpath is the **documentation analog of the conformance runners**: it proves the
 examples in a package's `docs-content/` still do what the prose claims. A copy-pasteable snippet that
@@ -76,5 +128,15 @@ are exported too, for bespoke wiring.
 > project root) and imports it so Vitest transforms the TypeScript: add `.cosyte-doc-snippets*/` to
 > `.gitignore`. It must stay inside the project root; files under `node_modules` are not transformed.
 
-Part of [cosyte/config](https://github.com/cosyte/config), one enforced toolchain for the `@cosyte/*`
-suite.
+## Contributing
+
+Questions, bug reports and proposals go to
+[the issue tracker](https://github.com/cosyte/config/issues). Pull requests are welcome, in
+[cosyte/config](https://github.com/cosyte/config), where this package lives.
+
+A change has to clear the required `verify` job, and a change to the thresholds or the excludes needs
+a changeset saying what moved: it can red a consumer that was passing.
+
+## License
+
+MIT, copyright Cosyte. See [LICENSE](https://github.com/cosyte/config/blob/main/LICENSE).

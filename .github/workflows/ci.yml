@@ -92,6 +92,15 @@ jobs:
       # gates above: `verify` is a REQUIRED status check in this repo's `config-ci-required-checks`
       # ruleset, so this is the copy that can REFUSE A MERGE. Zero-dependency node, like them.
       - run: node scripts/install-hardening.mjs
+      # THE README SHAPE GATE (S0197). A README is inside every published package's `files` array,
+      # so its text is FROZEN INTO THE TARBALL at publish time and a wrong string can be corrected
+      # only by publishing again. That makes it the one surface here where catching a defect after
+      # the merge is already too late, so the check belongs in `verify`, which is a REQUIRED status
+      # check in this repo's `config-ci-required-checks` ruleset and is therefore the copy that can
+      # REFUSE A MERGE. Running it only locally would make the skeleton an assertion again.
+      #
+      # Zero-dependency node, like the four gates above, so it runs before install.
+      - run: node scripts/readme-check.mjs
       - run: pnpm install --frozen-lockfile
       # The em-dash brand gate's FILE half also runs in no-emdash.yml, which additionally
       # covers the PR title, body and commit messages and carries the `edited` trigger those

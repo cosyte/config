@@ -1,12 +1,42 @@
+<a href="https://cosyte.com">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://cosyte.com/tile/cosyte-lockup-tile-on-dark-1200x300.png">
+    <img alt="The Cosyte logo on its own white ground: the icon beside the word Cosyte." src="https://cosyte.com/tile/cosyte-lockup-tile-on-light-1200x300.png">
+  </picture>
+</a>
+
 # @cosyte/process
 
-The shared per-repo process scripts for the `@cosyte/*` repos, behind one bin.
+> Five script bodies you never edit again, and the tool versions behind them.
+
+[![npm version](https://img.shields.io/npm/v/@cosyte/process.svg)](https://www.npmjs.com/package/@cosyte/process)
+[![CI](https://img.shields.io/github/actions/workflow/status/cosyte/config/ci.yml?branch=main&label=CI)](https://github.com/cosyte/config/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/cosyte/config/blob/main/LICENSE)
+[![Node](https://img.shields.io/badge/node-%3E%3D22.0.0-brightgreen.svg)](https://nodejs.org)
+
+The shared per-repo process scripts for @cosyte/\* repos: one `cosyte-process` bin behind build, test, lint, typecheck, format and check.
+
+## Why this exists
 
 Every parser repo hand-maintains the same five `package.json` scripts, plus a handful of variants,
-plus the tool versions behind them. `@cosyte/process` is the single source of truth for all of it: a
-consumer's script body becomes `cosyte-process <verb>` and never changes again, and a shared change
-to what a verb does, or to which version of a tool runs it, arrives as a version bump of this package
-and `pnpm install`.
+plus the tool versions behind them. Sharing the CONFIG files still leaves the invocations copied, so
+a repo can be on the shared ESLint config and a two-year-old ESLint, and the difference is invisible
+until a rule behaves differently in one repository.
+
+The nearest alternative is a shared config package plus hand-written scripts, which is where this
+estate already was. `@cosyte/process` is the single source of truth for all of it: a consumer's
+script body becomes `cosyte-process <verb>` and never changes again, and a shared change to what a
+verb does, or to which version of a tool runs it, arrives as a version bump of this package and
+`pnpm install`.
+
+## Status
+
+`@cosyte/process` is on the cosyte 0.0.x ladder: the public API is not yet settled and may change in any release.
+
+Still moving: the verb set itself (which verbs exist, and what each one invokes) and the override
+file's schema. Both are consumer-visible in a way a version bump can break, because a changed
+invocation runs different tooling over the same source. The five delegating script bodies are the
+part designed never to move.
 
 ## Install
 
@@ -16,9 +46,9 @@ pnpm add -D @cosyte/process
 
 Nothing else. The tools the verbs run (tsup, vitest and its `@vitest/coverage-v8` provider, eslint,
 prettier, typescript) are dependencies of this package and resolve from it. A wired consumer declares
-**no direct devDependency** on any of them.
+**no direct devDependency** on any of them. Node `>=22.0.0`. ESM only.
 
-## Wire the consumer
+## Usage
 
 Five scripts, each body exactly the delegation:
 
@@ -51,7 +81,20 @@ do carry has exactly this body:
 Script bodies are never edited per repo. If a repo needs something different, that is what the
 override file below is for.
 
-## What each verb runs
+## PHI and safety
+
+This package runs your build, test, lint, typecheck and format tools. It processes no patient data
+itself: it does not read your source as data, and it neither logs, retains nor transmits anything of
+its own.
+
+What it does do is spawn tools whose output goes to your terminal and to your CI log, so anything a
+test or a compiler prints is printed by the underlying tool, unchanged and unfiltered by this
+package. That is the consumer's surface to keep clean: a test that prints patient data prints it into
+CI, whichever runner invoked it.
+
+## API
+
+### What each verb runs
 
 Absent an override, each verb executes exactly this in the invoking repo's working directory, and
 exits with the tool's own exit code:
@@ -86,7 +129,7 @@ are defined against:
 An invocation is always emitted in that order: **tool, core, flags, globs.** Core tokens are the
 mode-selecting ones, and they survive everything.
 
-## Modifiers
+### Modifiers
 
 Exactly four exist, at most one per invocation:
 
@@ -100,7 +143,7 @@ Exactly four exist, at most one per invocation:
 A modifier composes over the **effective** invocation: the baseline as your override file has already
 adjusted it. With a `globs` override on `lint`, `lint --fix` fixes your globs, not the baseline ones.
 
-## Overrides
+### Overrides
 
 Repo-specific deviation lives in one file, `cosyte-process.config.json`, at the repo root:
 
@@ -130,7 +173,7 @@ the repo root. `prettier` fails on a pattern that matches nothing, so a repo wit
 directory overrides `format`'s `globs` rather than creating an empty directory. (`lint` carries
 `--no-error-on-unmatched-pattern` and needs no such care.)
 
-## `cosyte-process check`
+### `cosyte-process check`
 
 Run it in CI. It exits 0 when this repo's process wiring conforms:
 
@@ -150,17 +193,27 @@ in your `package.json` is graded.
 }
 ```
 
+### Updating
+
+A shared-process change reaches a wired consumer as a dependency version bump plus `pnpm install`.
+There is no other consumer-side edit for the five verbs: not to a script body, not to a tool version,
+not to a config file. If a change to this package would require one, that is a bug in the change.
+
 ## Compatibility
 
 Node `>=22.0.0` and pnpm `10.0.0` are the floor, which is what the consumer repos declare. The
 package is tested against exactly that floor, installed from a packed tarball into a fixture outside
 this workspace.
 
-## Updating
+## Contributing
 
-A shared-process change reaches a wired consumer as a dependency version bump plus `pnpm install`.
-There is no other consumer-side edit for the five verbs: not to a script body, not to a tool version,
-not to a config file. If a change to this package would require one, that is a bug in the change.
+Questions, bug reports and proposals go to
+[the issue tracker](https://github.com/cosyte/config/issues). Pull requests are welcome, in
+[cosyte/config](https://github.com/cosyte/config), where this package lives.
 
-Part of [cosyte/config](https://github.com/cosyte/config), one enforced toolchain for the `@cosyte/*`
-suite.
+A change has to clear the required `verify` job, and a change to a verb's invocation or to the
+override schema needs a changeset saying what moved: it changes what runs in every wired consumer.
+
+## License
+
+MIT, copyright Cosyte. See [LICENSE](https://github.com/cosyte/config/blob/main/LICENSE).
