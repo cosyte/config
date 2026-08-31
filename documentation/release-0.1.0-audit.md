@@ -238,9 +238,13 @@ published version in every case: `@cosyte/eslint-config` keeps `eslint: ^9.0.0 |
 `tsup: ^8.0.0`; `@cosyte/vitest-config` keeps `vitest: ^4.0.0`, `vite: ^6.0.0 || ^7.0.0 || ^8.0.0`
 and `@vitest/coverage-v8: ^4.0.0`. The other four declare no peers.
 
-**Engine floors are part of the surface and none of them rises.** `@cosyte/process` and
-`@cosyte/test-utils` keep `node >=22.0.0`, `@cosyte/script-utils` keeps `node >=22.14`, and the other
-four declare no `engines` block.
+**Engine floors are part of the surface and none of them rises.** Three packages declare one and
+keep it: `@cosyte/process` and `@cosyte/test-utils` keep `node >=22.0.0`, `@cosyte/script-utils`
+keeps `node >=22.14`. The remaining five declare no `engines` block at all, before or after:
+`@cosyte/eslint-config`, `@cosyte/prettier-config`, `@cosyte/tsconfig`, `@cosyte/tsup-config` and
+`@cosyte/vitest-config`. Three plus five is the eight in the table above; the root manifest's
+`node >=22.14` is not a package floor and reaches no consumer, because `cosyte-config` is
+`private: true` and is never published.
 
 **Certification.** `0.1.0` removes nothing, renames nothing and narrows nothing on any of the eight
 packages. The only observable difference between `<pkg>@<published>` and `<pkg>@0.1.0` is the
