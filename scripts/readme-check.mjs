@@ -32,6 +32,14 @@
 // then byte-for-byte with no normalization of case, spacing or punctuation. Fighting Prettier here
 // would mean a gate that reds on `pnpm format`, which is a gate nobody keeps.
 //
+// A PROSE CLAIM IS READ OUT OF THE PROSE, NOT OUT OF A URL. Every README here ends with the ABSOLUTE
+// link to the repo-root `LICENSE` the house skeleton mandates, and that URL contains the owner's own
+// name: `https://github.com/cosyte/config/blob/main/LICENSE`. A check that searched the raw section
+// for `Cosyte` therefore passed on a README crediting NOBODY, which made the attribution
+// requirement unfailable for exactly the eight files that reach npm. So the `## License` claims are
+// graded against `stripLinkTargets()` output: labels a reader sees survive, and destinations,
+// reference definitions, autolinks, bare URLs and HTML link attributes do not.
+//
 // Usage:
 //   node scripts/readme-check.mjs [--workspace <repo-root>]
 //
@@ -179,6 +187,45 @@ const SETTLED_API_CLAIMS = [
  */
 export function unescapeMarkdown(value) {
   return value.replace(/\\([!"#$%&'()*+,\-./:;<=>?@[\]^_`{|}~\\])/g, "$1");
+}
+
+/**
+ * Markdown with every link and image TARGET removed, leaving the text a reader actually sees.
+ *
+ * WHY THIS EXISTS, written down so it is not simplified away. A URL is machine address, not prose,
+ * and the two must never be confused when what is being graded is a CLAIM THE README MAKES. The
+ * `## License` section of all eight published READMEs ends with the absolute link this repository
+ * mandates, `https://github.com/cosyte/config/blob/main/LICENSE`, and the owner's name sits inside
+ * that URL. Searching the raw section for `Cosyte` therefore matched the address rather than the
+ * attribution, so the owner requirement could not fail on any README carrying the link the skeleton
+ * REQUIRES: the check was dead code on precisely the files that publish. Deleting the attribution
+ * left the gate green. What survives here is what a reader reads: link and image LABELS, and prose.
+ * What goes is every address: inline destinations and titles, reference definitions, autolinks,
+ * bare URLs, and the HTML attributes that carry a target.
+ *
+ * Each target becomes a SPACE rather than nothing, so stripping can never fuse two words into a
+ * third that neither of them was.
+ *
+ * @param {string} value Markdown source text.
+ * @returns {string} The same text with link targets removed.
+ */
+export function stripLinkTargets(value) {
+  return (
+    value
+      // `[label]: https://example.com "title"` reference definitions, which are pure address.
+      .replace(/^ {0,3}\[[^\]]*\]:.*$/gm, " ")
+      // `[label](destination "title")` and `![alt](destination)`; the label and alt survive.
+      .replace(/\]\((?:[^()\\]|\\.|\([^()]*\))*\)/g, "] ")
+      // `<https://example.com>` and `<user@example.com>` autolinks.
+      .replace(/<(?:[a-z][a-z0-9+.-]*:|[^\s<>@]+@)[^\s<>]*>/gi, " ")
+      // HTML attributes that carry a target. `alt` is deliberately NOT here: it is read aloud.
+      .replace(
+        /\b(?:href|src|srcset|cite|action|formaction|poster|data)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi,
+        " ",
+      )
+      // A bare URL pasted into prose.
+      .replace(/\b(?:[a-z][a-z0-9+.-]*:\/\/|www\.)\S+/gi, " ")
+  );
 }
 
 /**
@@ -581,8 +628,21 @@ export function gradeReadme({ label, text, manifest, floor }) {
 
   const license = bodyOf("License");
   if (license !== null) {
-    if (!/\bMIT\b/.test(license)) say("license", "it does not name the MIT license");
-    if (!/\bCosyte\b/i.test(license)) say("license", "it does not name the owner, Cosyte");
+    // Graded against the RENDERED PROSE, not the raw source. The mandated absolute LICENSE link
+    // carries the owner's name inside its URL, so a raw search can never fail here; see
+    // stripLinkTargets. Labels survive, so `[MIT](https://opensource.org/licenses/MIT)` still names
+    // the license, while a section whose only `MIT` or `Cosyte` is an address names neither.
+    const prose = stripLinkTargets(license);
+    if (!/\bMIT\b/.test(prose)) {
+      say("license", "it does not name the MIT license anywhere a reader reads");
+    }
+    if (!/\bCosyte\b/i.test(prose)) {
+      say(
+        "license",
+        "it does not name the owner, Cosyte. The owner inside the LICENSE link's URL is an address, " +
+          "not an attribution",
+      );
+    }
   }
 
   // --- Claims the file may not make -----------------------------------------------------------

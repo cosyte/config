@@ -88,6 +88,19 @@ interface PackageSpec {
 const ROOT_FLOOR = ">=22.14";
 
 /**
+ * The `## License` section EXACTLY AS THIS REPOSITORY SHIPS IT, absolute link included.
+ *
+ * The link is not decoration and this fixture may not drop it. No package here ships its own
+ * `LICENSE` file, so the house skeleton REQUIRES the absolute one, and that URL carries the owner's
+ * name: `github.com/cosyte/config`. A fixture whose License section were the bare
+ * `MIT, copyright Cosyte.` would be a shape this repository does not publish, and a negative test
+ * mutating it would prove nothing about the eight files that actually reach npm. That is exactly how
+ * the owner check shipped unfailable the first time.
+ */
+const LICENSE_SECTION =
+  "MIT, copyright Cosyte. See [LICENSE](https://github.com/cosyte/config/blob/main/LICENSE).";
+
+/**
  * A README that conforms to the house skeleton, for one package.
  *
  * Every negative test below mutates this, so it is the one thing that must be right: a wrong
@@ -151,7 +164,7 @@ Ask at https://github.com/cosyte/config/issues.
 
 ## License
 
-MIT, copyright Cosyte.
+${LICENSE_SECTION}
 `;
 }
 
@@ -731,20 +744,112 @@ describe("readme-check: what each section owes (AC7)", () => {
     expect(output).toContain("issue tracker");
   });
 
-  it("REFUSES a License section that names no license or no owner", () => {
-    const missingOwner = runCheck(
-      workspaceWith([{ dir: "alpha", mutate: (r) => r.replace("MIT, copyright Cosyte.", "MIT.") }]),
-    );
-    expect(missingOwner.code).toBe(1);
-    expect(missingOwner.output).toContain("does not name the owner");
+  // THE LICENSE SECTION IS GRADED ON THE SHAPE THAT SHIPS, WHICH CARRIES THE ABSOLUTE LINK.
+  //
+  // Every mutation below keeps that link, because the house skeleton requires it and because the URL
+  // is where the first version of this check went wrong: `github.com/cosyte/config` contains the
+  // owner's name, so a raw `/\bCosyte\b/i` over the section body matched the ADDRESS and the
+  // attribution requirement could not fail on any of the eight READMEs that publish. Dropping the
+  // link from the fixture would hide that all over again, so it is asserted present here.
+  it("keeps the absolute LICENSE link in the fixture the negatives mutate", () => {
+    expect(LICENSE_SECTION).toContain("https://github.com/cosyte/config/blob/main/LICENSE");
+    expect(conformingReadme({ dir: "alpha" })).toContain(LICENSE_SECTION);
+  });
 
-    const missingLicense = runCheck(
+  it("REFUSES a License section that drops the attribution but keeps the mandated link", () => {
+    const { code, output } = runCheck(
       workspaceWith([
-        { dir: "alpha", mutate: (r) => r.replace("MIT, copyright Cosyte.", "Copyright Cosyte.") },
+        {
+          dir: "alpha",
+          mutate: (r) =>
+            r.replace(
+              LICENSE_SECTION,
+              "MIT. See [LICENSE](https://github.com/cosyte/config/blob/main/LICENSE).",
+            ),
+        },
       ]),
     );
-    expect(missingLicense.code).toBe(1);
-    expect(missingLicense.output).toContain("does not name the MIT license");
+
+    expect(code).toBe(1);
+    expect(output).toContain("packages/alpha/README.md");
+    expect(output).toContain("does not name the owner");
+  });
+
+  it("REFUSES a License section naming NEITHER, reporting both elements", () => {
+    // The sharpest case: with the link still there, the owner half used to stay silent and the MIT
+    // diagnostic was the only one raised, so half the requirement was invisible.
+    const { code, output } = runCheck(
+      workspaceWith([
+        {
+          dir: "alpha",
+          mutate: (r) =>
+            r.replace(
+              LICENSE_SECTION,
+              "See [the license file](https://github.com/cosyte/config/blob/main/LICENSE).",
+            ),
+        },
+      ]),
+    );
+
+    expect(code).toBe(1);
+    expect(output).toContain("does not name the MIT license");
+    expect(output).toContain("does not name the owner");
+  });
+
+  it("REFUSES a License section whose only MIT is inside a URL", () => {
+    const { code, output } = runCheck(
+      workspaceWith([
+        {
+          dir: "alpha",
+          mutate: (r) =>
+            r.replace(
+              LICENSE_SECTION,
+              "Copyright Cosyte. See [the terms](https://opensource.org/licenses/MIT).",
+            ),
+        },
+      ]),
+    );
+
+    expect(code).toBe(1);
+    expect(output).toContain("does not name the MIT license");
+  });
+
+  it("ACCEPTS a License section whose MIT is a link LABEL, which a reader reads", () => {
+    // The mirror control. Stripping targets must not delete text the reader sees, or the fix for
+    // the URL false-positive becomes a false-negative on correct attribution.
+    const { code } = runCheck(
+      workspaceWith([
+        {
+          dir: "alpha",
+          mutate: (r) =>
+            r.replace(
+              LICENSE_SECTION,
+              "[MIT](https://opensource.org/licenses/MIT), copyright Cosyte. " +
+                "See [LICENSE](https://github.com/cosyte/config/blob/main/LICENSE).",
+            ),
+        },
+      ]),
+    );
+
+    expect(code).toBe(0);
+  });
+
+  it("REFUSES a License section that names no license, keeping the owner", () => {
+    const { code, output } = runCheck(
+      workspaceWith([
+        {
+          dir: "alpha",
+          mutate: (r) =>
+            r.replace(
+              LICENSE_SECTION,
+              "Copyright Cosyte. See [LICENSE](https://github.com/cosyte/config/blob/main/LICENSE).",
+            ),
+        },
+      ]),
+    );
+
+    expect(code).toBe(1);
+    expect(output).toContain("does not name the MIT license");
   });
 });
 
