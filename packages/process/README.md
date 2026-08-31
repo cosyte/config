@@ -1,6 +1,6 @@
 # @cosyte/process
 
-The shared per-repo process scripts for the `@cosyte/*` repos, behind one bin.
+The shared per-repo process scripts for the `@cosyte/*` repos, behind one `cosyte-process` bin.
 
 Every parser repo hand-maintains the same five `package.json` scripts, plus a handful of variants,
 plus the tool versions behind them. `@cosyte/process` is the single source of truth for all of it: a
@@ -18,7 +18,7 @@ Nothing else. The tools the verbs run (tsup, vitest and its `@vitest/coverage-v8
 prettier, typescript) are dependencies of this package and resolve from it. A wired consumer declares
 **no direct devDependency** on any of them.
 
-## Wire the consumer
+## Use
 
 Five scripts, each body exactly the delegation:
 
@@ -50,6 +50,26 @@ do carry has exactly this body:
 
 Script bodies are never edited per repo. If a repo needs something different, that is what the
 override file below is for.
+
+## Entry points
+
+| entry point       | what it is                                                                       |
+| ----------------- | -------------------------------------------------------------------------------- |
+| `cosyte-process`  | the bin, which is how a wired repo consumes this package                         |
+| `@cosyte/process` | the same contract programmatically: the baseline, the verbs and the wiring check |
+
+The bin is the product; the module entry point exists so that the wiring check, the tests and any
+future tooling read the contract from one place instead of restating it:
+
+```ts runnable
+import { BASELINE, expectedScriptBody, toArgv, VERBS } from "@cosyte/process";
+
+toArgv(BASELINE.typecheck); // => ["tsc", "--noEmit"]
+expectedScriptBody("build"); // => "cosyte-process build"
+VERBS.includes("check"); // => true
+```
+
+Nothing on that entry point has side effects, so importing it never runs a tool.
 
 ## What each verb runs
 

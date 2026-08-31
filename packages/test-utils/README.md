@@ -9,9 +9,40 @@ they use [`fast-check`](https://fast-check.dev/) (a peer dependency, `^3`) and `
 and **throw** on failure, so any test runner (Vitest, `node:test`, Mocha) catches them. The kit takes
 no runtime dependency on a test framework.
 
+## Install
+
 ```sh
 pnpm add -D @cosyte/test-utils fast-check
 ```
+
+`fast-check` is a peer dependency (`^3`) because the arbitraries you feed the runners are yours, and
+two copies of `fast-check` in one process is a way to get two incompatible `Arbitrary` types.
+
+## Use
+
+Feed a runner your own arbitraries and call it inside whatever test framework you already run. Every
+runner throws on failure and returns nothing, so there is no result to forget to assert on:
+
+```ts runnable
+import { sortedCodeSet } from "@cosyte/test-utils";
+
+const codes = { UNKNOWN_SEGMENT: "HL7_UNKNOWN_SEGMENT", BAD_DATE: "HL7_BAD_DATE" };
+sortedCodeSet(codes); // => ["HL7_BAD_DATE", "HL7_UNKNOWN_SEGMENT"]
+```
+
+The worked examples for the property runners are below, under
+[Adopting it in a parser](#adopting-it-in-a-parser); the PHI runners are the two to read first.
+
+## Entry points
+
+| entry point               | what it is                                                                |
+| ------------------------- | ------------------------------------------------------------------------- |
+| `@cosyte/test-utils`      | the conformance runners: round-trip, lenient-mode, immutability, PHI leak |
+| `@cosyte/test-utils/perf` | the performance kit: the scaling gate and its self-check                  |
+
+They are separate subpaths because they run under different conditions: the conformance runners are
+clock-free and coverage-safe, and the perf kit must not be measured under coverage instrumentation.
+Importing one never loads the other.
 
 ## The runners
 
@@ -150,8 +181,13 @@ A second, separately-imported runner family on the `./perf` subpath. It exists s
 prove, in its own CI and without bespoke code, that it has not silently acquired an
 **algorithmic-complexity** regression. Zero dependencies, hand-rolled on `node:perf_hooks`.
 
-```ts
-import { scalingGate, assertScalingGateFires, PERF_CONTRACT } from "@cosyte/test-utils/perf";
+```ts runnable
+import { assertScalingGateFires, PERF_CONTRACT, scalingGate } from "@cosyte/test-utils/perf";
+
+PERF_CONTRACT.RATIO_CEILING; // => 8
+PERF_CONTRACT.SCALE_STEP; // => 4
+typeof scalingGate; // => "function"
+typeof assertScalingGateFires; // => "function"
 ```
 
 | Export                   | What it does                                                                                |
@@ -237,4 +273,24 @@ or _judgement_, from the PERF-P0 calibration: 3,200 4N-vs-N ratios on a linear w
 deliberately O(n²) one, on Node 22.23.1 / V8 12.4. They are **not tuning knobs**: the ADR's review
 triggers are the process for moving one.
 
-Part of [cosyte/config](https://github.com/cosyte/config).
+## Overrides
+
+Everything a runner does is decided by the options object you hand it, and every runner is a plain
+function: there is no config file, no global registration and nothing to switch off in your
+`package.json`. What that leaves is a short list of things you deliberately cannot move.
+
+| Surface                                                | Overridable?                                                              |
+| ------------------------------------------------------ | ------------------------------------------------------------------------- |
+| Arbitraries, parse/serialize functions, equality       | Yours entirely. The kit ships none.                                       |
+| `getDiagnostics`, `getModelIdentifiers`, `parseStrict` | **Required, no defaults.** `() => []` is an answer; silence is not.       |
+| `expectCode` on a PHI slot                             | **Required per slot.** A slot that names no code cannot be proven read.   |
+| `checkLengthInvariance`                                | Opt-in. Read that option's docs before enabling it.                       |
+| `PERF_CONTRACT` (the ratio ceiling, floor, reps, step) | **Frozen.** Readable, not overridable. ADR 0001 is the route to move one. |
+
+The two rows in bold are the whole reason this kit exists as a shared contract rather than a
+snippet each parser copies. An optional selector plus a warning in prose is exactly the control that
+already failed ecosystem-wide, and a perf ceiling a package can raise locally is a ceiling that
+reports whatever that package needed it to report.
+
+Part of [cosyte/config](https://github.com/cosyte/config), one enforced toolchain for the `@cosyte/*`
+suite.

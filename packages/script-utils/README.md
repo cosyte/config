@@ -29,9 +29,18 @@ So check when your gate runs, and pick accordingly:
 
 Installing the package does not, on its own, give a pre-install gate the property described above.
 
-## `isCliEntrypoint(import.meta.url)`
+## Use
 
-Is this module the file Node was pointed at, rather than one imported by something else?
+Guard a script's CLI side effect so a test can import it for its exports:
+
+```ts runnable
+import { isCliEntrypoint } from "@cosyte/script-utils";
+
+// This module was imported, not pointed at, so the guard is closed and `main` does not run.
+isCliEntrypoint(import.meta.url); // => false
+```
+
+In a real gate that guard wraps the exit:
 
 ```js
 import { isCliEntrypoint } from "@cosyte/script-utils";
@@ -44,6 +53,30 @@ if (isCliEntrypoint(import.meta.url)) {
   process.exit(main(process.argv.slice(2)));
 }
 ```
+
+The PHI scanner is the other half, on its own subpath. Its shared read filter is exported so a
+caller can compose with it rather than restate it:
+
+```ts runnable
+import { exemptsMarkdown } from "@cosyte/script-utils/phi-scan";
+
+exemptsMarkdown("docs/adopting.md"); // => false
+exemptsMarkdown("src/patient.ts"); // => true
+```
+
+## Entry points
+
+| entry point                     | what it is                                                               |
+| ------------------------------- | ------------------------------------------------------------------------ |
+| `@cosyte/script-utils`          | `isCliEntrypoint(moduleUrl)`, the entry-point guard                      |
+| `@cosyte/script-utils/phi-scan` | `runPhiScan(config)` and `exemptsMarkdown(relPath)`, the shared PHI gate |
+
+They are separate subpaths because they are separately adoptable: a repo can take the entry-point
+guard without taking a position on PHI scanning, and importing the root never loads the scanner.
+
+## `isCliEntrypoint(import.meta.url)`
+
+Is this module the file Node was pointed at, rather than one imported by something else?
 
 That guard is what lets a test import the module for its exports without the CLI executing as a side
 effect, while the script still runs normally when invoked.
@@ -123,9 +156,25 @@ domain.
 It does **not** own per-standard field detection: names, DOB, MRN / member id, address, phone.
 Those differ per healthcare standard and are supplied through `detect`.
 
-### The five per-repo axes
+### Two things worth knowing before you adopt
 
-Which ones are required is the design, not an oversight.
+**A detector that consults nothing has no remedy.** The whole-file `--allow-fixture` bypass is
+recorded and then refused, so it cannot reach a clean run. Check every PHI-bearing field against
+`ctx.allow`, or a developer meeting your detector has nowhere to go. The engine's own floor does
+this on both branches.
+
+**`all` mode needs a git index.** It refuses when git cannot name the index or names it empty,
+because without it the sweep is the working-tree walk's word alone. A freshly scaffolded repo has to
+`git init` and commit before an `all`-mode run means anything.
+
+## Overrides
+
+`isCliEntrypoint` has no options and cannot be overridden. It answers one question and its
+tie-breaking direction is the whole design, so a knob to invert it would be a knob to turn the gate
+off.
+
+`runPhiScan` is configured entirely through its `config` argument, along five axes. Which ones are
+required is the design, not an oversight:
 
 | Axis                | Option                            | Required?                                                       |
 | ------------------- | --------------------------------- | --------------------------------------------------------------- |
@@ -141,17 +190,9 @@ across a repo boundary is how a caller ends up branching on a meaning that repo 
 A defaulted axis is the opposite case: every repo wants the same answer, so the answer lives here
 and reaches all of them through a version bump.
 
-### Two things worth knowing before you adopt
+The engine's own cross-cutting floor is not on that list, and it is not overridable. Neither is the
+completeness rule. A caller can widen what is scanned and can add detection, and cannot subtract
+either of those two.
 
-**A detector that consults nothing has no remedy.** The whole-file `--allow-fixture` bypass is
-recorded and then refused, so it cannot reach a clean run. Check every PHI-bearing field against
-`ctx.allow`, or a developer meeting your detector has nowhere to go. The engine's own floor does
-this on both branches.
-
-**`all` mode needs a git index.** It refuses when git cannot name the index or names it empty,
-because without it the sweep is the working-tree walk's word alone. A freshly scaffolded repo has to
-`git init` and commit before an `all`-mode run means anything.
-
-## License
-
-MIT
+Part of [cosyte/config](https://github.com/cosyte/config), one enforced toolchain for the `@cosyte/*`
+suite.
