@@ -40,6 +40,37 @@
 // graded against `stripLinkTargets()` output: labels a reader sees survive, and destinations,
 // reference definitions, autolinks, bare URLs and HTML link attributes do not.
 //
+// THE `## Status` SECTION IS GRADED AGAINST THE EFFECTIVE RELEASE LINE, NOT THE BARE MANIFEST
+// VERSION, and that distinction is the whole of why this section is checkable at all.
+//
+// A package's EFFECTIVE RELEASE LINE is the `major.minor` it will carry once the changesets already
+// sitting in `.changeset/` have been applied to its manifest version. Manifest `0.0.4` with a
+// pending `minor` naming it is the `0.1.x` line; manifest `0.0.4` with only `patch` entries, or
+// none, is the `0.0.x` ladder. The pending bumps are read here rather than assumed because they
+// move ONE MERGE BEFORE the manifests do: `changeset version` is a separate commit made by the
+// release owner, so between the tree that decides a package's release policy and the tree that
+// carries the bumped number there is a window in which the manifest still reads `0.0.4` and the
+// README has to be allowed to state the policy that tree just made true. Keying on the bare
+// manifest version closes that window by refusing the truth.
+//
+// THE ROOT PACKAGE HAS NO LINE OF ITS OWN AND ITS LINE IS DERIVED. `cosyte-config` is
+// `private: true`, pinned at `0.0.0` and never versioned by Changesets (RELEASING.md, and ci.yml's
+// note on why this repo is not a thin caller of the shared workflow), so its own `version` can
+// never leave `0.0.0` and grading its README against that number would pin the root to the `0.0.x`
+// ladder forever, through every release this repository will ever make. Its line is instead the one
+// the published packages are on WHEN THEY AGREE, and when they do not agree it is unresolvable and
+// this gate refuses rather than picking one.
+//
+// WHY THE PENDING BUMPS ARE READ HERE RATHER THAN IMPORTED. scripts/changeset-guard.mjs reads
+// `.changeset/` with the same frontmatter regex `@changesets/parse@0.4.3` uses and holds the same
+// exit contract, and the reading below is deliberately the same reading. It is a second copy rather
+// than a shared import because the two gates answer different questions of the same file and refuse
+// on different things: an unknown package name is a VIOLATION to the guard (a changeset that bumps
+// nothing) and an UNGROUNDED PREMISE here (a release line that cannot be resolved), so folding them
+// together would make one gate's exit contract the other's. The regex is itself a copy of the
+// parser's, for the reason stated there: a reader that disagrees with the real parser about where
+// the frontmatter ends is worse than a second copy of one that does not.
+//
 // Usage:
 //   node scripts/readme-check.mjs [--workspace <repo-root>]
 //
@@ -47,7 +78,11 @@
 //   0  every governed README carries the house skeleton
 //   1  at least one governed README violates it (the refusal this gate exists for)
 //   2  the check could not run (bad invocation, a governed README absent or unreadable, a
-//      `package.json` beside one missing or unparseable, a workspace layout this cannot ground on)
+//      `package.json` beside one missing or unparseable, a workspace layout this cannot ground on,
+//      or an effective release line it cannot resolve: `.changeset/` unreadable, a changeset whose
+//      frontmatter does not resolve to packages and bump types, a changeset naming a package this
+//      workspace does not have, published packages that disagree about their line, or a line this
+//      gate has no Status sentence for)
 //
 // The 1-versus-2 split is the same contract scripts/changeset-guard.mjs holds and it matters for
 // the same reason: a gate that cannot read its input must not report the same code as a gate that
@@ -55,7 +90,7 @@
 // checker that cannot ground its own premise NEVER reports clean.
 
 import { readFileSync, readdirSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 
 // Imported by RELATIVE PATH, not as `@cosyte/script-utils`, for the same reason
 // scripts/changeset-guard.mjs does it: the gates in this repo run before `pnpm install` in CI, so
@@ -165,7 +200,13 @@ const CADENCE_CLAIMS = [
   [/\bsupport(?:s|ed)? (?:for )?\d+ (?:months?|years?)\b/i, "a support window"],
 ];
 
-/** Claims a `0.0.x` package's README must not make about its public API. */
+/**
+ * Claims a README on the `0.0.x` ladder must not make about its public API.
+ *
+ * Refused on the `0.0.x` line ONLY. On a settled line the required Status sentence itself says the
+ * public API is settled, so a gate that refused the wording everywhere would refuse the sentence it
+ * compels.
+ */
 const SETTLED_API_CLAIMS = [
   /\b(?:public )?API is (?:settled|stable|frozen|final)\b/i,
   /\bstable (?:public )?API\b/i,
@@ -173,6 +214,40 @@ const SETTLED_API_CLAIMS = [
   /\bsafe to depend on\b/i,
   /\bAPI (?:will not|won't) change\b/i,
 ];
+
+/**
+ * Assertions of the `0.0.x` ladder, refused ANYWHERE in a README whose package has left that line.
+ *
+ * The Status sentence is not the only place a README states this policy: the root README states it
+ * again under `## Versioning`, in the other form written here, and a package README may repeat it
+ * in prose. A gate that graded only the opening sentence would let a retired policy claim survive
+ * three lines further down, inside the same tarball, contradicting the version printed beside it.
+ *
+ * Narrow by construction, and that is the point. Both patterns require the WORDS that make the
+ * mention a POLICY CLAIM (`ladder`, or `until ... alpha`) next to the number. A README that says a
+ * surface is "not covered by a stability promise at `0.0.x`", or that a package "is on its own
+ * `0.0.x` version", is stating a fact about a version rather than asserting the ladder, and is left
+ * alone. Erring the other way would refuse honest prose that merely names the number.
+ */
+const RETIRED_LADDER_CLAIMS = [
+  [/\b0\.0\.x\b[^\n]{0,60}?\bladder\b/i, "the cosyte 0.0.x ladder"],
+  [/\bladder\b[^\n]{0,60}?\b0\.0\.x\b/i, "the cosyte 0.0.x ladder"],
+  [/\b0\.0\.x\b[^\n]{0,40}?\buntil\b[^\n]{0,40}?\balpha\b/i, "the 0.0.x-until-first-alpha ladder"],
+];
+
+/** Files in `.changeset/` that are configuration or prose, never changesets. */
+const NOT_A_CHANGESET = new Set(["README.md", "config.json"]);
+
+/**
+ * `validVersionTypes` from `@changesets/parse@0.4.3`, ranked so that the strongest pending bump on a
+ * package is the one that decides its line, which is what `@changesets/assemble-release-plan` does.
+ */
+const RELEASE_TYPE_RANK = new Map([
+  ["none", 0],
+  ["patch", 1],
+  ["minor", 2],
+  ["major", 3],
+]);
 
 /**
  * Undo the markdown escaping Prettier applies to prose.
@@ -369,16 +444,285 @@ export function expectedBadges({ name, isPrivate, floor }) {
 }
 
 /**
- * The exact Status sentence a `0.0.x` package's README must open its `## Status` section with.
+ * Split a changeset file into its frontmatter block and the rest.
  *
- * When a package is bumped to 0.1.0 this sentence is replaced with the settled-API claim the
- * template calls for. Until then it is the honest one, and it is mechanically checkable.
+ * This is the SAME regex `@changesets/parse@0.4.3` uses (`mdRegex` in its source) and the same one
+ * scripts/changeset-guard.mjs copies, for the reason stated there: a reader that disagrees with the
+ * real parser about where the frontmatter ends would resolve a release line the pipeline does not.
+ *
+ * @param {string} contents Raw file contents.
+ * @returns {string | null} The frontmatter block, or `null` when there is none.
+ */
+function changesetFrontmatter(contents) {
+  const match = /\s*---([^]*?)\n\s*---(\s*(?:\n|$)[^]*)/.exec(contents);
+  if (match === null) return null;
+  return match[1] ?? "";
+}
+
+/**
+ * Read the `name: type` pairs out of one changeset's frontmatter block.
+ *
+ * Deliberately a LINE parser rather than a YAML one, because this gate runs before
+ * `pnpm install --frozen-lockfile` in ci.yml and so may take no dependency. That is a real
+ * limitation and it is bounded in the safe direction: a frontmatter shape this cannot read is
+ * reported as unresolvable (exit 2), never as a package with no pending bump, which would grade a
+ * README against a release line this never confirmed.
+ *
+ * @param {string} frontmatter The text between the `---` delimiters.
+ * @param {string} file The changeset's basename, named in every diagnostic.
+ * @returns {{ name: string, type: string }[]} One entry per declared release.
+ */
+function parseReleases(frontmatter, file) {
+  const releases = [];
+  for (const rawLine of frontmatter.split("\n")) {
+    const line = rawLine.replace(/(^|\s)#.*$/, "$1").trim();
+    if (line === "") continue;
+    const match = /^(?:"([^"]+)"|'([^']+)'|([^:]+?))\s*:\s*(\S+)\s*$/.exec(line);
+    if (match === null) {
+      throw new InvocationError(
+        `cannot read the frontmatter line ${JSON.stringify(line)} of .changeset/${file}. This ` +
+          `reads only the one-pair-per-line form changesets itself writes. Refusing to guess: a ` +
+          `frontmatter it cannot resolve must not be reported as one that declared no bump.`,
+      );
+    }
+    // Unquoted for the same reason scripts/changeset-guard.mjs unquotes it: `@changesets/parse`
+    // hands the block to js-yaml, which strips quotes, so `"minor"` and `minor` are one value to
+    // the real pipeline and must be one value here.
+    const type = (match[4] ?? "").trim().replace(/^["'](.*)["']$/, "$1");
+    if (!RELEASE_TYPE_RANK.has(type)) {
+      throw new InvocationError(
+        `.changeset/${file} declares the release type ${JSON.stringify(type)}, which is not one ` +
+          `of ${[...RELEASE_TYPE_RANK.keys()].join(", ")}. @changesets/parse throws on this, so ` +
+          `the bump it would apply cannot be resolved and no release line can be derived from it.`,
+      );
+    }
+    releases.push({ name: (match[1] ?? match[2] ?? match[3] ?? "").trim(), type });
+  }
+  return releases;
+}
+
+/**
+ * Every release declared by the changesets pending in a directory.
+ *
+ * An absent or unreadable `.changeset/` is a REFUSAL rather than "no pending bumps": the two look
+ * identical from the outside and mean opposite things, and reporting them the same way would grade
+ * every README against a line this gate never read.
+ *
+ * @param {string} changesetDir The `.changeset` directory.
+ * @returns {{ name: string, type: string, file: string }[]} Every declared release, with its file.
+ */
+export function pendingReleases(changesetDir) {
+  let entries;
+  try {
+    entries = readdirSync(changesetDir);
+  } catch (cause) {
+    throw new InvocationError(
+      `cannot read the changeset directory ${changesetDir}: ${String(cause)}. The pending bumps ` +
+        `are half of every package's effective release line, so a gate that could not read them ` +
+        `must not report what one that read them and found none reports.`,
+    );
+  }
+
+  const files = entries
+    .filter((entry) => entry.endsWith(".md") && !NOT_A_CHANGESET.has(basename(entry)))
+    .sort();
+
+  const releases = [];
+  for (const file of files) {
+    let contents;
+    try {
+      contents = readFileSync(join(changesetDir, file), "utf8");
+    } catch (cause) {
+      throw new InvocationError(`cannot read the changeset .changeset/${file}: ${String(cause)}`);
+    }
+    const frontmatter = changesetFrontmatter(contents);
+    if (frontmatter === null) {
+      throw new InvocationError(
+        `.changeset/${file} has no \`---\` frontmatter block, so the packages and bump types it ` +
+          `declares cannot be resolved. @changesets/parse throws on this shape.`,
+      );
+    }
+    for (const release of parseReleases(frontmatter, file)) {
+      releases.push({ name: release.name, type: release.type, file });
+    }
+  }
+  return releases;
+}
+
+/**
+ * A manifest version with one release type applied, the way `semver.inc` applies it.
+ *
+ * Only plain `major.minor.patch` releases are read. A prerelease or a version this cannot parse is
+ * a REFUSAL: which line `0.1.0-next.3` lands on is a question with more than one defensible answer,
+ * and a gate that picked one silently would grade a published Status sentence against a guess.
+ *
+ * @param {string} version The manifest version.
+ * @param {string} type One of `major`, `minor`, `patch`, `none`.
+ * @param {string} what What the version belongs to, for the diagnostic.
+ * @returns {{ major: number, minor: number, patch: number }} The version after the bump.
+ */
+export function bumpedVersion(version, type, what) {
+  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(version.trim());
+  if (match === null) {
+    throw new InvocationError(
+      `${what} declares the version ${JSON.stringify(version)}, which this gate cannot resolve to ` +
+        `a release line. It reads plain \`major.minor.patch\` releases only and refuses rather ` +
+        `than guessing which line a version it cannot parse is on.`,
+    );
+  }
+  const major = Number(match[1]);
+  const minor = Number(match[2]);
+  const patch = Number(match[3]);
+  if (type === "major") return { major: major + 1, minor: 0, patch: 0 };
+  if (type === "minor") return { major, minor: minor + 1, patch: 0 };
+  if (type === "patch") return { major, minor, patch: patch + 1 };
+  return { major, minor, patch };
+}
+
+/**
+ * A release line as a reader writes it.
+ *
+ * @param {{ major: number, minor: number }} line The line.
+ * @returns {string} For example `0.0.x`.
+ */
+export function lineLabel(line) {
+  return `${line.major}.${line.minor}.x`;
+}
+
+/** Whether a line is the `0.0.x` ladder, which is the one line with no settled-API promise. */
+function isLadderLine(line) {
+  return line.major === 0 && line.minor === 0;
+}
+
+/**
+ * The exact sentence a README on a given release line must open its `## Status` section with.
+ *
+ * Two lines have a sentence. The `0.0.x` ladder says the API is not settled, which is the honest
+ * claim while it is not. Every `0.<minor>.x` line above it says the API is settled and that bump
+ * types follow ordinary semver, which is what leaving the ladder means. A line with no sentence is
+ * refused by assertGradableLine() before any README is graded, so this never has to guess.
  *
  * @param {string} name The package name from its own manifest.
+ * @param {{ major: number, minor: number }} line The effective release line.
  * @returns {string} The sentence.
  */
-export function statusSentence(name) {
-  return `\`${name}\` is on the cosyte 0.0.x ladder: the public API is not yet settled and may change in any release.`;
+export function statusSentence(name, line) {
+  if (isLadderLine(line)) {
+    return `\`${name}\` is on the cosyte 0.0.x ladder: the public API is not yet settled and may change in any release.`;
+  }
+  return `\`${name}\` is on the cosyte ${lineLabel(line)} line: the public API is settled and bump types follow ordinary semver.`;
+}
+
+/**
+ * Refuse a release line this gate has no Status sentence for.
+ *
+ * Silently accepting one would leave that README's `## Status` section UNGRADED, which is the
+ * silent-skip shape every gate in this repo is built to refuse: the section that tells a consumer
+ * what the package promises would go unchecked into the tarball.
+ *
+ * @param {{ major: number, minor: number }} line The effective release line.
+ * @param {string} what What is on it, for the diagnostic.
+ * @returns {void}
+ */
+function assertGradableLine(line, what) {
+  if (line.major === 0) return;
+  throw new InvocationError(
+    `${what} is on the ${lineLabel(line)} effective release line, which this gate has no Status ` +
+      `sentence for: it knows the 0.0.x ladder and the settled 0.<minor>.x lines above it. ` +
+      `Refusing to leave that README's \`## Status\` section ungraded. Teach this gate the ` +
+      `sentence that line owes a reader before moving a package onto it.`,
+  );
+}
+
+/**
+ * The effective release line of every governed README, keyed by label.
+ *
+ * @param {{ label: string, isRoot: boolean, manifest: Record<string, any> }[]} governed The set.
+ * @param {string} changesetDir The `.changeset` directory.
+ * @returns {Map<string, { major: number, minor: number }>} One line per governed label.
+ */
+export function releaseLines(governed, changesetDir) {
+  const members = new Set();
+  for (const entry of governed) {
+    const name = entry.manifest.name;
+    if (typeof name === "string" && name !== "") members.add(name);
+  }
+
+  // The strongest pending bump on a package is the one that moves it, so a `patch` beside a `minor`
+  // does not hide the `minor`.
+  const bumps = new Map();
+  for (const release of pendingReleases(changesetDir)) {
+    if (!members.has(release.name)) {
+      throw new InvocationError(
+        `.changeset/${release.file} names \`${release.name}\`, which is not a package in this ` +
+          `workspace. The bump it declares cannot be grounded, so no release line can be derived ` +
+          `from it, and a Status sentence graded against the remaining ones would be graded ` +
+          `against a partial reading of the pending release.`,
+      );
+    }
+    const held = bumps.get(release.name);
+    const rank = RELEASE_TYPE_RANK.get(release.type) ?? 0;
+    if (held === undefined || rank > (RELEASE_TYPE_RANK.get(held) ?? 0)) {
+      bumps.set(release.name, release.type);
+    }
+  }
+
+  const lines = new Map();
+  const published = [];
+  for (const entry of governed) {
+    if (entry.isRoot) continue;
+    const name = typeof entry.manifest.name === "string" ? entry.manifest.name : "";
+    const version = typeof entry.manifest.version === "string" ? entry.manifest.version : "";
+    if (version === "") {
+      throw new InvocationError(
+        `the manifest for ${entry.label} declares no \`version\`, so this gate cannot resolve the ` +
+          `release line its Status sentence must state.`,
+      );
+    }
+    const bumped = bumpedVersion(
+      version,
+      bumps.get(name) ?? "none",
+      `the manifest for ${entry.label}`,
+    );
+    const line = { major: bumped.major, minor: bumped.minor };
+    assertGradableLine(line, `${entry.label}'s package \`${name}\``);
+    lines.set(entry.label, line);
+    if (entry.manifest.private !== true) published.push({ name, line });
+  }
+
+  // THE ROOT'S LINE IS DERIVED, because the root package is `private: true` and is never versioned,
+  // so its own `version` can never leave `0.0.0` and can never be evidence of anything.
+  if (published.length === 0) {
+    throw new InvocationError(
+      `this workspace has no published package, so the root README's release line cannot be ` +
+        `derived. The root package is private and never versioned, so its own \`version\` is not ` +
+        `evidence of the line this repository is on.`,
+    );
+  }
+  const byLine = new Map();
+  for (const entry of published) {
+    const key = lineLabel(entry.line);
+    const held = byLine.get(key);
+    if (held === undefined) byLine.set(key, [entry.name]);
+    else held.push(entry.name);
+  }
+  if (byLine.size > 1) {
+    const detail = [...byLine.entries()]
+      .sort((a, b) => (a[0] < b[0] ? -1 : 1))
+      .map(([key, names]) => `${key}: ${[...names].sort().join(", ")}`)
+      .join("; ");
+    throw new InvocationError(
+      `the published packages are not all on one effective release line (${detail}), so the root ` +
+        `README's Status sentence cannot be derived from them. Refusing to choose a line for it: ` +
+        `the root package is private and never versioned, so there is nothing else to derive from.`,
+    );
+  }
+
+  const rootLine = published[0].line;
+  for (const entry of governed) {
+    if (entry.isRoot) lines.set(entry.label, rootLine);
+  }
+  return lines;
 }
 
 /**
@@ -392,9 +736,10 @@ export function statusSentence(name) {
  * @param {string} entry.text The file contents.
  * @param {Record<string, any>} entry.manifest The `package.json` beside it.
  * @param {string} entry.floor The effective Node floor.
+ * @param {{ major: number, minor: number }} entry.line The effective release line.
  * @returns {string[]} One line per problem. Empty means the README conforms.
  */
-export function gradeReadme({ label, text, manifest, floor }) {
+export function gradeReadme({ label, text, manifest, floor, line }) {
   const problems = [];
   const say = (element, detail) => problems.push(`${label}: ${element}: ${detail}`);
 
@@ -566,13 +911,14 @@ export function gradeReadme({ label, text, manifest, floor }) {
   };
 
   const status = bodyOf("Status");
-  if (status !== null && version.startsWith("0.0.")) {
-    const sentence = statusSentence(name);
-    const statusLines = status.split("\n").filter((line) => line.trim() !== "");
+  if (status !== null) {
+    const sentence = statusSentence(name, line);
+    const statusLines = status.split("\n").filter((one) => one.trim() !== "");
     if ((statusLines[0] ?? "").trim() !== sentence) {
       say(
         "status",
-        `a 0.0.x package's Status section must OPEN with this exact sentence.\n` +
+        `a package on the ${lineLabel(line)} effective release line must OPEN with this exact ` +
+          `sentence.\n` +
           `    want: ${sentence}\n` +
           `    got:  ${(statusLines[0] ?? "(empty section)").trim()}`,
       );
@@ -583,12 +929,41 @@ export function gradeReadme({ label, text, manifest, floor }) {
         "the Status section must also name at least one surface that is still moving or not covered",
       );
     }
-    for (const claim of SETTLED_API_CLAIMS) {
-      if (claim.test(status)) {
+    // The settled-API refusal is a `0.0.x`-ladder rule and nothing else. On a settled line the
+    // required sentence above says the API is settled, so refusing the wording there would refuse
+    // the sentence this gate compels.
+    if (isLadderLine(line)) {
+      for (const claim of SETTLED_API_CLAIMS) {
+        if (claim.test(status)) {
+          say(
+            "status",
+            `it claims a settled or stable public API while its effective release line is 0.0.x ` +
+              `(manifest ${JSON.stringify(version)}, with the pending changesets applied). ` +
+              `That claim belongs to the 0.1.0 release, not to a 0.0.x package`,
+          );
+          break;
+        }
+      }
+    }
+  }
+
+  // --- A ladder this package has left, asserted ANYWHERE in the file --------------------------
+  //
+  // Not scoped to `## Status`: the root README states the same policy again under `## Versioning`,
+  // and a package README may repeat it in prose. Every one of these files ships inside a tarball,
+  // so a retired ladder assertion three lines below a settled Status sentence is the repository
+  // publishing two incompatible versions of its own policy.
+  if (!isLadderLine(line)) {
+    for (let i = 0; i < lines.length; i += 1) {
+      for (const [pattern, what] of RETIRED_LADDER_CLAIMS) {
+        const match = pattern.exec(lines[i] ?? "");
+        if (match === null) continue;
         say(
-          "status",
-          `it claims a settled or stable public API while the manifest says ${version}. ` +
-            `That claim belongs to the 0.1.0 release, not to a 0.0.x package`,
+          "ladder",
+          `line ${i + 1} asserts ${what} (${JSON.stringify(match[0])}), which this package has ` +
+            `left: its effective release line is ${lineLabel(line)}. A README is inside the npm ` +
+            `tarball, so a retired ladder assertion is published policy text contradicting the ` +
+            `version published beside it`,
         );
         break;
       }
@@ -774,7 +1149,8 @@ export function workspaceGlobs(workspaceRoot) {
  * arrives as a refusal rather than as a skip.
  *
  * @param {string} workspaceRoot Repository root.
- * @returns {{ label: string, readmePath: string, manifest: Record<string, any> }[]} The set.
+ * @returns {{ label: string, isRoot: boolean, readmePath: string, manifest: Record<string, any> }[]}
+ *   The set.
  */
 export function governedReadmes(workspaceRoot) {
   const globs = workspaceGlobs(workspaceRoot);
@@ -786,7 +1162,7 @@ export function governedReadmes(workspaceRoot) {
     );
   }
 
-  const entries = [{ label: "README.md", dir: workspaceRoot }];
+  const entries = [{ label: "README.md", isRoot: true, dir: workspaceRoot }];
 
   const packagesDir = join(workspaceRoot, "packages");
   let names;
@@ -825,7 +1201,7 @@ export function governedReadmes(workspaceRoot) {
       }
       continue;
     }
-    entries.push({ label: `packages/${entry}/README.md`, dir });
+    entries.push({ label: `packages/${entry}/README.md`, isRoot: false, dir });
   }
 
   if (entries.length === 1) {
@@ -837,6 +1213,7 @@ export function governedReadmes(workspaceRoot) {
 
   return entries.map((entry) => ({
     label: entry.label,
+    isRoot: entry.isRoot,
     readmePath: join(entry.dir, "README.md"),
     manifest: readManifest(join(entry.dir, "package.json"), `the manifest for ${entry.label}`),
   }));
@@ -864,6 +1241,12 @@ export function check({ workspaceRoot }) {
   }
 
   const governed = governedReadmes(workspaceRoot);
+
+  // EVERY LINE IS RESOLVED BEFORE ANY README IS GRADED. A line this gate cannot ground is exit 2,
+  // and it must be exit 2 even when some other README also carries a real violation: a run that
+  // could not resolve what it was grading against has not graded anything.
+  const lines = releaseLines(governed, join(workspaceRoot, ".changeset"));
+
   const report = [];
   let bad = 0;
 
@@ -877,11 +1260,19 @@ export function check({ workspaceRoot }) {
           `workspace carries owes a README, so an absent one is a refusal and never a skip.`,
       );
     }
+    const line = lines.get(entry.label);
+    if (line === undefined) {
+      throw new InvocationError(
+        `no effective release line was resolved for ${entry.label}, so its \`## Status\` section ` +
+          `would go ungraded. Refusing to report on a governed README this could not ground.`,
+      );
+    }
     const problems = gradeReadme({
       label: entry.label,
       text,
       manifest: entry.manifest,
       floor: effectiveFloor(entry.manifest, rootFloor),
+      line,
     });
     // Every offending file is reported, in one run. Stopping at the first would turn a nine-file
     // sweep into nine pushes.
