@@ -28,7 +28,7 @@ reaches every consumer as a version bump and `pnpm install`.
 
 ## Status
 
-`@cosyte/tsconfig` is on the cosyte 0.0.x ladder: the public API is not yet settled and may change in any release.
+`@cosyte/tsconfig` is on the cosyte 0.1.x line: the public API is settled and bump types follow ordinary semver.
 
 The two config names (`base.json`, `library.json`) are stable in practice, but the option set inside
 them is not: compiler options are added as TypeScript ships them and as the parsers find gaps, and

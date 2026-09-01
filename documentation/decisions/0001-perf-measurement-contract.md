@@ -6,7 +6,8 @@
 - **Relates to:** the perf roadmap (`operations/roadmaps/config/perf.md` §8/P1) · the PERF-P0
   calibration, `experiments/perf-calibration/ANALYSIS.md` + `README.md` (config#32, `1952b37`) ·
   umbrella `documentation/conventions.md` (perf-gate standard, corrected 2026-07-25) · umbrella
-  ADR 0001 (the `0.0.x` ladder).
+  ADR 0001 (the pre-alpha version ladder, which
+  [ADR 0002](0002-the-0-1-0-version-line.md) retired for this repository's published packages).
 - **Supersedes:** nothing. It is the first binding statement of how a `@cosyte/*` package measures
   itself, and it is what `hl7`'s bespoke suite gets migrated onto in P4.
 

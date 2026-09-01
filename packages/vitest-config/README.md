@@ -29,12 +29,12 @@ from: nothing in that alternative proves the examples in your documentation stil
 
 ## Status
 
-`@cosyte/vitest-config` is on the cosyte 0.0.x ladder: the public API is not yet settled and may change in any release.
+`@cosyte/vitest-config` is on the cosyte 0.1.x line: the public API is settled and bump types follow ordinary semver.
 
 Still moving: the coverage exclude list and the snippet-suite options (`runnableTag`, `resolve`,
 `requireSnippet`), which have changed shape as the first consumers adopted them. The 90 threshold and
-the `cosyteVitest(options)` signature are the settled-looking parts, but they are not covered by a
-stability promise at `0.0.x`.
+the `cosyteVitest(options)` signature are the settled parts, and a change to either is recorded with
+the bump type it deserves rather than absorbed into a patch.
 
 ## Install
 

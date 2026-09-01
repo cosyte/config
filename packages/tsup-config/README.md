@@ -29,7 +29,7 @@ that uses it as a version bump.
 
 ## Status
 
-`@cosyte/tsup-config` is on the cosyte 0.0.x ladder: the public API is not yet settled and may change in any release.
+`@cosyte/tsup-config` is on the cosyte 0.1.x line: the public API is settled and bump types follow ordinary semver.
 
 Still moving: the compile target and the treeshake and splitting settings, all three of which change
 what a consumer's published artifact looks like. The `cosyteTsup(options)` shape itself is the part
