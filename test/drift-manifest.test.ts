@@ -17,7 +17,7 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -37,6 +37,7 @@ import {
 import {
   DEFAULT_MANIFEST,
   DEFAULT_SCHEMA,
+  SUPPORTED_KEYWORDS,
   checkInvariants,
   collectKeys,
   validateManifest,
@@ -811,5 +812,402 @@ describe("the manifest and the checker cannot drift apart", () => {
     expect(report).toContain("• hl7: SKIP (not present");
     expect(report).toContain("1 matching, 0 with drift, 1 skipped, of 2 repo(s)");
     expect(report).toContain("nothing: every repo that could be read matches its baseline");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// S0228. Three workflows the estate carries and no baseline requires were, until this change,
+// answered only by silence: the checker asks whether a REQUIRED workflow is present, so an extra
+// produced no line either way and a reader could not tell a settled question from an unasked one.
+// The manifest now DECLARES them, the report prints the declaration, and the validator refuses a
+// manifest that calls the same file optional and required. The same change carries two provenance
+// corrections, both about this file's own account of itself.
+// ---------------------------------------------------------------------------
+
+/**
+ * The three, and the carriers measured on 2026-08-29.
+ *
+ * Written out here rather than read from the manifest, for the same reason PRE_CHANGE_KEYS is:
+ * grading a file against a list it owns is not grading it.
+ */
+const OPTIONAL_WORKFLOWS: Record<string, string[]> = {
+  "fuzz.yml": ["x12", "ncpdp", "astm", "synth", "cli"],
+  "test-selection.yml": ["ncpdp", "deid", "synth"],
+  "smoke.yml": ["deid"],
+};
+
+/** A light-baseline repo that carries everything the light baseline asks for. */
+const LIGHT_COMPLETE: Record<string, string> = {
+  ".github/workflows/ci.yml": "name: CI\n",
+  ".github/workflows/no-emdash.yml": "name: no-emdash\n",
+  ".github/workflows/codeql.yml": "name: codeql\n",
+  ".github/workflows/scorecard.yml": "name: scorecard\n",
+};
+
+function gradeLight(
+  root: string,
+  name: string,
+): { skipped: boolean; findings: { line: string }[] } {
+  return evaluateRepo({
+    name,
+    baselineName: "light",
+    baseline: MANIFEST["baselines"].light,
+    root,
+    probe: NO_PROBE,
+  }) as { skipped: boolean; findings: { line: string }[] };
+}
+
+describe("S0228 AC6: fuzz, test-selection and smoke are DECLARED optional", () => {
+  it("declares exactly the three, each with the repos measured as carrying it", () => {
+    const declared = MANIFEST["optionalWorkflows"].workflows as {
+      workflow: string;
+      carriedBy: string[];
+    }[];
+    expect(declared.map((entry) => entry.workflow)).toEqual(Object.keys(OPTIONAL_WORKFLOWS));
+    for (const entry of declared) {
+      expect(entry.carriedBy, entry.workflow).toEqual(OPTIONAL_WORKFLOWS[entry.workflow]);
+    }
+  });
+
+  it("gives each one a provenance that names its carriers and why it is not a requirement", () => {
+    for (const entry of MANIFEST["optionalWorkflows"].workflows) {
+      expect(entry.provenance.length, entry.workflow).toBeGreaterThanOrEqual(40);
+      // The prose has to name the same repos the machine-readable list does. Two halves of one
+      // claim that can disagree is how a reader ends up believing whichever half they read first.
+      for (const repo of entry.carriedBy) {
+        expect(entry.provenance, `${entry.workflow} provenance omits ${repo}`).toContain(repo);
+      }
+      expect(entry.provenance, entry.workflow).toMatch(/NOT A REQUIREMENT/);
+    }
+    expect(MANIFEST["optionalWorkflows"].provenance).toMatch(/NEW OPERATOR DECISION/);
+  });
+
+  it("names none of the three in any baseline group's required workflows", () => {
+    const bare = Object.keys(OPTIONAL_WORKFLOWS).map((file) => file.replace(/\.yml$/, ""));
+    for (const [baselineName, baseline] of Object.entries<any>(MANIFEST["baselines"])) {
+      for (const [groupName, group] of Object.entries<any>(baseline.groups)) {
+        for (const workflow of group.requirements.requiredWorkflows ?? []) {
+          expect(bare, `${baselineName}.${groupName} requires ${workflow}`).not.toContain(
+            workflow.replace(/\.yml$/, ""),
+          );
+        }
+      }
+    }
+  });
+});
+
+describe("S0228 AC7: an optional workflow is neither drift when present nor owed when absent", () => {
+  it("does not report the presence of all three as drift", () => {
+    const root = tempDir();
+    makeRepo(root, "crew", {
+      ...LIGHT_COMPLETE,
+      ".github/workflows/fuzz.yml": "name: fuzz\n",
+      ".github/workflows/test-selection.yml": "name: test-selection\n",
+      ".github/workflows/smoke.yml": "name: smoke\n",
+    });
+    const result = gradeLight(root, "crew");
+    expect(result.skipped).toBe(false);
+    expect(result.findings).toEqual([]);
+  });
+
+  it("reports no missing requirement for any of the three when a repo carries none", () => {
+    const root = tempDir();
+    makeRepo(root, "crew", { ".github/workflows/ci.yml": "name: CI\n" });
+    const result = gradeLight(root, "crew");
+    const lines = result.findings.map((finding) => finding.line).join("\n");
+    // The contrast is the point: this repo IS told about the three workflows it owes, so the
+    // silence about the optional three is a decision rather than a checker that reported nothing.
+    expect(lines).toContain(".github/workflows/codeql.yml: missing");
+    expect(lines).toContain(".github/workflows/scorecard.yml: missing");
+    expect(lines).toContain(".github/workflows/no-emdash.yml: missing");
+    for (const workflow of Object.keys(OPTIONAL_WORKFLOWS)) {
+      expect(lines, `${workflow} was reported as a missing requirement`).not.toContain(workflow);
+    }
+  });
+
+  it("says so in the report, so silence is not the only evidence", () => {
+    const root = tempDir();
+    makeRepo(root, "crew", LIGHT_COMPLETE);
+    const manifest = JSON.parse(RAW_MANIFEST) as Record<string, any>;
+    manifest["baselines"].package.repos = ["hl7"];
+    manifest["baselines"].light.repos = ["crew"];
+    const results = gradeEstate({ manifest, root, probe: NO_PROBE });
+    const report = formatReport(results as any, manifest["optionalWorkflows"]).join("\n");
+
+    expect(report).toMatch(/OPTIONAL WORKFLOWS .*required by no baseline/);
+    expect(report).toContain("carrying one is NOT drift");
+    for (const [workflow, carriers] of Object.entries(OPTIONAL_WORKFLOWS)) {
+      expect(report).toContain(`${workflow}: OPTIONAL, carried by ${carriers.join(", ")}`);
+    }
+  });
+
+  it("prints it from a real run too, not only from formatReport", () => {
+    const root = tempDir();
+    const io = capture();
+    runCheck({
+      root,
+      controls: CONTROLS_PASS,
+      probe: NO_PROBE,
+      out: (line: string) => io.out.push(line),
+      err: (line: string) => io.err.push(line),
+    });
+    const printed = io.out.join("\n");
+    for (const [workflow, carriers] of Object.entries(OPTIONAL_WORKFLOWS)) {
+      expect(printed).toContain(`${workflow}: OPTIONAL, carried by ${carriers.join(", ")}`);
+    }
+  });
+
+  it("reports the manifest it was POINTED AT, never the one this module imported", () => {
+    // A run pointed at another manifest must print that manifest's declarations, or the report
+    // would describe a standard the run did not grade against.
+    const path = manifestFile((draft) => {
+      draft["optionalWorkflows"].workflows = [draft["optionalWorkflows"].workflows[0]];
+    });
+    const io = capture();
+    runCheck({
+      manifestPath: path,
+      root: tempDir(),
+      controls: CONTROLS_PASS,
+      probe: NO_PROBE,
+      out: (line: string) => io.out.push(line),
+      err: (line: string) => io.err.push(line),
+    });
+    const printed = io.out.join("\n");
+    expect(printed).toContain("fuzz.yml: OPTIONAL");
+    expect(printed).not.toContain("smoke.yml: OPTIONAL");
+  });
+});
+
+describe("S0228: the validator refuses an optional declaration that contradicts itself", () => {
+  it("REFUSES a workflow declared optional AND required", () => {
+    const both = JSON.parse(RAW_MANIFEST) as Record<string, any>;
+    both["baselines"].light.groups.securityWorkflows.requirements.requiredWorkflows.push(
+      "fuzz.yml",
+    );
+    expect(checkInvariants(both).join("\n")).toMatch(
+      /"fuzz\.yml" is declared OPTIONAL here and REQUIRED by baselines\.light\.groups\.securityWorkflows/,
+    );
+  });
+
+  it("exits 1 from the CLI on that contradiction, rather than grading either claim", () => {
+    const path = manifestFile((draft) => {
+      draft["baselines"].package.groups.ciWorkflows.requirements.requiredWorkflows.push(
+        "smoke.yml",
+      );
+    });
+    const r = runValidator(["--manifest", path]);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain("declared OPTIONAL here and REQUIRED by");
+  });
+
+  it("REFUSES a carrier no baseline holds, so a carrier list cannot outlive its repo", () => {
+    const orphan = JSON.parse(RAW_MANIFEST) as Record<string, any>;
+    orphan["optionalWorkflows"].workflows[0].carriedBy.push("bridgelink-mcp");
+    expect(checkInvariants(orphan).join("\n")).toMatch(
+      /optionalWorkflows\.workflows\[0\]\.carriedBy\[5\]: no baseline holds a repo named "bridgelink-mcp"/,
+    );
+  });
+
+  it("REFUSES the same workflow declared optional twice", () => {
+    const twice = JSON.parse(RAW_MANIFEST) as Record<string, any>;
+    twice["optionalWorkflows"].workflows.push({
+      ...twice["optionalWorkflows"].workflows[0],
+      carriedBy: ["deid"],
+    });
+    expect(checkInvariants(twice).join("\n")).toMatch(
+      /already declared optional at optionalWorkflows\.workflows\[0\]/,
+    );
+  });
+
+  it("grades NO repo and exits non-zero when the optional declaration does not validate", () => {
+    // The invariant this change must not break: a manifest that does not validate cannot say what
+    // any repo owes, so drift-check reports on none of them rather than on some of them.
+    const path = manifestFile((draft) => {
+      draft["optionalWorkflows"].workflows[0].carriedBy = [];
+    });
+    const io = capture();
+    const code = runCheck({
+      manifestPath: path,
+      root: REPO_ROOT,
+      controls: CONTROLS_PASS,
+      probe: NO_PROBE,
+      out: (line: string) => io.out.push(line),
+      err: (line: string) => io.err.push(line),
+    });
+    expect(code).toBe(2);
+    expect(io.out).toEqual([]);
+    expect(io.err.join("\n")).toContain(
+      "optionalWorkflows.workflows[0].carriedBy: want at least 1 item(s), got 0",
+    );
+    for (const repo of [...PACKAGE_REPOS, ...LIGHT_REPOS]) {
+      expect(io.out.join("\n")).not.toContain(repo);
+    }
+  });
+
+  it("REFUSES a manifest that drops the declaration entirely", () => {
+    const path = manifestFile((draft) => {
+      delete draft["optionalWorkflows"];
+    });
+    const r = runValidator(["--manifest", path]);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('(root): missing required property "optionalWorkflows"');
+  });
+});
+
+describe("S0228: the declaration is written in keywords the hand-written validator implements", () => {
+  /**
+   * Every keyword the schema uses, walked keyword-aware so that a PROPERTY NAME is never mistaken
+   * for one. The subschema positions are the six the validator itself recurses through.
+   */
+  function schemaKeywords(node: unknown, into = new Set<string>()): Set<string> {
+    if (typeof node !== "object" || node === null || Array.isArray(node)) return into;
+    for (const [key, sub] of Object.entries(node as Record<string, unknown>)) {
+      into.add(key);
+      if (key === "properties" || key === "patternProperties" || key === "$defs") {
+        if (typeof sub === "object" && sub !== null) {
+          for (const child of Object.values(sub)) schemaKeywords(child, into);
+        }
+      } else if (key === "items" || key === "propertyNames" || key === "additionalProperties") {
+        schemaKeywords(sub, into);
+      }
+    }
+    return into;
+  }
+
+  it("uses no keyword the validator would have to skip or refuse", () => {
+    // validateValue throws on an unknown keyword rather than ignoring it, but only along a path a
+    // value actually reaches: a subschema guarding a key no manifest exercises would never be
+    // walked, and its unsupported keyword would sit there reading as a constraint. So the whole
+    // schema is graded against the implemented set directly.
+    const used = schemaKeywords(SCHEMA);
+    expect(used.has("properties"), "the walk found nothing, so it proves nothing").toBe(true);
+    for (const keyword of used) {
+      expect(
+        SUPPORTED_KEYWORDS.has(keyword),
+        `the schema uses ${keyword}, which the validator does not implement`,
+      ).toBe(true);
+    }
+  });
+
+  it("still validates the shipped manifest, which exercises every branch of the new subschema", () => {
+    const errors: string[] = [];
+    expect(() =>
+      validateValue(
+        MANIFEST["optionalWorkflows"],
+        SCHEMA["$defs"].optionalWorkflows,
+        "optionalWorkflows",
+        SCHEMA,
+        errors,
+      ),
+    ).not.toThrow();
+    expect(errors).toEqual([]);
+  });
+});
+
+describe("S0228: the two provenance corrections", () => {
+  it("answers from the light baseline's provenance why config is not asked for no-internal-refs", () => {
+    const provenance = MANIFEST["baselines"].light.provenance as string;
+    expect(provenance).toMatch(/no-internal-refs\.yml/);
+    expect(provenance).toMatch(/EXACTLY THREE GROUPS/);
+    expect(provenance).toMatch(/new operator decision/i);
+  });
+
+  it("records the answer without turning it into a requirement", () => {
+    // The correction says config is NOT asked for the gate. A group that then required it would
+    // make the note false in the same file that carries it.
+    for (const [name, group] of Object.entries<any>(MANIFEST["baselines"].light.groups)) {
+      expect(group.requirements.requiredWorkflows ?? [], name).not.toContain(
+        "no-internal-refs.yml",
+      );
+    }
+    expect(Object.keys(MANIFEST["baselines"].light.groups)).toEqual([
+      "emdashGate",
+      "ciEntryPoint",
+      "securityWorkflows",
+    ]);
+    expect(
+      MANIFEST["baselines"].package.groups.ciWorkflows.requirements.requiredWorkflows,
+    ).toContain("no-internal-refs.yml");
+  });
+
+  it("records the scaffold's four-of-six gap in the CI-workflows group's provenance", () => {
+    const provenance = MANIFEST["baselines"].package.groups.ciWorkflows.provenance as string;
+    expect(provenance).toMatch(/scripts\/parser-template/);
+    expect(provenance).toMatch(/NO no-emdash\.yml and NO no-internal-refs\.yml/);
+    expect(provenance).toMatch(/SEPARATE WORK/);
+  });
+
+  it("is a claim about a tree in this checkout, so it is measured rather than asserted", () => {
+    const shipped = readdirSync(
+      join(REPO_ROOT, "scripts", "parser-template", ".github", "workflows"),
+    ).sort();
+    const required = MANIFEST["baselines"].package.groups.ciWorkflows.requirements
+      .requiredWorkflows as string[];
+    expect(shipped).toEqual(["ci.yml", "codeql.yml", "release.yml", "scorecard.yml"]);
+    expect(required.filter((workflow) => !shipped.includes(workflow))).toEqual([
+      "no-emdash.yml",
+      "no-internal-refs.yml",
+    ]);
+  });
+});
+
+describe("S0228: config's own two security-workflow callers", () => {
+  const WORKFLOWS = join(REPO_ROOT, ".github", "workflows");
+  const SCAFFOLD = join(REPO_ROOT, "scripts", "parser-template", ".github", "workflows");
+  const SECURITY = ["codeql.yml", "scorecard.yml"];
+
+  /** The comment lines stripped, so a sentence ABOUT a `run:` cannot be read as one. */
+  function wiring(text: string): string {
+    return text
+      .split("\n")
+      .filter((line) => !/^\s*#/.test(line))
+      .join("\n");
+  }
+
+  /** The job-level `name: value` grants, which sit two levels below `jobs:` in every caller here. */
+  function jobGrants(text: string): string[] {
+    return text
+      .split("\n")
+      .map((line) => /^ {6}([a-z-]+): (read|write|none)\b/.exec(line))
+      .filter((match): match is RegExpExecArray => match !== null)
+      .map((match) => `${match[1]}: ${match[2]}`)
+      .sort();
+  }
+
+  it("carries both workflows the light baseline's securityWorkflows group requires", () => {
+    const required = MANIFEST["baselines"].light.groups.securityWorkflows.requirements
+      .requiredWorkflows as string[];
+    expect(required).toEqual(SECURITY);
+    const present = readdirSync(WORKFLOWS);
+    for (const workflow of required) expect(present, workflow).toContain(workflow);
+  });
+
+  it.each(SECURITY)(
+    "%s calls the org profile repo's reusable of the same name, at @main",
+    (name) => {
+      expect(wiring(readFileSync(join(WORKFLOWS, name), "utf8"))).toContain(
+        `uses: cosyte/.github/.github/workflows/${name}@main`,
+      );
+    },
+  );
+
+  it.each(SECURITY)("%s carries no analysis logic and nothing that makes it unfailable", (name) => {
+    const text = wiring(readFileSync(join(WORKFLOWS, name), "utf8"));
+    expect(text).not.toMatch(/^\s*steps:/m);
+    expect(text).not.toMatch(/^\s*-?\s*run:/m);
+    expect(text).not.toMatch(/continue-on-error/);
+    expect(text).not.toMatch(/\|\| true/);
+  });
+
+  it.each(SECURITY)("%s grants at the JOB exactly what the scaffold caller declares", (name) => {
+    // A called workflow can only DOWNGRADE its caller's token, so a grant the reusable needs and
+    // this file omits is simply absent at run time. The scaffold caller in this same repository is
+    // the checkout's statement of that set, and it is what these two are derived from.
+    const scaffold = jobGrants(readFileSync(join(SCAFFOLD, name), "utf8"));
+    expect(
+      scaffold.length,
+      "the scaffold declares no grants, so this proves nothing",
+    ).toBeGreaterThan(0);
+    expect(jobGrants(readFileSync(join(WORKFLOWS, name), "utf8"))).toEqual(scaffold);
   });
 });
