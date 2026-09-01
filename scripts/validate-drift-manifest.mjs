@@ -16,7 +16,7 @@
 // that ignores what it does not understand reports green over a constraint it never applied, which
 // is the exact shape of blind gate this repo has already paid for twice.
 //
-// WHAT IT CHECKS BEYOND THE SCHEMA. Four invariants a schema cannot express, each one a claim the
+// WHAT IT CHECKS BEYOND THE SCHEMA. Six invariants a schema cannot express, each one a claim the
 // manifest makes about itself that would otherwise be unfalsifiable:
 //
 //   1. EVERY submodule path is claimed by EXACTLY ONE baseline, and no baseline names a repo the
@@ -28,6 +28,14 @@
 //      this the list is a claim about a requirement that may have been deleted in the same commit.
 //   4. Every `phiScanProbe.perRepo` override names a repo some baseline actually holds, so an
 //      override cannot outlive the repo it exists for.
+//   5. Every repo named in `optionalWorkflows[].carriedBy` is a repo some baseline holds, for the
+//      same reason as 4: a carrier list is a measurement of the estate, and one naming a repo the
+//      estate does not have is a measurement of nothing.
+//   6. NO WORKFLOW IS DECLARED OPTIONAL AND REQUIRED AT ONCE, and none is declared optional twice.
+//      `optional` means the checker reports neither its presence nor its absence, and `required`
+//      means it reports its absence: a file claimed as both would have the manifest saying that a
+//      repo both does and does not owe it, and whichever half a reader found first would look
+//      settled.
 //
 // Exit codes, a contract asserted by test/drift-manifest.test.ts:
 //   0  the manifest parses, matches the schema, and satisfies the invariants
@@ -56,8 +64,16 @@ export const DEFAULT_SCHEMA = join(configRoot, "drift-manifest.schema.json");
 /** Thrown for an invocation or environment problem: exit 2, never exit 1. */
 export class ValidatorError extends Error {}
 
-/** Keywords this validator implements. Anything else in a schema is refused rather than skipped. */
-const SUPPORTED_KEYWORDS = new Set([
+/**
+ * Keywords this validator implements. Anything else in a schema is refused rather than skipped.
+ *
+ * EXPORTED SO THE SCHEMA CAN BE GRADED AGAINST IT DIRECTLY. `validateValue` already throws on an
+ * unknown keyword, but only along a path some value actually reaches; a subschema guarding a key
+ * that no shipped manifest exercises would never be walked, and its unsupported keyword would sit
+ * there reading as a constraint. test/drift-manifest.test.ts walks the whole schema against this
+ * set instead.
+ */
+export const SUPPORTED_KEYWORDS = new Set([
   "$ref",
   "$schema",
   "$id",
@@ -359,6 +375,49 @@ export function checkInvariants(manifest) {
     }
   }
 
+  // 5 and 6. The optional set is a claim about the estate and a claim against the baselines, and
+  // both are checkable. A carrier must be a repo some baseline holds, and a workflow declared
+  // optional must not also be required of anybody.
+  const requiredWorkflowsBy = new Map();
+  for (const [baselineName, baseline] of Object.entries(manifest.baselines)) {
+    for (const [groupName, group] of Object.entries(baseline.groups)) {
+      for (const workflow of group.requirements.requiredWorkflows ?? []) {
+        if (!requiredWorkflowsBy.has(workflow)) {
+          requiredWorkflowsBy.set(workflow, `baselines.${baselineName}.groups.${groupName}`);
+        }
+      }
+    }
+  }
+  const declaredOptional = new Map();
+  for (const [index, entry] of (manifest.optionalWorkflows?.workflows ?? []).entries()) {
+    const where = `optionalWorkflows.workflows[${index}]`;
+    const already = declaredOptional.get(entry.workflow);
+    if (already !== undefined) {
+      errors.push(
+        `${where}: ${JSON.stringify(entry.workflow)} is already declared optional at ${already}; ` +
+          `one workflow gets one entry, or two carrier lists disagree about the same file`,
+      );
+    } else {
+      declaredOptional.set(entry.workflow, where);
+    }
+    const requiredAt = requiredWorkflowsBy.get(entry.workflow);
+    if (requiredAt !== undefined) {
+      errors.push(
+        `${where}: ${JSON.stringify(entry.workflow)} is declared OPTIONAL here and REQUIRED by ` +
+          `${requiredAt}. It can be one or the other: optional means the checker reports neither ` +
+          `its presence nor its absence, required means it reports its absence`,
+      );
+    }
+    for (const [repoIndex, repo] of entry.carriedBy.entries()) {
+      if (!claimedBy.has(repo)) {
+        errors.push(
+          `${where}.carriedBy[${repoIndex}]: no baseline holds a repo named ` +
+            `${JSON.stringify(repo)}, so this carrier list measures a repo the estate does not have`,
+        );
+      }
+    }
+  }
+
   return errors;
 }
 
@@ -454,7 +513,7 @@ function main(argv) {
   if (result.ok) {
     process.stdout.write(
       `drift:validate: OK (${result.manifestPath} matches ${result.schemaPath} and satisfies the ` +
-        `re-derivation, coverage and probe invariants)\n`,
+        `re-derivation, coverage, probe and optional-workflow invariants)\n`,
     );
     return 0;
   }

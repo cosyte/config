@@ -11,6 +11,7 @@
     "standing",
     "estate",
     "baselines",
+    "optionalWorkflows",
     "phiScanProbeComment",
     "phiScanProbe",
     "installHardeningProbeComment",
@@ -44,6 +45,7 @@
         "light": { "$ref": "#/$defs/baseline" }
       }
     },
+    "optionalWorkflows": { "$ref": "#/$defs/optionalWorkflows" },
     "phiScanProbeComment": {
       "description": "Why the phi-scan check is a capability probe and not a matcher. Carried unchanged from manifest version 1.",
       "type": "string",
@@ -259,6 +261,40 @@
             "trustPolicy": {
               "description": "The exact value required. `off` is pnpm's default and is not a policy.",
               "enum": ["no-downgrade"]
+            }
+          }
+        }
+      }
+    },
+    "optionalWorkflows": {
+      "description": "The workflows the estate CARRIES that no baseline REQUIRES. Declared rather than left to silence: the checker only asks whether a required workflow is present, so an undeclared extra is tolerated without anything saying it was considered. A workflow named here is not drift when a repo carries it and not a missing requirement when a repo does not, and scripts/drift-check.js prints the set in every report. The validator refuses a workflow that appears both here and in some baseline's requiredWorkflows, so `optional` and `required` cannot be claimed of the same file.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provenance", "workflows"],
+      "properties": {
+        "provenance": { "$ref": "#/$defs/provenance" },
+        "workflows": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["workflow", "carriedBy", "provenance"],
+            "properties": {
+              "workflow": {
+                "description": "The workflow FILENAME, in the same vocabulary requiredWorkflows uses, so that `optional here` and `required there` are comparable strings rather than two spellings of one idea.",
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9-]*\\.yml$"
+              },
+              "carriedBy": {
+                "description": "The repos measured as carrying it. Each must be a repo some baseline holds, which the validator enforces, so a carrier list cannot outlive the repo it names.",
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": { "$ref": "#/$defs/repoName" }
+              },
+              "provenance": { "$ref": "#/$defs/provenance" }
             }
           }
         }

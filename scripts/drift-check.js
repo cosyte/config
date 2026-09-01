@@ -14,6 +14,12 @@
 // applies to which repo, and where each requirement came from, is DECLARED IN THE MANIFEST rather
 // than encoded here: this file is the evaluator, not the standard.
 //
+// AND IT SAYS WHICH WORKFLOWS ARE OPTIONAL, rather than leaving that to silence. Every check here
+// asks whether a REQUIRED thing is present, so a workflow no baseline requires produces no line in
+// either direction and a reader cannot tell "considered and left optional" from "never asked". The
+// manifest's `optionalWorkflows` declares that set with its own provenance, and `formatReport`
+// prints it in every report.
+//
 // NOTE: until each repo is migrated onto the standard, this is EXPECTED to report drift: that
 // output IS the per-repo migration worklist, and it is not a health report. `pnpmInstallHardening`
 // is the newest requirement and the clearest example: it asks every package repo for a publication
@@ -969,10 +975,20 @@ export function summarize(results) {
  * from matching ones so that an umbrella with three checkouts cannot read as an estate that is 88
  * percent clean.
  *
+ * AND IT STATES THE OPTIONAL SET, WHICH IS THE ONE THING THIS REPORT USED TO SAY ONLY BY SILENCE.
+ * Every check above asks whether a REQUIRED workflow is present, so a workflow no baseline requires
+ * produces no line either way: a reader could not tell a considered decision from a question nobody
+ * asked, and neither could the next implementer looking at a repo that carries one. The manifest now
+ * declares that set, and this block prints it, so "carrying it is not drift" is a sentence in the
+ * output rather than an inference from an absent one.
+ *
  * @param {ReturnType<typeof evaluateRepo>[]} results
+ * @param {{ workflows: { workflow: string, carriedBy: string[] }[] }} [optionalWorkflows] The
+ *   manifest's declared optional set. Defaults to the shipped manifest's, which is what the
+ *   one-argument callers in the tests get; `runCheck` passes the manifest it actually validated.
  * @returns {string[]} Lines to print.
  */
-export function formatReport(results) {
+export function formatReport(results, optionalWorkflows = manifest.optionalWorkflows) {
   const lines = [];
   const baselines = [...new Set(results.map((r) => r.baseline))];
   for (const baselineName of baselines) {
@@ -1001,6 +1017,20 @@ export function formatReport(results) {
     lines.push(
       `  ${result.name} (${result.baseline} baseline): ${result.findings.length} drift(s)`,
     );
+  }
+
+  lines.push(
+    "",
+    "-".repeat(60),
+    "OPTIONAL WORKFLOWS (declared in drift-manifest.json, required by no baseline: carrying one is " +
+      "NOT drift, and lacking one is NOT a missing requirement)",
+  );
+  const optional = optionalWorkflows?.workflows ?? [];
+  if (optional.length === 0) {
+    lines.push("  none declared");
+  }
+  for (const entry of optional) {
+    lines.push(`  ${entry.workflow}: OPTIONAL, carried by ${entry.carriedBy.join(", ")}`);
   }
 
   const summary = summarize(results);
@@ -1050,7 +1080,9 @@ export function runCheck({
   out("phi-scan capability probe: controls pass (shipped template ok, rule removed reds)");
 
   const results = gradeEstate({ manifest: subject, root, probe });
-  for (const line of formatReport(results)) out(line);
+  // The optional set comes from the manifest that was just VALIDATED, never from the module-level
+  // copy: a run pointed at another manifest must report that manifest's declarations.
+  for (const line of formatReport(results, subject.optionalWorkflows)) out(line);
 
   const summary = summarize(results);
   // A RUN THAT READ NOTHING IS NOT A CLEAN RUN. Every repo skipped means no checkout was beside
