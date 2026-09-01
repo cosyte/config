@@ -1,0 +1,55 @@
+name: Scorecard
+
+# A THIN CALLER, AND NOTHING ELSE. The OpenSSF Scorecard run lives in the reusable workflow this
+# calls, which the org profile repo publishes at cosyte/.github/.github/workflows/scorecard.yml.
+# There is no `steps:` block here, no `run:` line and no Scorecard configuration, for the same
+# reason codeql.yml carries none: the analysis is supposed to exist once.
+#
+# WHY THIS REPOSITORY OWES IT. drift-manifest.json holds config in the `light` baseline, whose
+# `securityWorkflows` group requires codeql.yml and scorecard.yml. config carried neither until this
+# file landed.
+#
+# THE REFERENCE IS `@main`, for the reason codeql.yml's header gives: it is the estate's convention,
+# and moving off it is estate-wide work rather than a single-caller edit.
+#
+# PUBLISHING IS LEFT ON, AND THAT IS A MEASUREMENT RATHER THAN A DEFAULT. Scorecard can only publish
+# to the OpenSSF API, and code scanning can only accept a SARIF upload, when the repository is
+# public; on a private repository both fail on every scheduled run and the workflow reds forever. So
+# the question was answered before this file was written: cosyte/config is PUBLIC (visibility read
+# from the repository itself on 2026-09-01), so both routes are open, and no publish-off input is
+# passed to the reusable. If this repository is ever made private, the fix is to pass the reusable's
+# publish-off input and say so here, NOT to make the run unfailable: a gate that cannot go red is
+# not a gate, so no error-swallowing key and no shell fallback may be added to this file.
+#
+# PERMISSIONS ARE GRANTED AT THE JOB, BECAUSE A CALLED WORKFLOW CAN ONLY DOWNGRADE ITS CALLER'S
+# TOKEN: `permissions:` inside a reusable workflow narrows what it was handed and can never widen
+# it. The three grants below are the set the scaffold caller in this same repository
+# (scripts/parser-template/.github/workflows/scorecard.yml) declares, each with the reason it
+# declares beside it. The workflow-level default stays `contents: read`.
+#
+# NO `pull_request` TRIGGER, AND THAT IS NOT AN OVERSIGHT. Scorecard grades the repository's default
+# branch and publishes a result for it; a run from a pull-request ref would be grading a branch
+# nobody consumes, and the publish route is only valid from the default branch. So the two triggers
+# below are the two runs this workflow actually has, which also means this file's first real run is
+# the one on `main` after it merges.
+#
+# NOTHING HERE MAKES THIS CHECK REQUIRED. Its job id is the check-run context a branch ruleset would
+# have to name, and this repository's `config-ci-required-checks` ruleset does not name it. That is a
+# settings act with a precondition, not a file, and it is deliberately not done here.
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "27 3 * * 2"
+
+permissions:
+  contents: read
+
+jobs:
+  scorecard:
+    permissions:
+      contents: read # required to resolve the reusable workflow (else contents:none is a startup failure)
+      security-events: write # upload the SARIF to the Security tab
+      id-token: write # publish results to the OpenSSF API (for the badge)
+    uses: cosyte/.github/.github/workflows/scorecard.yml@main

@@ -1,0 +1,57 @@
+name: CodeQL
+
+# A THIN CALLER, AND NOTHING ELSE. Every line of analysis lives in the reusable workflow this calls,
+# which the org profile repo publishes at cosyte/.github/.github/workflows/codeql.yml. There is no
+# `steps:` block here, no `run:` line, and no CodeQL configuration: a caller that carried any of
+# those would be a second place to review when the analysis changes, and the estate would then have
+# one copy per repo of a thing that is supposed to exist once.
+#
+# WHY THIS REPOSITORY OWES IT. drift-manifest.json holds config in the `light` baseline, whose
+# `securityWorkflows` group requires codeql.yml and scorecard.yml. config carried neither until this
+# file landed, which is one of the three drifts that put it in that baseline in the first place.
+# Note that ci.yml here is deliberately NOT a caller (see its own header: this repository's
+# multi-package release shape cannot use the shared pipeline); that argument is about the CI entry
+# point and does not reach the security workflows, which take no repository-shaped input at all.
+#
+# THE REFERENCE IS `@main`, DELIBERATELY. Every existing caller in the estate names @main, and so
+# does scripts/parser-template/.github/workflows/codeql.yml, the scaffold this file is derived from.
+# A published, immutable reference is the better answer and it is owed, but it is owed ESTATE-WIDE:
+# pinning one caller inside a fleet of @main callers reduces no fan-out and leaves the reader with
+# two conventions instead of one. Moving every caller at once is separate work.
+#
+# PERMISSIONS ARE GRANTED AT THE JOB, BECAUSE A CALLED WORKFLOW CAN ONLY DOWNGRADE ITS CALLER'S
+# TOKEN. `permissions:` inside a reusable workflow narrows what it was handed; it cannot widen it. So
+# a permission the reusable needs and this file does not grant is simply absent at run time, and the
+# failure surfaces inside the called workflow as a 403 on the upload rather than here as a missing
+# key. The three grants below are the set the scaffold caller in this same repository declares, each
+# with the reason it declares beside it. The workflow-level default stays `contents: read` so any
+# future job added here starts minimal rather than inheriting this job's grants.
+#
+# NOTHING HERE MAKES THIS CHECK REQUIRED. The job id below is the check-run context a branch ruleset
+# would have to name, and this repository's `config-ci-required-checks` ruleset does not name it.
+# Adding it is a GitHub settings act with a precondition (the workflow has to have completed on main
+# first), not a file in this repository, and it is deliberately not done here.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  # A weekly re-analysis, because CodeQL's queries improve on a tree that has not changed.
+  schedule:
+    - cron: "27 3 * * 1"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  codeql:
+    permissions:
+      security-events: write # upload the SARIF to the Security tab
+      contents: read # required to resolve the reusable workflow (else contents:none is a startup failure)
+      actions: read # read this run's own workflow metadata, which the SARIF upload attaches
+    uses: cosyte/.github/.github/workflows/codeql.yml@main
