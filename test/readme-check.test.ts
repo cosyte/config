@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -63,12 +63,38 @@ function nodeBadge(floor: string): string {
   return `[![Node](https://img.shields.io/badge/${label}-brightgreen.svg)](https://nodejs.org)`;
 }
 
+/**
+ * The exact `## Status` opening sentence a release line owes, as the gate spells it.
+ *
+ * Written out here rather than imported from `scripts/readme-check.mjs` for the same reason this
+ * suite drives the CLI rather than calling `check()`: a fixture built from the checker's own
+ * constants agrees with the checker by construction and proves nothing about the string that
+ * publishes. These two sentences are the contract.
+ *
+ * @param name The package's manifest name.
+ * @param line The effective release line, for example `0.0.x` or `0.1.x`.
+ * @returns The sentence that line's Status section must open with.
+ */
+function statusSentence(name: string, line: string): string {
+  return line === "0.0.x"
+    ? `\`${name}\` is on the cosyte 0.0.x ladder: the public API is not yet settled and may change in any release.`
+    : `\`${name}\` is on the cosyte ${line} line: the public API is settled and bump types follow ordinary semver.`;
+}
+
 interface PackageSpec {
   /** Directory name under `packages/`. */
   dir: string;
   /** Manifest name. Defaults to `@cosyte/<dir>`. */
   name?: string;
   version?: string;
+  /**
+   * The EFFECTIVE release line this package's README should be written for, for example `0.1.x`.
+   *
+   * Defaults to the line the manifest `version` alone implies. It is a separate knob because the
+   * two genuinely come apart: a package at manifest `0.0.4` with a pending `minor` changeset is on
+   * the `0.1.x` line, and writing its README for `0.0.x` is exactly the defect AC2 grades.
+   */
+  effectiveLine?: string;
   description?: string;
   private?: boolean;
   /** The package's own `engines.node`, when it declares one. */
@@ -101,7 +127,23 @@ const LICENSE_SECTION =
   "MIT, copyright Cosyte. See [LICENSE](https://github.com/cosyte/config/blob/main/LICENSE).";
 
 /**
- * A README that conforms to the house skeleton, for one package.
+ * The release line a version alone implies, which is what a spec that names no pending bump means.
+ *
+ * @param version A plain `major.minor.patch` version.
+ * @returns The line label, for example `0.0.x`.
+ */
+function lineOfVersion(version: string): string {
+  const m = /^(\d+)\.(\d+)\./.exec(version);
+  return m === null ? "0.0.x" : `${m[1]}.${m[2]}.x`;
+}
+
+/** The effective line a package spec's README is written for. */
+function lineOf(spec: PackageSpec): string {
+  return spec.effectiveLine ?? lineOfVersion(spec.version ?? "0.0.1");
+}
+
+/**
+ * A README that conforms to the house skeleton, for one package on its effective release line.
  *
  * Every negative test below mutates this, so it is the one thing that must be right: a wrong
  * baseline turns every negative into a test of the baseline rather than of the mutation.
@@ -118,10 +160,10 @@ function conformingReadme(spec: PackageSpec): string {
     LICENSE_BADGE,
     nodeBadge(floor),
   ];
-  const version = spec.version ?? "0.0.1";
-  const status = version.startsWith("0.0.")
-    ? `\`${name}\` is on the cosyte 0.0.x ladder: the public API is not yet settled and may change in any release.\n\nStill moving: the option surface.`
-    : "Released and in use.\n\nStill moving: nothing worth naming.";
+  // The second line is the same on both lines on purpose: the "name something further" requirement
+  // is one the settled line keeps, so a fixture that dropped it there would be testing two changes
+  // at once.
+  const status = `${statusSentence(name, lineOf(spec))}\n\nStill moving: the option surface.`;
   return `${BANNER}
 
 # ${name}
@@ -168,20 +210,46 @@ ${LICENSE_SECTION}
 `;
 }
 
+/** A pending changeset to drop into the fixture's `.changeset/`, keyed by filename. */
+type Changesets = Record<string, string>;
+
 /**
- * Build a throwaway workspace: a root manifest, a `pnpm-workspace.yaml`, and a `packages/` tree.
+ * A changeset file body, in the shape changesets itself writes.
  *
- * The checker derives its governed set from the workspace at run time, so a fixture has to carry a
- * real one: asserting against an invented layout would test a different program.
+ * @param releases The `name: type` pairs the frontmatter declares.
+ * @param summary The summary under the frontmatter.
+ * @returns The file contents.
+ */
+function changeset(releases: Record<string, string>, summary = "A fixture bump."): string {
+  const body = Object.entries(releases)
+    .map(([name, type]) => `"${name}": ${type}`)
+    .join("\n");
+  return `---\n${body}\n---\n\n${summary}\n`;
+}
+
+interface RootOverrides extends Partial<PackageSpec> {
+  workspaceYaml?: string;
+  /** Pending changesets, by filename. Defaults to none pending. */
+  changesets?: Changesets;
+  /** Omit `.changeset/` entirely, which the checker must refuse rather than read as "none". */
+  noChangesetDir?: boolean;
+}
+
+/**
+ * Build a throwaway workspace: a root manifest, a `pnpm-workspace.yaml`, `.changeset/`, and a
+ * `packages/` tree.
+ *
+ * The checker derives its governed set AND every package's effective release line from the
+ * workspace at run time, so a fixture has to carry a real one: asserting against an invented layout
+ * would test a different program. `.changeset/` is written by default, carrying the two files that
+ * are configuration or prose rather than changesets, because that is the shape the real repository
+ * has and because the checker skipping them is a claim worth exercising on every case here.
  *
  * @param specs The packages to create.
- * @param rootOverrides Changes to the root package and its README.
+ * @param rootOverrides Changes to the root package, its README, and the pending changesets.
  * @returns The workspace root.
  */
-function workspaceWith(
-  specs: PackageSpec[],
-  rootOverrides: Partial<PackageSpec> & { workspaceYaml?: string } = {},
-): string {
+function workspaceWith(specs: PackageSpec[], rootOverrides: RootOverrides = {}): string {
   const root = mkdtempSync(join(tmpdir(), "readme-check-"));
   temporaryDirs.push(root);
 
@@ -191,6 +259,29 @@ function workspaceWith(
     "utf8",
   );
 
+  if (rootOverrides.noChangesetDir !== true) {
+    const changesetDir = join(root, ".changeset");
+    mkdirSync(changesetDir, { recursive: true });
+    writeFileSync(join(changesetDir, "config.json"), JSON.stringify({ changelog: false }), "utf8");
+    writeFileSync(
+      join(changesetDir, "README.md"),
+      "# Changesets\n\nProse, not a changeset.\n",
+      "utf8",
+    );
+    for (const [file, contents] of Object.entries(rootOverrides.changesets ?? {})) {
+      writeFileSync(join(changesetDir, file), contents, "utf8");
+    }
+  }
+
+  // THE ROOT'S LINE IS DERIVED FROM THE PUBLISHED PACKAGES, so the fixture derives it the same way
+  // rather than letting the root's own `0.0.0` decide: the root package is private and never
+  // versioned, and a fixture that wrote its README off that number would only ever exercise one
+  // half of AC4.
+  const publishedLines = new Set(
+    specs.filter((spec) => spec.private !== true).map((spec) => lineOf(spec)),
+  );
+  const derivedRootLine = publishedLines.size === 1 ? [...publishedLines][0] : "0.0.x";
+
   const rootSpec: PackageSpec = {
     dir: "root",
     name: "cosyte-config",
@@ -198,6 +289,7 @@ function workspaceWith(
     private: true,
     description: "The fixture workspace root.",
     engines: ROOT_FLOOR,
+    effectiveLine: derivedRootLine,
     ...rootOverrides,
   };
   if (rootOverrides.rawManifest !== undefined) {
@@ -655,12 +747,403 @@ describe("readme-check: the Status sentence (AC6)", () => {
     expect(output).toContain("at least one surface that is still moving");
   });
 
-  it("does NOT require the 0.0.x sentence of a package past 0.0.x", () => {
-    // The mirror-image defect. When S0200 bumps a package to 0.1.0 its Status sentence changes,
-    // and a gate that still demanded the ladder sentence would block that release.
-    const { code } = runCheck(workspaceWith([{ dir: "alpha", version: "0.1.0" }]));
+  it("keeps the 0.0.x branch when the only pending changeset is a patch", () => {
+    // A patch never moves a line, so the ladder sentence is still the true one and is still
+    // compelled. This is the case the repository is actually in.
+    const { code } = runCheck(
+      workspaceWith([{ dir: "alpha", version: "0.0.4" }], {
+        changesets: { "fix.md": changeset({ "@cosyte/alpha": "patch" }) },
+      }),
+    );
 
     expect(code).toBe(0);
+  });
+});
+
+describe("readme-check: the settled 0.1.x line (AC2)", () => {
+  it("ACCEPTS a package whose pending minor changeset puts it on 0.1.x and whose README says so", () => {
+    // The whole point. The manifest still reads 0.0.4 here, because `changeset version` is a
+    // separate commit made by the release owner: the tree that decides the policy is one merge
+    // ahead of the tree that carries the number.
+    const { code, output } = runCheck(
+      workspaceWith([{ dir: "alpha", version: "0.0.4", effectiveLine: "0.1.x" }], {
+        changesets: { "settle.md": changeset({ "@cosyte/alpha": "minor" }) },
+      }),
+    );
+
+    expect(code, output).toBe(0);
+  });
+
+  it("REQUIRES the 0.1.x sentence, not the ladder one, once a minor is pending", () => {
+    // The tightening. A package on the settled line that still opens with the ladder sentence is
+    // publishing a retired policy, and this is where that is caught.
+    const { code, output } = runCheck(
+      workspaceWith([{ dir: "alpha", version: "0.0.4", effectiveLine: "0.0.x" }], {
+        changesets: { "settle.md": changeset({ "@cosyte/alpha": "minor" }) },
+      }),
+    );
+
+    expect(code).toBe(1);
+    expect(output).toContain("packages/alpha/README.md");
+    expect(output).toContain("must OPEN with this exact sentence");
+    expect(output).toContain(statusSentence("@cosyte/alpha", "0.1.x"));
+  });
+
+  it("REQUIRES the 0.1.x sentence of a package whose manifest is already 0.1.0", () => {
+    // Supersedes the older "does NOT require the 0.0.x sentence of a package past 0.0.x". Leaving
+    // that section ungraded was the silent-skip this gate refuses everywhere else.
+    const { code, output } = runCheck(
+      workspaceWith([{ dir: "alpha", version: "0.1.0", effectiveLine: "0.0.x" }]),
+    );
+
+    expect(code).toBe(1);
+    expect(output).toContain("must OPEN with this exact sentence");
+    expect(output).toContain(statusSentence("@cosyte/alpha", "0.1.x"));
+  });
+
+  it("does NOT refuse the settled-API wording on the settled line", () => {
+    // The required 0.1.x sentence IS a settled-API claim, so a gate that kept refusing the wording
+    // would refuse the sentence it compels. Asserted with a SECOND such claim in the section, so
+    // this cannot pass just because the opening sentence is special-cased.
+    const { code, output } = runCheck(
+      workspaceWith([{ dir: "alpha", version: "0.1.0" }], {
+        changesets: {},
+      }),
+    );
+
+    expect(code, output).toBe(0);
+
+    const withExtraClaim = runCheck(
+      workspaceWith([
+        {
+          dir: "alpha",
+          version: "0.1.0",
+          mutate: (r) =>
+            r.replace(
+              "Still moving: the option surface.",
+              "The public API is settled and safe to depend on.",
+            ),
+        },
+      ]),
+    );
+
+    expect(withExtraClaim.code, withExtraClaim.output).toBe(0);
+  });
+
+  it("still REFUSES a Status section on the settled line that names nothing further", () => {
+    const { code, output } = runCheck(
+      workspaceWith([
+        {
+          dir: "alpha",
+          version: "0.1.0",
+          mutate: (r) => r.replace("\n\nStill moving: the option surface.", ""),
+        },
+      ]),
+    );
+
+    expect(code).toBe(1);
+    expect(output).toContain("at least one surface that is still moving");
+  });
+
+  it("renders the package's OWN minor above 0.1.x", () => {
+    const { code, output } = runCheck(
+      workspaceWith([{ dir: "alpha", version: "0.2.0", effectiveLine: "0.1.x" }]),
+    );
+
+    expect(code).toBe(1);
+    expect(output).toContain(statusSentence("@cosyte/alpha", "0.2.x"));
+
+    const correct = runCheck(workspaceWith([{ dir: "alpha", version: "0.2.0" }]));
+    expect(correct.code, correct.output).toBe(0);
+  });
+
+  it("takes the STRONGEST pending bump when two changesets name one package", () => {
+    const { code, output } = runCheck(
+      workspaceWith([{ dir: "alpha", version: "0.0.4", effectiveLine: "0.1.x" }], {
+        changesets: {
+          "a-fix.md": changeset({ "@cosyte/alpha": "patch" }),
+          "b-settle.md": changeset({ "@cosyte/alpha": "minor" }),
+        },
+      }),
+    );
+
+    expect(code, output).toBe(0);
+  });
+});
+
+describe("readme-check: a retired ladder assertion anywhere in the file (AC3)", () => {
+  it("REFUSES the ladder sentence outside `## Status` once the package has left 0.0.x", () => {
+    const { code, output } = runCheck(
+      workspaceWith([
+        {
+          dir: "alpha",
+          version: "0.1.0",
+          mutate: (r) =>
+            r.replace(
+              "Because the fixture needs a section here.",
+              "This package is on the cosyte 0.0.x ladder.",
+            ),
+        },
+      ]),
+    );
+
+    expect(code).toBe(1);
+    expect(output).toContain("packages/alpha/README.md");
+    expect(output).toContain("ladder");
+    // AC3 wants the LINE named, not just the file.
+    expect(output).toMatch(/line \d+ asserts/);
+  });
+
+  it("REFUSES the `0.0.x until first alpha` form, which is the root README's second assertion", () => {
+    const { code, output } = runCheck(
+      workspaceWith([{ dir: "alpha", version: "0.1.0" }], {
+        mutate: (r) =>
+          r.replace(
+            "Because the fixture needs a section here.",
+            "Every package follows the cosyte ladder: **`0.0.x` until first alpha**.",
+          ),
+      }),
+    );
+
+    expect(code).toBe(1);
+    expect(output).toContain("ERROR: README.md:");
+    expect(output).toMatch(/line \d+ asserts/);
+  });
+
+  it("does NOT refuse the ladder assertion of a package still ON the ladder", () => {
+    // The mirror control. On 0.0.x that sentence is the one this gate COMPELS, so a whole-file ban
+    // would make the required text unfailable to write.
+    const { code, output } = runCheck(
+      workspaceWith([
+        {
+          dir: "alpha",
+          mutate: (r) =>
+            r.replace(
+              "Because the fixture needs a section here.",
+              "This package is on the cosyte 0.0.x ladder.",
+            ),
+        },
+      ]),
+    );
+
+    expect(code, output).toBe(0);
+  });
+
+  it("does NOT refuse prose that merely NAMES 0.0.x without asserting the ladder", () => {
+    // The over-breadth control, taken from this repository's own text: `vitest-config` says a
+    // surface is "not covered by a stability promise at `0.0.x`" and the root README says each
+    // package "is on its own `0.0.x` version". Neither asserts the policy, and a keyword ban on
+    // the number would delete honest prose about history.
+    const { code, output } = runCheck(
+      workspaceWith([
+        {
+          dir: "alpha",
+          version: "0.1.0",
+          mutate: (r) =>
+            r.replace(
+              "Because the fixture needs a section here.",
+              "The option surface was not covered by a stability promise at `0.0.x`, and every " +
+                "release before this one was on its own `0.0.x` version.",
+            ),
+        },
+      ]),
+    );
+
+    expect(code, output).toBe(0);
+  });
+
+  it("reports a ladder assertion as a VIOLATION (1), never as a broken check (2)", () => {
+    const { code } = runCheck(
+      workspaceWith([
+        {
+          dir: "alpha",
+          version: "0.1.0",
+          mutate: (r) => r.replace("## License", "On the 0.0.x ladder, anyway.\n\n## License"),
+        },
+      ]),
+    );
+
+    expect(code).toBe(1);
+  });
+});
+
+describe("readme-check: the root README's line is DERIVED (AC4, AC5)", () => {
+  it("grades the private root against the published packages, not against its own 0.0.0", () => {
+    // The root manifest is `private: true` and pinned at 0.0.0 forever, so a gate keyed on its own
+    // version would hold the root README on the ladder through every release this repo makes.
+    const { code, output } = runCheck(
+      workspaceWith(
+        [
+          { dir: "alpha", version: "0.1.0" },
+          { dir: "beta", version: "0.1.2" },
+        ],
+        {
+          effectiveLine: "0.0.x",
+        },
+      ),
+    );
+
+    expect(code).toBe(1);
+    expect(output).toContain("ERROR: README.md:");
+    expect(output).toContain(statusSentence("cosyte-config", "0.1.x"));
+  });
+
+  it("ACCEPTS the root on the derived line while its own manifest still reads 0.0.0", () => {
+    const { code, output } = runCheck(
+      workspaceWith(
+        [
+          { dir: "alpha", version: "0.0.4", effectiveLine: "0.1.x" },
+          { dir: "beta", version: "0.0.1", effectiveLine: "0.1.x" },
+        ],
+        {
+          changesets: {
+            "settle.md": changeset({ "@cosyte/alpha": "minor", "@cosyte/beta": "minor" }),
+          },
+        },
+      ),
+    );
+
+    expect(code, output).toBe(0);
+  });
+
+  it("exits 2, naming the packages, when the published packages disagree about their line", () => {
+    const { code, output } = runCheck(
+      workspaceWith([
+        { dir: "alpha", version: "0.0.1" },
+        { dir: "beta", version: "0.1.0" },
+      ]),
+    );
+
+    expect(code).toBe(2);
+    expect(output).toContain("not all on one effective release line");
+    expect(output).toContain("@cosyte/alpha");
+    expect(output).toContain("@cosyte/beta");
+    expect(output).not.toContain("readme-check: OK");
+  });
+
+  it("exits 2 when a pending minor moves only SOME of the published packages", () => {
+    // The half-migrated tree. Choosing a line for the root here would publish a policy claim the
+    // repository cannot prove.
+    const { code, output } = runCheck(
+      workspaceWith(
+        [
+          { dir: "alpha", version: "0.0.4" },
+          { dir: "beta", version: "0.0.1" },
+        ],
+        {
+          changesets: { "settle.md": changeset({ "@cosyte/alpha": "minor" }) },
+        },
+      ),
+    );
+
+    expect(code).toBe(2);
+    expect(output).toContain("not all on one effective release line");
+  });
+});
+
+describe("readme-check: a line it has no sentence for (AC6)", () => {
+  it("exits 2 on a package whose manifest is already 1.0.0", () => {
+    const { code, output } = runCheck(workspaceWith([{ dir: "alpha", version: "1.0.0" }]));
+
+    expect(code).toBe(2);
+    expect(output).toContain("has no Status sentence for");
+    expect(output).not.toContain("readme-check: OK");
+  });
+
+  it("exits 2 on a package a pending major would take to 1.0.0", () => {
+    const { code, output } = runCheck(
+      workspaceWith([{ dir: "alpha", version: "0.0.4" }], {
+        changesets: { "one-oh.md": changeset({ "@cosyte/alpha": "major" }) },
+      }),
+    );
+
+    expect(code).toBe(2);
+    expect(output).toContain("1.0.x");
+  });
+
+  it("exits 2 on a version it cannot resolve to a line at all", () => {
+    const { code, output } = runCheck(workspaceWith([{ dir: "alpha", version: "0.1.0-next.3" }]));
+
+    expect(code).toBe(2);
+    expect(output).toContain("cannot resolve to a release line");
+  });
+});
+
+describe("readme-check: the pending changesets are a premise, not a guess (AC7, AC8, AC9)", () => {
+  it("exits 2, naming the file, when a changeset has no frontmatter", () => {
+    const { code, output } = runCheck(
+      workspaceWith([{ dir: "alpha" }], {
+        changesets: { "broken.md": "Just a summary and no frontmatter at all.\n" },
+      }),
+    );
+
+    expect(code).toBe(2);
+    expect(output).toContain(".changeset/broken.md");
+    expect(output).toContain("frontmatter");
+  });
+
+  it("exits 2, naming the file, when a frontmatter line cannot be read", () => {
+    const { code, output } = runCheck(
+      workspaceWith([{ dir: "alpha" }], {
+        changesets: { "flow.md": '---\n{ "@cosyte/alpha": minor }\n---\n\nA flow map.\n' },
+      }),
+    );
+
+    expect(code).toBe(2);
+    expect(output).toContain(".changeset/flow.md");
+  });
+
+  it("exits 2, naming the file, on a release type changesets would throw on", () => {
+    const { code, output } = runCheck(
+      workspaceWith([{ dir: "alpha" }], {
+        changesets: { "typo.md": changeset({ "@cosyte/alpha": "mniro" }) },
+      }),
+    );
+
+    expect(code).toBe(2);
+    expect(output).toContain(".changeset/typo.md");
+    expect(output).toContain("mniro");
+  });
+
+  it("exits 2, naming it, when a changeset names a package this workspace does not have", () => {
+    const { code, output } = runCheck(
+      workspaceWith([{ dir: "alpha" }], {
+        changesets: { "typo.md": changeset({ "@cosyte/alhpa": "minor" }) },
+      }),
+    );
+
+    expect(code).toBe(2);
+    expect(output).toContain("@cosyte/alhpa");
+    expect(output).toContain("not a package in this workspace");
+  });
+
+  it("exits 2 when `.changeset/` is absent, rather than reading it as no pending bumps", () => {
+    // The two look identical from the outside and mean opposite things. A gate that could not read
+    // the pending bumps must not report what one that read them and found none reports.
+    const { code, output } = runCheck(workspaceWith([{ dir: "alpha" }], { noChangesetDir: true }));
+
+    expect(code).toBe(2);
+    expect(output).toContain("cannot read the changeset directory");
+    expect(output).not.toContain("readme-check: OK");
+  });
+
+  it("SKIPS `.changeset/README.md` and `config.json`, which are prose and configuration", () => {
+    // Both are written into every fixture, so this is the assertion that says their presence is
+    // deliberate: a checker that read them as changesets would exit 2 on every case in this file.
+    const { code, output } = runCheck(workspaceWith([{ dir: "alpha" }]));
+
+    expect(code, output).toBe(0);
+  });
+
+  it("NEVER reports clean when a changeset is unreadable, even beside a real violation", () => {
+    const { code, output } = runCheck(
+      workspaceWith([{ dir: "alpha", mutate: (r) => r.replace("## Status", "## State") }], {
+        changesets: { "broken.md": "no frontmatter here\n" },
+      }),
+    );
+
+    expect(code).toBe(2);
+    expect(output).not.toContain("readme-check: OK");
   });
 });
 
@@ -1032,6 +1515,97 @@ describe("readme-check: a broken checker must not look like a caught violation (
     const { code } = runCheck(workspaceWith([{ dir: "alpha" }]), ["--bogus", "x"]);
 
     expect(code).toBe(2);
+  });
+});
+
+describe("readme-check: the S0200 cross-check, on a 0.1.0 preparation tree (AC13)", () => {
+  // THE TREE THIS GATE EXISTS TO MAKE LEGAL, built to the shape S0200 will actually land: the eight
+  // published packages carry pending `minor` changesets taking them to 0.1.0, the manifests have
+  // NOT moved (`changeset version` is the release owner's separate commit), and all nine READMEs
+  // carry the settled sentence.
+  //
+  // Two gates run in the same required `verify` job and each fails the tree the other demands
+  // unless this one is version-aware: this check, and S0200's criterion 13, which fails the
+  // repository if ANY file still asserts the retired ladder. So both are asserted here, on one
+  // fixture, in one test: exit 0 from the shipped CLI, and a ladder sweep over the same nine files
+  // that finds nothing.
+  const PUBLISHED = [
+    "eslint-config",
+    "prettier-config",
+    "process",
+    "script-utils",
+    "test-utils",
+    "tsconfig",
+    "tsup-config",
+    "vitest-config",
+  ];
+
+  /** The nine governed README paths of a fixture workspace, root first. */
+  function governedPaths(root: string): string[] {
+    return [
+      join(root, "README.md"),
+      ...PUBLISHED.map((dir) => join(root, "packages", dir, "README.md")),
+    ];
+  }
+
+  /** Criterion 13's question, asked of one file: does it still assert the retired ladder? */
+  function ladderAssertions(path: string): string[] {
+    return readFileSync(path, "utf8")
+      .split("\n")
+      .map((line, i) => ({ line, at: i + 1 }))
+      .filter(
+        ({ line }) =>
+          /\b0\.0\.x\b[^\n]{0,60}?\bladder\b/i.test(line) ||
+          /\bladder\b[^\n]{0,60}?\b0\.0\.x\b/i.test(line) ||
+          /\b0\.0\.x\b[^\n]{0,40}?\buntil\b[^\n]{0,40}?\balpha\b/i.test(line),
+      )
+      .map(({ line, at }) => `${path}:${at}: ${line.trim()}`);
+  }
+
+  it("ACCEPTS the tree, and no governed README in it still asserts the 0.0.x ladder", () => {
+    const root = workspaceWith(
+      PUBLISHED.map((dir) => ({ dir, version: "0.0.4", effectiveLine: "0.1.x" })),
+      {
+        changesets: {
+          "settle-the-api.md": changeset(
+            Object.fromEntries(PUBLISHED.map((dir) => [`@cosyte/${dir}`, "minor"])),
+          ),
+        },
+      },
+    );
+
+    const { code, output } = runCheck(root);
+
+    expect(code, output).toBe(0);
+    expect(output).toContain("9 governed README(s)");
+
+    const stillAsserting = governedPaths(root).flatMap((path) => ladderAssertions(path));
+    expect(
+      stillAsserting,
+      `files still asserting the retired ladder:\n${stillAsserting.join("\n")}`,
+    ).toEqual([]);
+  });
+
+  it("is not a tautology: the same tree with S0197's sentences fails BOTH halves", () => {
+    // Without this the test above proves only that a fixture the fixture builder wrote agrees with
+    // itself. On the ladder wording the CLI refuses AND the sweep finds nine assertions, which is
+    // exactly the deadlock the conductor's ruling describes.
+    const root = workspaceWith(
+      PUBLISHED.map((dir) => ({ dir, version: "0.0.4", effectiveLine: "0.0.x" })),
+      {
+        effectiveLine: "0.0.x",
+        changesets: {
+          "settle-the-api.md": changeset(
+            Object.fromEntries(PUBLISHED.map((dir) => [`@cosyte/${dir}`, "minor"])),
+          ),
+        },
+      },
+    );
+
+    const { code } = runCheck(root);
+
+    expect(code).toBe(1);
+    expect(governedPaths(root).flatMap((path) => ladderAssertions(path))).toHaveLength(9);
   });
 });
 
