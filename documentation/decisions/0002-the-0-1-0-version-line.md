@@ -11,7 +11,11 @@
   this decision is the disposition of) · ADR 0001 (which cited the retired ladder as context).
 - **Supersedes:** the sentence "the package stays on the **`0.0.x`-until-first-alpha** ladder",
   which stood in all eight package changelogs, in the root `CHANGELOG.md`, in `README.md` and in
-  `.changeset/README.md` at commit `b78e2d977ac7615513c21f582c5efe5e42734209`.
+  `.changeset/README.md` at commit `b78e2d977ac7615513c21f582c5efe5e42734209`; and the house
+  skeleton's `## Status` sentence "is on the cosyte 0.0.x ladder: the public API is not yet settled
+  and may change in any release", which stood in all nine governed READMEs. `scripts/readme-check.mjs`
+  compels the settled-line sentence in its place, resolving each package's line from its manifest
+  version and the pending changesets.
 
 ## Context
 

@@ -33,10 +33,10 @@ document. Every requirement in it carries its own provenance note. There is no p
 
 ## Status
 
-`cosyte-config` is on the cosyte 0.0.x ladder: the public API is not yet settled and may change in any release.
+`cosyte-config` is on the cosyte 0.1.x line: the public API is settled and bump types follow ordinary semver.
 
 This root package is `private: true` and is never published; it is the workspace that builds the
-eight `@cosyte/*` packages below, each of which is on its own `0.0.x` version. Still moving: the
+eight `@cosyte/*` packages below, all of which are on that same line. Still moving: the
 `@cosyte/process` verb set and its override file, the `@cosyte/test-utils` performance contract
 (whose ceiling is still open, see [ADR 0001](documentation/decisions/0001-perf-measurement-contract.md)),
 and the shared ESLint rule set, which gains rules as the parsers find gaps.

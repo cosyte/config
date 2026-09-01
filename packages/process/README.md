@@ -31,7 +31,7 @@ verb does, or to which version of a tool runs it, arrives as a version bump of t
 
 ## Status
 
-`@cosyte/process` is on the cosyte 0.0.x ladder: the public API is not yet settled and may change in any release.
+`@cosyte/process` is on the cosyte 0.1.x line: the public API is settled and bump types follow ordinary semver.
 
 Still moving: the verb set itself (which verbs exist, and what each one invokes) and the override
 file's schema. Both are consumer-visible in a way a version bump can break, because a changed

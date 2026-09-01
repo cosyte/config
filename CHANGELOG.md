@@ -45,6 +45,15 @@ no package, so entries here are **dated** rather than versioned.
     manifest still at `0.0.0`, that no `0.1.0` tag was created, that every bumped package has a
     derivable and publishable release body through the real `scripts/release-notes.mjs`, and that no
     tracked file still asserts the retired ladder.
+  - **The retired ladder is corrected wherever this repository asserted it**, which is twenty places:
+    the preamble of each of the eight package changelogs, the preamble of this file, `README.md`'s
+    `## Versioning` section, `.changeset/README.md`'s bump rule, and the `## Status` section of all
+    nine governed READMEs. `scripts/readme-check.mjs` resolves a package's effective release line
+    from its manifest version plus the pending changesets, so the eight `minor` entries above put the
+    whole workspace on the `0.1.x` line one merge before the version commit does, and that gate then
+    compels the settled-line sentence and refuses the ladder wording anywhere in a governed README.
+    The scaffolded parser template keeps its own pre-alpha ladder: it is a different set of packages
+    and this repository does not publish them.
 
 - **The install is defended, and the defence is required of every package repo**
   (`S0092-config-3`). `pnpm@10.34.5` ships two supply-chain controls SWITCHED OFF -

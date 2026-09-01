@@ -24,6 +24,10 @@ pre-alpha rule. See
   `^0.0.2` does not resolve this release and has to widen its range once. The parser template still
   names `@cosyte/script-utils@^0.0.2`, which this release does not widen; that is recorded as break
   candidate BC-2 in `documentation/release-0.1.0-audit.md`.
+- The `README.md` in the tarball now opens its `## Status` section on the settled-line sentence
+  instead of the pre-alpha ladder one, so the policy text a consumer reads agrees with the version
+  printed beside it. `scripts/readme-check.mjs` grades that sentence against the release line the
+  pending changesets resolve to.
 
 ## [0.0.2] - 2026-08-11
 

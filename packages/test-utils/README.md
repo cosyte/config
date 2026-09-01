@@ -30,7 +30,7 @@ in each parser, so the thing that is hard to get right is written once and revie
 
 ## Status
 
-`@cosyte/test-utils` is on the cosyte 0.0.x ladder: the public API is not yet settled and may change in any release.
+`@cosyte/test-utils` is on the cosyte 0.1.x line: the public API is settled and bump types follow ordinary semver.
 
 Still moving: the `./perf` subpath, whose ratio ceiling is an open question (see the "What it will
 not tell you" section below and the review triggers in ADR 0001), and the option surface of

@@ -29,7 +29,7 @@ here reaches every consumer as a version bump.
 
 ## Status
 
-`@cosyte/eslint-config` is on the cosyte 0.0.x ladder: the public API is not yet settled and may change in any release.
+`@cosyte/eslint-config` is on the cosyte 0.1.x line: the public API is settled and bump types follow ordinary semver.
 
 The factory signature `cosyte(tsconfigRootDir, opts?)` is settling, but the RULE SET behind it is
 not: rules are added as the parsers find gaps, and a version bump can therefore red a consumer that

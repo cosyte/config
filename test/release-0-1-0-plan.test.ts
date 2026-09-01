@@ -116,6 +116,13 @@ const LADDER_EXEMPT = [
   "scripts/scaffold-parser.mjs",
   // The decision record. A record of what was retired has to name what was retired.
   "documentation/decisions/0002-the-0-1-0-version-line.md",
+  // The gate that REFUSES the assertion in every published README, and the suite that proves the
+  // refusal fires. `scripts/readme-check.mjs` cannot refuse a sentence without spelling it out, and
+  // `test/readme-check.test.ts` cannot prove the refusal without feeding it one. Neither file
+  // reaches a consumer: the root manifest is `private: true` and neither path is in any published
+  // package's `files` array, so this is enforcement machinery rather than published policy text.
+  "scripts/readme-check.mjs",
+  "test/readme-check.test.ts",
   // This file, which carries the pattern it bans. The same self-exclusion
   // `scripts/check-no-emdash.sh` takes, for the same reason.
   "test/release-0-1-0-plan.test.ts",
@@ -624,20 +631,35 @@ describe("a release body is derivable for every package in the line", () => {
 
   it("the audit's summary and the changeset's summary are the same account", () => {
     if (RELEASE_STATE !== "prepared") {
-      // The changesets are consumed and git holds them. The audit's copy survives, and the case
-      // below still feeds it to the shipped gate.
-      expect(CHANGESETS.filter((c) => c.releases.some((r) => PLANNED_NAMES.has(r.name)))).toEqual(
-        [],
-      );
+      // The changesets are consumed and git holds them; the audit's copy survives, and the case
+      // below still feeds it to the shipped gate. What must not survive is a changeset that would
+      // carry a planned package to this line a SECOND time. A changeset queued for the NEXT
+      // release is ordinary work, not a defect, so it is the resolved version that is graded here
+      // and not the mere existence of a file: anything pending must resolve ABOVE this line.
+      for (const entry of BUMPED) {
+        if (!PLANNED_NAMES.has(entry.name)) continue;
+        expect(
+          compareVersions(entry.to, TARGET_VERSION),
+          `${entry.name} still has a pending changeset resolving to ${entry.to}`,
+        ).toBeGreaterThan(0);
+      }
       return;
     }
+    // The changeset that CARRIES a package to this line is the one declaring the audited bump type,
+    // and there is exactly one of it. Other changesets may name the same package with a weaker
+    // type: an unrelated item can queue a `patch` on a package this release is already taking to
+    // `0.1.0`, and Changesets resolves that to the same place. Those belong to their own item and
+    // their summaries are theirs, so the account graded here is the one the audit is the record of.
     for (const row of AUDIT_PLAN) {
       const audited = sectionBody(AUDIT, summaryHeading(row.name, row.to));
-      const changesets = CHANGESETS.filter((c) =>
-        c.releases.some((r) => r.name === row.name && r.type !== "none"),
+      const carriers = CHANGESETS.filter((c) =>
+        c.releases.some((r) => r.name === row.name && r.type === row.type),
       );
-      expect(changesets.length, `${row.name} has no changeset of its own`).toBe(1);
-      expect(normalize(changesets[0].summary)).toBe(normalize(audited ?? ""));
+      expect(
+        carriers.length,
+        `${row.name} is not carried to ${row.to} by exactly one \`${row.type}\` changeset`,
+      ).toBe(1);
+      expect(normalize(carriers[0].summary)).toBe(normalize(audited ?? ""));
     }
   });
 
@@ -826,13 +848,14 @@ describe("the repository states one version policy", () => {
     // rather than opened. Everything else that cannot be read is still a refusal, below.
     const deleted = new Set(git(["ls-files", "--deleted", "-z"]).split("\0").filter(Boolean));
 
-    const isExempt = (path: string): boolean =>
-      LADDER_EXEMPT.some((entry) =>
+    const exemptionFor = (path: string): string | undefined =>
+      LADDER_EXEMPT.find((entry) =>
         entry.endsWith("/") ? path.startsWith(entry) : path === entry,
       );
 
     const violations: string[] = [];
     const exemptHits: string[] = [];
+    const exercised = new Set<string>();
     let read = 0;
     let absent = 0;
     for (const path of paths) {
@@ -850,7 +873,13 @@ describe("the repository states one version policy", () => {
       read += 1;
       text.split("\n").forEach((line, index) => {
         if (!LADDER_ASSERTION.test(line)) return;
-        (isExempt(path) ? exemptHits : violations).push(`${path}:${index + 1}: ${line.trim()}`);
+        const exemption = exemptionFor(path);
+        if (exemption === undefined) {
+          violations.push(`${path}:${index + 1}: ${line.trim()}`);
+          return;
+        }
+        exercised.add(exemption);
+        exemptHits.push(`${path}:${index + 1}: ${line.trim()}`);
       });
     }
 
@@ -858,12 +887,19 @@ describe("the repository states one version policy", () => {
     expect(read, "every enumerated file was subtracted, so the sweep read nothing").toBeGreaterThan(
       0,
     );
-    // Non-vacuity in the other direction: the pattern must still be finding the mentions that are
-    // legitimately there, or a green sweep proves nothing about the ones that are not.
+    // Non-vacuity in the other direction, and it is per exemption rather than in aggregate: every
+    // declared exemption must still be covering a real assertion. One that covers nothing is either
+    // a path that has moved (so the exemption is silently protecting nothing) or a pattern that has
+    // stopped matching (so the sweep is reporting clean because it is broken), and an aggregate
+    // count hides both behind whichever entry still matches.
     expect(
       exemptHits.length,
       "the sweep matched nothing at all, so it may be broken",
     ).toBeGreaterThan(0);
+    expect(
+      LADDER_EXEMPT.filter((entry) => !exercised.has(entry)),
+      "declared exemptions that cover no ladder assertion, so they protect nothing",
+    ).toEqual([]);
     expect(
       violations,
       `files still asserting the retired ladder:\n${violations.join("\n")}`,

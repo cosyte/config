@@ -23,9 +23,15 @@ pre-alpha rule. See
   states about itself, and the reasoning is in
   [ADR 0002](../../documentation/decisions/0002-the-0-1-0-version-line.md). A consumer pinned at
   `^0.0.4` does not resolve this release and has to widen its range once.
+- The `README.md` in the tarball now opens its `## Status` section on the settled-line sentence
+  instead of the pre-alpha ladder one, so the policy text a consumer reads agrees with the version
+  printed beside it. `scripts/readme-check.mjs` grades that sentence against the release line the
+  pending changesets resolve to. Its "still moving" note is rewritten to match: the parts that are
+  settled are now described as settled, and a change to one is recorded with the bump type it
+  deserves.
 - The `0.0.4` section below was relabelled: its content had shipped and was still sitting under
   `[Unreleased]`, which is the same defect the note above describes, recurring one release after it
-  was written down. The `CHANGELOG.md` inside the published tarball is the only thing that differs.
+  was written down. That relabelling changes only the `CHANGELOG.md` inside the published tarball.
 
 ## [0.0.4] - 2026-08-04
 

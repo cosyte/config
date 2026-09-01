@@ -30,7 +30,7 @@ request and a version bump.
 
 ## Status
 
-`@cosyte/script-utils` is on the cosyte 0.0.x ladder: the public API is not yet settled and may change in any release.
+`@cosyte/script-utils` is on the cosyte 0.1.x line: the public API is settled and bump types follow ordinary semver.
 
 Still moving: the `runPhiScan` option surface, which is where the per-repo axes below are still being
 argued about, and the cross-cutting detection floor, which gains patterns as escapes are found. A new

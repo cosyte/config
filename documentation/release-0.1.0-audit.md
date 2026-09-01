@@ -336,14 +336,16 @@ says the same thing.
 option, peer range, or behaviour change: the flat config and its guardrails are byte-identical to
 `0.0.6`. What moves is the version policy the package states about itself. Its bundled changelog now
 records the `0.1.0` line and points at ADR 0002 for the reasoning, and the `0.0.6` content it was
-still heading as unreleased is dated to the release that shipped it.
+still heading as unreleased is dated to the release that shipped it. Its bundled README now states
+that line in its `## Status` section, in place of the ladder sentence it carried.
 
 #### `@cosyte/prettier-config@0.1.0`
 
 `@cosyte/prettier-config@0.1.0` is the first release on the settled-surface version line. No setting
 change: the shared Prettier settings and their overrides are byte-identical to `0.0.4`. Its bundled
 changelog now records the `0.1.0` line and points at ADR 0002 for the reasoning, and the `0.0.4`
-content it was still heading as unreleased is dated to the release that shipped it.
+content it was still heading as unreleased is dated to the release that shipped it. Its bundled
+README now states that line in its `## Status` section, in place of the ladder sentence it carried.
 
 #### `@cosyte/process@0.1.0`
 
@@ -351,14 +353,16 @@ content it was still heading as unreleased is dated to the release that shipped 
 modifier, or configuration change: the six verbs, the four modifiers, the token partition and
 `cosyte-process.config.json` all behave exactly as in `0.0.2`, and the `cosyte-process` bin resolves
 to the same entry point. Its bundled changelog now records the `0.1.0` line and points at ADR 0002
-for the reasoning.
+for the reasoning. Its bundled README now states that line in its `## Status` section, in place of
+the ladder sentence it carried.
 
 #### `@cosyte/script-utils@0.1.0`
 
 `@cosyte/script-utils@0.1.0` is the first release on the settled-surface version line. No change to
 `isCliEntrypoint` and no change to the shared phi-scan engine: both subpaths export exactly what
 `0.0.2` exports, and the PHI detection rules are untouched. Its bundled changelog now records the
-`0.1.0` line and points at ADR 0002 for the reasoning.
+`0.1.0` line and points at ADR 0002 for the reasoning. Its bundled README now states that line in its
+`## Status` section, in place of the ladder sentence it carried.
 
 #### `@cosyte/test-utils@0.1.0`
 
@@ -367,21 +371,25 @@ or type change: the conformance runners, the scaling gate on the `./perf` subpat
 `PERF_CONTRACT` constants are byte-identical to `0.0.4`. Its bundled changelog now records the
 `0.1.0` line and points at ADR 0002 for the reasoning, and the two releases' worth of content it was
 still heading as unreleased are dated to the releases that shipped them: the scaling gate to `0.0.4`
-and the changelog relabelling to `0.0.3`.
+and the changelog relabelling to `0.0.3`. Its bundled README now states that line in its `## Status`
+section, in place of the ladder sentence it carried.
 
 #### `@cosyte/tsconfig@0.1.0`
 
 `@cosyte/tsconfig@0.1.0` is the first release on the settled-surface version line. No compiler-option
 change: `base.json` and `library.json` are byte-identical to `0.0.4`. Its bundled changelog now
 records the `0.1.0` line and points at ADR 0002 for the reasoning, and the `0.0.4` content it was
-still heading as unreleased is dated to the release that shipped it.
+still heading as unreleased is dated to the release that shipped it. Its bundled README now states
+that line in its `## Status` section, in place of the ladder sentence it carried.
 
 #### `@cosyte/tsup-config@0.1.0`
 
 `@cosyte/tsup-config@0.1.0` is the first release on the settled-surface version line. No build-option
 change: `cosyteTsup(overrides)` produces exactly the dual ESM and CJS build `0.0.3` produced. Its
 bundled changelog now records the `0.1.0` line and points at ADR 0002 for the reasoning, and the
-`0.0.3` content it was still heading as unreleased is dated to the release that shipped it.
+`0.0.3` content it was still heading as unreleased is dated to the release that shipped it. Its
+bundled README now states that line in its `## Status` section, in place of the ladder sentence it
+carried.
 
 #### `@cosyte/vitest-config@0.1.0`
 
@@ -389,7 +397,8 @@ bundled changelog now records the `0.1.0` line and points at ADR 0002 for the re
 behaviour change: `cosyteVitest(opts)`, its coverage thresholds, its peer ranges and the
 `./snippets` doc-agreement harness are byte-identical to `0.0.4`. Its bundled changelog now records
 the `0.1.0` line and points at ADR 0002 for the reasoning, and the `0.0.4` content it was still
-heading as unreleased is dated to the release that shipped it.
+heading as unreleased is dated to the release that shipped it. Its bundled README now states that
+line in its `## Status` section, in place of the ladder sentence it carried.
 
 ## 7. Unknowns
 
@@ -418,25 +427,42 @@ have produced an `unknown`, none of which was taken:
 At the audited commit the pre-alpha ladder was asserted in eleven places for the eight published
 packages: the preamble of each of the eight package changelogs, the preamble of the root
 `CHANGELOG.md`, the `## Versioning` section of `README.md`, and `.changeset/README.md`'s bump rule.
-All eleven are corrected by this preparation, so the repository states one version policy rather than
-two incompatible ones. One further mention, ADR 0001's `Relates to:` citation of an umbrella ADR by
+Nine more arrived on the base branch after the audit was taken, when the house README skeleton gave
+every one of the nine governed READMEs a `## Status` section opening on the ladder sentence. All
+twenty are corrected by this preparation, so the repository states one version policy rather than two
+incompatible ones. One further mention, ADR 0001's `Relates to:` citation of an umbrella ADR by
 its subject, is corrected too: it is a pointer rather than an assertion, and leaving it would still
 have read as one. `test/release-0-1-0-plan.test.ts` sweeps every tracked file for a surviving
 assertion.
 
-**Three sets of mentions are deliberately left alone**, and each is a different set of packages, or a
-record, or a statement about something other than this policy:
+The nine README corrections are not free text. `scripts/readme-check.mjs` grades each `## Status`
+section against the package's EFFECTIVE RELEASE LINE, which it resolves from the manifest version
+plus the pending changesets, so the eight `minor` entries this preparation adds put all eight
+packages on the `0.1.x` line and the root package with them. That gate then compels the settled-line
+sentence and refuses the ladder sentence anywhere in the file, which is the same claim criterion 13
+makes, enforced in the required `verify` job on a surface that ships inside every tarball.
+
+**Four sets of mentions are deliberately left alone**, and each is a different set of packages, or a
+record, or enforcement machinery, or a statement about something other than this policy:
 
 1. `scripts/parser-template/` and `scripts/scaffold-parser.mjs`. These describe **scaffolded parser
    repositories**, which this repository does not publish and which the template itself calls "not
    yet published to npm". ADR 0002's scope says so explicitly. A repository with no published version
    has nothing to settle, and moving those is a decision about a different set of packages.
 2. ADR 0002 itself, and `test/release-0-1-0-plan.test.ts`. A record of what was retired has to name
-   what was retired, and the test has to carry the pattern it bans. Both are declared exemptions in
-   the test rather than accidents of it, and the test asserts that the set of exempt files is exactly
-   this one, so the exemption cannot grow unremarked.
-3. Two historical entries in the root `CHANGELOG.md` that describe caret-on-`0.0.z` resolution
+   what was retired, and the test has to carry the pattern it bans.
+3. `scripts/readme-check.mjs` and `test/readme-check.test.ts`. The gate that refuses this assertion
+   in every published README cannot refuse a sentence without spelling it out, and its suite cannot
+   prove the refusal fires without feeding it one. Neither reaches a consumer: the root manifest is
+   `private: true` and neither path is in any published package's `files` array.
+4. Two historical entries in the root `CHANGELOG.md` that describe caret-on-`0.0.z` resolution
    semantics in past releases, and one docblock in `test/scaffold-format.test.ts` that does the same.
    Those are statements about how npm resolves a range, which is still true, and they are not
    assertions that any package stays on a ladder. They are also history, and history is not rewritten
    to match a later decision.
+
+Sets 1 to 3 are a declared list in the test rather than an accident of it, and every entry on that
+list has to still be covering a real assertion: an exemption the sweep never exercises fails the
+case, so a path that moves and a pattern that stops matching are both a red rather than a silently
+clean run. Set 4 is exempt by the shape of the pattern rather than by path, which is asserted
+directly: the sweep's self-test pins that a sentence about caret resolution does not match it.
