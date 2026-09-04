@@ -48,7 +48,7 @@
     "drift:validate": "node scripts/validate-drift-manifest.mjs"
   },
   "devDependencies": {
-    "@changesets/cli": "2.31.0",
+    "@changesets/cli": "3.0.1",
     "@cosyte/eslint-config": "workspace:*",
     "@cosyte/prettier-config": "workspace:*",
     "@cosyte/script-utils": "workspace:*",
