@@ -5,5 +5,10 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     include: ["test/**/*.test.ts"],
+    // `test/no-network.setup.ts` is NOT a `*.test.ts` and so is not collected as a suite; it runs
+    // before each file and makes "this suite reaches no network" a refusal rather than a habit.
+    // `pnpm test` is the required check, and a required check that can fail on a rate limit is a
+    // gate about somebody else's uptime. See that file for what it does and does not block.
+    setupFiles: ["test/no-network.setup.ts"],
   },
 });

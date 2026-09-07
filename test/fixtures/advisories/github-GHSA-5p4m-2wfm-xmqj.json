@@ -1,0 +1,25 @@
+{
+  "ghsa_id": "GHSA-5p4m-2wfm-xmqj",
+  "cve_id": null,
+  "url": "https://api.github.com/advisories/GHSA-5p4m-2wfm-xmqj",
+  "vulnerabilities": [
+    {
+      "package": {
+        "ecosystem": "npm",
+        "name": "js-yaml"
+      },
+      "vulnerable_version_range": ">= 4.0.0, < 4.3.1",
+      "first_patched_version": "4.3.1",
+      "vulnerable_functions": []
+    },
+    {
+      "package": {
+        "ecosystem": "npm",
+        "name": "js-yaml"
+      },
+      "vulnerable_version_range": ">= 3.0.0, < 3.15.1",
+      "first_patched_version": "3.15.1",
+      "vulnerable_functions": []
+    }
+  ]
+}
