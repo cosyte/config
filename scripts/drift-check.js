@@ -20,6 +20,16 @@
 // manifest's `optionalWorkflows` declares that set with its own provenance, and `formatReport`
 // prints it in every report.
 //
+// THE SAME GOES FOR THE LINT SCRIPTS THAT DELEGATE. The zero-warning requirement asks that a repo's
+// lint run at zero tolerance for warnings, and a repo that has adopted a shared process runner
+// cannot write the flag into its own script, because that runner grades the script body EXACTLY and
+// fails a repo that appended anything to it. So the manifest declares which lint BODIES it accepts
+// as enforcing the flag, each with its own provenance and with the runner's own override file named,
+// and `formatReport` prints that set too. NO RUNNER IS NAMED IN THIS FILE: which bodies count, which
+// file can switch a delegated invocation's flags off and where in it, are all read out of the
+// standard, because an exemption that lives in the tool is an exemption nobody reading the standard
+// can find.
+//
 // NOTE: until each repo is migrated onto the standard, this is EXPECTED to report drift: that
 // output IS the per-repo migration worklist, and it is not a health report. `pnpmInstallHardening`
 // is the newest requirement and the clearest example: it asks every package repo for a publication
@@ -635,11 +645,67 @@ export const REQUIREMENT_KINDS = {
   },
   lintMustInclude: {
     needsPackageJson: true,
-    check: ({ pkg }, want) =>
-      pkg.scripts?.lint && !pkg.scripts.lint.includes(want)
-        ? [`scripts.lint: must include ${want}`]
-        : [],
+    // TWO ROUTES TO ONE REQUIREMENT, AND NEITHER OF THEM NAMES A RUNNER HERE. The requirement is
+    // that the repo's lint runs at zero tolerance for warnings. A repo writes the flag into its own
+    // script, OR its whole lint script is a body the STANDARD declares as enforcing it, which is the
+    // only route left to a repo whose shared runner grades that script body exactly and would fail
+    // it for appending anything. Which bodies those are, which file can switch the runner's flags
+    // off and where in that file, all come out of the manifest: this is the evaluator.
+    check: ({ pkg, repoDir }, want, requirements) => {
+      const script = pkg.scripts?.lint;
+      // NO LINT SCRIPT IS ONE FINDING, NOT TWO. `requiredScripts` already asks for the script by
+      // name, and a second line here would bill the same absence twice.
+      if (typeof script !== "string" || script === "") return [];
+      if (script.includes(want)) return [];
+
+      const declarations = requirements.lintDelegatingBodies ?? [];
+      // WHOLE BODY, NEVER A PREFIX. A prefix rule would accept `<declared body> || true`, which is
+      // the gate switched off wearing the accepted body's name.
+      const declared = declarations.find((entry) => entry.body === script);
+      if (declared === undefined) {
+        const accepted = declarations.map((entry) => JSON.stringify(entry.body)).join(", ");
+        // BOTH ROUTES ARE NAMED, so an undeclared runner reads as unaccepted rather than as unasked.
+        return [
+          `scripts.lint: want either the literal ${want} in the script, or exactly one of the ` +
+            `lint bodies the standard declares as enforcing it ` +
+            `(${accepted === "" ? "none declared" : accepted}), got ${JSON.stringify(script)}`,
+        ];
+      }
+
+      // THE DECLARED BODY IS ACCEPTED ONLY WHILE THE RUNNER'S OWN FLAGS ARE STILL IN FORCE. The
+      // runner lets a repo REPLACE a verb's flag tokens from a file at its root, so a repo can
+      // delegate and still have switched zero warnings off; the standard says which file and where.
+      const read = readRepoJson(join(repoDir, ...declared.overrideFile.split("/")));
+      if (!read.present) return [];
+      const enforcement = `whether ${JSON.stringify(script)} still enforces ${want}`;
+      if (read.value === null) {
+        // UNPARSEABLE IS NOT SATISFIED. The file is present, so the repo has taken the escape hatch;
+        // nothing here can say what it did with it, and a silent pass would clear it on the one
+        // axis nothing downstream re-checks.
+        return [
+          `${declared.overrideFile}: unparseable (${read.error}), so ${enforcement} could not be graded`,
+        ];
+      }
+      const flags = dottedLookup(read.value, declared.overrideFlagsPointer);
+      // An absent pointer means the verb's flag tokens were never replaced, so the runner's own
+      // flags stand and the declaration holds.
+      if (flags === undefined) return [];
+      if (!Array.isArray(flags) || flags.some((token) => typeof token !== "string")) {
+        return [
+          `${declared.overrideFile} ${declared.overrideFlagsPointer}: not a list of flag tokens ` +
+            `(${JSON.stringify(flags)}), so ${enforcement} could not be graded`,
+        ];
+      }
+      return flags.includes(want)
+        ? []
+        : [
+            `${declared.overrideFile} ${declared.overrideFlagsPointer}: replaces the delegated ` +
+              `flag tokens with ${JSON.stringify(flags)}, which does not include ${want}, so ` +
+              `${JSON.stringify(script)} no longer enforces it`,
+          ];
+    },
   },
+  lintDelegatingBodies: { parameterOf: "lintMustInclude" },
   devDepVersions: {
     needsPackageJson: true,
     check: ({ pkg }, wanted) => {
@@ -967,6 +1033,30 @@ export function summarize(results) {
 }
 
 /**
+ * The lint bodies a manifest declares as enforcing its zero-warning flag, flattened for the report.
+ *
+ * They live wherever `lintMustInclude` lives, because they parameterise it, so this walks the
+ * baselines rather than reading a fixed path: a second baseline that adopted the requirement would
+ * otherwise be declared and unprinted. Each entry carries the flag from its own group, so the report
+ * quotes what THAT group required rather than a value this file knows.
+ *
+ * @param {any} subject The manifest to read. Defaults to the shipped one, for the tests' sake.
+ * @returns {{ body: string, overrideFile: string, overrideFlagsPointer: string, flag: string }[]}
+ */
+export function lintDelegationFrom(subject = manifest) {
+  const entries = [];
+  for (const baseline of Object.values(subject?.baselines ?? {})) {
+    for (const group of Object.values(baseline?.groups ?? {})) {
+      const requirements = group?.requirements ?? {};
+      for (const declaration of requirements.lintDelegatingBodies ?? []) {
+        entries.push({ ...declaration, flag: requirements.lintMustInclude });
+      }
+    }
+  }
+  return entries;
+}
+
+/**
  * Render the report.
  *
  * IT ENDS IN A WORKLIST RATHER THAN A VERDICT. The manifest's own standing says drift is expected
@@ -982,13 +1072,23 @@ export function summarize(results) {
  * declares that set, and this block prints it, so "carrying it is not drift" is a sentence in the
  * output rather than an inference from an absent one.
  *
+ * AND IT STATES THE DELEGATING LINT BODIES, for exactly the same reason. A repo whose lint script
+ * IS one of them produces no line at all, and an accepted route that shows up only as silence cannot
+ * be told from a route nobody thought about.
+ *
  * @param {ReturnType<typeof evaluateRepo>[]} results
  * @param {{ workflows: { workflow: string, carriedBy: string[] }[] }} [optionalWorkflows] The
  *   manifest's declared optional set. Defaults to the shipped manifest's, which is what the
  *   one-argument callers in the tests get; `runCheck` passes the manifest it actually validated.
+ * @param {ReturnType<typeof lintDelegationFrom>} [lintDelegation] The declared delegating lint
+ *   bodies, defaulted and passed the same way and for the same reason.
  * @returns {string[]} Lines to print.
  */
-export function formatReport(results, optionalWorkflows = manifest.optionalWorkflows) {
+export function formatReport(
+  results,
+  optionalWorkflows = manifest.optionalWorkflows,
+  lintDelegation = lintDelegationFrom(manifest),
+) {
   const lines = [];
   const baselines = [...new Set(results.map((r) => r.baseline))];
   for (const baselineName of baselines) {
@@ -1031,6 +1131,24 @@ export function formatReport(results, optionalWorkflows = manifest.optionalWorkf
   }
   for (const entry of optional) {
     lines.push(`  ${entry.workflow}: OPTIONAL, carried by ${entry.carriedBy.join(", ")}`);
+  }
+
+  lines.push(
+    "",
+    "-".repeat(60),
+    "DELEGATING LINT BODIES (declared in drift-manifest.json as enforcing the zero-warning flag on " +
+      "a repo's behalf: a lint script that IS one of these satisfies that requirement without " +
+      "carrying the flag, and any other body does not)",
+  );
+  if (lintDelegation.length === 0) {
+    lines.push("  none declared: only a lint script carrying the flag itself satisfies it");
+  }
+  for (const entry of lintDelegation) {
+    lines.push(
+      `  ${entry.body}: ACCEPTED as enforcing ${entry.flag}, matched as the WHOLE lint script ` +
+        `body; a ${entry.overrideFile} that replaces ${entry.overrideFlagsPointer} without ` +
+        `${entry.flag} is still drift`,
+    );
   }
 
   const summary = summarize(results);
@@ -1080,9 +1198,16 @@ export function runCheck({
   out("phi-scan capability probe: controls pass (shipped template ok, rule removed reds)");
 
   const results = gradeEstate({ manifest: subject, root, probe });
-  // The optional set comes from the manifest that was just VALIDATED, never from the module-level
-  // copy: a run pointed at another manifest must report that manifest's declarations.
-  for (const line of formatReport(results, subject.optionalWorkflows)) out(line);
+  // The optional set and the delegating set both come from the manifest that was just VALIDATED,
+  // never from the module-level copy: a run pointed at another manifest must report that manifest's
+  // declarations.
+  for (const line of formatReport(
+    results,
+    subject.optionalWorkflows,
+    lintDelegationFrom(subject),
+  )) {
+    out(line);
+  }
 
   const summary = summarize(results);
   // A RUN THAT READ NOTHING IS NOT A CLEAN RUN. Every repo skipped means no checkout was beside
