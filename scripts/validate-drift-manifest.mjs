@@ -16,7 +16,7 @@
 // that ignores what it does not understand reports green over a constraint it never applied, which
 // is the exact shape of blind gate this repo has already paid for twice.
 //
-// WHAT IT CHECKS BEYOND THE SCHEMA. Six invariants a schema cannot express, each one a claim the
+// WHAT IT CHECKS BEYOND THE SCHEMA. Eight invariants a schema cannot express, each one a claim the
 // manifest makes about itself that would otherwise be unfalsifiable:
 //
 //   1. EVERY submodule path is claimed by EXACTLY ONE baseline, and no baseline names a repo the
@@ -36,6 +36,14 @@
 //      means it reports its absence: a file claimed as both would have the manifest saying that a
 //      repo both does and does not owe it, and whichever half a reader found first would look
 //      settled.
+//   7. EVERY DECLARED DELEGATING LINT BODY SITS BESIDE THE REQUIREMENT IT PARAMETERISES.
+//      `lintDelegatingBodies` widens how `lintMustInclude` can be MET, and the evaluator reads it
+//      out of the same group, so a group that declares one without the other has declared a body
+//      nothing consults: it would read as an accepted route and accept nothing.
+//   8. NO LINT BODY IS DECLARED TWICE, anywhere in the file. Two entries for one body are two
+//      provenance notes and two override rules for the same script, and whichever a reader found
+//      first would look settled. `uniqueItems` cannot see this: it only refuses two byte-identical
+//      entries inside one list.
 //
 // Exit codes, a contract asserted by test/drift-manifest.test.ts:
 //   0  the manifest parses, matches the schema, and satisfies the invariants
@@ -290,7 +298,7 @@ export function collectKeys(value, into = new Set()) {
 }
 
 /**
- * The four claims the manifest makes about itself that a schema cannot check.
+ * The claims the manifest makes about itself that a schema cannot check.
  *
  * @param {Record<string, any>} manifest A manifest that has already matched the schema.
  * @returns {string[]} One line per violated invariant, each naming a key path.
@@ -418,6 +426,38 @@ export function checkInvariants(manifest) {
     }
   }
 
+  // 7 and 8. A declared delegating lint body is a way of MEETING `lintMustInclude`, so it has to sit
+  // beside one, and no body may be declared twice anywhere in the file.
+  const declaredBodies = new Map();
+  for (const [baselineName, baseline] of Object.entries(manifest.baselines)) {
+    for (const [groupName, group] of Object.entries(baseline.groups)) {
+      const requirements = group.requirements;
+      const bodies = requirements.lintDelegatingBodies ?? [];
+      for (const [index, entry] of bodies.entries()) {
+        const where =
+          `baselines.${baselineName}.groups.${groupName}.requirements.` +
+          `lintDelegatingBodies[${index}]`;
+        if (requirements.lintMustInclude === undefined) {
+          errors.push(
+            `${where}: ${JSON.stringify(entry.body)} is declared as a delegating lint body in a ` +
+              `group that carries no lintMustInclude, so nothing reads it. It parameterises that ` +
+              `requirement and is graded only where that requirement is`,
+          );
+        }
+        const already = declaredBodies.get(entry.body);
+        if (already !== undefined) {
+          errors.push(
+            `${where}: ${JSON.stringify(entry.body)} is already declared as a delegating lint ` +
+              `body at ${already}; one body gets one entry, or two provenance notes and two ` +
+              `override rules describe the same script`,
+          );
+        } else {
+          declaredBodies.set(entry.body, where);
+        }
+      }
+    }
+  }
+
   return errors;
 }
 
@@ -513,7 +553,7 @@ function main(argv) {
   if (result.ok) {
     process.stdout.write(
       `drift:validate: OK (${result.manifestPath} matches ${result.schemaPath} and satisfies the ` +
-        `re-derivation, coverage, probe and optional-workflow invariants)\n`,
+        `re-derivation, coverage, probe, optional-workflow and lint-delegation invariants)\n`,
     );
     return 0;
   }

@@ -75,7 +75,7 @@
           }
         },
         "scripts": {
-          "provenance": "Carried unchanged from manifest version 1 and re-derived against scripts/parser-template/package.json in this checkout, which declares every one of these thirteen script names and lints at `--max-warnings=0`. The scaffold is the derivation: a name required here that the scaffold does not create would be a requirement no new parser repo could satisfy on the day it is born.",
+          "provenance": "Carried unchanged from manifest version 1 and re-derived against scripts/parser-template/package.json in this checkout, which declares every one of these thirteen script names and lints at `--max-warnings=0`. The scaffold is the derivation: a name required here that the scaffold does not create would be a requirement no new parser repo could satisfy on the day it is born. EXTENDED for S0286 with `lintDelegatingBodies`, which is a PARAMETER of `lintMustInclude` and not a new requirement: `lintMustInclude` is untouched, still `--max-warnings=0`, and still carried unchanged from manifest version 1. What the parameter adds is the second way that same zero-warning requirement can be MET. The scaffold is unaffected and still writes the flag into its own lint script; a repo that has adopted the shared process runner cannot write it, because the runner grades that script body exactly, so it is graded through the runner's declared invocation instead. Each entry below carries its own provenance, because vouching for a runner is a claim about code somewhere and a claim like that must say where it was read.",
           "requirements": {
             "requiredScripts": [
               "build",
@@ -92,7 +92,15 @@
               "clean",
               "prepublishOnly"
             ],
-            "lintMustInclude": "--max-warnings=0"
+            "lintMustInclude": "--max-warnings=0",
+            "lintDelegatingBodies": [
+              {
+                "body": "cosyte-process lint",
+                "overrideFile": "cosyte-process.config.json",
+                "overrideFlagsPointer": "lint.flags",
+                "provenance": "NEW for S0286, and it is THE STANDARD that vouches for this runner, never scripts/drift-check.js, which names no runner in code. WHERE THE ENFORCEMENT WAS READ, IN THIS REPOSITORY: packages/process/src/verbs.ts declares BASELINE.lint.flags as [\"--max-warnings=0\", \"--no-error-on-unmatched-pattern\"] and toArgv emits tool, core, flags, globs, so `cosyte-process lint` runs eslint at zero warnings; packages/process/README.md states the same invocation in `API / What each verb runs` and lists `--max-warnings=0` as a lint FLAG token in `The token partition`. WHY THE CONSUMER CANNOT SIMPLY WRITE THE FLAG: packages/process/src/check.ts (expectedScriptBody plus checkWiring) fails any wired repo whose five verb scripts are not EXACTLY the delegating bodies, and README `cosyte-process check` states that rule, so a repo asked for the literal flag by this group and for an exact body by that verb is asked for two things it cannot both do; the requirement was unactionable for it, which is a defect in the standard rather than work owed by the repo. THE MATCH IS THE WHOLE BODY AND NOT A PREFIX: `cosyte-process lint || true` starts with this text and enforces nothing, so a prefix rule would hand every repo a way to switch the gate off while still reading as accepted. THE OVERRIDE ESCAPE HATCH IS CLOSED RATHER THAN IGNORED: packages/process/src/overrides.ts applies a `flags` override by REPLACING that verb's baseline flag tokens wholesale (README `Overrides` states it), so a repo carrying cosyte-process.config.json with lint.flags that omits the flag has switched zero warnings off through the runner and is still drift. `overrideFile` and `overrideFlagsPointer` are declared here for that reason: they are what let the evaluator grade the escape hatch while knowing no runner's name. TIED TO THE RUNNER BY A TEST, NOT BY THIS NOTE: test/drift-check-lint-delegation.test.ts reds this repository's own suite if that invocation ever stops carrying the flag, or if the runner ever starts accepting a consumer-edited body, so this declaration cannot go on vouching for a runner that no longer enforces what it says."
+              }
+            ]
           }
         },
         "dependencies": {
