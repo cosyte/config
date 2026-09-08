@@ -18,6 +18,7 @@
     "installHardeningProbe",
     "configSubjectComment",
     "configSubject",
+    "enforcement",
     "reDerivation"
   ],
   "properties": {
@@ -66,6 +67,7 @@
       "minLength": 80
     },
     "configSubject": { "$ref": "#/$defs/configSubject" },
+    "enforcement": { "$ref": "#/$defs/enforcement" },
     "reDerivation": { "$ref": "#/$defs/reDerivation" }
   },
   "$defs": {
@@ -448,6 +450,35 @@
             "required": ["rule", "why"],
             "properties": {
               "rule": { "type": "string", "pattern": "^[a-z][A-Za-z0-9]*\\.[a-z][A-Za-z0-9]*$" },
+              "why": { "type": "string", "minLength": 40 }
+            }
+          }
+        }
+      }
+    },
+    "enforcement": {
+      "description": "WHICH REPOS THIS STANDARD'S VERDICT BINDS, and why every other one does not bind yet. A BINDING repo fails a drift run when it drifts AND when the run reached no verdict about it, so a green produced by an absent corpus is a failure rather than a pass. A DEFERRED repo is not forgiven and no requirement is relaxed for it: it is simply not bound, and it is excluded from a gate run by not being in that run's corpus. Every path in estate.submodulePaths must appear in exactly one of the two, which the validator enforces, so the roster cannot go stale by omission. Moving a repo from `deferred` to `binding` is an edit to this file alone: no evaluator names a repo or carries a roster.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provenance", "binding", "deferred"],
+      "properties": {
+        "provenance": { "$ref": "#/$defs/provenance" },
+        "binding": {
+          "description": "The repos the verdict binds, by PATH. minItems is 1 on purpose: a gate that binds no repo is not a gate, and emptying this list must not be a quiet way to switch enforcement off.",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/repoName" }
+        },
+        "deferred": {
+          "description": "The repos the verdict does not bind yet, keyed by PATH so that every refusal names the repo rather than a list index. `why` states what that repo measured and what would have to be true for it to bind; its floor is the same one an exemption's reason carries, long enough that a placeholder cannot satisfy it.",
+          "type": "object",
+          "propertyNames": { "$ref": "#/$defs/repoName" },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["why"],
+            "properties": {
               "why": { "type": "string", "minLength": 40 }
             }
           }

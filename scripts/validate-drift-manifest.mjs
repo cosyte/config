@@ -16,7 +16,7 @@
 // that ignores what it does not understand reports green over a constraint it never applied, which
 // is the exact shape of blind gate this repo has already paid for twice.
 //
-// WHAT IT CHECKS BEYOND THE SCHEMA. Eight invariants a schema cannot express, each one a claim the
+// WHAT IT CHECKS BEYOND THE SCHEMA. Twelve invariants a schema cannot express, each one a claim the
 // manifest makes about itself that would otherwise be unfalsifiable:
 //
 //   1. EVERY submodule path is claimed by EXACTLY ONE baseline, and no baseline names a repo the
@@ -44,6 +44,16 @@
 //      provenance notes and two override rules for the same script, and whichever a reader found
 //      first would look settled. `uniqueItems` cannot see this: it only refuses two byte-identical
 //      entries inside one list.
+//   9. EVERY submodule path is classified BINDING or DEFERRED by `enforcement`. A path that is
+//      neither is a repo about which the standard does not say whether its verdict binds, and the
+//      roster would then go stale by omission every time a submodule is added.
+//  10. NO REPO IS CLASSIFIED TWICE. Binding and deferred are opposites; a repo in both would have
+//      the standard saying that its drift both does and does not fail a run.
+//  11. NEITHER LIST NAMES A REPO THE ESTATE DOES NOT CARRY, for the same reason as 4 and 5: a
+//      classification of a repo that is not there classifies nothing.
+//  12. THE BINDING SET IS NOT EMPTY. A gate that binds no repo is not a gate, and emptying the set
+//      must not be a quiet way to switch enforcement off. The schema's `minItems` says this too;
+//      it is repeated here because `checkInvariants` is called directly as well.
 //
 // Exit codes, a contract asserted by test/drift-manifest.test.ts:
 //   0  the manifest parses, matches the schema, and satisfies the invariants
@@ -458,6 +468,49 @@ export function checkInvariants(manifest) {
     }
   }
 
+  // 9 to 12. The enforcement declaration is TOTAL against the estate, unambiguous and non-empty.
+  // The same shape as invariant 1 and for the same reason: "which repos does this verdict bind" is
+  // a claim about the whole estate, and a claim with a hole in it reads as an answer.
+  const enforcement = manifest.enforcement ?? {};
+  const binding = enforcement.binding ?? [];
+  const deferred = enforcement.deferred ?? {};
+  const classifiedAt = new Map();
+  const classify = (repo, where) => {
+    if (!estate.has(repo)) {
+      errors.push(
+        `${where}: ${JSON.stringify(repo)} is not one of estate.submodulePaths, so this ` +
+          `classification is about a repo the estate does not carry`,
+      );
+    }
+    const already = classifiedAt.get(repo);
+    if (already !== undefined) {
+      errors.push(
+        `${where}: ${JSON.stringify(repo)} is already classified at ${already}. A repo is BINDING ` +
+          `or DEFERRED, never both and never twice: two classifications are two answers to whether ` +
+          `its drift fails a run, and whichever a reader found first would look settled`,
+      );
+    } else {
+      classifiedAt.set(repo, where);
+    }
+  };
+  for (const [index, repo] of binding.entries()) classify(repo, `enforcement.binding[${index}]`);
+  for (const repo of Object.keys(deferred)) classify(repo, `enforcement.deferred.${repo}`);
+  for (const [index, repo] of manifest.estate.submodulePaths.entries()) {
+    if (!classifiedAt.has(repo)) {
+      errors.push(
+        `estate.submodulePaths[${index}]: ${JSON.stringify(repo)} is classified neither BINDING ` +
+          `nor DEFERRED by enforcement, so the standard does not say whether its verdict binds ` +
+          `that repo, and the roster has gone stale by omission`,
+      );
+    }
+  }
+  if (binding.length === 0) {
+    errors.push(
+      `enforcement.binding: empty. A gate that binds no repo is not a gate, and emptying this list ` +
+        `must not be a quiet way to switch enforcement off`,
+    );
+  }
+
   return errors;
 }
 
@@ -553,7 +606,8 @@ function main(argv) {
   if (result.ok) {
     process.stdout.write(
       `drift:validate: OK (${result.manifestPath} matches ${result.schemaPath} and satisfies the ` +
-        `re-derivation, coverage, probe, optional-workflow and lint-delegation invariants)\n`,
+        `re-derivation, coverage, probe, optional-workflow, lint-delegation and enforcement ` +
+        `invariants)\n`,
     );
     return 0;
   }

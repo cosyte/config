@@ -101,6 +101,27 @@ jobs:
       #
       # Zero-dependency node, like the four gates above, so it runs before install.
       - run: node scripts/readme-check.mjs
+      # THE ESTATE BASELINE GATE (S0230), AND THIS LINE IS WHAT MAKES drift-manifest.json A STANDARD
+      # THAT CAN REFUSE A MERGE. The checker has always exited non-zero on drift; nothing consumed
+      # that exit code, so no merge had ever been refused by it and the baseline was a report a
+      # human ran. It belongs in `verify` for the reason the five gates above do: `verify` is a
+      # REQUIRED status check in this repo's `config-ci-required-checks` ruleset, so this is the
+      # copy that can REFUSE A MERGE, and making any other workflow required would be a ruleset
+      # change (an admin action outside every repo).
+      #
+      # WHICH REPOS ITS VERDICT BINDS IS DECLARED IN drift-manifest.json's `enforcement`, never
+      # here. `actions/checkout` puts this repository at $GITHUB_WORKSPACE, which is
+      # /home/runner/work/config/config, so the checker resolves the umbrella root as
+      # /home/runner/work/config and finds this repository at the `config` path it expects. Nothing
+      # depends on that being right: a layout that did not hold would leave the sole BINDING repo
+      # ungraded, which the checker reds by design rather than reporting as a skip that exits 0.
+      # Every other estate repo is DEFERRED and absent from this corpus, which is the state the
+      # declaration exists to state out loud.
+      #
+      # No `continue-on-error`, no trailing `|| true` and no `if:`: a gate that cannot fail the job
+      # is a report again. Zero-dependency node, like the five gates above, so it runs before
+      # install.
+      - run: node scripts/drift-check.js
       - run: pnpm install --frozen-lockfile
       # The em-dash brand gate's FILE half also runs in no-emdash.yml, which additionally
       # covers the PR title, body and commit messages and carries the `edited` trigger those
