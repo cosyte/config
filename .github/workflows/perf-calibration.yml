@@ -33,7 +33,7 @@ jobs:
       - uses: pnpm/action-setup@v6
       # Node 22 specifically (§10/O7): the source research measured only Node v24.18.0, and the
       # published floor for every @cosyte/* package is 22. Calibrating on 24 would miss the point.
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: pnpm
