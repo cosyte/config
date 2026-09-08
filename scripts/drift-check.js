@@ -30,6 +30,15 @@
 // standard, because an exemption that lives in the tool is an exemption nobody reading the standard
 // can find.
 //
+// AND THE STANDARD SAYS WHICH REPOS ITS VERDICT BINDS, so that this can be a gate rather than a
+// report. `enforcement.binding` is the set a run is a verdict ABOUT: one of those repos drifting
+// reds the run, and so does one of them being absent, empty or unreadable, because a SKIP that
+// still exits 0 is how a green gets produced by a corpus nobody opened. `enforcement.deferred`
+// names every other repo with the reason it does not bind yet, and deferral forgives nothing: a
+// deferred repo's drift still reds the run through the ordinary worklist. NO ROSTER IS WRITTEN
+// HERE either, for the same reason no runner is: moving a repo into the binding set is an edit to
+// the standard alone.
+//
 // NOTE: until each repo is migrated onto the standard, this is EXPECTED to report drift: that
 // output IS the per-repo migration worklist, and it is not a health report. `pnpmInstallHardening`
 // is the newest requirement and the clearest example: it asks every package repo for a publication
@@ -1723,6 +1732,61 @@ export function lintDelegationFrom(subject = manifest) {
 }
 
 /**
+ * The enforcement declaration, flattened for the report and for the exit code.
+ *
+ * WHICH REPOS BIND IS A PROPERTY OF THE STANDARD, NEVER OF THIS FILE, exactly as which lint bodies
+ * delegate and which workflows are optional already are. So this reads a manifest and returns what
+ * it declared; no roster, no repo name and no default membership is written here, and promoting a
+ * deferred repo is therefore an edit to drift-manifest.json alone.
+ *
+ * @param {any} subject The manifest to read. Defaults to the shipped one, for the tests' sake.
+ * @returns {{ binding: string[], deferred: { repo: string, why: string }[] }}
+ */
+export function enforcementFrom(subject = manifest) {
+  const declaration = subject?.enforcement ?? {};
+  return {
+    binding: [...(declaration.binding ?? [])],
+    deferred: Object.entries(declaration.deferred ?? {}).map(([repo, entry]) => ({
+      repo,
+      why: entry?.why ?? "",
+    })),
+  };
+}
+
+/**
+ * The BINDING repos this run reached no verdict about.
+ *
+ * THIS IS THE FAILURE THAT DID NOT EXIST BEFORE. A repo that is absent, present and empty, or
+ * present and unreadable is SKIPPED, and a skip has never reddened a run: a corpus holding one green
+ * repo and missing the other twenty-three exited 0, and any gate wired to that would have inherited
+ * the hole. A repo the standard declares BINDING is one the verdict is about, so "no verdict was
+ * reached for it" is a failure of the run rather than a fact about the checkout.
+ *
+ * A DEFERRED REPO IS NOT FORGIVEN BY THIS. Its drift still reds the run through the ordinary
+ * worklist; it is excluded from a gate run by not being in that run's corpus, never by being excused.
+ *
+ * @param {string[]} binding The declared binding set.
+ * @param {ReturnType<typeof evaluateRepo>[]} results The estate grading.
+ * @returns {{ name: string, reason: string }[]}
+ */
+export function ungradedBinding(binding, results) {
+  const byName = new Map(results.map((result) => [result.name, result]));
+  const ungraded = [];
+  for (const name of binding) {
+    const result = byName.get(name);
+    if (result === undefined) {
+      ungraded.push({
+        name,
+        reason: "no baseline in this manifest holds it, so this run never looked for it",
+      });
+    } else if (result.skipped) {
+      ungraded.push({ name, reason: result.reason });
+    }
+  }
+  return ungraded;
+}
+
+/**
  * Render the report.
  *
  * IT ENDS IN A WORKLIST RATHER THAN A VERDICT. The manifest's own standing says drift is expected
@@ -1742,18 +1806,26 @@ export function lintDelegationFrom(subject = manifest) {
  * IS one of them produces no line at all, and an accepted route that shows up only as silence cannot
  * be told from a route nobody thought about.
  *
+ * AND IT STATES WHO THE VERDICT BINDS, which is the third thing this report used to say only by
+ * silence. "This repo does not bind yet" was an inference from an absent line; now it is a sentence
+ * carrying that repo's own reason, and a BINDING repo the run reached no verdict about is printed as
+ * the failure it is rather than as a skip a reader has to notice.
+ *
  * @param {ReturnType<typeof evaluateRepo>[]} results
  * @param {{ workflows: { workflow: string, carriedBy: string[] }[] }} [optionalWorkflows] The
  *   manifest's declared optional set. Defaults to the shipped manifest's, which is what the
  *   one-argument callers in the tests get; `runCheck` passes the manifest it actually validated.
  * @param {ReturnType<typeof lintDelegationFrom>} [lintDelegation] The declared delegating lint
  *   bodies, defaulted and passed the same way and for the same reason.
+ * @param {ReturnType<typeof enforcementFrom>} [enforcement] The declared binding and deferred sets,
+ *   defaulted and passed the same way and for the same reason.
  * @returns {string[]} Lines to print.
  */
 export function formatReport(
   results,
   optionalWorkflows = manifest.optionalWorkflows,
   lintDelegation = lintDelegationFrom(manifest),
+  enforcement = enforcementFrom(manifest),
 ) {
   const lines = [];
   const baselines = [...new Set(results.map((r) => r.baseline))];
@@ -1784,6 +1856,32 @@ export function formatReport(
       `  ${result.name} (${result.baseline} baseline): ${result.findings.length} drift(s)`,
     );
   }
+
+  lines.push(
+    "",
+    "-".repeat(60),
+    "ENFORCEMENT (declared in drift-manifest.json: a BINDING repo fails this run when it drifts AND " +
+      "when the run reached no verdict about it, so a green produced by an absent corpus is a " +
+      "failure rather than a pass. A DEFERRED repo is NOT forgiven and no requirement is relaxed " +
+      "for it: it is excluded from a gate run by not being in that run's corpus, and it joins the " +
+      "binding set by an edit to the standard alone)",
+  );
+  const binding = enforcement?.binding ?? [];
+  const deferred = enforcement?.deferred ?? [];
+  lines.push(
+    binding.length === 0
+      ? "  BINDING: none declared, so this run's verdict binds no repo at all"
+      : `  BINDING (${binding.length}): ${binding.join(", ")}`,
+  );
+  for (const entry of ungradedBinding(binding, results)) {
+    lines.push(`✗ ${entry.name}: BINDING, and NO VERDICT was reached for it (${entry.reason})`);
+  }
+  lines.push(
+    deferred.length === 0
+      ? "  DEFERRED: none; every repo the estate carries binds"
+      : `  DEFERRED (${deferred.length}), each with the reason it does not bind yet:`,
+  );
+  for (const entry of deferred) lines.push(`  ${entry.repo}: DEFERRED, ${entry.why}`);
 
   lines.push(
     "",
@@ -1837,6 +1935,11 @@ export function formatReport(
  * the author by way of a syntax error is the third way this report could be a number with nothing
  * behind it.
  *
+ * AND A BINDING REPO THE RUN COULD NOT GRADE REDS IT, which is the one failure this function did
+ * not have before. `1` therefore means "a repo the standard binds drifted, or the run reached no
+ * verdict about one"; the declaration only ever ADDS a failure, and every red and every exit-2
+ * refusal above it is reached on exactly the inputs it was reached on before.
+ *
  * @param {{ manifestPath?: string, root?: string, controls?: Function, probe?: Function,
  *   advisories?: Map<string, object>, out?: (line: string) => void,
  *   err?: (line: string) => void }} options Injection points exist so the report can be exercised
@@ -1880,13 +1983,15 @@ export function runCheck({
   for (const line of formatConfigSubject(configSubject)) out(line);
 
   const results = gradeEstate({ manifest: subject, root, probe });
-  // The optional set and the delegating set both come from the manifest that was just VALIDATED,
-  // never from the module-level copy: a run pointed at another manifest must report that manifest's
-  // declarations.
+  // The optional set, the delegating set and the enforcement declaration all come from the manifest
+  // that was just VALIDATED, never from the module-level copy: a run pointed at another manifest
+  // must report that manifest's declarations.
+  const enforcement = enforcementFrom(subject);
   for (const line of formatReport(
     results,
     subject.optionalWorkflows,
     lintDelegationFrom(subject),
+    enforcement,
   )) {
     out(line);
   }
@@ -1902,9 +2007,19 @@ export function runCheck({
     );
     return 2;
   }
+  // A BINDING REPO THE RUN COULD NOT GRADE REDS IT. Absent, empty or unreadable, the answer is the
+  // same: the standard says this run's verdict is about that repo, and there is no verdict. The
+  // report already printed the line naming each one; this is the exit status behind it.
+  const ungraded = ungradedBinding(enforcement.binding, results);
+  for (const entry of ungraded) {
+    err(
+      `✗ ${entry.name} is declared BINDING and no verdict was reached for it (${entry.reason}), ` +
+        `so this run cannot report clean`,
+    );
+  }
   // The config subject reds the run like any other drift, and an INCONCLUSIVE advisory is one of
   // the drifts it can carry: a lookup that could not complete must never leave a green behind.
-  return summary.drifted > 0 || configSubject.findings.length > 0 ? 1 : 0;
+  return summary.drifted > 0 || configSubject.findings.length > 0 || ungraded.length > 0 ? 1 : 0;
 }
 
 /**

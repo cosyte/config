@@ -141,6 +141,23 @@ clean, `1` a violation, `2` could not run, for the reason every gate here holds 
 cannot read its input must never report the same code as one that read it and found something. It
 grades `config` only; an estate-wide README group is a separate change.
 
+## The estate baseline, and who it binds
+
+[`drift-manifest.json`](drift-manifest.json) IS the cosyte engineering baseline: it declares what
+every repository in the estate owes, and `pnpm run drift` grades each one against it and prints a
+per-repo worklist. `pnpm run drift:validate` validates the standard itself against
+[`drift-manifest.schema.json`](drift-manifest.schema.json) with nothing installed.
+
+The standard also declares WHICH repos its verdict BINDS. A binding repo fails the run when it
+drifts and when the run reached no verdict about it, so a green produced by a corpus nobody opened
+is a failure rather than a pass; every other repo is deferred with a written reason, which relaxes
+no requirement and forgives no drift. The check runs in CI's required `verify` job, so this is the
+first repository the standard can stop.
+
+[`documentation/drift-enforcement.md`](documentation/drift-enforcement.md) is the reader's answer to
+what binding means, what a repo must satisfy to join the binding set, why joining is an edit to the
+standard alone, and what is never a way to close a deferral.
+
 ## Decisions
 
 Repo-scoped ADRs live in [`documentation/decisions/`](documentation/decisions); these are the ones

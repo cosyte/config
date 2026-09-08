@@ -340,6 +340,81 @@
       }
     ]
   },
+  "enforcement": {
+    "provenance": "S0230-config-drift-check-gating, 2026-09-08. THE BINDING SET IS DERIVED FROM A MEASUREMENT, NOT CHOSEN. `node config/scripts/drift-check.js` was run from an umbrella checkout holding all 24 submodules at their pinned commits; it exited 1 and reported 9 repos clean, 15 carrying drift and 0 skipped, and every deferral below states what that repo measured in that run. config is the only repo bound, and being clean is not the whole reason: config is the only repo PRESENT in the corpus the gate actually runs over, because the required `verify` job checks out config alone and checking out a sibling there would need a credential, which is a new dependency and a new operator decision rather than this change's to take. DEFERRAL IS THE MIGRATION'S STATE AND NEVER A PERMANENT EXCUSE: a repo joins `binding` by an edit to this file alone, with no change to any evaluator, and a deferral is closed by making that repo green and running the gate over a corpus that holds it, never by loosening a requirement, re-thresholding a group or adding an exemption.",
+    "binding": ["config"],
+    "deferred": {
+      "assets": {
+        "why": "Measured 0 drift(s) on 2026-09-08 under the light baseline, over an umbrella corpus holding all 24 submodules at their pinned commits: green, so drift is NOT why this is deferred. config's required verify job checks out config alone, and a bound repo absent from the corpus is a failure by design, so binding this one needs a run whose corpus holds it."
+      },
+      "astm": {
+        "why": "Measured 2 drift(s) on 2026-09-08 under the package baseline (dependencies group), over an umbrella corpus holding all 24 submodules at their pinned commits. Binding a red repo would red config's required check for work only that repo's own migration item can do."
+      },
+      "ccda": {
+        "why": "Measured 2 drift(s) on 2026-09-08 under the package baseline (dependencies group), over an umbrella corpus holding all 24 submodules at their pinned commits. Binding a red repo would red config's required check for work only that repo's own migration item can do."
+      },
+      "claude-containers": {
+        "why": "Measured 0 drift(s) on 2026-09-08 under the light baseline, over an umbrella corpus holding all 24 submodules at their pinned commits: green, so drift is NOT why this is deferred. config's required verify job checks out config alone, and a bound repo absent from the corpus is a failure by design, so binding this one needs a run whose corpus holds it."
+      },
+      "cli": {
+        "why": "Measured 2 drift(s) on 2026-09-08 under the package baseline (dependencies group), over an umbrella corpus holding all 24 submodules at their pinned commits. Binding a red repo would red config's required check for work only that repo's own migration item can do."
+      },
+      "crew": {
+        "why": "Measured 4 drift(s) on 2026-09-08 under the light baseline (emdashGate, ciEntryPoint and securityWorkflows groups), over an umbrella corpus holding all 24 submodules at their pinned commits. Binding a red repo would red config's required check for work only that repo's own migration item can do."
+      },
+      "dates": {
+        "why": "Measured 0 drift(s) on 2026-09-08 under the light baseline, over an umbrella corpus holding all 24 submodules at their pinned commits: green, so drift is NOT why this is deferred. config's required verify job checks out config alone, and a bound repo absent from the corpus is a failure by design, so binding this one needs a run whose corpus holds it."
+      },
+      "deid": {
+        "why": "Measured 2 drift(s) on 2026-09-08 under the package baseline (dependencies group), over an umbrella corpus holding all 24 submodules at their pinned commits. Binding a red repo would red config's required check for work only that repo's own migration item can do."
+      },
+      "dicom": {
+        "why": "Measured 0 drift(s) on 2026-09-08 under the package baseline, over an umbrella corpus holding all 24 submodules at their pinned commits: green, so drift is NOT why this is deferred. config's required verify job checks out config alone, and a bound repo absent from the corpus is a failure by design, so binding this one needs a run whose corpus holds it."
+      },
+      "docs": {
+        "why": "Measured 0 drift(s) on 2026-09-08 under the light baseline, over an umbrella corpus holding all 24 submodules at their pinned commits: green, so drift is NOT why this is deferred. config's required verify job checks out config alone, and a bound repo absent from the corpus is a failure by design, so binding this one needs a run whose corpus holds it."
+      },
+      "fhir": {
+        "why": "Measured 2 drift(s) on 2026-09-08 under the package baseline (dependencies group), over an umbrella corpus holding all 24 submodules at their pinned commits. Binding a red repo would red config's required check for work only that repo's own migration item can do."
+      },
+      "github-profile": {
+        "why": "Measured 0 drift(s) on 2026-09-08 under the light baseline, over an umbrella corpus holding all 24 submodules at their pinned commits: green, so drift is NOT why this is deferred. config's required verify job checks out config alone, and a bound repo absent from the corpus is a failure by design, so binding this one needs a run whose corpus holds it."
+      },
+      "hl7": {
+        "why": "Measured 0 drift(s) on 2026-09-08 under the package baseline, over an umbrella corpus holding all 24 submodules at their pinned commits: green, so drift is NOT why this is deferred. config's required verify job checks out config alone, and a bound repo absent from the corpus is a failure by design, so binding this one needs a run whose corpus holds it."
+      },
+      "iac": {
+        "why": "Measured 3 drift(s) on 2026-09-08 under the light baseline (ciEntryPoint and securityWorkflows groups), over an umbrella corpus holding all 24 submodules at their pinned commits. Binding a red repo would red config's required check for work only that repo's own migration item can do."
+      },
+      "knowledgebase": {
+        "why": "Measured 4 drift(s) on 2026-09-08 under the light baseline (emdashGate, ciEntryPoint and securityWorkflows groups), over an umbrella corpus holding all 24 submodules at their pinned commits. Binding a red repo would red config's required check for work only that repo's own migration item can do."
+      },
+      "mllp": {
+        "why": "Measured 2 drift(s) on 2026-09-08 under the package baseline (dependencies group), over an umbrella corpus holding all 24 submodules at their pinned commits. Binding a red repo would red config's required check for work only that repo's own migration item can do."
+      },
+      "ncpdp": {
+        "why": "Measured 2 drift(s) on 2026-09-08 under the package baseline (dependencies group), over an umbrella corpus holding all 24 submodules at their pinned commits. Binding a red repo would red config's required check for work only that repo's own migration item can do."
+      },
+      "pathways": {
+        "why": "Measured 2 drift(s) on 2026-09-08 under the light baseline (securityWorkflows group), over an umbrella corpus holding all 24 submodules at their pinned commits. Binding a red repo would red config's required check for work only that repo's own migration item can do."
+      },
+      "synth": {
+        "why": "Measured 0 drift(s) on 2026-09-08 under the package baseline, over an umbrella corpus holding all 24 submodules at their pinned commits: green, so drift is NOT why this is deferred. config's required verify job checks out config alone, and a bound repo absent from the corpus is a failure by design, so binding this one needs a run whose corpus holds it."
+      },
+      "terminology": {
+        "why": "Measured 8 drift(s) on 2026-09-08 under the package baseline (dependencies, installHardening and agentDoc groups), over an umbrella corpus holding all 24 submodules at their pinned commits. Binding a red repo would red config's required check for work only that repo's own migration item can do."
+      },
+      "transform": {
+        "why": "Measured 3 drift(s) on 2026-09-08 under the package baseline (dependencies and agentDoc groups), over an umbrella corpus holding all 24 submodules at their pinned commits. Binding a red repo would red config's required check for work only that repo's own migration item can do."
+      },
+      "website": {
+        "why": "Measured 4 drift(s) on 2026-09-08 under the light baseline (emdashGate, ciEntryPoint and securityWorkflows groups), over an umbrella corpus holding all 24 submodules at their pinned commits. Binding a red repo would red config's required check for work only that repo's own migration item can do."
+      },
+      "x12": {
+        "why": "Measured 2 drift(s) on 2026-09-08 under the package baseline (dependencies group), over an umbrella corpus holding all 24 submodules at their pinned commits. Binding a red repo would red config's required check for work only that repo's own migration item can do."
+      }
+    }
+  },
   "reDerivation": {
     "provenance": "S0226-config-drift-manifest, 2026-08-29. Manifest version 1 declared its own authority to be a prose document in the umbrella that had since been deleted, so every requirement in it was inherited from a file nobody could read. The operator decided to re-derive AND extend it, to add a second lighter baseline, and to write no prose companion. This record is what makes the re-derivation auditable: every top-level key version 1 carried is listed in preChangeKeys and accounted for in exactly one of the two lists below, so no requirement can vanish unmentioned.",
     "preChangeKeys": [
