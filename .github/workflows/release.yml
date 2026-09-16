@@ -10,7 +10,7 @@ concurrency:
 
 permissions:
   contents: write # create the version PR / tags / releases
-  id-token: write # npm provenance
+  id-token: write # the publish job's whole authentication, and npm provenance with it
   pull-requests: write # open the "Version Packages" PR
 
 # Changesets flow: a push to main with pending changesets opens a "Version Packages" PR. Merging that
@@ -377,7 +377,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write # create tags / GitHub releases
-      id-token: write # npm provenance
+      id-token: write # THE credential: trusted publishing, and npm provenance with it
     # Release approval gate: the `release` environment carries a required reviewer (`NSchatz`) and a
     # `main`-only deployment-branch policy, so the publish waits for an explicit approval. It is also
     # the OIDC subject the npm Trusted Publisher binds to, so its NAME is part of the authentication

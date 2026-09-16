@@ -174,6 +174,11 @@ function fixture(options: FixtureOptions = {}): Fixture {
   const env: NodeJS.ProcessEnv = {
     PATH: process.env.PATH,
     HOME: home,
+    // The check measures the package managers' own defaults in a throwaway directory under the
+    // machine's temp dir, and every context it runs in for real supplies one. Carried through rather
+    // than left to its default so a case here is about the allow-set rather than about how much room
+    // `/tmp` happens to have on the machine running the suite.
+    ...(process.env.TMPDIR === undefined ? {} : { TMPDIR: process.env.TMPDIR }),
     NPM_CONFIG_GLOBALCONFIG: emptyRc,
   };
   if (options.userNpmrc !== undefined) {
@@ -722,13 +727,18 @@ describe("npm-config-allow: where the check runs", () => {
     expect(versionLines.some((line) => /^ {4}environment:/.test(line))).toBe(false);
 
     // Registry credentials reach no job at all any more, and the gated job is still the only one
-    // that can authenticate: `id-token: write` is granted there and nowhere else.
+    // that can authenticate: `id-token: write` is granted there and nowhere else. Matched as a
+    // JOB-LEVEL GRANT (six spaces, inside a `permissions:` block) rather than as a substring, for
+    // the same reason `environment: release` is above: this file's comments discuss the grant at
+    // length and a substring assertion would pass on the prose.
     for (const job of [preflight, version, publish]) {
       expect(job).not.toContain("secrets.NPM_TOKEN");
     }
-    expect(publish).toContain("id-token: write");
-    expect(preflight).not.toContain("id-token: write");
-    expect(version).not.toContain("id-token: write");
+    const grantsIdToken = (lines: string[]): boolean =>
+      lines.some((line) => /^ {6}id-token: write(\s|$)/.test(line));
+    expect(grantsIdToken(blocks.get("publish") ?? [])).toBe(true);
+    expect(grantsIdToken(preflightLines)).toBe(false);
+    expect(grantsIdToken(versionLines)).toBe(false);
   });
 
   it(
@@ -1177,6 +1187,8 @@ describe("npm-config-allow: the real repository", () => {
     const env: NodeJS.ProcessEnv = {
       PATH: process.env.PATH,
       HOME: home,
+      // See `fixture()`: the defaults baseline needs a temp dir, and every real context supplies one.
+      ...(process.env.TMPDIR === undefined ? {} : { TMPDIR: process.env.TMPDIR }),
       NPM_CONFIG_GLOBALCONFIG: emptyRc,
     };
     if (ci) {

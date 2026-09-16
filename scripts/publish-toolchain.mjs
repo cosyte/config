@@ -73,8 +73,7 @@ const EXACT_VERSION = /^\d+\.\d+\.\d+$/;
  */
 function mapGet(node, key) {
   if (node === undefined || node.kind !== "map") return undefined;
-  for (const [candidate, value] of node.entries) if (candidate === key) return value;
-  return undefined;
+  return node.entries.get(key);
 }
 
 /**

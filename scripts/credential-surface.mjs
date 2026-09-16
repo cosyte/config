@@ -623,7 +623,17 @@ function validateAuthentication(authentication) {
     }
   }
 
-  if (!Array.isArray(authentication.runtimeEvidence) || authentication.runtimeEvidence.length === 0) {
+  // REQUIRED TO BE AN ARRAY ALWAYS, AND REQUIRED TO BE NON-EMPTY UNDER `github-oidc`, where it is
+  // the only thing a preflight can observe: there is no credential to look for. A token method
+  // carries its evidence in `credentials[].requiredForPublish` instead, and may legitimately name
+  // none here; `scripts/publish-preflight.mjs` refuses the combination that names NEITHER, because a
+  // check with nothing to check passes on an empty environment.
+  if (!Array.isArray(authentication.runtimeEvidence)) {
+    problems.push(`${label}.runtimeEvidence must be an array (empty is allowed, and explicit)`);
+  } else if (
+    authentication.method === "github-oidc" &&
+    authentication.runtimeEvidence.length === 0
+  ) {
     problems.push(
       `${label}.runtimeEvidence must name at least one environment variable whose presence says this authentication is available, or the preflight would pass on any environment at all`,
     );
@@ -640,7 +650,10 @@ function validateAuthentication(authentication) {
     }
   }
 
-  if (typeof authentication.npmCliFloor !== "string" || !EXACT_VERSION.test(authentication.npmCliFloor)) {
+  if (
+    typeof authentication.npmCliFloor !== "string" ||
+    !EXACT_VERSION.test(authentication.npmCliFloor)
+  ) {
     problems.push(`${label}.npmCliFloor must be an exact version, such as 11.5.1`);
   }
   if (

@@ -508,12 +508,12 @@ Register one for **each of the eight published packages**: `@cosyte/eslint-confi
 On the package's page: Settings, then Trusted Publisher, then GitHub Actions, then these four fields
 exactly:
 
-| field                         | value                                                       |
-| ----------------------------- | ----------------------------------------------------------- |
-| Organization or user          | `cosyte`                                                    |
-| Repository                    | `config`                                                    |
-| Workflow filename             | `release.yml` (**with the `.yml` extension**, character for character) |
-| Environment name              | `release`                                                   |
+| field                | value                                                                  |
+| -------------------- | ---------------------------------------------------------------------- |
+| Organization or user | `cosyte`                                                               |
+| Repository           | `config`                                                               |
+| Workflow filename    | `release.yml` (**with the `.yml` extension**, character for character) |
+| Environment name     | `release`                                                              |
 
 The same four are declared in `.github/credential-surface.json` under
 `publishPath.authentication.trustedPublisher`, and `pnpm credentials:check` refuses a declaration whose
@@ -532,7 +532,7 @@ check any of this. The first release after registering is the evidence, which is
 registers and proves **one** package before all eight.
 
 **Ordering, and it is not negotiable.** Registering the publisher before this workflow stopped using a
-token was safe: npm accepts OIDC *in addition to* a token. Removing the token before the publisher
+token was safe: npm accepts OIDC _in addition to_ a token. Removing the token before the publisher
 exists is not: every publish fails until it does. If a release is refused with `ENEEDAUTH` or a 404 on
 the PUT, check the registration before changing anything in this repository.
 
