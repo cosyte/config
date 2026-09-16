@@ -27,8 +27,13 @@
 //   * a permissions grant on `GITHUB_TOKEN` that is wider than declared, or a job that declares no
 //     permissions block at all and therefore silently inherits the workflow-level one;
 //   * a registry-reaching job that does not declare the protected deployment environment;
+//   * a publish path whose declared authentication the workflow does not actually have: the grant it
+//     rests on missing from the job, or a trusted publisher registered against a different workflow
+//     filename or environment than the one that publishes;
+//   * a long-lived registry credential declared on a publish path declared tokenless;
 //   * an issued credential form the release run's log scrubbing does not cover;
-//   * a declared credential the rotation / revocation / compensating-action documentation omits.
+//   * a declared credential the rotation / revocation / compensating-action documentation omits, and
+//     a documented credential the declaration does not name.
 //
 // IT RUNS BEFORE ANYONE IS ASKED FOR ANYTHING. `ci.yml`'s `verify` job is a REQUIRED status check in
 // this repository's `config-ci-required-checks` ruleset, so this gate is wired there, next to the
@@ -90,6 +95,20 @@ const STORAGE_LOCATIONS = ["organization", "repository", "environment", "github-
 
 /** How a credential reaches the thing that consumes it. */
 const EXPOSURE_ROUTES = ["env", "with"];
+
+/**
+ * How the publish path authenticates to the registry.
+ *
+ * `github-oidc` is the tokenless one: the workflow's own OIDC identity is what npm accepts, so a
+ * declared credential carrying registry authentication is a CONTRADICTION under it rather than an
+ * extra, and is reported as one. `npm-token` is kept in this list so that going back to a
+ * long-lived token stays expressible as a reviewed diff in the declaration rather than requiring a
+ * change to this checker: a gate that can only be satisfied one way gets edited out.
+ */
+const AUTHENTICATION_METHODS = ["github-oidc", "npm-token"];
+
+/** A version the declaration can compare: exactly three dot-separated numbers. */
+const EXACT_VERSION = /^\d+\.\d+\.\d+$/;
 
 /** What the workflow does with the credential at an exposure. */
 const EXPOSURE_MODES = ["value", "presence-test"];
@@ -511,6 +530,7 @@ export function validateDeclaration(declaration) {
         problems.push(`\`publishPath.${field}\` must be a non-empty string`);
       }
     }
+    problems.push(...validateAuthentication(publishPath.authentication));
   }
 
   const redaction = declaration.logRedaction;
@@ -557,6 +577,99 @@ export function validateDeclaration(declaration) {
     problems.push(...validateExposures(setting.exposures, `setting \`${setting.name}\``));
   }
 
+  return problems;
+}
+
+/**
+ * Validate the publish path's declared authentication.
+ *
+ * REQUIRED, NOT OPTIONAL, and that is the whole point of it. A publish path that declares no
+ * authentication at all is a declaration nothing can be conformed to: every check below would pass
+ * on it, and so would `scripts/publish-preflight.mjs`, which derives what it demands of the release
+ * environment from exactly this block. "We could not tell" must never read as "there is nothing to
+ * tell".
+ *
+ * @param authentication The `publishPath.authentication` block.
+ * @returns A list of problems; empty means valid.
+ */
+function validateAuthentication(authentication) {
+  const label = "`publishPath.authentication`";
+  if (
+    authentication === undefined ||
+    typeof authentication !== "object" ||
+    authentication === null ||
+    Array.isArray(authentication)
+  ) {
+    return [
+      `${label} is missing, and a publish path that names no authentication cannot be conformed to`,
+    ];
+  }
+  const problems = [];
+  if (!AUTHENTICATION_METHODS.includes(authentication.method)) {
+    problems.push(`${label}.method must be one of ${AUTHENTICATION_METHODS.join(", ")}`);
+  }
+  if (typeof authentication.summary !== "string" || authentication.summary.trim() === "") {
+    problems.push(`${label}.summary must say what authenticates this publish`);
+  }
+
+  const permission = authentication.permission;
+  if (permission === null || typeof permission !== "object" || Array.isArray(permission)) {
+    problems.push(`${label}.permission must name the job, scope and level the publish path needs`);
+  } else {
+    for (const field of ["job", "scope", "level"]) {
+      if (typeof permission[field] !== "string" || permission[field].trim() === "") {
+        problems.push(`${label}.permission.${field} must be a non-empty string`);
+      }
+    }
+  }
+
+  if (!Array.isArray(authentication.runtimeEvidence) || authentication.runtimeEvidence.length === 0) {
+    problems.push(
+      `${label}.runtimeEvidence must name at least one environment variable whose presence says this authentication is available, or the preflight would pass on any environment at all`,
+    );
+  } else {
+    for (const evidence of authentication.runtimeEvidence) {
+      if (
+        evidence === null ||
+        typeof evidence !== "object" ||
+        typeof evidence.variable !== "string" ||
+        evidence.variable.trim() === ""
+      ) {
+        problems.push(`${label}.runtimeEvidence has an entry without a non-empty \`variable\``);
+      }
+    }
+  }
+
+  if (typeof authentication.npmCliFloor !== "string" || !EXACT_VERSION.test(authentication.npmCliFloor)) {
+    problems.push(`${label}.npmCliFloor must be an exact version, such as 11.5.1`);
+  }
+  if (
+    typeof authentication.npmCliVersionSetting !== "string" ||
+    authentication.npmCliVersionSetting.trim() === ""
+  ) {
+    problems.push(
+      `${label}.npmCliVersionSetting must name the workflow variable that pins the npm CLI`,
+    );
+  }
+
+  const publisher = authentication.trustedPublisher;
+  if (publisher === null || typeof publisher !== "object" || Array.isArray(publisher)) {
+    problems.push(`${label}.trustedPublisher must name what is registered on the registry side`);
+  } else {
+    for (const field of ["organization", "repository", "workflow", "environment"]) {
+      if (typeof publisher[field] !== "string" || publisher[field].trim() === "") {
+        problems.push(`${label}.trustedPublisher.${field} must be a non-empty string`);
+      }
+    }
+    // The registry matches the workflow FILENAME, extension included, and does not verify the
+    // configuration when it is saved: a field without an extension here is a publish that fails
+    // with ENEEDAUTH and nothing to read about why.
+    if (typeof publisher.workflow === "string" && !/\.ya?ml$/.test(publisher.workflow)) {
+      problems.push(
+        `${label}.trustedPublisher.workflow must be the workflow FILENAME with its extension, which is what the registry matches`,
+      );
+    }
+  }
   return problems;
 }
 
@@ -947,6 +1060,7 @@ export function checkCredentialSurface({ repoRoot, declarationPath, workflowPath
   const { references, opaque } = collectSecretReferences(workflow, jobs);
 
   checkStepNameAmbiguity(declaration, jobs, findings);
+  checkPublishAuthentication(declaration, jobs, findings);
   const matched = checkReferences(declaration, references, findings);
   checkDeclaredExposures(declaration, jobs, matched, findings);
   checkSettings(declaration, jobs, findings);
@@ -993,6 +1107,69 @@ function checkStepNameAmbiguity(declaration, jobs, findings) {
         message: `job "${jobId}" has ${count} steps named "${stepId}", so the declaration cannot say which one is permitted to receive a credential`,
       });
     }
+  }
+}
+
+/**
+ * The publish path's declared authentication must be the authentication the workflow actually has.
+ *
+ * WHY THIS IS A SEPARATE CHECK FROM THE PERMISSIONS ONE. `checkPermissions` compares the workflow's
+ * grants against the declaration's grants, so it goes green the moment the two agree: deleting
+ * `id-token: write` from the publish job AND from the declaration's permissions block in one commit
+ * passes it. That commit ends every publish, because on this path the OIDC token IS the credential.
+ * So the authentication block names the grant it depends on, and this check reads that grant off the
+ * workflow. The two directions together are what make a silent removal impossible.
+ *
+ * AND THE CONTRADICTION. Under `github-oidc` there is no long-lived registry credential by
+ * construction, so a declared credential carrying `registryAuth` is not an extra to be tolerated: it
+ * is the declaration saying two incompatible things about the same publish. Reported by name, which
+ * is one of the three directions a credential can come back through.
+ *
+ * @param declaration The declaration.
+ * @param jobs The job index.
+ * @param findings Accumulator.
+ */
+function checkPublishAuthentication(declaration, jobs, findings) {
+  const authentication = declaration.publishPath.authentication;
+  const { job: jobId, scope, level } = authentication.permission;
+  const job = jobs.get(jobId);
+  if (job === undefined) {
+    findings.push({
+      code: "authentication-job-absent",
+      message: `the publish path authenticates with \`${authentication.method}\` on job "${jobId}" and the workflow has no such job`,
+    });
+  } else {
+    const found = readPermissions(job.node);
+    const granted = found.present && found.grants !== null ? found.grants[scope] : undefined;
+    if (granted !== level) {
+      findings.push({
+        code: "authentication-permission-absent",
+        message: `the publish path authenticates with \`${authentication.method}\`, which rests on \`${scope}: ${level}\` in job "${jobId}", and that job grants ${granted === undefined ? `no \`${scope}\` at all` : `\`${scope}: ${granted}\``}`,
+      });
+    }
+  }
+
+  const publisher = authentication.trustedPublisher;
+  if (!declaration.publishPath.workflow.endsWith(`/${publisher.workflow}`)) {
+    findings.push({
+      code: "trusted-publisher-workflow-mismatch",
+      message: `the trusted publisher is registered against workflow \`${publisher.workflow}\` and this publish runs from \`${declaration.publishPath.workflow}\`; the registry matches the filename exactly, so these cannot differ`,
+    });
+  }
+  if (publisher.environment !== declaration.publishPath.environment) {
+    findings.push({
+      code: "trusted-publisher-environment-mismatch",
+      message: `the trusted publisher is registered against environment \`${publisher.environment}\` and the publish path declares \`${declaration.publishPath.environment}\`; the registry matches the environment name, so these cannot differ`,
+    });
+  }
+
+  if (authentication.method !== "github-oidc") return;
+  for (const credential of declaration.credentials) {
+    if (!credential.registryAuth) continue;
+    findings.push({
+      code: "registry-credential-declared",
+      message: `\`${credential.name}\` is declared as registry authentication and the publish path authenticates with \`${authentication.method}\`, which is tokenless; a long-lived registry credential cannot be reintroduced without changing the declared authentication method in the same diff`,
+    });
   }
 }
 
@@ -1345,6 +1522,21 @@ function checkDocumentation(declaration, root, docsPath, findings) {
         message: `the "${wanted}" section of ${declaration.documentation.file} must state, as \`**${statement.label}.**\`, what it means for a credential change here`,
       });
     }
+  }
+
+  // THE OTHER DIRECTION, and it is the one a documentation check usually leaves open. A subsection
+  // here is a procedure for issuing, installing and revoking a credential, so one the declaration
+  // does not name is either a credential nobody declared or a credential that was removed from the
+  // declaration and left live in the operator's runbook. Both read to an operator as "this token is
+  // still part of the publish path", which is exactly the disagreement this gate exists to refuse.
+  for (const section of owned.filter((candidate) => candidate.level === parent.level + 1)) {
+    if (declaration.credentials.some((credential) => section.heading.includes(credential.name))) {
+      continue;
+    }
+    findings.push({
+      code: "docs-undeclared-credential",
+      message: `the "${wanted}" section of ${declaration.documentation.file} carries a subsection "${section.heading}" that no declared credential matches, so the documentation describes a credential this repository does not declare`,
+    });
   }
 
   for (const credential of declaration.credentials) {

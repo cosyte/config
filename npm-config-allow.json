@@ -26,7 +26,7 @@
     {
       "key": "registry",
       "value": "https://registry.npmjs.org/",
-      "why": "The public npm registry, which is where these eight packages belong. actions/setup-node writes this into the user config it generates for the publish job, so it arrives as a contributed value rather than as npm's default. Only this one URL is permitted, and the `require` rule below re-checks it against the resolvers' full maps so a permissive entry here could not widen it."
+      "why": "The public npm registry, which is where these eight packages belong. Only this one URL is permitted, wherever it is contributed from, and the `require` rule below re-checks it against the resolvers' FULL maps (defaults included) so a permissive entry here could not widen it. On the publish path nothing contributes it any more: the publish job's setup-node step declares no `registry-url`, so npm's own default is what answers, and the `require` rule is what pins that."
     },
     {
       "key": "provenance",
@@ -34,19 +34,9 @@
       "why": "release.yml sets NPM_CONFIG_PROVENANCE from the repository's public visibility, and provenance attestations are wanted. `true` is the ONLY permitted value: a source contributing `provenance=false` is a disabled attestation and is exactly what this gate exists to refuse."
     },
     {
-      "key": "//registry.npmjs.org/:_authToken",
-      "anyValue": true,
-      "why": "The registry credential actions/setup-node writes into the generated user config. Permitted by KEY and never by value: the token is a secret, this file is public, and the check refuses an allow-set that pins one. The registry it authenticates to is pinned by the `require` rule below, so this cannot become a credential offered to somewhere else."
-    },
-    {
-      "key": "always-auth",
-      "anyValue": true,
-      "why": "actions/setup-node has written this alongside the token in some versions and it is not pinned here because which value it writes varies by version. It only decides whether the credential is sent preemptively, and the registry that credential goes to is pinned by the `require` rule below, so neither value can offer the token to somewhere else."
-    },
-    {
       "key": "userconfig",
       "anyValue": true,
-      "why": "Where npm's user config lives. actions/setup-node GENERATES that file under RUNNER_TEMP and exports NPM_CONFIG_USERCONFIG to point at it, so the path is runner-specific and cannot be pinned. Permitting the pointer is safe because the check reads the file it points AT through npm's own resolver: whatever that file contributes is itself observed and judged by this allow-set."
+      "why": "Where npm's user config lives, which is derived from HOME and therefore machine-specific. Permitting the pointer is safe because the check reads the file it points AT through npm's own resolver: whatever that file contributes is itself observed and judged by this allow-set. THERE IS NO ENTRY FOR A REGISTRY CREDENTIAL KEY, and that absence is deliberate: the publish path authenticates with the workflow's OIDC identity, so an `_authToken` reaching the publish process is a token nobody on this path should have, and this gate refuses it rather than permitting it by name."
     },
     {
       "key": "globalconfig",

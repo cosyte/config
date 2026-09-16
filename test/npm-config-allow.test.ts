@@ -654,16 +654,15 @@ describe("npm-config-allow: where the check runs", () => {
       );
     expect(checkStepEnv).not.toBeNull();
     const stepText = checkStepEnv?.[1] ?? "";
-    expect(stepText).toContain("NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}");
     expect(stepText).toContain(
       "NPM_CONFIG_PROVENANCE: ${{ github.event.repository.visibility == 'public' }}",
     );
-    // AND NOT ONE VARIABLE MORE. `NPM_TOKEN` is in the publish step because `changesets/action`
-    // wants it; nothing on the CONFIGURATION path reads it, since npm reads only `npm_config_*` and
-    // the registry credential arrives through the generated npmrc. Copying it here would widen this
-    // repository's declared credential surface (S0080) by one step for no gain. Matched as an env
-    // KEY, because the line above legitimately contains the substring `secrets.NPM_TOKEN`.
+    // AND NOT ONE VARIABLE MORE. Authentication on this path is the job's OIDC identity, which is a
+    // property of the job rather than a value a step is handed, and nothing on the CONFIGURATION
+    // path reads a credential at all: npm reads only `npm_config_*` when it resolves. A registry
+    // credential here would widen this repository's declared credential surface (S0080) for no gain.
     expect(stepText).not.toMatch(/^\s+NPM_TOKEN:/m);
+    expect(stepText).not.toMatch(/^\s+NODE_AUTH_TOKEN:/m);
     // C20's workflow half: nothing may let this step be skipped or downgraded to a warning. A gate
     // that can be skipped is a gate that will be.
     expect(stepText).not.toContain("continue-on-error");
@@ -679,21 +678,17 @@ describe("npm-config-allow: where the check runs", () => {
       readFileSync(join(REPO_ROOT, ".github", "credential-surface.json"), "utf8"),
     );
     const step = "The publish configuration must be one the allow-set permits";
-    const npmToken = declaration.credentials.find(
-      (entry: { name: string }) => entry.name === "NPM_TOKEN",
-    );
-    expect(
-      npmToken.exposures.some(
-        (exposure: { job: string; step: string; name: string }) =>
-          exposure.job === "publish" &&
-          exposure.step === step &&
-          exposure.name === "NODE_AUTH_TOKEN",
-      ),
-    ).toBe(true);
-    // And NPM_TOKEN itself is declared nowhere but the publish step.
-    expect(
-      npmToken.exposures.filter((exposure: { name: string }) => exposure.name === "NPM_TOKEN"),
-    ).toEqual([{ job: "publish", step: "Publish", as: "env", name: "NPM_TOKEN", mode: "value" }]);
+    // No credential is declared at this step, because none reaches it: the declaration's credential
+    // list holds nothing with `registryAuth`, and the publish path's authentication is the workflow
+    // OIDC identity declared under `publishPath.authentication`.
+    for (const credential of declaration.credentials as { name: string; exposures: unknown[] }[]) {
+      expect(
+        (credential.exposures as { job: string; step: string }[]).filter(
+          (exposure) => exposure.job === "publish" && exposure.step === step,
+        ),
+        `${credential.name} must not be exposed to the configuration allow-check`,
+      ).toEqual([]);
+    }
 
     const provenance = declaration.settings.find(
       (entry: { name: string }) => entry.name === "NPM_CONFIG_PROVENANCE",
@@ -726,10 +721,14 @@ describe("npm-config-allow: where the check runs", () => {
     expect(preflightLines.some((line) => /^ {4}environment:/.test(line))).toBe(false);
     expect(versionLines.some((line) => /^ {4}environment:/.test(line))).toBe(false);
 
-    // Registry credentials still reach no job but the gated one.
-    expect(preflight).not.toContain("secrets.NPM_TOKEN");
-    expect(version).not.toContain("secrets.NPM_TOKEN");
-    expect(publish).toContain("secrets.NPM_TOKEN");
+    // Registry credentials reach no job at all any more, and the gated job is still the only one
+    // that can authenticate: `id-token: write` is granted there and nowhere else.
+    for (const job of [preflight, version, publish]) {
+      expect(job).not.toContain("secrets.NPM_TOKEN");
+    }
+    expect(publish).toContain("id-token: write");
+    expect(preflight).not.toContain("id-token: write");
+    expect(version).not.toContain("id-token: write");
   });
 
   it(
@@ -1181,18 +1180,12 @@ describe("npm-config-allow: the real repository", () => {
       NPM_CONFIG_GLOBALCONFIG: emptyRc,
     };
     if (ci) {
-      // What `actions/setup-node@v6` with `registry-url` actually does: it GENERATES an npmrc under
-      // RUNNER_TEMP and exports NPM_CONFIG_USERCONFIG at it, then release.yml's publish step adds
-      // the provenance flag and the token the generated file expands.
-      const userRc = join(home, "setup-node.npmrc");
-      writeFileSync(
-        userRc,
-        "registry=https://registry.npmjs.org/\n//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}\n",
-        "utf8",
-      );
-      env.NPM_CONFIG_USERCONFIG = userRc;
+      // What the gated publish job actually supplies, which is ONE variable. `actions/setup-node` is
+      // given no `registry-url` there, so it generates no user npmrc and there is no
+      // `NPM_CONFIG_USERCONFIG` and no registry credential anywhere in that job; the publish
+      // authenticates with the workflow's OIDC identity instead. The provenance flag is supplied at
+      // step level, which is why the check has to carry it to be judging the right process.
       env.NPM_CONFIG_PROVENANCE = "true";
-      env.NODE_AUTH_TOKEN = FAKE_TOKEN;
     }
     return env;
   }
@@ -1219,13 +1212,12 @@ describe("npm-config-allow: the real repository", () => {
   it(
     "passes in the context the GATED PUBLISH JOB will actually give it (C3, C10)",
     () => {
-      // The one that matters: the generated user config, its token, and the provenance flag the
-      // publish step supplies. If the committed allow-set does not cover this, the first real
-      // release refuses, and finding that out here costs nothing.
+      // The one that matters: the environment the publish step supplies, which after S0317 is the
+      // provenance flag and no credential at all. If the committed allow-set does not cover this,
+      // the first real release refuses, and finding that out here costs nothing.
       const { code, output } = runCheck(REPO_ROOT, repoContext(true));
       expect(code).toBe(0);
       expect(output).toContain("provenance = true");
-      expect(output).not.toContain(FAKE_TOKEN);
     },
     SLOW,
   );
