@@ -1540,18 +1540,22 @@ function gate({ callerUrl, argv = process.argv.slice(2) }) {
   // ReferenceError that read as a plain exit 1. A named marker cannot do that.
 
   /**
-   * What net 4 concluded, in the three states the pass line has to tell apart:
-   * `null` means the net is not in this build of the gate at all (the suite's
-   * counterfactual deletes it), `{ skipped: true }` means there was no
-   * `publishConfig` for it to grade, and a count means it graded that many paths.
+   * What net 4 concluded, as the line the pass message prints for it, in the three
+   * states that message has to tell apart: EMPTY means the net is not in this build
+   * of the gate at all (the suite's counterfactual deletes it, and a deleted net
+   * must print NOTHING rather than a sentence about a check that did not happen);
+   * the skip sentence means there was no `publishConfig` object for it to grade; a
+   * count means it graded that many paths.
    *
    * It is declared OUTSIDE the marked block below so the counterfactual copy still
-   * parses, and so a deleted net prints NOTHING rather than a sentence about a check
-   * that did not happen.
+   * parses. It holds the SENTENCE rather than a verdict object because the pass line
+   * then needs no three-way comparison, and the object form's `net4 === null` test
+   * is what CodeQL's `js/comparison-between-incompatible-types` fires on: a warning
+   * carried twice over on the two copies this file replaces.
    *
-   * @type {null | { skipped: true } | { declared: number }}
+   * @type {string}
    */
-  let net4 = null;
+  let net4Line = "";
 
   // ---- Net 4: the manifest PNPM would publish ---------------------------------
   // COUNTERFACTUAL MARKER. `attw-gate.test.ts` rebuilds the pre-net-4 gate by deleting
@@ -1601,9 +1605,28 @@ function gate({ callerUrl, argv = process.argv.slice(2) }) {
           `  in it.\n`,
       );
     }
-    net4 = { declared: publishedDeclared.length };
+    // NET 4's HALF OF THE PASS LINE IS BOUNDED THE WAY NET 3's IS, AND IT NAMES THE
+    // DOCUMENT IT READ, because "the manifest pnpm would publish" is a different
+    // claim from net 3's and a reader must not take one for the other.
+    net4Line =
+      publishedDeclared.length === 0
+        ? `  the manifest pnpm would publish declares no relative artifact paths, so net 4\n` +
+          `  had none to check.\n`
+        : `  all ${publishedDeclared.length} relative artifact path(s) the manifest PNPM WOULD PUBLISH declares\n` +
+          `  are in the tarball pnpm would write (net 4). Manifest and file list were both\n` +
+          `  read out of a tarball \`pnpm pack\` wrote, so publishConfig overrides are\n` +
+          `  applied; same exclusions as net 3, and it is presence, not resolution.\n`;
   } else {
-    net4 = { skipped: true };
+    // "no publishConfig OBJECT", not "no publishConfig", and the difference is a
+    // measured one rather than pedantry: a STRING `publishConfig` takes this branch
+    // too, and pnpm ignores it (measured: the packed manifest is unchanged), so there
+    // really is no override to grade. The earlier wording said "sets no
+    // publishConfig", which that manifest contradicts. The sentence says only that
+    // there was no override to grade: it must NOT say pnpm would publish the same
+    // declarations, which is a claim this gate did not make on this run.
+    net4Line =
+      `  package.json declares no publishConfig OBJECT, so there was no publish-time\n` +
+      `  override for net 4 to grade and it did not run pnpm.\n`;
   }
   // ---- END Net 4 --------------------------------------------------------------
 
@@ -1640,28 +1663,10 @@ function gate({ callerUrl, argv = process.argv.slice(2) }) {
       // grade, so the sentence has work to do on a run where every other branch is the
       // happy one. It sat inside an else-branch for one commit while the docblock
       // claimed it printed every run.
-      // NET 4's HALF IS BOUNDED THE SAME WAY, AND IT NAMES THE DOCUMENT IT READ,
-      // because "the manifest pnpm would publish" is a different claim from net 3's
-      // and a reader must not take one for the other. The skip sentence says only that
-      // there was no override to grade: it must NOT say pnpm would publish the same
-      // declarations, which is a claim this gate did not make on this run.
-      (net4 === null
-        ? ``
-        : "skipped" in net4
-          ? // "no publishConfig OBJECT", not "no publishConfig", and the difference is
-            // a measured one rather than pedantry: a STRING `publishConfig` takes this
-            // branch too, and pnpm ignores it (measured: the packed manifest is
-            // unchanged), so there really is no override to grade. The earlier wording
-            // said "sets no publishConfig", which that manifest contradicts.
-            `  package.json declares no publishConfig OBJECT, so there was no publish-time\n` +
-            `  override for net 4 to grade and it did not run pnpm.\n`
-          : net4.declared === 0
-            ? `  the manifest pnpm would publish declares no relative artifact paths, so net 4\n` +
-              `  had none to check.\n`
-            : `  all ${net4.declared} relative artifact path(s) the manifest PNPM WOULD PUBLISH declares\n` +
-              `  are in the tarball pnpm would write (net 4). Manifest and file list were both\n` +
-              `  read out of a tarball \`pnpm pack\` wrote, so publishConfig overrides are\n` +
-              `  applied; same exclusions as net 3, and it is presence, not resolution.\n`) +
+      // NET 4's HALF IS THE SENTENCE THE NET ITSELF BUILT, above, and it is EMPTY when
+      // the net is not in this build of the gate, so a deleted net prints nothing
+      // rather than a sentence about a check that did not happen.
+      net4Line +
       `  The field set does NOT cover every field that can name a file. Known-unread: ` +
       `${KNOWN_UNREAD_FIELDS.join(", ")}.\n` +
       (kinds.length === 0

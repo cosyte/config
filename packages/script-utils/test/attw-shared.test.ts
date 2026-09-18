@@ -52,7 +52,6 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const PACKAGE_DIR = join(import.meta.dirname, "..");
 const REPO_ROOT = join(PACKAGE_DIR, "..", "..");
-const CANONICAL = join(PACKAGE_DIR, "attw.js");
 const INVENTORY = join(PACKAGE_DIR, "conformance", "attw-failure-modes.json");
 /** The shipped caller, copied into every fixture: the file a consuming repo keeps. */
 const CALLER = join(REPO_ROOT, "packages", "test-utils", "scripts", "attw.mjs");

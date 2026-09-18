@@ -41,7 +41,6 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
-  statSync,
   writeFileSync,
 } from "node:fs";
 import { createRequire } from "node:module";
@@ -331,7 +330,10 @@ describe("the attw wrapper is carried by both manifests this repo owns", () => {
         // rule out. Measured: it did exactly that in the first draft.
         const full = resolve(REPO_ROOT, rel);
         try {
-          if (statSync(full).size > 2 * 1024 * 1024) return false;
+          // READ, THEN JUDGE. An earlier shape checked the size with `statSync` and then read the
+          // file, which is a check-then-use race (CodeQL `js/file-system-race`) and buys nothing
+          // here: every tracked file in this repository is small enough to read, and a file that
+          // vanishes between the two calls would be reported as absent rather than as an error.
           return readFileSync(full, "utf8").includes(BODY_MARKER);
         } catch {
           return false;
