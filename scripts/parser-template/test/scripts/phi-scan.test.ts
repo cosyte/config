@@ -59,18 +59,24 @@ afterAll(() => {
 });
 
 describe("phi-scan starter: the cross-cutting floor catches SSN + email", () => {
-  it("catches a dashed SSN (exit 1)", () => {
+  it("catches a dashed SSN (exit 1), naming a position and never the token", () => {
     const r = scan("ssn.txt", "patient ssn 123-45-6789 on file\n");
     expect(r.code, `stderr: ${r.stderr}`).toBe(1);
-    expect(r.stderr).toMatch(/123-45-6789/);
+    expect(r.stderr).toMatch(/segment=\(ssn\)/);
     expect(r.stderr).toMatch(/dashed SSN/);
+    // A REPORT IS A POSITION AND A RULE. stderr is a CI log, so a gate that quoted what it matched
+    // would put the identifier somewhere with no retention policy: the finding names the file and
+    // the rule, and the developer opens the file. This is the observable the suite asserts on;
+    // looking for the payload would pass over a gate that echoes bytes it never graded.
+    expect(r.stderr).not.toMatch(/123-45-6789/);
   });
 
-  it("catches an email at a non-test domain (exit 1)", () => {
+  it("catches an email at a non-test domain (exit 1), naming a position and never the token", () => {
     const r = scan("email.txt", "contact jane.doe@hospital.org for records\n");
     expect(r.code, `stderr: ${r.stderr}`).toBe(1);
-    expect(r.stderr).toMatch(/jane\.doe@hospital\.org/);
+    expect(r.stderr).toMatch(/segment=\(email\)/);
     expect(r.stderr).toMatch(/non-test domain/);
+    expect(r.stderr).not.toMatch(/jane\.doe@hospital\.org/);
   });
 });
 
@@ -103,7 +109,7 @@ describe("phi-scan starter: paths mode reads EVERY path it was given", () => {
     const r = runScanner([clean, violator]);
     expect(r.code, `stderr: ${r.stderr}`).toBe(1);
     expect(r.stderr).toMatch(/second-dirty\.txt/);
-    expect(r.stderr).toMatch(/123-45-6789/);
+    expect(r.stderr).toMatch(/segment=\(ssn\)/);
   });
 });
 

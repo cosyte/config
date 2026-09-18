@@ -163,9 +163,11 @@ files which may contain patient data. What it does with them, stated narrowly:
 
 - It reads your repository's own files, in your own process, to look for PHI-shaped content. It sends
   nothing anywhere and opens no network connection.
-- It **does not log, echo or persist a matched value**. A finding names a path, a line and the rule
-  that fired; the matched bytes are not written into the report, because a gate that prints the
-  secret it found has published it into a CI log.
+- It **does not log, echo or persist a matched value**. A finding names a path, a locator inside it
+  (`(ssn)`, `(email)`, or the field id your own detector raised it against) and the rule that fired;
+  the matched bytes are not written into the report, because a gate that prints the secret it found
+  has published it into a CI log. A `value` your detector passes to `ctx.hit` is dropped at the
+  boundary rather than stored, so nothing downstream can print what no record carries.
 - The allow-list and the override log record DECLARATIONS about paths, never content.
 - Detection is a floor, not a proof: this package owns a dashed SSN shape and an email at an
   undeclared domain, and everything field-level is yours to supply through `detect`. A clean run
@@ -244,17 +246,27 @@ a newly-found escape therefore cost one pull request and one adversarial review 
 escape classes were paid for that way before this package existed. Here it is one pull request and a
 version bump.
 
-#### What it owns
+#### The boundary: what the engine owns, and what stays in your repo
 
-Argument parsing and the three modes (`--staged`, explicit paths, and the `all`-mode sweep); the
-allow-list and the override log; target enumeration; the union of the working-tree walk with the
-bytes git carries, deduplicated **by content** under git's own `blob <len>\0` framing; the
-completeness rule (a target the run enumerated and never read refuses, naming the paths); every
-refusal; and a cross-cutting floor that detects a dashed SSN shape and an email at an undeclared
-domain.
+**The ENGINE, shared and shipped here.** Argument parsing and the three modes (`--staged`, explicit
+paths, and the `all`-mode sweep); reading the allow-list and the override log; target enumeration;
+the union of the working-tree walk with the bytes git carries at every index path, deduplicated **by
+content** under git's own `blob <len>\0` framing; the completeness rule (a target the run enumerated
+and never read refuses, naming the paths); the per-root observation rule (`all` mode refuses unless
+every `scanRoots` entry yielded a file that was read, naming the starved roots); every refusal; and a
+cross-cutting detection floor that finds a dashed SSN shape and an email at an undeclared domain over
+every file, always.
 
-It does **not** own per-standard field detection: names, DOB, MRN / member id, address, phone.
-Those differ per healthcare standard and are supplied through `detect`.
+**The RULES, local to your repo, never moved and never shipped in this package.**
+`scripts/phi-allow-list.txt` (the positive declaration that a token is synthetic, tagged `NAME`,
+`DOB`, `ADDR`, `ID`, `EMAILDOMAIN`); `phi-scan-overrides.md` (the `--allow-fixture` audit log, and
+whatever category-to-field map your detector reads); and the per-standard field detector you supply
+through `detect` (names, DOB, MRN / member id, address, phone, parsed out of your own wire format).
+
+The split is not a convenience. **This package's `files` list ships no repo's rules**, so a
+declaration one consumer makes can never travel to another consumer through a version bump: with no
+file at `allowListPath` the engine treats every PHI-shaped token as undeclared, and refuses rather
+than reporting clean. A rules file is a reviewed, committed act in the repository it describes.
 
 #### The five per-repo axes
 
@@ -284,6 +296,12 @@ this on both branches.
 **`all` mode needs a git index.** It refuses when git cannot name the index or names it empty,
 because without it the sweep is the working-tree walk's word alone. A freshly scaffolded repo has to
 `git init` and commit before an `all`-mode run means anything.
+
+**Every scan root has to produce something.** `all` mode refuses when a `scanRoots` entry yielded no
+file that was read, and names it. A root that is missing, unreadable, or whose every file your read
+filter drops used to leave the sweep quietly narrower than its own configuration said, and one
+productive root made the whole run look productive. If you narrow `scanRoots`, this is the tier that
+tells you what the narrowing stopped reading.
 
 ### `runInternalRefsScan(config)`
 

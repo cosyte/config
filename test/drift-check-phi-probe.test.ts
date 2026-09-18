@@ -29,6 +29,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  ENGINE_FINDING_MARKER,
   phiScanProbeControls,
   phiScanProbeSpec,
   probePhiScanCompleteness,
@@ -42,7 +43,14 @@ const ALLOW_LIST = readFileSync(
   "utf8",
 );
 const SHARED_PACKAGE = join(REPO_ROOT, "packages", "script-utils");
-const SPEC = phiScanProbeSpec("__test__");
+/**
+ * The manifest's parameters, carrying the marker the SHARED ENGINE prints rather than the payload
+ * itself. Every case here runs the template scanner over THIS repo's engine, whose hit report names
+ * a position and a rule and never the matched token, so the payload is not an observable of it.
+ * A target repo keeps the manifest's own marker; that path is `checkRepoPhiScan` and no case here
+ * goes through it.
+ */
+const SPEC = { ...phiScanProbeSpec("__test__"), marker: ENGINE_FINDING_MARKER };
 
 /**
  * Substitute into a source, proving the substitution landed.
@@ -79,7 +87,8 @@ function probe(
 }
 
 /** The line whose removal removes the completeness rule, and nothing else. It is in the ENGINE. */
-const COMPLETENESS_LINE = "const unread = [...enumerated].filter((p) => !read.has(p));";
+const COMPLETENESS_LINE =
+  "const unread = [...enumerated].filter((p) => !read.has(p) && !skipped.has(p));";
 
 describe("the phi-scan completeness probe", () => {
   it("passes its own controls: the shipped template is ok, the rule removed REDS", () => {
