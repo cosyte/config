@@ -226,8 +226,15 @@ function detect(ctx: DetectContext): void {
   //     const d = detect{{TITLE}}Delimiters(ctx.text);       // if applicable
   //     for (const record of split{{TITLE}}(ctx.text, d)) {
   //       // check name / dob / id / address / phone fields against ctx.allow
-  //       // ctx.hit({ segment: "<field>", value, reason: "<why>" });
+  //       // ctx.hit({ segment: "<field>", reason: "<why>" });
   //     }
+  //
+  //   🛑 A HIT IS A POSITION AND A RULE, NEVER THE VALUE. `segment` is where in
+  //   the record it sits and `reason` is why it was raised; the engine reports
+  //   both beside the path and prints no token, because stderr is a CI log. The
+  //   `value` field is still accepted so an existing detector compiles, and it
+  //   is dropped rather than stored. Do not route around that with a value
+  //   interpolated into `segment` or `reason`.
   //
   //   🛑 CHECK `ctx.allow` IN EVERY DETECTOR YOU ADD. The `--allow-fixture`
   //   bypass cannot reach a clean run, so a detector that consults nothing

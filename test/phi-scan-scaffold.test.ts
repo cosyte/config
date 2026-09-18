@@ -108,6 +108,12 @@ const BYPASS = "--allow-fixture";
 /** A synthetic, name-bearing payload. Nothing here is real. */
 const PAYLOAD_BASENAME = "rivera-jordan-19700101.txt";
 const PAYLOAD_BODY = "contact rivera.jordan@stmarysclinic.example.org ssn 123-45-6789\n";
+/**
+ * What a REPORT of that dashed identifier looks like: a locator and the rule that fired. The
+ * emitted scanner's engine prints a position and never the matched token (`phi-safety` P4), so this
+ * is the observable for "the scanner found it" and the payload's own text is not one.
+ */
+const SSN_FINDING = "segment=(ssn) (dashed SSN pattern)";
 /** The one token that must never appear in a refusal: it is off the link target. */
 const TARGET_TOKEN = "rivera";
 
@@ -392,7 +398,12 @@ describe("controls: the suite is exercising the emitted scanner, and it can stil
       // measured exit-0-over-an-unopened-corpus hole.
       'const scanPaths = mode === "paths" ? this.dedupeByRepoPath(seed) : paths;',
       "const unmatched = [...allowed].filter((p) => !enumerated.has(p));",
-      "const unread = [...enumerated].filter((p) => !read.has(p));",
+      "const unread = [...enumerated].filter((p) => !read.has(p) && !skipped.has(p));",
+      // THE PER-ROOT OBSERVATION RULE and the ENUMERATION TOCTOU WINDOW: a root that produced no
+      // read leaves the sweep narrower than its own configuration says, and a vanished target is
+      // only ever skipped when it was untracked, in `all` mode, and still absent at the end.
+      "this.cfg.scanRoots.filter((root) => !this.anyReadUnder(root, read))",
+      "if (this.isVanishedUntracked(err, t, index)) {",
       // THE UNION. The sweep reads the bytes git carries, keyed on STAGE 0, and
       // deduplicated against the walk BY CONTENT.
       '["ls-files", "-s", "-z"]',
@@ -447,7 +458,7 @@ describe("controls: the suite is exercising the emitted scanner, and it can stil
   it("the payload is detectable, so a clean report over it is a miss and not an absence", () => {
     const named = scan("scripts/phi-scan.ts", [payload]);
     expect(named.code).toBe(1);
-    expect(named.out).toContain("123-45-6789");
+    expect(named.out).toContain(SSN_FINDING);
   });
 });
 
@@ -827,7 +838,10 @@ describe("a target enumerated but never read refuses, in every mode", () => {
         'const scanPaths = mode === "paths" ? this.dedupeByRepoPath(seed) : paths;',
         "const scanPaths = paths.length > 0 ? paths : [...allowFixtures];",
       ],
-      ["const unread = [...enumerated].filter((p) => !read.has(p));", "const unread = [];"],
+      [
+        "const unread = [...enumerated].filter((p) => !read.has(p) && !skipped.has(p));",
+        "const unread = [];",
+      ],
       [
         "const unmatched = [...allowed].filter((p) => !enumerated.has(p));",
         "const unmatched = [];",
@@ -848,7 +862,7 @@ describe("a target enumerated but never read refuses, in every mode", () => {
     // over it is a miss, not an absence.
     const named = scan("scripts/phi-scan.ts", [VIOLATOR]);
     expect(named.code).toBe(1);
-    expect(named.out).toContain("123-45-6789");
+    expect(named.out).toContain(SSN_FINDING);
   });
 
   it("the two tiers are a union, not a duplicate: the old seed alone still refuses", () => {
@@ -890,7 +904,7 @@ describe("a target enumerated but never read refuses, in every mode", () => {
     // any target is read, so it prints no hit. That is not the same guarantee
     // the unread tier gives (which reports hits first), and the docblock says so
     // in those words. Loud and never green either way.
-    expect(r.out).not.toContain("123-45-6789");
+    expect(r.out).not.toContain(SSN_FINDING);
   });
 
   it("DISCLOSURE, PINNED: an allow-list that exists but cannot be READ still takes exit 1", () => {
@@ -956,7 +970,7 @@ describe("a target enumerated but never read refuses, in every mode", () => {
 
     const r = scan("scripts/phi-scan.ts", ["--allow-fixture", "test/fixtures/ok.txt"]);
     expect(r.code, r.out).toBe(2);
-    expect(r.out).toContain("123-45-6789"); // the hit survived
+    expect(r.out).toContain(SSN_FINDING); // the hit survived
     expect(r.out).toContain("enumerated and never read");
     expect(r.out).toContain("test/fixtures/ok.txt");
     expect(r.out).not.toContain("OK: no hits");
@@ -1079,7 +1093,7 @@ describe("all mode reads the bytes git carries as a UNION with the walk", () => 
 
     const r = scan("scripts/phi-scan.ts");
     expect(r.code, r.out).toBe(1);
-    expect(r.out).toContain("123-45-6789");
+    expect(r.out).toContain(SSN_FINDING);
     expect(r.out).toContain("as git carries it");
 
     // THE DEFECT, REPRODUCED: without the union the same tree reports clean.

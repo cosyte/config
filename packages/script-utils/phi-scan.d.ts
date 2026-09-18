@@ -7,15 +7,28 @@
  * The caller owns the five per-repo axes below and the per-standard field detectors.
  */
 
-/** A reported PHI finding. `path` is the LOCUS the engine chose, never a path the caller invents. */
+/**
+ * A reported PHI finding: a POSITION and a RULE, never the token that matched. `path` is the LOCUS
+ * the engine chose, never a path the caller invents.
+ *
+ * 🛑 THE MATCHED VALUE IS NOT PART OF A FINDING. The report goes to stderr, stderr is a CI log, and
+ * a diagnostic about a PHI leak that quotes the leak is a second copy of it somewhere worse
+ * (`phi-safety` P4). A detector may pass `value`; the engine drops it at the boundary rather than
+ * storing it, so no reporting path downstream can print what no record carries.
+ */
 export interface Hit {
   /** The reported locus: the target's repo-relative path, plus an origin label when it has one. */
   path: string;
   /** A locator inside the target: `(ssn)`, `(email)`, or a field id from a per-standard detector. */
   segment: string;
-  /** The offending value, as found. */
-  value: string;
-  /** Why it was raised, in a few words. */
+  /**
+   * The offending value, as a detector found it. ACCEPTED AND DISCARDED: the engine neither stores
+   * nor prints it, and a hit the engine reports never carries one. It stays in the surface so a
+   * detector that has the token in hand can keep saying so at its own call site without the engine
+   * becoming the place that publishes it.
+   */
+  value?: string;
+  /** Why it was raised, in a few words. This is what the report prints beside the locator. */
   reason: string;
 }
 
@@ -85,7 +98,12 @@ export type DetectFn = (ctx: DetectContext) => void;
 
 /** The three codes this repo's own exit contract assigns. All three must differ. */
 export interface PhiScanExitCodes {
-  /** The scan ran, read every target it enumerated, and found nothing. */
+  /**
+   * The scan ran, read every target it enumerated, and found nothing. The ONE subtraction is the
+   * enumeration TOCTOU window: an UNTRACKED file the walk listed, in `all` mode, that was gone by
+   * read time and is still gone at the end of the run, is reported SKIPPED. Git carries no bytes
+   * at such a path, so nothing this repository holds went unread.
+   */
   clean: number;
   /** This corpus contains something that looks like PHI. */
   hits: number;
@@ -124,11 +142,16 @@ export interface PhiScanConfig {
    * WHAT DERIVING GIVES UP: a declaration can notice that a root is not the KIND it was meant to be
    * and derivation cannot, so a root that changes kind is silently treated as what it now is. A root
    * that is NEITHER a file nor a directory is still refused, and a root naming a symbolic link is
-   * refused rather than followed. A MISSING root is skipped, which is unchanged from the copied
-   * scanners. It is not the last state in which a root contributes nothing without saying so, and
-   * two others are known: a file root the read filter drops (a `.md` file root reads nothing under
-   * the default `isWalkReadable`, so porting one means overriding that filter too), and an
-   * UNREADABLE root, which is reported the same way a missing one is.
+   * refused rather than followed. A MISSING root is skipped by the WALK, which is unchanged from the
+   * copied scanners.
+   *
+   * 🛑 EVERY ROOT MUST YIELD AT LEAST ONE FILE THAT WAS ACTUALLY READ, OR `all` MODE REFUSES AND
+   * NAMES THE STARVED ROOTS. That is what closes the class the paragraph above used to end with:
+   * a root that contributes nothing WITHOUT SAYING SO. All three of the known members are in it - a
+   * missing root, an UNREADABLE root (reported the same way a missing one is), and a root whose
+   * every file the read filter drops, which is what a `.md` file root does under the default
+   * `isWalkReadable`. A root is a scope decision, and a scope decision that silently selected
+   * nothing is the sweep reporting on a corpus it never had.
    */
   scanRoots: readonly string[];
 
