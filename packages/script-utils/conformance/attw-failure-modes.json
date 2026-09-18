@@ -1,0 +1,765 @@
+{
+  "what": "The reconciliation inventory for the shared attw publish gate: one entry per distinct failure mode and per distinct refusal carried by either pre-consolidation body, with the corpus assertion that pins it.",
+  "why": "The consolidation's whole risk is a mode that quietly stops being reported, because that presents as a green run. This file is the machine-readable answer to 'which failure modes does the canonical carry?', and packages/script-utils/test/attw-shared.test.ts reds when an entry here has no assertion behind it. An entry whose assertion is deleted, skipped or weakened therefore reds the suite instead of passing quietly.",
+  "notComplete": "This is the PRE-CONSOLIDATION set plus what the consolidation added. It is not a claim that the gate catches everything: the bodies' own docblocks bound what each net does and does not prove, and nothing here widens those claims.",
+  "bodies": {
+    "config-1500": {
+      "was": "packages/test-utils/scripts/attw.mjs and scripts/parser-template/scripts/attw.mjs, byte-identical, 1500 lines, at config pin 97f80c22",
+      "nets": "1 (preflight over the declared set), 2 (attw's JSON document), 3 (npm's pack listing), 4 (the manifest pnpm would publish)"
+    },
+    "hl7-297": {
+      "was": "hl7/scripts/attw.mjs, 297 lines, at hl7 pin 086ae193, read through `just sub-read`",
+      "nets": "1 (preflight over main/module/types/typings/exports, INCLUDING the zero-declared refusal), 2 (attw's untyped sentence)"
+    }
+  },
+  "corpora": {
+    "test-utils": "packages/test-utils/test/attw-gate.test.ts",
+    "scaffold": "test/attw-scaffold.test.ts",
+    "shared": "packages/script-utils/test/attw-shared.test.ts",
+    "hl7": "hl7/test/scripts/attw-gate.test.ts (NOT in this repository: recorded, and graded in hl7 by hl7's own half of this item)"
+  },
+  "entries": [
+    {
+      "id": "net1-declared-path-missing",
+      "net": "1",
+      "class": "detection",
+      "detects": "a manifest that declares a relative artifact path the working tree does not carry",
+      "carriedBy": ["config-1500", "hl7-297"],
+      "canonical": "carried",
+      "assertions": [
+        {
+          "corpus": "test-utils",
+          "case": "fails, naming the file, when a declared artifact was never built",
+          "asserts": ["./dist/index.d.ts", "missing"]
+        },
+        {
+          "corpus": "scaffold",
+          "case": "reds, naming the file, when the build has not produced the declarations",
+          "asserts": ["./dist/index.d.ts", "missing"]
+        }
+      ]
+    },
+    {
+      "id": "net1-declared-path-empty",
+      "net": "1",
+      "class": "detection",
+      "detects": "a manifest that declares a relative artifact path which exists but is zero bytes, the shape a truncated write leaves behind",
+      "carriedBy": ["config-1500", "hl7-297"],
+      "canonical": "carried",
+      "note": "PINNED ONLY IN hl7's CORPUS BEFORE THE CONSOLIDATION. config's two corpora asserted `missing` and never `empty`, so the canonical's copy of that half had no grader in this repository. The shared case below is where it now lives.",
+      "assertions": [
+        {
+          "corpus": "shared",
+          "case": "reds on a declared artifact that is present but EMPTY",
+          "asserts": ["empty"]
+        }
+      ]
+    },
+    {
+      "id": "net1-lenient-path-grammar",
+      "net": "1",
+      "class": "detection",
+      "detects": "a path declared without a leading ./ through main, module, types or typings, which is legal npm spelling and was silently skipped by an earlier guard",
+      "carriedBy": ["config-1500", "hl7-297"],
+      "canonical": "carried",
+      "assertions": [
+        {
+          "corpus": "test-utils",
+          "case": "checks a path declared WITHOUT a leading ./, which is legal and used to be skipped",
+          "asserts": ["./dist/index.d.ts"]
+        }
+      ]
+    },
+    {
+      "id": "net1-bin-field",
+      "net": "1",
+      "class": "detection",
+      "detects": "a manifest promising a command through `bin` that is not in the tree, which attw never looks at at all",
+      "carriedBy": ["config-1500"],
+      "canonical": "carried",
+      "assertions": [
+        {
+          "corpus": "test-utils",
+          "case": "reads `bin`, which attw never looks at at all",
+          "asserts": ["./dist/cli.js", "missing"]
+        }
+      ]
+    },
+    {
+      "id": "net1-zero-declared-refusal",
+      "net": "1",
+      "class": "detection",
+      "detects": "a manifest that declares no relative artifact path at all, where the preflight would otherwise report a pass from a check that read nothing",
+      "carriedBy": ["hl7-297"],
+      "canonical": "added",
+      "note": "THE ONE GAP IN THE 1500-LINE BODY. It printed `declares no relative artifact paths, so net 3 had none to check` and exited 0. The 297-line body refused it. The canonical refuses it, and net 3's zero-declared pass branch was deleted with it rather than left as unreachable prose.",
+      "assertions": [
+        {
+          "corpus": "shared",
+          "case": "refuses a manifest that declares no relative artifact path at all",
+          "asserts": ["checked nothing"]
+        }
+      ]
+    },
+    {
+      "id": "net1-no-exit-code-counterfactual",
+      "net": "1",
+      "class": "non-detection",
+      "detects": "the preflight message makes no claim about what attw would have done, in either direction",
+      "carriedBy": ["config-1500"],
+      "canonical": "carried",
+      "reason": "The preflight reads the manifest and never the tarball, so a sentence about attw's exit code is a guess. Unchanged by the consolidation.",
+      "assertions": [
+        {
+          "corpus": "test-utils",
+          "case": "makes NO claim about attw's exit code from the preflight, in either direction",
+          "asserts": ["attw was not run"]
+        }
+      ]
+    },
+    {
+      "id": "fieldset-typesVersions",
+      "net": "1,3,4",
+      "class": "detection",
+      "detects": "an absent path declared only through `typesVersions`",
+      "carriedBy": ["config-1500"],
+      "canonical": "carried",
+      "assertions": [
+        {
+          "corpus": "test-utils",
+          "case": "RED BEFORE, GREEN AFTER: a path declared only through",
+          "asserts": ["declares paths the published tarball would NOT carry"],
+          "declares": ["[\"typesVersions\", { typesVersions:"]
+        }
+      ]
+    },
+    {
+      "id": "fieldset-imports",
+      "net": "1,3,4",
+      "class": "detection",
+      "detects": "an absent path declared only through an `imports` target",
+      "carriedBy": ["config-1500"],
+      "canonical": "carried",
+      "assertions": [
+        {
+          "corpus": "test-utils",
+          "case": "RED BEFORE, GREEN AFTER: a path declared only through",
+          "asserts": ["declares paths the published tarball would NOT carry"],
+          "declares": ["[\"imports\", { imports: { \"#internal\": \"./extra.mjs\" } }"]
+        }
+      ]
+    },
+    {
+      "id": "fieldset-browser-map-value",
+      "net": "1,3,4",
+      "class": "detection",
+      "detects": "an absent path declared only as a `browser` map VALUE",
+      "carriedBy": ["config-1500"],
+      "canonical": "carried",
+      "assertions": [
+        {
+          "corpus": "test-utils",
+          "case": "RED BEFORE, GREEN AFTER: a path declared only through",
+          "asserts": ["declares paths the published tarball would NOT carry"],
+          "declares": ["[\"browser-map-value\", { browser:"]
+        }
+      ]
+    },
+    {
+      "id": "fieldset-browser-string",
+      "net": "1,3,4",
+      "class": "detection",
+      "detects": "an absent path declared only through the STRING form of `browser`",
+      "carriedBy": ["config-1500"],
+      "canonical": "carried",
+      "assertions": [
+        {
+          "corpus": "test-utils",
+          "case": "RED BEFORE, GREEN AFTER: a path declared only through",
+          "asserts": ["declares paths the published tarball would NOT carry"],
+          "declares": ["[\"browser-string\", { browser: \"./extra.mjs\" }"]
+        }
+      ]
+    },
+    {
+      "id": "fieldset-man",
+      "net": "1,3,4",
+      "class": "detection",
+      "detects": "an absent man page declared only through `man`, in both the string and the array form",
+      "carriedBy": ["config-1500"],
+      "canonical": "carried",
+      "assertions": [
+        {
+          "corpus": "test-utils",
+          "case": "RED BEFORE, GREEN AFTER: a path declared only through",
+          "asserts": ["declares paths the published tarball would NOT carry"],
+          "declares": [
+            "[\"man-string\", { man: \"extra.1\" }",
+            "[\"man-array\", { man: [\"./extra.1\"] }"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fieldset-cdn-fields",
+      "net": "1,3,4",
+      "class": "detection",
+      "detects": "an absent path declared only through `unpkg` or `jsdelivr`",
+      "carriedBy": ["config-1500"],
+      "canonical": "carried",
+      "assertions": [
+        {
+          "corpus": "test-utils",
+          "case": "RED BEFORE, GREEN AFTER: a path declared only through",
+          "asserts": ["declares paths the published tarball would NOT carry"],
+          "declares": [
+            "[\"unpkg\", { unpkg: \"./extra.mjs\" }",
+            "[\"jsdelivr\", { jsdelivr: \"./extra.mjs\" }"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fieldset-license-see-license-in",
+      "net": "1,3,4",
+      "class": "detection",
+      "detects": "an absent file named by the `SEE LICEN[CS]E IN <filename>` form of `license`, in both npm spellings",
+      "carriedBy": ["config-1500"],
+      "canonical": "carried",
+      "assertions": [
+        {
+          "corpus": "test-utils",
+          "case": "RED BEFORE, GREEN AFTER: a path declared only through",
+          "asserts": ["declares paths the published tarball would NOT carry"],
+          "declares": [
+            "[\"license-see-license-in\", { license: \"SEE LICENSE IN EULA.txt\" }",
+            "[\"license-see-licence-in\", { license: \"SEE LICENCE IN ./EULA.txt\" }"
+          ]
+        },
+        {
+          "corpus": "test-utils",
+          "case": "WHERE READING `license` STOPS: npm force-packs the `license` stem, so those stay green",
+          "asserts": ["./EULA.txt"]
+        }
+      ]
+    },
+    {
+      "id": "fieldset-exclusions-hold",
+      "net": "1,3,4",
+      "class": "non-detection",
+      "detects": "the shapes that are NOT files of ours stay out of the derived set: wildcard targets, absolute paths, bare specifiers in exports and imports, browser map KEYS, `false` browser values, and an ordinary SPDX `license`",
+      "carriedBy": ["config-1500"],
+      "canonical": "carried",
+      "reason": "A widened field set buys false reds on correctly packed packages. Unchanged by the consolidation, and it is the control that keeps the reading difference recorded under `exports-leaf-without-dot` honest.",
+      "assertions": [
+        {
+          "corpus": "test-utils",
+          "case": "NEGATIVE CONTROL: the shapes that are NOT files of ours stay out of the set",
+          "asserts": ["all 4 relative artifact path(s) package.json declares are in the"]
+        }
+      ]
+    },
+    {
+      "id": "known-unread-disclosure-is-derived",
+      "net": "1,3,4",
+      "class": "non-detection",
+      "detects": "every name in the gate's KNOWN_UNREAD_FIELDS disclosure is measured to be really unread, and the pass line prints the gate's own copy of that list",
+      "carriedBy": ["config-1500"],
+      "canonical": "carried",
+      "reason": "The disclosure is parsed out of the gate rather than pasted beside it. The consolidation moved the file it is parsed FROM, not the mechanism.",
+      "assertions": [
+        {
+          "corpus": "test-utils",
+          "case": "THE KNOWN-UNREAD DISCLOSURE IS DERIVED FROM THE GATE, NOT PASTED BESIDE IT",
+          "asserts": ["Known-unread: ", "does NOT cover every field that can name a file"]
+        }
+      ]
+    },
+    {
+      "id": "net2-untyped-tarball",
+      "net": "2",
+      "class": "detection",
+      "detects": "a tarball that carries no types at all, which attw reports and exits 0 over",
+      "carriedBy": ["config-1500", "hl7-297"],
+      "canonical": "carried",
+      "note": "The two bodies detected it differently: the 297-line one matched attw's untyped SENTENCE, the 1500-line one reads `analysis.types` out of the JSON document. The detection is the same and the canonical keeps the structural form; the sentence half is recorded under `hl7-untyped-prose-assertion`.",
+      "assertions": [
+        {
+          "corpus": "test-utils",
+          "case": "fails when the tarball carries no types, where attw exits 0",
+          "asserts": ["analysed this package as UNTYPED"]
+        },
+        {
+          "corpus": "scaffold",
+          "case": "reds on an untyped pack, where the invocation it replaced exits 0",
+          "asserts": ["analysed this package as UNTYPED"]
+        }
+      ]
+    },
+    {
+      "id": "net2-empty-transcript",
+      "net": "2",
+      "class": "detection",
+      "detects": "an empty transcript, which is a check that read nothing rather than a pass",
+      "carriedBy": ["config-1500", "hl7-297"],
+      "canonical": "carried",
+      "assertions": [
+        {
+          "corpus": "test-utils",
+          "case": "reds on {\"quiet\": true}, which empties the transcript",
+          "asserts": ["printed nothing to stdout"]
+        },
+        {
+          "corpus": "shared",
+          "case": "names .attw.json when a committed config empties the transcript",
+          "asserts": [".attw.json"]
+        }
+      ]
+    },
+    {
+      "id": "net2-unparseable-transcript",
+      "net": "2",
+      "class": "detection",
+      "detects": "a transcript that is not the JSON document the gate asked for, which is how a committed `.attw.json` setting `format` lands",
+      "carriedBy": ["config-1500"],
+      "canonical": "carried",
+      "assertions": [
+        {
+          "corpus": "test-utils",
+          "case": "reds on {\"format\": \"table\"}, which BEATS the --format json the gate passes",
+          "asserts": ["not the JSON document this gate asked for"]
+        }
+      ]
+    },
+    {
+      "id": "net2-types-merged-from-definitelytyped",
+      "net": "2",
+      "class": "detection",
+      "detects": "a package whose types were merged in from a DefinitelyTyped tarball, so the document parses, attw exits 0, and the tarball carries no declaration at all",
+      "carriedBy": ["config-1500"],
+      "canonical": "carried",
+      "assertions": [
+        {
+          "corpus": "test-utils",
+          "case": "reds on {\"definitelyTyped\": \"<@types tarball>\"}, the one the parse alone does NOT catch",
+          "asserts": ["did NOT come from its own", "\"@types\""]
+        }
+      ]
+    },
+    {
+      "id": "net2-document-shape-change",
+      "net": "2",
+      "class": "detection",
+      "detects": "an attw document with no `analysis.types` field at all, which is a shape change upstream and not an untyped package",
+      "carriedBy": ["config-1500"],
+      "canonical": "carried",
+      "note": "CARRIED BY THE BODY AND PINNED BY NEITHER CORPUS before the consolidation. Found by this reconciliation and given a case in the shared corpus rather than left unasserted.",
+      "assertions": [
+        {
+          "corpus": "shared",
+          "case": "reds on an attw document with no analysis.types, and says it is a shape change",
+          "asserts": ["no analysis.types field"]
+        }
+      ]
+    },
+    {
+      "id": "attw-own-status-forwarded",
+      "net": "2",
+      "class": "detection",
+      "detects": "attw's own non-zero verdict, forwarded with attw's own status rather than re-decided",
+      "carriedBy": ["config-1500", "hl7-297"],
+      "canonical": "carried",
+      "assertions": [
+        {
+          "corpus": "test-utils",
+          "case": "still fails when attw itself fails, with attw's own status",
+          "asserts": ["expect(wrapped.code).toBe(bare.code)"]
+        }
+      ]
+    },
+    {
+      "id": "argv-allow-list-refusal",
+      "net": "argv",
+      "class": "detection",
+      "detects": "every argument outside the allow-list, including each spelling measured to blind the gate (--quiet, -q, --format json, -f json, --format=json, -fjson, -qP, -Pq, -Pf json, --config-path, --help, -h, --version, -V, --definitely-typed, --ignore-rules)",
+      "carriedBy": ["config-1500", "hl7-297"],
+      "canonical": "carried",
+      "note": "The 297-line body refused by option NAME from a deny-list; the canonical allow-lists two arguments and refuses everything else, which is strictly stricter. `-Pf json` is the one spelling hl7's table carried and config's does not, so it is pinned in the shared corpus.",
+      "assertions": [
+        {
+          "corpus": "test-utils",
+          "case": "refuses %s",
+          "asserts": ["is not an argument this gate accepts"]
+        },
+        {
+          "corpus": "shared",
+          "case": "refuses the blinding spellings the 297-line variant enumerated",
+          "asserts": ["is not an argument this gate accepts", "-Pf"]
+        },
+        {
+          "corpus": "scaffold",
+          "case": "refuses everything else, so `forwards it` cannot be satisfied by forwarding all",
+          "asserts": ["not an argument this gate accepts"]
+        }
+      ]
+    },
+    {
+      "id": "argv-profile-without-value",
+      "net": "argv",
+      "class": "detection",
+      "detects": "`--profile` given with no value, rather than forwarding a bare flag",
+      "carriedBy": ["config-1500"],
+      "canonical": "carried",
+      "assertions": [
+        {
+          "corpus": "test-utils",
+          "case": "refuses --profile with no value rather than forwarding a bare flag",
+          "asserts": ["--profile was given with no value"]
+        }
+      ]
+    },
+    {
+      "id": "argv-allowed-forwarding",
+      "net": "argv",
+      "class": "non-detection",
+      "detects": "the two allow-listed arguments reach attw, with --profile's value, and --format json is appended by the gate",
+      "carriedBy": ["config-1500"],
+      "canonical": "carried",
+      "reason": "The over-strictness control. A guard that refuses everything is a broken script, not a gate.",
+      "assertions": [
+        {
+          "corpus": "scaffold",
+          "case": "hands attw exactly `--pack . --no-definitely-typed --format json`",
+          "asserts": ["--no-definitely-typed"]
+        },
+        {
+          "corpus": "test-utils",
+          "case": "forwards the allow-listed arguments, and does not drop or default --profile's value",
+          "asserts": ["--profile"]
+        }
+      ]
+    },
+    {
+      "id": "env-npm-dry-run-stripped",
+      "net": "env",
+      "class": "detection",
+      "detects": "an inherited npm dry-run config, in every spelling npm honours, which leaves the nested `npm pack` writing nothing and bare attw dying on ENOENT",
+      "carriedBy": ["config-1500"],
+      "canonical": "carried",
+      "assertions": [
+        {
+          "corpus": "test-utils",
+          "case": "the wrapper still gates an untyped pack with %s planted",
+          "asserts": ["not.toContain(\"ENOENT\")"]
+        }
+      ]
+    },
+    {
+      "id": "env-pack-destination-stripped",
+      "net": "env",
+      "class": "detection",
+      "detects": "an inherited npm pack-destination, which moves the tarball away from the path attw computed",
+      "carriedBy": ["config-1500"],
+      "canonical": "carried",
+      "assertions": [
+        {
+          "corpus": "test-utils",
+          "case": "the same, for a pack-destination that would move the tarball attw computed",
+          "asserts": ["not.toContain(\"ENOENT\")"]
+        }
+      ]
+    },
+    {
+      "id": "net3-declared-path-not-packed",
+      "net": "3",
+      "class": "detection",
+      "detects": "a declared path that is on disk but left out of the tarball npm would publish, including under a committed config that relaxes attw's own exit code",
+      "carriedBy": ["config-1500"],
+      "canonical": "carried",
+      "assertions": [
+        {
+          "corpus": "test-utils",
+          "case": "a config setting ${label} hid a lost declaration",
+          "asserts": ["declares paths the published tarball would NOT carry"]
+        },
+        {
+          "corpus": "test-utils",
+          "case": "CLOSED BY NET 3, AND NOT BY WIDENING THIS NET",
+          "asserts": ["declares paths the published tarball would NOT carry"]
+        }
+      ]
+    },
+    {
+      "id": "net3-unreadable-pack-listing",
+      "net": "3",
+      "class": "detection",
+      "detects": "an npm pack listing this net could not read, refused rather than treated as an empty set",
+      "carriedBy": ["config-1500"],
+      "canonical": "carried",
+      "assertions": [
+        {
+          "corpus": "test-utils",
+          "case": "FAILS CLOSED when npm's pack listing cannot be read",
+          "asserts": ["could not read which files a tarball"]
+        }
+      ]
+    },
+    {
+      "id": "net4-publishconfig-override-absent-path",
+      "net": "4",
+      "class": "detection",
+      "detects": "a publishConfig override whose main, exports or bin names a path the tarball pnpm would write does not carry",
+      "carriedBy": ["config-1500"],
+      "canonical": "carried",
+      "assertions": [
+        {
+          "corpus": "test-utils",
+          "case": "RED BEFORE, GREEN AFTER: publishConfig main/exports/bin naming absent paths",
+          "asserts": ["the manifest PNPM WOULD PUBLISH declares paths"]
+        }
+      ]
+    },
+    {
+      "id": "net4-publishconfig-directory-subtree",
+      "net": "4",
+      "class": "detection",
+      "detects": "a publishConfig.directory subtree whose own manifest names a path that subtree does not carry",
+      "carriedBy": ["config-1500"],
+      "canonical": "carried",
+      "assertions": [
+        {
+          "corpus": "test-utils",
+          "case": "`publishConfig.directory`: RED when the subtree pnpm publishes names a path it does not carry",
+          "asserts": ["./absent-in-subtree.js"]
+        }
+      ]
+    },
+    {
+      "id": "net4-pnpm-pack-unreadable",
+      "net": "4",
+      "class": "detection",
+      "detects": "a `pnpm pack` this net could not run or read, refused rather than skipped",
+      "carriedBy": ["config-1500"],
+      "canonical": "carried",
+      "assertions": [
+        {
+          "corpus": "test-utils",
+          "case": "FAILS CLOSED when `pnpm pack` cannot be read: refused, never skipped",
+          "asserts": ["could not read the manifest pnpm would publish"]
+        }
+      ]
+    },
+    {
+      "id": "binary-absent-or-not-executable",
+      "net": "binary",
+      "class": "detection",
+      "detects": "an attw binary that is missing, or present and not executable, at the path the gate resolved",
+      "carriedBy": ["config-1500", "hl7-297"],
+      "canonical": "strengthened",
+      "note": "Both bodies died on spawnSync's own error, which names a syscall. The canonical checks the path first and names IT, because a shared body installed under @cosyte/ makes 'which tree was this resolved in' the question a reader now has.",
+      "assertions": [
+        {
+          "corpus": "shared",
+          "case": "reds, naming the path it looked for, when the consuming package has no attw binary",
+          "asserts": ["join(consumer.dir, \"node_modules\", \".bin\", \"attw\")", "not runnable"]
+        },
+        {
+          "corpus": "shared",
+          "case": "reds, naming the path, when the binary is present but not executable",
+          "asserts": ["join(consumer.dir, \"node_modules\", \".bin\", \"attw\")"]
+        }
+      ]
+    },
+    {
+      "id": "binary-belongs-to-the-consuming-package",
+      "net": "binary",
+      "class": "detection",
+      "detects": "a gate that would run an attw belonging to a package other than the one being checked",
+      "carriedBy": [],
+      "canonical": "added",
+      "note": "NOT A MODE EITHER BODY HAD, because neither was shared: a copy in the consuming repo could only resolve its own binary. It is the consolidation's own new failure mode, so it gets a case rather than an assumption.",
+      "assertions": [
+        {
+          "corpus": "shared",
+          "case": "never runs an attw belonging to a different package",
+          "asserts": ["the gate ran another package's attw", "existsSync(decoyMarker)"]
+        },
+        {
+          "corpus": "shared",
+          "case": "refuses a call that passes no callerUrl, rather than defaulting to its own location",
+          "asserts": ["no callerUrl"]
+        }
+      ]
+    },
+    {
+      "id": "shared-body-is-the-only-body",
+      "net": "consolidation",
+      "class": "detection",
+      "detects": "a second body of the probe's net logic anywhere in this repository",
+      "carriedBy": [],
+      "canonical": "added",
+      "assertions": [
+        {
+          "corpus": "scaffold",
+          "case": "exactly one body of the net logic exists in this repository",
+          "asserts": ["ls-files", "planted-second-body.js", "BODY_MARKER"]
+        }
+      ]
+    },
+    {
+      "id": "a-change-to-the-canonical-reaches-an-unedited-consumer",
+      "net": "consolidation",
+      "class": "detection",
+      "detects": "a consumer that kept running its own copy of the gate instead of the shared body",
+      "carriedBy": [],
+      "canonical": "added",
+      "assertions": [
+        {
+          "corpus": "shared",
+          "case": "a refusal added to the canonical alone changes what an unedited consumer does",
+          "asserts": ["unedited"]
+        }
+      ]
+    },
+    {
+      "id": "pass-line-zero-declared-net3",
+      "net": "3",
+      "class": "non-detection",
+      "carriedBy": ["config-1500"],
+      "canonical": "removed",
+      "detects": "the pass line's net 3 branch for a manifest declaring no relative artifact path",
+      "reExpressed": true,
+      "input": "a manifest declaring no relative artifact path of its own (`{ name, version, directories: { lib: \"./absent-lib\" }, files: [...] }`), run for the known-unread disclosure and asserted green",
+      "reason": "The canonical refuses that input at net 1 (see net1-zero-declared-refusal), so the branch is unreachable and was deleted rather than left as dead prose. The assertion the case exists for is that the disclosure prints OUTSIDE every branch, which is re-expressed on a manifest that declares one path: the fixture still declares its trees only through `directories`, so the field under test is unchanged.",
+      "assertions": [
+        {
+          "corpus": "test-utils",
+          "case": "THE DISCLOSURE PRINTS OUTSIDE EVERY BRANCH, ON THE SMALLEST DECLARED SET THERE CAN BE",
+          "asserts": ["Known-unread: "]
+        }
+      ]
+    },
+    {
+      "id": "pass-line-zero-declared-net4",
+      "net": "4",
+      "class": "non-detection",
+      "carriedBy": ["config-1500"],
+      "canonical": "carried",
+      "detects": "the pass line's net 4 branch for a PUBLISHED manifest declaring no relative artifact path",
+      "reExpressed": true,
+      "input": "a manifest declaring nothing but `publishConfig: { access: \"public\" }`, asserted green on both the net 3 and the net 4 zero-declared sentences",
+      "reason": "Net 1 now refuses a manifest that declares nothing, so the old fixture cannot reach net 4 at all. The branch itself survives and is still the one branch no other case reaches, so the fixture is re-expressed as a package that declares a path of its own and publishes a `publishConfig.directory` subtree whose manifest declares none. The net 3 half of the assertion moves to the entry above; the net 4 sentence is asserted unchanged.",
+      "assertions": [
+        {
+          "corpus": "test-utils",
+          "case": "THE ZERO-DECLARED BRANCH OF NET 4's PASS LINE, which is the one branch no other case reaches",
+          "asserts": ["the manifest pnpm would publish declares no relative artifact"]
+        }
+      ]
+    },
+    {
+      "id": "argv-probe-fixture-declared-nothing",
+      "net": "argv",
+      "class": "non-detection",
+      "carriedBy": ["config-1500"],
+      "canonical": "carried",
+      "detects": "what the emitted wrapper forwards to attw, measured with a shim that records its argv",
+      "reExpressed": true,
+      "input": "`{ name: \"attw-argv-probe\", version: \"1.0.0\", private: true }`, a manifest that declared nothing on purpose so the preflight had nothing to find missing and the run reached the spawn",
+      "reason": "The new net 1 refusal stops that manifest reaching the spawn. The fixture now declares `main: \"./index.js\"` and carries a packed `index.js`, which is the smallest manifest that still reaches the spawn; nothing about what is FORWARDED changes, and the argv assertions are unchanged.",
+      "assertions": [
+        {
+          "corpus": "scaffold",
+          "case": "hands attw exactly `--pack . --no-definitely-typed --format json`",
+          "asserts": ["--format"]
+        }
+      ]
+    },
+    {
+      "id": "big-output-fixture-declared-nothing",
+      "net": "2",
+      "class": "non-detection",
+      "carriedBy": ["config-1500"],
+      "canonical": "carried",
+      "detects": "a JSON document larger than spawnSync's default 1 MiB buffer, read rather than dying on ENOBUFS",
+      "reExpressed": true,
+      "input": "`{ name: \"attw-gate-fixture-big\", version: \"1.0.0\", private: true }` plus a shim printing a 2 MiB valid document",
+      "reason": "Same collision as the argv probe: that manifest declares nothing, so the new net 1 refusal reds it before the shim is spawned. The fixture now declares `main: \"./index.js\"` with the file present. The buffer assertion is unchanged and still non-vacuous: the control measuring the document past 1 MiB is untouched.",
+      "assertions": [
+        {
+          "corpus": "test-utils",
+          "case": "reads a JSON document larger than spawnSync's default 1 MiB buffer",
+          "asserts": ["ENOBUFS"]
+        }
+      ]
+    },
+    {
+      "id": "hl7-untyped-prose-assertion",
+      "net": "2",
+      "class": "non-detection",
+      "carriedBy": ["hl7-297"],
+      "canonical": "not-carried",
+      "detects": "attw's own untyped SENTENCE appearing in the gate's output",
+      "reason": "The canonical forces `--format json`, in which attw renders no prose at all, so the sentence cannot appear. The DETECTION half (the non-zero exit on an untyped tarball) is unaffected and is entry net2-untyped-tarball. config's own corpus asserts the sentence's ABSENCE and reads `analysed this package as UNTYPED` instead. Recorded here because it is one of the three known class-(b) collisions the hl7 half has to re-express; hl7's corpus is not in this repository and nothing here grades it.",
+      "assertions": [
+        { "corpus": "hl7", "case": "fails when the tarball carries no types, where attw exits 0" }
+      ]
+    },
+    {
+      "id": "hl7-accepts-no-summary-no-emoji-no-color",
+      "net": "argv",
+      "class": "non-detection",
+      "carriedBy": ["hl7-297"],
+      "canonical": "not-carried",
+      "detects": "`--no-summary`, `--no-emoji` and `--no-color` accepted, as a control against over-strictness",
+      "reason": "The canonical's allow-list refuses all three, which is strictly stricter. config's corpus carries the equivalent over-strictness control against the allow-list (forwarding --profile and --no-definitely-typed), so the control is not lost, only re-homed. Second of the three known class-(b) collisions; graded in hl7, not here.",
+      "assertions": [
+        { "corpus": "hl7", "case": "does not refuse the option forms that blind nothing" }
+      ]
+    },
+    {
+      "id": "hl7-green-run-prints-no-attw-gate",
+      "net": "2",
+      "class": "non-detection",
+      "carriedBy": ["hl7-297"],
+      "canonical": "not-carried",
+      "detects": "the absence of the string `attw gate` from a green run's output",
+      "reason": "The canonical's PASS line begins `attw gate:`, so a green run prints it by design. Third of the three known class-(b) collisions; graded in hl7, not here.",
+      "assertions": [
+        { "corpus": "hl7", "case": "does not refuse the option forms that blind nothing" }
+      ]
+    },
+    {
+      "id": "hl7-attw-json-key-refusal",
+      "net": "config-file",
+      "class": "non-detection",
+      "carriedBy": ["hl7-297"],
+      "canonical": "not-carried",
+      "detects": "a committed `.attw.json` setting `quiet` or `format`, refused by KEY NAME before attw runs",
+      "reason": "NOT A COLLISION, and deliberately not 'fixed'. The canonical has no key deny-list, because enumerating keys bought exactly one more evasion per round. A `.attw.json` setting `quiet` empties the transcript, the parse fails closed, and the canonical's own message names `.attw.json`, so hl7's assertion (non-zero exit, output containing `.attw.json`) survives unchanged by a different route. The shared corpus pins that route rather than assuming it.",
+      "assertions": [
+        {
+          "corpus": "shared",
+          "case": "names .attw.json when a committed config empties the transcript",
+          "asserts": [".attw.json"]
+        }
+      ]
+    },
+    {
+      "id": "exports-leaf-without-dot",
+      "net": "1,3,4",
+      "class": "reading-difference",
+      "carriedBy": ["hl7-297"],
+      "canonical": "not-carried",
+      "detects": "an `exports` or `imports` leaf written without a leading dot, read by the 297-line body as a relative path and by the canonical as a package specifier",
+      "reason": "The two bodies genuinely disagree here and NEITHER corpus asserted the 297-line reading: hl7's own case for lenient normalization declares its paths through `main` and `types`, not through `exports`. config's corpus asserts the STRICT reading directly, with a negative control declaring `#dep: \"some-package-that-is-not-here\"` and a browser value of `some-polyfill-package` that must derive no path. Node requires `./` in an exports target, so a leaf without one is a specifier; adopting the lenient reading would red a package that maps a dependency, which is a false red bought for no catch. The strict reading is carried and the difference is recorded rather than silently resolved.",
+      "assertions": [
+        {
+          "corpus": "test-utils",
+          "case": "NEGATIVE CONTROL: the shapes that are NOT files of ours stay out of the set",
+          "asserts": ["all 4 relative artifact path(s) package.json declares are in the"]
+        }
+      ]
+    }
+  ]
+}

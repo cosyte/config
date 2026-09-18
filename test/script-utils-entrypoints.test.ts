@@ -108,13 +108,38 @@ describe("the tarball a consumer installs", () => {
     }
   });
 
-  it("declares the new subpath alongside the two that were already there", () => {
+  it("ships the attw publish gate and its declarations", () => {
+    // A subpath declared in `exports` whose file `files` does not ship resolves inside this
+    // workspace and fails on `npm install`, which is invisible to every test that imports through
+    // the workspace link. The gate every other repo will now run is exactly that shape of risk.
+    for (const file of ["attw.js", "attw.d.ts"]) {
+      expect(existsSync(join(installed, file)), `${file} is not in the tarball`).toBe(true);
+    }
+  });
+
+  it("declares the new subpath alongside the ones that were already there", () => {
     const manifest = JSON.parse(readFileSync(join(installed, "package.json"), "utf8"));
     expect(manifest.exports).toEqual({
       ".": { types: "./index.d.ts", default: "./index.js" },
       "./phi-scan": { types: "./phi-scan.d.ts", default: "./phi-scan.js" },
       "./internal-refs": { types: "./internal-refs.d.ts", default: "./internal-refs.js" },
+      "./attw": { types: "./attw.d.ts", default: "./attw.js" },
     });
+  });
+
+  it("resolves the attw gate by the specifier a consuming repo's wrapper writes", () => {
+    // `scripts/attw.mjs` in every consuming repo is this import and one statement. If the subpath
+    // did not resolve from an installed tarball, every one of those repos would red at run time
+    // and nothing in this workspace would have noticed.
+    const probe = inConsumer(
+      [
+        'import { runAttwGate } from "@cosyte/script-utils/attw";',
+        "console.log(typeof runAttwGate);",
+        "",
+      ].join("\n"),
+    );
+    expect(probe.code, probe.out).toBe(0);
+    expect(probe.out.trim()).toBe("function");
   });
 
   it("resolves the new subpath by the specifier a consumer writes", () => {

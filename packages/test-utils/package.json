@@ -91,6 +91,7 @@
     "@arethetypeswrong/cli": "0.18.4",
     "@cosyte/eslint-config": "workspace:^",
     "@cosyte/prettier-config": "workspace:^",
+    "@cosyte/script-utils": "workspace:^",
     "@cosyte/tsconfig": "workspace:^",
     "@cosyte/tsup-config": "workspace:^",
     "@types/node": "^22.0.0",
