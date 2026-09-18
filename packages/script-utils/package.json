@@ -48,10 +48,14 @@
     "internal-refs.d.ts",
     "attw.js",
     "attw.d.ts",
+    "check-no-emdash.sh",
     "README.md",
     "CHANGELOG.md"
   ],
   "scripts": {
+    "build": "node ../../scripts/pack-emdash-gate.mjs",
+    "prepack": "node ../../scripts/pack-emdash-gate.mjs",
+    "prepublishOnly": "node ../../scripts/pack-emdash-gate.mjs",
     "test": "vitest run"
   },
   "engines": {
