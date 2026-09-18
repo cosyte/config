@@ -1,5 +1,5 @@
 ---
-"@cosyte/script-utils": minor
+"@cosyte/script-utils": patch
 ---
 
 `@cosyte/script-utils/attw` is a new entry point: the shared `attw` publish gate, which exists
