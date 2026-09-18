@@ -246,10 +246,11 @@ every refusal names the condition it failed, and this is the text it names.
 
 1. The manifest's `version` is read. Missing, not a string, or empty is a refusal.
 2. Exactly one declaration of the form `export const VERSION: string = "<value>";`, anchored at
-   column 0, is found anywhere in `src/index.ts`. Zero matches is a refusal naming the rename; two or
-   more is a refusal naming the ambiguity, because a declaration sitting inside a comment must not be
-   rewritten ahead of the real one. A further declaration form may be added beside this one; this one
-   is never narrowed.
+   column 0, is found anywhere in `src/index.ts`; the value runs to the first quote, so a line
+   carrying anything after the declaration is not one. Zero matches is a refusal naming the rename;
+   two or more is a refusal naming the ambiguity, because a declaration sitting inside a comment must
+   not be rewritten ahead of the real one. A further declaration form may be added beside this one;
+   this one is never narrowed.
 3. The manifest string is spliced in literally. A version carrying `$&`, `$1` or a backtick sequence
    is written character for character and is never interpreted as a replacement pattern.
 4. The run is idempotent. A tree already at that version is not written to at all, and the run
@@ -260,6 +261,10 @@ every refusal names the condition it failed, and this is the text it names.
 It takes no arguments. Its reports and its diagnostics go to stderr and stdout stays empty; a
 diagnostic names the file, the condition and the action available, and never echoes what it read: two
 competing declarations are reported by line number.
+
+A failure the five conditions do not describe, a source file that cannot be written to for instance,
+is a refusal in that same shape rather than a crash: the path, the entry point, what the system
+reported in structural terms (`open failed with EACCES`), the action available, and exit `1`.
 
 ### `cosyte-process pack-docs`
 
@@ -272,10 +277,13 @@ to `dist-artifacts`:
 | `source.tar.gz`       | `src/`, `package.json` and `tsconfig.json` |
 
 It fails fast. `docs-content/intro.md`, `docs-content/sidebars.json`, `src/`, `package.json` and
-`tsconfig.json` are all checked before the output directory is created, so a run that refuses leaves
-nothing behind for a release job to pick up: exit `1`, every missing input named on stderr, no
-directory and no archive. Members are written in a stable order, with no directory entries, so two
-runs over the same tree produce the same archive.
+`tsconfig.json` are all checked, and both archives are built in memory, before the output directory
+is created, so a run that refuses leaves nothing behind for a release job to pick up: exit `1`, every
+missing input named on stderr, no directory and no archive. A path the tarball format cannot carry
+refuses the same way and names the member. Members are written in a stable order, with no directory
+entries, so two runs over the same tree produce the same archive. Any other failure, an output path
+that is already a file for instance, is a refusal in the same shape rather than a crash: the path,
+the entry point, what the system reported in structural terms, and the action available.
 
 ### The security-workflow trigger surface
 

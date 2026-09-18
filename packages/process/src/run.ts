@@ -121,12 +121,57 @@ function fail(stderr: NodeJS.WritableStream, message: string, withUsage = false)
 }
 
 /**
+ * The fields a Node system error carries beside its message: structure, never file content.
+ *
+ * @internal
+ */
+interface SystemErrorFields {
+  readonly code?: unknown;
+  readonly syscall?: unknown;
+  readonly path?: unknown;
+}
+
+/**
+ * The refusal an entry point makes when it fails for a reason its own contract does not name.
+ *
+ * Every failure of an entry point leaves this bin as a refusal, never as an unhandled exception: a
+ * crash dump names neither the entry point nor an action available, and a stack trace is not
+ * something a caller can act on.
+ *
+ * The thrown error's own message is described rather than restated (`observability` B2): its class,
+ * and the errno code, syscall and path a system error carries. An arbitrary message can carry the
+ * bytes of a file the entry point read, and a consumer's file content stays out of a diagnostic.
+ *
+ * @param entry - The entry point that failed.
+ * @param cwd - The consumer directory, used as the path when the error names none.
+ * @param error - Whatever was thrown.
+ * @returns The diagnostic, naming the path, the entry point and the action available.
+ * @internal
+ */
+function unexpectedFailure(entry: EntryPoint, cwd: string, error: unknown): string {
+  const fields: SystemErrorFields = typeof error === "object" && error !== null ? error : {};
+  const path = typeof fields.path === "string" ? fields.path : cwd;
+  const code = typeof fields.code === "string" ? fields.code : undefined;
+  const syscall = typeof fields.syscall === "string" ? fields.syscall : undefined;
+  const problem =
+    code === undefined
+      ? `failed with ${error instanceof Error ? error.name : typeof error}`
+      : `${syscall ?? "an operation"} failed with ${code}`;
+  return (
+    `${entry}: ${path}: ${problem}, which no condition of this command's contract covers: ` +
+    `repair that path, then run cosyte-process ${entry} again`
+  );
+}
+
+/**
  * Run one of the entry points that are not verbs.
  *
  * Both write their report to stderr and nothing at all to stdout: neither emits output for a pipe to
  * read, and a report on stdout would make one that carried a diagnostic too. A refusal names the
  * path, the entry point and the action available, and exits with the same self-error code every
- * other failure this bin detects uses, so the exit vocabulary stays closed at 0 and 1.
+ * other failure this bin detects uses, so the exit vocabulary stays closed at 0 and 1. That holds
+ * for a failure of any kind: a refusal the entry point raised itself carries its own diagnostic, and
+ * anything else is described structurally by {@link unexpectedFailure}.
  *
  * @internal
  */
@@ -152,7 +197,7 @@ function runEntryPoint(
       if (error instanceof SyncVersionError) {
         return fail(stderr, error.message);
       }
-      throw error;
+      return fail(stderr, unexpectedFailure("sync-version", cwd, error));
     }
   }
 
@@ -176,7 +221,7 @@ function runEntryPoint(
     if (error instanceof PackDocsError) {
       return fail(stderr, error.message);
     }
-    throw error;
+    return fail(stderr, unexpectedFailure("pack-docs", cwd, error));
   }
 }
 

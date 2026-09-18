@@ -15,13 +15,21 @@ README because every refusal names the one it failed: a usable manifest version,
 declaration of the form `export const VERSION: string = "<value>";` anchored at column 0 anywhere in
 the file, a literal splice (a version carrying `$&` or `$1` is written character for character), an
 idempotent run that does not touch an already-synced file, and an exit vocabulary closed at 0 and 1.
-Two competing declarations are refused rather than guessed between, and reported by line number.
+The declared value runs to the first quote, so a declaration line carrying anything after it is not
+one and is refused rather than spliced over. Two competing declarations are refused rather than
+guessed between, and reported by line number.
 
 `cosyte-process pack-docs [outputdir]` builds `docs-content.tar.gz` and `source.tar.gz` into an
 output directory that defaults to `dist-artifacts`. It checks `docs-content/intro.md`,
-`docs-content/sidebars.json`, `src/`, `package.json` and `tsconfig.json` before it creates that
-directory, so a refused run leaves nothing half-built behind; the archives are written with
-`node:zlib` alone, so no `tar` binary has to be on PATH.
+`docs-content/sidebars.json`, `src/`, `package.json` and `tsconfig.json`, and builds both archives,
+before it creates that directory, so a refused run leaves nothing half-built behind; the archives are
+written with `node:zlib` alone, so no `tar` binary has to be on PATH.
+
+Either invocation refuses rather than crashes, whatever the reason. A failure no condition of its
+contract describes, an unwritable source file or an output path that is already a file, reaches
+stderr as the same shape of diagnostic: the path, the invocation, what the system reported in
+structural terms, the action available, and exit 1. Stdout stays empty and no diagnostic carries the
+content of a file that was read.
 
 `SECURITY_WORKFLOW_SURFACES` is the canonical trigger surface of `codeql.yml` and `scorecard.yml`,
 and `gradeWorkflowText`, `gradeWorkflowFile` and `gradeSecurityWorkflows` compare a repository's own

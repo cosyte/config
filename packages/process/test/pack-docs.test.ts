@@ -22,6 +22,12 @@ afterAll(cleanupTempDirs);
 /** A line the diagnostics must never echo: it stands in for whatever a consumer's files carry. */
 const SENTINEL = "SENTINEL-DOCS-CONTENT-THAT-MUST-NOT-BE-PRINTED";
 
+/** A stack frame, as an unhandled exception prints it. A refusal carries none. */
+const STACK_FRAME = /\n\s+at \S+/;
+
+/** A member name too long for the archive format, with no directory boundary that splits it. */
+const UNREPRESENTABLE = `${"a".repeat(120)}.ts`;
+
 /** The files a complete package tree carries, relative to its root. */
 const TREE: Readonly<Record<string, string>> = {
   "docs-content/intro.md": `# Intro\n\n${SENTINEL}\n`,
@@ -206,5 +212,54 @@ describe("AC-C10: diagnostics reach stderr only, and carry no file content", () 
     expect(result.code).toBe(1);
     expect(result.stdout).toBe("");
     expect(result.stderr).toContain("pack-docs takes at most one output directory");
+  });
+
+  // AC-C10's trigger is "for any reason", and this is the arm no required-input check describes:
+  // every input is present and the output directory itself cannot be made, which is what a stale
+  // file left under that name produces.
+  it("refuses an output path that is already a file, rather than crashing", () => {
+    const dir = tree();
+    const stale = join(dir, "dist-artifacts");
+    writeFileSync(stale, "left behind by something that was not this command\n");
+    const result = runCli(["pack-docs"], dir);
+    expect(result.code).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("pack-docs");
+    expect(result.stderr).toContain(stale);
+    expect(result.stderr).toContain("EEXIST");
+    expect(result.stderr).toContain("run cosyte-process pack-docs again");
+    // A stack trace names no action and is not a refusal, whatever exit code follows it.
+    expect(result.stderr).not.toMatch(STACK_FRAME);
+    expect(result.stderr).not.toContain(SENTINEL);
+    expect(readFileSync(stale, "utf8")).toContain("left behind");
+  });
+});
+
+// AC-C6, AC-C10: the fail-fast property this command states about itself, at the point where the
+// two archives differ. Both are built before the output directory is created, so a member the
+// archive format cannot carry refuses with the tree exactly as it was found rather than with the
+// first archive already written where a release job would find it.
+describe("a refusal while building an archive leaves no half-built artifact set", () => {
+  it("refuses a source path the archive format cannot carry, naming the member", () => {
+    const dir = tree();
+    writeFileSync(join(dir, "src", UNREPRESENTABLE), "export const x = 1;\n");
+    const result = runCli(["pack-docs"], dir);
+    expect(result.code).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("pack-docs");
+    expect(result.stderr).toContain(UNREPRESENTABLE);
+    expect(result.stderr).toContain("shorten the path");
+    expect(result.stderr).toContain("Nothing was written.");
+    expect(result.stderr).not.toMatch(STACK_FRAME);
+    expect(result.stderr).not.toContain(SENTINEL);
+  });
+
+  it("writes neither the output directory nor the archive that did build", () => {
+    const dir = tree();
+    writeFileSync(join(dir, "src", UNREPRESENTABLE), "export const x = 1;\n");
+    // The docs archive builds cleanly from this tree; only the source archive cannot be built. The
+    // directory holding both is what must not exist afterwards.
+    expect(runCli(["pack-docs"], dir).code).toBe(1);
+    expect(existsSync(join(dir, "dist-artifacts"))).toBe(false);
   });
 });

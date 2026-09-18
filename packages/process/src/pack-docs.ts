@@ -10,7 +10,7 @@ import {
 } from "node:fs";
 import { join, resolve } from "node:path";
 
-import { createTarGz, type TarMember } from "./tar.js";
+import { createTarGz, TarError, type TarMember } from "./tar.js";
 
 /**
  * `cosyte-process pack-docs`: the canonical docs-artifact build, published here so a repo executes
@@ -20,9 +20,11 @@ import { createTarGz, type TarMember } from "./tar.js";
  * `dist-artifacts`: `docs-content.tar.gz` carrying the contents of `docs-content/` at the tarball
  * root, and `source.tar.gz` carrying `src/`, `package.json` and `tsconfig.json` at the tarball root.
  *
- * It fails fast. Every required input is checked before the output directory is created, so a run
- * that refuses leaves the tree exactly as it found it rather than a half-built artifact set that a
- * release job would pick up.
+ * It fails fast. Every required input is checked and both archives are built in memory before the
+ * output directory is created, so a run that refuses leaves the tree exactly as it found it rather
+ * than a half-built artifact set that a release job would pick up. The second archive is the one
+ * that makes that ordering worth stating: a member it cannot represent has to refuse before the
+ * first archive has been written anywhere.
  */
 
 /** The output directory used when the command is given no positional argument. */
@@ -154,6 +156,29 @@ function sorted(members: readonly TarMember[]): TarMember[] {
 }
 
 /**
+ * One archive, with a member the ustar writer cannot represent raised as this command's refusal.
+ *
+ * A name too long for the format is a fact about the consumer's tree, not an internal error, so it
+ * gets the same shape every other refusal here has: the path, the entry point, the action, and the
+ * archive built before anything exists to clean up.
+ *
+ * @internal
+ */
+function archive(members: readonly TarMember[], cwd: string): Buffer {
+  try {
+    return createTarGz(members);
+  } catch (error: unknown) {
+    if (error instanceof TarError) {
+      throw new PackDocsError(
+        `pack-docs: ${cwd}: cannot archive ${error.member}: ${error.reason}. Nothing was written.`,
+        [error.member],
+      );
+    }
+    throw error;
+  }
+}
+
+/**
  * Build the two docs artifacts for a package.
  *
  * @param cwd - The invoking package's root.
@@ -178,18 +203,24 @@ export function packDocs(cwd: string, outputDir: string = DEFAULT_OUTPUT_DIR): P
     );
   }
 
-  const docs = sorted(membersUnder(join(cwd, "docs-content"), ""));
-  const source = sorted([
-    ...membersUnder(join(cwd, "src"), "src/"),
-    member(join(cwd, "package.json"), "package.json"),
-    member(join(cwd, "tsconfig.json"), "tsconfig.json"),
-  ]);
+  // Both archives are built before the output directory exists: a refusal over the second one would
+  // otherwise leave the first behind, which is the half-built artifact set this command promises a
+  // release job will never find.
+  const docsArchive = archive(sorted(membersUnder(join(cwd, "docs-content"), "")), cwd);
+  const sourceArchive = archive(
+    sorted([
+      ...membersUnder(join(cwd, "src"), "src/"),
+      member(join(cwd, "package.json"), "package.json"),
+      member(join(cwd, "tsconfig.json"), "tsconfig.json"),
+    ]),
+    cwd,
+  );
 
   const absoluteOutput = resolve(cwd, outputDir);
   mkdirSync(absoluteOutput, { recursive: true });
   const docsArtifact = join(absoluteOutput, DOCS_ARTIFACT);
   const sourceArtifact = join(absoluteOutput, SOURCE_ARTIFACT);
-  writeFileSync(docsArtifact, createTarGz(docs));
-  writeFileSync(sourceArtifact, createTarGz(source));
+  writeFileSync(docsArtifact, docsArchive);
+  writeFileSync(sourceArtifact, sourceArchive);
   return { outputDir: absoluteOutput, artifacts: [docsArtifact, sourceArtifact] };
 }

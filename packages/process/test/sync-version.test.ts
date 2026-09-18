@@ -1,4 +1,12 @@
-import { closeSync, fstatSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  closeSync,
+  fstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 
@@ -21,6 +29,18 @@ afterAll(cleanupTempDirs);
 
 /** A line the diagnostics must never echo: it stands in for whatever a consumer's source carries. */
 const SENTINEL = "SENTINEL-SOURCE-CONTENT-THAT-MUST-NOT-BE-PRINTED";
+
+/** A stack frame, as an unhandled exception prints it. A refusal carries none. */
+const STACK_FRAME = /\n\s+at \S+/;
+
+/**
+ * Whether this run can build a file it is not allowed to write.
+ *
+ * Mode bits do not constrain root, so the read-only fixture below expresses nothing when the suite
+ * runs as root. The same arm is graded without privileges by `pack-docs.test.ts`, over an output
+ * path that is already a file.
+ */
+const CAN_WITHHOLD_WRITE = typeof process.getuid === "function" && process.getuid() !== 0;
 
 interface Tree {
   /** The package root. */
@@ -196,6 +216,22 @@ describe("AC-C3: a refusal names the file and the condition, and writes nothing"
     expect(readFileSync(source)).toEqual(before);
   });
 
+  it("version-sync condition 2: refuses a declaration line that carries a trailing comment", async () => {
+    // The value runs to the first quote, so this line is not a declaration: the trailing comment
+    // ends in the same two characters the form closes with, and a value that could match through it
+    // would splice the manifest version over the comment, deleting source text where a refusal was
+    // owed. The retired per-repo variant rejected this input, and so does this one.
+    const { dir, source } = tree(
+      "1.2.3",
+      'export const VERSION: string = "0.0.1"; // see "docs";\n',
+    );
+    const before = readFileSync(source);
+    const result = await runIn(["sync-version"], dir);
+    expect(result.code).not.toBe(0);
+    expect(result.stderr).toContain("condition 2");
+    expect(readFileSync(source)).toEqual(before);
+  });
+
   it("version-sync condition 2: refuses an absent source entry point, naming the path", async () => {
     const dir = join(makeTempDir("cosyte-process-sync-version-nosrc-"), "consumer");
     mkdirSync(dir, { recursive: true });
@@ -296,6 +332,28 @@ describe("AC-C10: diagnostics reach stderr only, and carry no file content", () 
     expect(result.stdout).toBe("");
     expect(result.stderr).toContain("sync-version takes no arguments");
   });
+
+  // AC-C10's trigger is "for any reason", and this is the arm no numbered condition describes: the
+  // manifest and the declaration are both fine and the write itself fails, which is what a read-only
+  // mount, a uid mismatch in a release container or a file an earlier step left unwritable produces.
+  it.skipIf(!CAN_WITHHOLD_WRITE)(
+    "refuses a source file it cannot write to, rather than crashing",
+    () => {
+      const { dir, source } = tree("9.9.9", sourceWith("0.0.0"));
+      chmodSync(source, 0o444);
+      const result = runCli(["sync-version"], dir);
+      expect(result.code).toBe(1);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain("sync-version");
+      expect(result.stderr).toContain(source);
+      expect(result.stderr).toContain("EACCES");
+      expect(result.stderr).toContain("run cosyte-process sync-version again");
+      // A stack trace names no action and is not a refusal, whatever exit code follows it.
+      expect(result.stderr).not.toMatch(STACK_FRAME);
+      expect(result.stderr).not.toContain(SENTINEL);
+      expect(readFileSync(source, "utf8")).toContain('export const VERSION: string = "0.0.0";');
+    },
+  );
 });
 
 describe("AC-C3: the error carries the condition it failed", () => {

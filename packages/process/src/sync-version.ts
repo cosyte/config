@@ -40,13 +40,17 @@ const DECLARATION_SUFFIX = '";';
 /**
  * The declaration form, anchored at column 0 and searched over the whole file.
  *
+ * The value runs to the first quote, which is the form the contract quotes. A wider value would
+ * match a declaration line carrying a trailing comment that itself ends in `";` and splice the
+ * version over the comment as well, deleting source text where a refusal was owed.
+ *
  * Built fresh per search rather than shared, because a global regular expression carries its own
  * `lastIndex` between calls.
  *
  * @internal
  */
 function declarationPattern(): RegExp {
-  return /^export const VERSION: string = "(.*)";$/gm;
+  return /^export const VERSION: string = "[^"]*";$/gm;
 }
 
 /** One exported `VERSION` declaration found in a source text. */

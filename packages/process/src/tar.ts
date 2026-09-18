@@ -29,6 +29,9 @@ export class TarError extends Error {
   /** The member name that could not be represented. */
   readonly member: string;
 
+  /** What about it could not be represented, and the action available, without the member name. */
+  readonly reason: string;
+
   /**
    * @param member - The member name that could not be represented.
    * @param reason - What about it could not be represented, and the action available.
@@ -37,6 +40,7 @@ export class TarError extends Error {
     super(`${member}: ${reason}`);
     this.name = "TarError";
     this.member = member;
+    this.reason = reason;
   }
 }
 
