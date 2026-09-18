@@ -273,6 +273,18 @@ refuse_arguments() {
   exit 1
 }
 
+# ONE LEADING `--` IS CONSUMED, and it is what makes the estate's own invocation work. Every
+# consuming repo keeps a `check:no-emdash` package script and reaches this gate through
+# `pnpm run check:no-emdash -- <flag>`; pnpm 10 forwards that separator VERBATIM, so without this
+# the gate is handed `-- --stdin LABEL`. Measured, not assumed, and the old behaviour was the bad
+# kind of wrong: `$1` was neither `--stdin` nor anything else the script tested, so the run fell
+# through to the DEFAULT FILE SCAN and printed OK while the PR text it was asked about went unread.
+# `--` is the POSIX end-of-options marker and consuming exactly one of them is what every utility
+# that accepts it does; a SECOND one is an argument, and falls through to the refusal below.
+if [ "$#" -gt 0 ] && [ "$1" = '--' ]; then
+  shift
+fi
+
 case "${1:-}" in
   '')
     MODE=files

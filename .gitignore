@@ -8,3 +8,10 @@ coverage/
 # and the parser-template regression test's scratch dir.
 .cosyte-doc-snippets*/
 .cosyte-template-check/
+
+# The published copy of the em-dash gate: BUILD OUTPUT, written by scripts/pack-emdash-gate.mjs from
+# scripts/check-no-emdash.sh and shipped in the @cosyte/script-utils tarball so a consuming repo can
+# execute the exact bytes. It must never be tracked. This repository tracks exactly ONE file carrying
+# the banned vocabulary and that file is the implementation; a tracked second copy is the divergence
+# the whole consolidation exists to end.
+packages/script-utils/check-no-emdash.sh

@@ -155,6 +155,37 @@ They are separate subpaths because they are separately adoptable: a repo can tak
 guard without taking a position on PHI scanning, a repo can take the internal-reference gate without
 taking either, and importing one never loads another.
 
+### The em-dash gate, which is a file rather than a subpath
+
+This package also ships `check-no-emdash.sh`, the one implementation of the em-dash gate for every
+`@cosyte/*` repository. It is a shell script and not a module, so it is not in the `exports` map:
+nothing imports it, a repository EXECUTES it.
+
+```sh
+# The package script every consuming repo keeps, which forwards its arguments:
+#   "check:no-emdash": "bash node_modules/@cosyte/script-utils/check-no-emdash.sh"
+bash node_modules/@cosyte/script-utils/check-no-emdash.sh              # scan every tracked file
+bash node_modules/@cosyte/script-utils/check-no-emdash.sh --stdin PR   # scan text on stdin
+bash node_modules/@cosyte/script-utils/check-no-emdash.sh --list-scanned
+bash node_modules/@cosyte/script-utils/check-no-emdash.sh --self-id
+```
+
+Exit 0 means the mode completed and found nothing banned. Exit 1 means anything else: a banned form
+was found, an input could not be read, an input was not scanned, a declaration was unusable, or an
+argument was not recognised. There is no third code. Hits and diagnostics go to stderr in every mode.
+
+`--self-id` prints the sha256 of the copy that is executing, so a repository can prove it is running
+these bytes rather than a fork of them. `--list-scanned` prints the NUL-separated, repo-root-relative
+path of every tracked file the default scan reads, so a repository adopting the gate can compare its
+coverage against whatever it ran before rather than compare two filter expressions.
+
+A repository narrows WHAT IS SCANNED, and only that, through a tracked file at its own top level,
+`scripts/check-no-emdash.exclude`: one entry per line, `#` comments and blank lines ignored, an entry
+ending in `/` covering every tracked path beneath it, and every entry anchored at the repository
+root. An entry that matches no tracked path is refused rather than ignored, because an exclusion that
+has outlived its subject is a hole nobody is looking at. Nothing narrows WHAT IS MATCHED: the six
+banned forms are fixed in the gate.
+
 ## Overrides
 
 `isCliEntrypoint` has no options and cannot be overridden. It answers one question and its

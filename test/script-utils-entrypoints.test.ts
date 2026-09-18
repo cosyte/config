@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -34,6 +35,18 @@ beforeAll(() => {
   scratch = mkdtempSync(join(tmpdir(), "script-utils-tarball-"));
   const packDir = join(scratch, "pack");
   mkdirSync(packDir, { recursive: true });
+
+  // THE BUILD STEP FIRST, in the order the release runs it: `pnpm run release` is
+  // `publish-preflight && pnpm run build && changeset publish`, and this package's `build` is what
+  // writes the em-dash gate into the package directory. It is invoked EXPLICITLY rather than left to
+  // the `prepublishOnly` hook, because a lifecycle hook does not fire under `ignore-scripts`, which
+  // is the default in some hardened environments; an explicit run never depends on that setting, and
+  // a tarball graded under one setting and published under another is not evidence.
+  execFileSync("pnpm", ["run", "build"], {
+    cwd: PACKAGE_DIR,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
 
   // `pnpm pack` is what a release runs, so the tarball this grades is the one a consumer gets.
   const output = execFileSync("pnpm", ["pack", "--pack-destination", packDir], {
@@ -115,6 +128,38 @@ describe("the tarball a consumer installs", () => {
     for (const file of ["attw.js", "attw.d.ts"]) {
       expect(existsSync(join(installed, file)), `${file} is not in the tarball`).toBe(true);
     }
+  });
+
+  it("[AC-1] ships the em-dash gate as the EXACT BYTES of this repository's implementation", () => {
+    // The consolidation's whole claim is that eleven other repositories execute THESE bytes rather
+    // than a fork of them, and the only place that claim is observable from config alone is the
+    // tarball: `files` decides what a consumer receives, npm omits a `files` entry that does not
+    // exist WITHOUT SAYING SO, and the packed copy is gitignored build output that no other test
+    // looks at. A missing or drifted copy would surface first in a consuming repository.
+    const shipped = join(installed, "check-no-emdash.sh");
+    expect(existsSync(shipped), "check-no-emdash.sh is not in the tarball").toBe(true);
+
+    const canonical = readFileSync(join(REPO_ROOT, "scripts", "check-no-emdash.sh"));
+    expect(readFileSync(shipped).equals(canonical)).toBe(true);
+
+    // And the gate says so itself, which is the check a consuming repository can run without having
+    // this repository on disk: `--self-id` over the shipped copy is the digest of the canonical.
+    const selfId = execFileSync("bash", [shipped, "--self-id"], {
+      cwd: consumer,
+      encoding: "utf8",
+    }).trim();
+    expect(selfId).toBe(createHash("sha256").update(canonical).digest("hex"));
+
+    // THE INVOCATION A CONSUMER ACTUALLY WRITES. Every consuming repo keeps a `check:no-emdash`
+    // package script and reaches the gate through `pnpm run check:no-emdash -- <flag>`; pnpm 10
+    // forwards that `--` verbatim, so the shipped gate has to see through it. Measured here rather
+    // than reasoned about, because when it was NOT seen through the run fell back to the default
+    // file scan and printed OK over text it never read.
+    const throughSeparator = execFileSync("bash", [shipped, "--", "--self-id"], {
+      cwd: consumer,
+      encoding: "utf8",
+    }).trim();
+    expect(throughSeparator).toBe(selfId);
   });
 
   it("declares the new subpath alongside the ones that were already there", () => {
