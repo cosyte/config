@@ -29,6 +29,10 @@
     "./phi-scan": {
       "types": "./phi-scan.d.ts",
       "default": "./phi-scan.js"
+    },
+    "./internal-refs": {
+      "types": "./internal-refs.d.ts",
+      "default": "./internal-refs.js"
     }
   },
   "files": [
@@ -36,6 +40,8 @@
     "index.d.ts",
     "phi-scan.js",
     "phi-scan.d.ts",
+    "internal-refs.js",
+    "internal-refs.d.ts",
     "README.md",
     "CHANGELOG.md"
   ],
