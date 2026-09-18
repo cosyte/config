@@ -64,6 +64,10 @@ So check when your gate runs, and pick accordingly:
 
 Installing the package does not, on its own, give a pre-install gate the property described above.
 
+Every entry point is published as source with no build step, so the relative-path route works for
+all three: the files are `index.js`, `phi-scan.js` and `internal-refs.js`, each beside its own
+hand-written `.d.ts`. A vendored copy is one of those files and nothing else.
+
 ## Usage
 
 Guard a script's CLI side effect so a test can import it for its exports. That guard wraps the exit,
@@ -98,15 +102,37 @@ exemptsMarkdown("docs/adopting.md"); // => false
 exemptsMarkdown("src/patient.ts"); // => true
 ```
 
+The internal-reference gate is the third, and it is configured entirely through one object. The
+axis names below are the whole interface a consumer needs, so they are checked here rather than
+described:
+
+```ts runnable
+import { canonicalRuleNames, resolveConfig } from "@cosyte/script-utils/internal-refs";
+
+const config = {
+  projectPrefixes: ["HL7", "CCDA"],
+  standardsDesignations: ["HL7-(?:V2|V3|CDA)"],
+  surfacePaths: ["README.md", "docs-content"],
+  accountedTarballFiles: ["CHANGELOG.md", "dist"],
+};
+
+// Hand that to `runInternalRefsScan(config)` and it returns an exit code. Checked here without
+// touching a repository, so this example reds if an axis is ever renamed under a consumer.
+resolveConfig(config).problems; // => undefined
+canonicalRuleNames().length; // => 6
+```
+
 ## Entry points
 
-| entry point                     | what it is                                                               |
-| ------------------------------- | ------------------------------------------------------------------------ |
-| `@cosyte/script-utils`          | `isCliEntrypoint(moduleUrl)`, the entry-point guard                      |
-| `@cosyte/script-utils/phi-scan` | `runPhiScan(config)` and `exemptsMarkdown(relPath)`, the shared PHI gate |
+| entry point                          | what it is                                                               |
+| ------------------------------------ | ------------------------------------------------------------------------ |
+| `@cosyte/script-utils`               | `isCliEntrypoint(moduleUrl)`, the entry-point guard                      |
+| `@cosyte/script-utils/phi-scan`      | `runPhiScan(config)` and `exemptsMarkdown(relPath)`, the shared PHI gate |
+| `@cosyte/script-utils/internal-refs` | `runInternalRefsScan(config)`, the shared internal-reference gate        |
 
 They are separate subpaths because they are separately adoptable: a repo can take the entry-point
-guard without taking a position on PHI scanning, and importing the root never loads the scanner.
+guard without taking a position on PHI scanning, a repo can take the internal-reference gate without
+taking either, and importing one never loads another.
 
 ## Overrides
 
@@ -122,6 +148,13 @@ bump.
 The engine's own cross-cutting detection floor is not on that list, and it is not overridable.
 Neither is the completeness rule that refuses a run which enumerated a target and never read it. A
 caller can widen what is scanned and can add detection, and cannot subtract either of those two.
+
+`runInternalRefsScan` follows the same bargain along [its own axes](#the-internal-reference-axes):
+four required, six defaulted, and every per-repository difference supplied by the caller. What it
+will not accept is a configuration that SUBTRACTS. The canonical rule set, the self-test floor and
+every completeness refusal are not caller inputs, and an option that reaches for one of them is
+refused by name rather than ignored. So is an option the gate has never heard of: an ignored setting
+reads, from the caller's side, exactly like an honoured one.
 
 ## PHI and safety
 
@@ -252,12 +285,75 @@ this on both branches.
 because without it the sweep is the working-tree walk's word alone. A freshly scaffolded repo has to
 `git init` and commit before an `all`-mode run means anything.
 
+### `runInternalRefsScan(config)`
+
+`@cosyte/script-utils/internal-refs` keeps our own bookkeeping off every surface a consumer reads:
+item identifiers, phase and wave language, ADR numbers, internal repository paths and traceability
+markers, on the pages, the npm metadata and, optionally, the doc comments that compile into shipped
+type declarations.
+
+```ts
+import { runInternalRefsScan } from "@cosyte/script-utils/internal-refs";
+
+process.exit(
+  runInternalRefsScan({
+    projectPrefixes: ["HL7", "CCDA", "MLLP"],
+    standardsDesignations: ["HL7-(?:V2|V3|CDA)", "FHIR-R\\d[A-Z]?"],
+    surfacePaths: ["README.md", "TRADEMARKS.md", "LICENSE", "docs-content"],
+    accountedTarballFiles: ["CHANGELOG.md", "dist"],
+    sourceDocComments: { enabled: true, paths: ["src/*.ts", "src/**/*.ts"] },
+  }),
+);
+```
+
+It returns an exit code rather than calling `process.exit`, so a test can drive it in process.
+
+#### What exit 0 means, and what it does not
+
+Exit 0 means the run completed, enumerated its configured surface, read every target it enumerated,
+passed its own self-tests and found nothing. A hit, an enumerated target that was never read, an
+unreadable input, an input a text matcher classifies as binary, a configured surface path the
+repository does not track, a `files` entry the configuration does not account for, and a failed
+self-test are each a non-zero exit with the cause on stderr. A hit report names the file, the line
+and the rule.
+
+#### The internal-reference axes
+
+Four are required, and which four is the design rather than an oversight: each is the axis a port
+gets wrong, and a default would be one repository's answer imposed on every other.
+
+| Axis                       | Option                  | Required?                                                             |
+| -------------------------- | ----------------------- | --------------------------------------------------------------------- |
+| 1 Project prefixes         | `projectPrefixes`       | **Required**, empty refused. Keying on these is why `MSH-2` survives. |
+| 2 Standards designations   | `standardsDesignations` | **Required.** Never flagged. An empty list declares no collisions.    |
+| 3 Public surface           | `surfacePaths`          | **Required**, empty refused, every entry must be tracked.             |
+| 4 Tarball accounting       | `accountedTarballFiles` | **Required.** The `files` entries already accounted for.              |
+| 5 Source doc comments      | `sourceDocComments`     | Defaulted OFF. Enable where the build copies doc text verbatim.       |
+| 6 Exit codes               | `exitCodes`             | Defaulted `{ clean: 0, hits: 1, refuse: 1 }`. `clean` must stay 0.    |
+| 7 Added detection          | `extraRules`            | Defaulted `[]`. Each added rule brings its own samples.               |
+| 8 Added self-test material | `extraSamples`          | Defaulted `{}`. Additive only.                                        |
+| 9 Repository under test    | `repoRoot`              | Defaulted to the working directory, anchored at its git top level.    |
+| 10 Report destination      | `write`                 | Defaulted to the process streams.                                     |
+
+`CONFIG_AXES` is the same table as data, so a consumer can enumerate it rather than transcribe it.
+
+#### Two things worth knowing before you adopt this one
+
+**The prefix set has to be extended by hand, and that is the cheaper mistake.** A new programme
+means adding its prefix, and nothing catches it until someone does. The alternative is a `WORD-N`
+shape rule, which flags the segment-field references a parser's documentation exists to provide.
+
+**Every configured prefix has to be reachable.** The self-test floor proves each one still matches,
+so a prefix shadowed by a standards designation refuses the run instead of silently contributing
+nothing. That is the axis a caller edits most, and a dead entry there is a rule that stopped seeing.
+
 ## Compatibility
 
-Node `>=22.14`, ESM only, published as source (`index.js` and `phi-scan.js` with hand-written `.d.ts`
-files) with no build step, so a consumer can import it by relative path from a checkout as well as by
-specifier. `runPhiScan` shells out to `git` for the index-backed half of its sweep, so `all` mode
-needs git on the path.
+Node `>=22.14`, ESM only, published as source (`index.js`, `phi-scan.js` and `internal-refs.js` with
+hand-written `.d.ts` files) with no build step, so a consumer can import it by relative path from a
+checkout as well as by specifier. `runPhiScan` shells out to `git` for the index-backed half of its
+sweep, so `all` mode needs git on the path, and `runInternalRefsScan` shells out to `git` for its
+whole enumeration.
 
 ## Contributing
 

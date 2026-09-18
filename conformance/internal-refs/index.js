@@ -182,6 +182,76 @@ export function samplesOf(rule, direction) {
 }
 
 /**
+ * Turn a loaded corpus into the superset grader's worklist, or into the reasons it cannot run.
+ *
+ * THE REFUSAL IS THE POINT. A grader handed an entry it cannot read has two options, and only one
+ * of them is honest: report a pass over the entries it COULD read, or refuse. The first is how a
+ * corpus quietly shrinks, because the run conclusion is the only thing anyone reads and a shorter
+ * corpus produces exactly the same green. So an unreadable entry, a malformed entry and an empty
+ * populated set all arrive in `refusals`, and a caller that ignores them is asserting nothing.
+ *
+ * A PENDING ENTRY IS REPORTED AS PENDING AND CONTRIBUTES NO CASE. It never counts toward a pass:
+ * nobody has read that repository's variant, so there is nothing to be a superset of yet.
+ *
+ * @param {{ repo: string, state: string, entry: object | null, loadError: string | null }[]} records
+ *   The loaded corpus.
+ * @returns {{ cases: object[], pending: { repo: string, reason: string }[], refusals: string[] }}
+ *   One case per repository per rule per direction, the pending report, and the refusals.
+ */
+export function planSuperset(records) {
+  const cases = [];
+  const pending = [];
+  const refusals = [];
+
+  for (const record of records) {
+    if (record.state === "unreadable" || record.entry === null) {
+      refusals.push(
+        `${record.repo}: the roster keys this repository and its entry could not be read ` +
+          `(${record.loadError}). Refusing to report a superset over the entries that did load.`,
+      );
+      continue;
+    }
+    const problems = validateEntry(record.repo, record.entry, record.loadError);
+    if (problems.length > 0) {
+      refusals.push(...problems);
+      continue;
+    }
+    if (record.entry.state === "pending") {
+      pending.push({ repo: record.repo, reason: record.entry.reason });
+      continue;
+    }
+    for (const set of record.entry.ruleSets) {
+      for (const rule of set.rules) {
+        for (const direction of ["positive", "negative"]) {
+          for (const sample of samplesOf(rule, direction)) {
+            cases.push({
+              repo: record.repo,
+              sha: record.entry.sha,
+              ruleSetId: set.id,
+              surface: set.surface,
+              ruleName: rule.name,
+              canonicalId: rule.canonicalId ?? null,
+              direction,
+              sample,
+              config: record.entry.canonicalConfig,
+            });
+          }
+        }
+      }
+    }
+  }
+
+  if (refusals.length === 0 && cases.length === 0) {
+    refusals.push(
+      "no populated entry contributed a case, so a green run here would assert nothing about any " +
+        "repository. Refusing rather than reporting a superset over an empty corpus.",
+    );
+  }
+
+  return { cases, pending, refusals };
+}
+
+/**
  * Load every entry the roster names.
  *
  * An entry that is absent or will not load arrives as `state: "unreadable"` with the cause, so a

@@ -32,16 +32,26 @@ import {
 /** A marker for "delete this axis", so `undefined` can stay a hostile VALUE where one is wanted. */
 const MISSING = Symbol("axis absent");
 
-const REPOS: ScratchRepo[] = [];
+/**
+ * Scratch repositories, MEMOISED BY NAME.
+ *
+ * A `git init` plus a commit per case is measurable: the parameterised blocks below run dozens of
+ * cases against a tree that never changes between them, and the earlier shape put this file's own
+ * subprocess load on top of every other suite's. Cases that MUTATE their tree take a name of their
+ * own, which is what keeps the sharing honest.
+ */
+const REPOS = new Map<string, ScratchRepo>();
 
-function scratch(prefix: string, readme?: string): ScratchRepo {
-  const repo = makeScratchRepo(prefix, readme);
-  REPOS.push(repo);
+function scratch(name: string, readme?: string): ScratchRepo {
+  const existing = REPOS.get(name);
+  if (existing !== undefined) return existing;
+  const repo = makeScratchRepo(name, readme);
+  REPOS.set(name, repo);
   return repo;
 }
 
 afterAll(() => {
-  for (const repo of REPOS) repo.dispose();
+  for (const repo of REPOS.values()) repo.dispose();
 });
 
 /** A configuration that is complete and passes, so a case can mutate exactly one thing. */
@@ -194,7 +204,7 @@ describe("a missing, empty or unusable axis is refused, naming the axis", () => 
   });
 
   it.each(required)("refuses a configuration that omits `%s`", (axis) => {
-    const repo = scratch(`irefs-omit-${axis}`);
+    const repo = scratch("irefs-axes");
     const config = baseConfig(repo);
     delete config[axis];
 
@@ -210,7 +220,7 @@ describe("a missing, empty or unusable axis is refused, naming the axis", () => 
   const emptyRefusing = CONFIG_AXES.filter((axis) => axis.refusesEmpty).map((axis) => axis.name);
 
   it.each(emptyRefusing)("refuses an empty `%s`", (axis) => {
-    const repo = scratch(`irefs-empty-${axis}`);
+    const repo = scratch("irefs-axes");
     const result = runGate({ ...baseConfig(repo), [axis]: [] });
 
     expect(result.code).not.toBe(0);
@@ -417,7 +427,9 @@ describe("a target enumerated and never read is a refusal, never a clean run", (
     // Skipping it is the silent-green shape: a genuine text file with a broken encoding, or a file
     // whose violation sits beside a NUL byte, would be passed over without a word.
     const repo = scratch("irefs-binary");
-    repo.write("docs-content/page.md", Buffer.from("Item HL7-N7  landed", "utf8"));
+    // The NUL is written as an escape rather than as a literal: a source file carrying a raw
+    // NUL is itself binary to every tool that reads this repository, this gate included.
+    repo.write("docs-content/page.md", Buffer.from("Item HL7-N7 \u0000 landed", "utf8"));
     repo.track("docs-content/page.md");
 
     const result = runGate({ ...baseConfig(repo), surfacePaths: ["README.md", "docs-content"] });
@@ -548,9 +560,11 @@ describe("no documented configuration value makes a run that found something exi
    * (which a caller is entitled to do) still leaves a target carrying it: the npm metadata is read
    * by every run and no axis removes it.
    */
-  function seeded(prefix: string): ScratchRepo {
+  function seeded(name = "irefs-ac4"): ScratchRepo {
     const violation = "Decided in ADR 0015.";
-    const repo = scratch(prefix, `# Scratch\n\n${violation}\n`);
+    const existing = REPOS.get(name);
+    if (existing !== undefined) return existing;
+    const repo = scratch(name, `# Scratch\n\n${violation}\n`);
     repo.write(
       "package.json",
       JSON.stringify({
@@ -575,7 +589,7 @@ describe("no documented configuration value makes a run that found something exi
   );
 
   it.each(cases)("%s, hostile value %i, still exits non-zero", (axis, index, value) => {
-    const repo = seeded(`irefs-ac4-${axis}-${index}`);
+    const repo = seeded();
     const config: Record<string, unknown> = { ...baseConfig(repo), accountedTarballFiles: [] };
     if (value === MISSING) delete config[axis];
     else if (axis === "repoRoot" && value === "does-not-exist")
