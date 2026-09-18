@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, fstatSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 
@@ -61,6 +61,16 @@ function sourceWith(version: string): string {
   ].join("\n");
 }
 
+/** A file's bytes and modification time, both read through one descriptor. */
+function snapshot(path: string): { bytes: Buffer; mtimeMs: number } {
+  const handle = openSync(path, "r");
+  try {
+    return { bytes: readFileSync(handle), mtimeMs: fstatSync(handle).mtimeMs };
+  } finally {
+    closeSync(handle);
+  }
+}
+
 /** Run the bin in-process, collecting stderr. */
 async function runIn(
   argv: readonly string[],
@@ -113,14 +123,14 @@ describe("AC-C1: the declaration is rewritten to the manifest version", () => {
 
   it("version-sync condition 4: writes nothing when the tree is already at that version, and says so", async () => {
     const { dir, source } = tree("4.5.6", sourceWith("4.5.6"));
-    const before = readFileSync(source);
-    const mtimeBefore = statSync(source).mtimeMs;
+    const before = snapshot(source);
     const result = await runIn(["sync-version"], dir);
     expect(result.code).toBe(0);
     expect(result.stderr).toContain("already at 4.5.6");
-    expect(readFileSync(source)).toEqual(before);
+    const after = snapshot(source);
+    expect(after.bytes).toEqual(before.bytes);
     // Not merely "the same bytes": an idempotent run does not touch the file at all.
-    expect(statSync(source).mtimeMs).toBe(mtimeBefore);
+    expect(after.mtimeMs).toBe(before.mtimeMs);
   });
 
   it("version-sync condition 5: exits 0 for a write and for an already-synced tree", async () => {

@@ -1,4 +1,13 @@
-import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  fstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { join, resolve } from "node:path";
 
 import { createTarGz, type TarMember } from "./tar.js";
@@ -115,15 +124,28 @@ function membersUnder(root: string, prefix: string): TarMember[] {
   return members;
 }
 
-/** One archive member, read off disk with its own mode and modification time. @internal */
+/**
+ * One archive member, read off disk with its own mode and modification time.
+ *
+ * Both come from ONE descriptor rather than from the path twice: naming a file to describe it and
+ * then naming it again to read it is two files as far as the filesystem is concerned, and the
+ * archive would then carry one file's bytes under another's metadata.
+ *
+ * @internal
+ */
 function member(absolute: string, name: string): TarMember {
-  const stats = statSync(absolute);
-  return {
-    name,
-    content: readFileSync(absolute),
-    mode: stats.mode,
-    mtime: Math.trunc(stats.mtimeMs / 1000),
-  };
+  const handle = openSync(absolute, "r");
+  try {
+    const stats = fstatSync(handle);
+    return {
+      name,
+      content: readFileSync(handle),
+      mode: stats.mode,
+      mtime: Math.trunc(stats.mtimeMs / 1000),
+    };
+  } finally {
+    closeSync(handle);
+  }
 }
 
 /** Members in a stable order, so two runs over the same tree produce the same archive. @internal */
