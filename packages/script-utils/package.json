@@ -54,6 +54,7 @@
   ],
   "scripts": {
     "build": "node ../../scripts/pack-emdash-gate.mjs",
+    "prepack": "node ../../scripts/pack-emdash-gate.mjs",
     "prepublishOnly": "node ../../scripts/pack-emdash-gate.mjs",
     "test": "vitest run"
   },

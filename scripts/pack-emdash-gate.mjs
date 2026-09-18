@@ -21,11 +21,13 @@
 // anyone's discipline. `--self-id` on either copy reports the same digest, which is how a consumer
 // proves it at a distance.
 //
-// WHEN IT RUNS. `packages/script-utils` declares it as both `build` and `prepack`, which are two
-// independent routes to the same file: `pnpm run release` runs `pnpm run build` before
-// `changeset publish`, and `npm publish` / `pnpm pack` run `prepack` in the package directory. A
-// tarball missing this file would be a silent hole (npm omits a `files` entry that does not exist
-// without saying so), so it is worth having two ways to fill it.
+// WHEN IT RUNS. `packages/script-utils` declares it as `build`, as `prepack` and as
+// `prepublishOnly`, which are three independent routes to the same file: `pnpm run release` runs
+// `pnpm run build` before `changeset publish`, `pnpm pack` and `npm publish` run `prepack` in the
+// package directory, and `npm publish` runs `prepublishOnly` as well. A tarball missing this file
+// would be a silent hole (npm omits a `files` entry that does not exist without saying so), so
+// every route that produces a tarball has to fill it. `prepack` is the one that covers a bare
+// `pnpm pack`, which is what a person reaches for to see what a consumer gets.
 //
 // ZERO IMPORTS, DELIBERATELY. It runs as `prepack` INSIDE the package it is packing, and a build
 // step that imports from the tree it is assembling is one more ordering constraint for no gain.

@@ -90,20 +90,39 @@ function makeRepo(
  * @param cwd The directory to run from.
  * @param args Arguments to the gate.
  * @param gate The implementation to execute. Defaults to the canonical in this repository.
+ * @param input Text to put on the gate's stdin. Omitted, stdin is empty.
  * @returns The exit status, stdout as bytes, and stderr as text.
  */
 function runGate(
   cwd: string,
   args: string[] = [],
   gate: string = GATE,
+  input?: string,
 ): { code: number | null; stdout: Buffer; stderr: string } {
-  const result = spawnSync("bash", [gate, ...args], { cwd, stdio: ["ignore", "pipe", "pipe"] });
+  const result = spawnSync("bash", [gate, ...args], {
+    cwd,
+    input,
+    stdio: input === undefined ? ["ignore", "pipe", "pipe"] : ["pipe", "pipe", "pipe"],
+  });
   return {
     code: result.status,
     stdout: result.stdout ?? Buffer.alloc(0),
     stderr: (result.stderr ?? Buffer.alloc(0)).toString("utf8"),
   };
 }
+
+/**
+ * The four modes of the surface, each with whatever it needs to reach its own work.
+ *
+ * `--stdin` is handed a clean line so that an empty-stdin refusal can never stand in for the
+ * refusal a case is actually asserting.
+ */
+const EVERY_MODE: { name: string; args: string[]; input?: string }[] = [
+  { name: "(no argument)", args: [] },
+  { name: "--list-scanned", args: ["--list-scanned"] },
+  { name: "--stdin", args: ["--stdin", "a label"], input: "a clean line\n" },
+  { name: "--self-id", args: ["--self-id"] },
+];
 
 /**
  * The repo-root-relative paths `--list-scanned` reported, sorted.
@@ -237,6 +256,35 @@ describe("[AC-6] an entry that is not anchored at the repository root", () => {
   });
 });
 
+describe("[AC-5] [AC-6] an unusable declaration is refused in EVERY mode", () => {
+  // AC-5 says "in every mode including --list-scanned" and AC-6 carries no mode qualifier at all.
+  // `--stdin` and `--self-id` subtract no path with the declaration, so for them this is validation
+  // rather than filtering: an entry that has outlived its subject is a hole nobody is looking at,
+  // and the mode that happens to be running is no reason to leave it standing.
+
+  it("[AC-5] refuses a stale entry in every mode, and names it", () => {
+    for (const mode of EVERY_MODE) {
+      const repo = makeRepo({ "a.txt": "hello\n", [DECLARATION]: "vendor/gone.json\n" });
+      const run = runGate(repo, mode.args, GATE, mode.input);
+      expect(run.code, `${mode.name} accepted a stale entry`).toBe(1);
+      expect(run.stderr, mode.name).toContain(
+        `stale entry in ${DECLARATION}, line 1: vendor/gone.json`,
+      );
+      expect(run.stdout.length, mode.name).toBe(0);
+    }
+  });
+
+  it("[AC-6] refuses an entry that is not anchored in every mode, and names it", () => {
+    for (const mode of EVERY_MODE) {
+      const repo = makeRepo({ "a.txt": "hello\n", [DECLARATION]: "./a.txt\n" });
+      const run = runGate(repo, mode.args, GATE, mode.input);
+      expect(run.code, `${mode.name} accepted an unanchored entry`).toBe(1);
+      expect(run.stderr, mode.name).toContain(`unusable entry in ${DECLARATION}, line 1: ./a.txt`);
+      expect(run.stdout.length, mode.name).toBe(0);
+    }
+  });
+});
+
 describe("[AC-C4] a tracked entry that is not a regular file", () => {
   it("[AC-C4] refuses by name rather than skipping it, in both modes that enumerate paths", () => {
     // A symlink to a DIRECTORY is the case a `-d skip` would swallow in silence: it is readable, it
@@ -259,6 +307,24 @@ describe("[AC-C4] a tracked entry that is not a regular file", () => {
     expect(list.stderr).toContain("tracked entry is not a regular file: link");
     expect(list.stdout.length).toBe(0);
   });
+
+  it("[AC-C4] refuses a tracked regular file that a directory shadows on disk", () => {
+    // The index says mode 100644 and the disk says directory. Only the index can tell this apart
+    // from a gitlink, and a skip keyed on the type on disk counts it as one: the indexed content is
+    // never opened, nothing reaches stderr, and the run exits 0 reporting a gitlink it does not
+    // have. Whatever the index holds for that path goes unread, which is a missed READ rather than
+    // a missed match and is the harder one to notice.
+    const repo = makeRepo({ "a.txt": "hello\n", "ok.txt": "hello\n" });
+    rmSync(join(repo, "a.txt"));
+    mkdirSync(join(repo, "a.txt"));
+
+    for (const args of [[], ["--list-scanned"]]) {
+      const run = runGate(repo, args);
+      expect(run.code, `${args.join(" ") || "(no argument)"} skipped it`).toBe(1);
+      expect(run.stderr).toContain("tracked entry is not a regular file: a.txt");
+      expect(run.stdout.length).toBe(0);
+    }
+  });
 });
 
 describe("[AC-C5] a scan with nothing left to read", () => {
@@ -279,5 +345,51 @@ describe("[AC-C5] a scan with nothing left to read", () => {
     expect(run.code).toBe(1);
     expect(run.stderr).toContain("no tracked files left to scan");
     expect(run.stdout.length).toBe(0);
+  });
+});
+
+describe("[Contract: THE SURFACE] the exit vocabulary is closed at two codes", () => {
+  // "Exit 0 means the mode completed and found nothing banned. Exit 1 means anything else: ... an
+  // input could not be read ... THERE IS NO THIRD CODE." `cli` N1 says the same: the vocabulary is
+  // closed and adding to it is a change to the surface. git answers 128 for a repository it cannot
+  // read, and a status allowed out of here is a third code arriving from a tool this gate does not
+  // own, carrying no diagnostic of this gate's own.
+
+  it("[Contract: THE SURFACE] refuses at 1, never at git's status, where there is no work tree", () => {
+    const outside = mkdtempSync(join(scratch, "outside-"));
+    const probe = spawnSync("git", ["rev-parse", "--is-inside-work-tree"], {
+      cwd: outside,
+      encoding: "utf8",
+    });
+    expect(probe.stdout.trim(), "this case needs a directory outside any repository").not.toBe(
+      "true",
+    );
+
+    for (const mode of EVERY_MODE) {
+      const run = runGate(outside, mode.args, GATE, mode.input);
+      // Nothing is tracked, so there is no declaration to honour and no tracked file to read: the
+      // two modes that enumerate tracked paths refuse, and the two that read none answer.
+      const enumerates = mode.args.length === 0 || mode.args[0] === "--list-scanned";
+      expect(run.code, `${mode.name} answered with ${run.code}`).toBe(enumerates ? 1 : 0);
+      if (enumerates) {
+        expect(run.stderr, mode.name).toContain("ERROR: check-no-emdash");
+        expect(run.stdout.length, mode.name).toBe(0);
+      }
+    }
+  });
+
+  it("[Contract: THE SURFACE] refuses at 1, never at git's status, when the index cannot be read", () => {
+    // An unreadable index is literally "an input could not be read", and it is the one repository
+    // state in which this gate cannot know what is tracked: every mode fails closed on it, because
+    // a declaration it cannot check is a scan surface it cannot vouch for.
+    const repo = makeRepo({ "a.txt": "hello\n" });
+    writeFileSync(join(repo, ".git", "index"), "not an index at all");
+
+    for (const mode of EVERY_MODE) {
+      const run = runGate(repo, mode.args, GATE, mode.input);
+      expect(run.code, `${mode.name} answered with ${run.code}`).toBe(1);
+      expect(run.stderr, mode.name).toContain("ERROR: check-no-emdash");
+      expect(run.stdout.length, mode.name).toBe(0);
+    }
   });
 });

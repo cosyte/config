@@ -76,6 +76,12 @@
 # declaration was unusable, or an argument was not recognised. THERE IS NO THIRD CODE,
 # and adding one is a change to this surface that is specced as one.
 #
+# THAT CLAIM IS ENFORCED RATHER THAN ASSERTED, because the tools this gate calls have
+# codes of their own: `git` alone answers 128 for a repository it cannot read, and a
+# status left to propagate is a third code arriving from a tool nobody specced. Every git
+# call is tested and refused BY NAME, and the EXIT trap reduces any status that is neither
+# 0 nor 1 to 1 and says which one it reduced.
+#
 # Hits and diagnostics go to STDERR in every mode. STDOUT carries the human OK line in
 # the two SCANNING modes and the machine output in the two REPORTING modes, never both
 # in one mode: `--list-scanned` is piped into a comparison and `--self-id` into a digest
@@ -123,9 +129,13 @@
 # is not a reviewed, committed declaration, so it narrows nothing; the run says on
 # stderr that it is being ignored rather than honouring an exclusion nobody approved.
 #
-# WHICH MODES APPLY IT: the two that ENUMERATE TRACKED PATHS, from one shared code path
-# so they cannot disagree. `--stdin` scans text that is not a file and `--self-id`
-# opens only this file, so in neither is there a path for an exclusion to subtract.
+# EVERY MODE APPLIES IT, from one shared code path so no two can disagree. `--stdin` and
+# `--self-id` subtract no path with it, so for them this is validation rather than
+# filtering: an entry that names nothing tracked, or one that is not anchored, is a hole
+# nobody is looking at, and which mode happens to be running is no reason to leave it
+# standing. A directory that is not a git work tree tracks nothing, so it HAS no
+# declaration: those two modes answer there as they always did, and the two that
+# enumerate tracked paths refuse, having nothing to enumerate.
 # ---------------------------------------------------------------------------
 # THE SELF-EXCLUSION IS RESOLVED AT RUNTIME, NOT HARDCODED. The gate works out the
 # implementation file it is executing and excludes that path from its own scan when,
@@ -314,13 +324,305 @@ case "${1:-}" in
     ;;
 esac
 
+# Anything the scanner writes to stderr means either that it did not read everything it
+# was given, or that it matched inside input it classifies as binary. Neither may print
+# OK, and exit status cannot carry either signal: grep exits 1 on "no match", which
+# xargs in turn reports as 123, so "clean" and "died part way through the batch" are
+# indistinguishable by code, while a binary match exits 0 with empty stdout.
+# They are created before any mode does its work, because every mode now asks git a
+# question and a refusal quotes what git said.
+ERRLOG=$(mktemp)
+GITERR=$(mktemp)
+FILELIST=$(mktemp)
+SCANLIST=$(mktemp)
+PLAINLIST=$(mktemp)
+STDINBUF=$(mktemp)
+BINPROBE=$(mktemp)
+PROBEERR=$(mktemp)
+
+# THE BACKSTOP ON THE EXIT VOCABULARY. Every refusal in this file chooses 1 deliberately,
+# but a status this script never chose can still arrive from a tool it calls or from a
+# signal. Each git call below is checked so the known case never reaches here; this is
+# what makes "there is no third code" a property of the file rather than a list of the
+# codes someone thought to look for, and it reports the status it reduced so the cause is
+# not lost with it.
+close_exit_vocabulary() {
+  local code=$?
+  rm -f "$ERRLOG" "$GITERR" "$FILELIST" "$SCANLIST" "$PLAINLIST" "$STDINBUF" "$BINPROBE" \
+    "$PROBEERR"
+  if [ "$code" -ne 0 ] && [ "$code" -ne 1 ]; then
+    echo "ERROR: check-no-emdash - the run ended with status ${code}. This gate reports 0" >&2
+    echo "       for a mode that completed clean and 1 for everything else, so it is" >&2
+    echo "       reporting 1. Whatever is above this line is what actually failed." >&2
+    exit 1
+  fi
+}
+trap close_exit_vocabulary EXIT
+
+# ---- the repository under scan ---------------------------------------------------
+#
+# EVERY MODE COMES THROUGH HERE, because the declaration below is validated in every mode
+# and an entry can only be judged against the tracked list. `--stdin` and `--self-id`
+# subtract no path with it; what they owe is the refusal, not the filtering.
+#
+# NO WORK TREE IS AN ANSWER. A GIT THAT FAILED IS NOT. Where there is no work tree nothing
+# is tracked, so there is no declaration to honour and no tracked file to read: the two
+# modes that need neither carry on, and the two that enumerate tracked paths refuse,
+# having nothing to enumerate. A git call that fails with a work tree in hand (an
+# unreadable or corrupt index) is an input this gate could not read, and every mode
+# refuses on that. git's status is never passed out: 128 is not on this gate's surface.
+#
+# `git ls-files` is relative to the working directory, so from a subdirectory it lists
+# a subtree and the scan would report OK having skipped the rest of the repo. That
+# matters more here than in a flat repo: config is a pnpm workspace and `pnpm -r` runs
+# scripts from each package directory. Anchor at the top level, which also keeps the
+# declaration's path and the self-exclusion's comparison below correct.
+refuse_git() {
+  echo "ERROR: check-no-emdash - ${1} failed, so this gate could not read the repository" >&2
+  echo "       it was asked about. What git reported follows." >&2
+  cat "$GITERR" >&2
+  echo "       Refusing to report on a repository this gate could not read. Run it from a" >&2
+  echo "       readable checkout of the repository it is meant to scan." >&2
+  exit 1
+}
+
+# The choices below each close a route by which the scan could report green without
+# having actually read its input, because a gate that prints OK when it did not read
+# its input is worse than no gate at all.
+#
+# This list is NOT a claim of exhaustiveness. The bare `-` operand route was found by a
+# refuter against a copy whose own comment implied it was already closed. Treat this as
+# the routes that are known and closed, not as proof that no other exists.
+#
+#   the file list is built as its own command, not as the head of the pipeline, so a
+#   `git ls-files` that fails (an unreadable or corrupt index) stops the run, and is
+#   REFUSED BY NAME rather than left to carry git's own 128 out as this gate's exit
+#   code. Piped, its status is erased by the `|| true` the no-match case needs, and the
+#   scan would report OK over an empty list. An empty list is refused for the same
+#   reason.
+#
+#   -z, and -0 on the xargs below: `git ls-files` C-quotes any path holding a space, a
+#   quote, or a non-ASCII byte, and unseparated, grep is handed a name no file has.
+#   -r on xargs drops the grep invocation entirely when the list is empty; without it
+#   grep falls back to reading stdin and prints OK.
+#
+#   -e before the pattern and -- after it, so neither the pattern nor a tracked
+#   filename that starts with a dash is read as a grep option.
+#
+#   EVERY PATH IS `./`-PREFIXED as the list is built, which is what actually closes the
+#   dash family. `--` alone does NOT: it stops `-` being parsed as an OPTION, but grep
+#   then reads the bare operand `-` as STANDARD INPUT, and xargs points its child's
+#   stdin at /dev/null. A tracked file literally named `-` (a `cmd > -` typo, which
+#   `git add -A` stages without complaint) is therefore never opened, and the gate
+#   prints OK over a live em dash. Prefixing in the LOOP rather than through `sed -z`
+#   also keeps the scan a single command, so the stderr capture binds to all of it, and
+#   drops a GNU-only dependency that has no self-test.
+#
+#   THE `./` PREFIX IS FOR GREP AND NOT FOR THE REPORT. `--list-scanned` writes the
+#   repo-root-relative path, so the loop builds BOTH spellings in one pass rather than
+#   transforming one into the other afterwards: a second pass is a second place for the
+#   reported set and the scanned set to disagree, and the whole value of that mode is
+#   that they cannot.
+#
+#   -H so every hit carries its filename. grep omits the name when handed exactly one
+#   file, which an xargs batch boundary can produce, and an unattributable hit in a red
+#   build is a worse report for no saving.
+#
+#   NO -d skip. It is the one fail-OPEN flag in this pipeline's ancestry: with it, a
+#   tracked symlink to a directory is skipped silently (no stderr, so
+#   refuse_if_incomplete never fires and the gate goes green). It is not needed, because
+#   the loop below refuses a tracked entry that is not a regular file BY NAME, which is
+#   louder still. The one entry that loop skips is a gitlink, and it reads that off the
+#   INDEX MODE rather than off the type ON DISK: every test of the type on disk reopens
+#   the same hole from the other side, a symlink to a directory and a tracked blob
+#   shadowed by a directory both testing as directories.
+#
+#   no -I, and no binary partition: see BINARY POSTURE in the header.
+#
+#   stderr is captured and any of it fails the run (see refuse_if_incomplete above).
+enumerate_tracked() {
+  local record tab
+  git ls-files -s -z > "$FILELIST" 2> "$GITERR" || refuse_git "git ls-files -s -z"
+
+  # `-s` carries the INDEX MODE, which is the only thing that can say an entry is a
+  # gitlink. Each record is `<mode> <sha> <stage>`, a TAB, then the path; the metadata
+  # holds no tab, so the first one separates the two however the path is spelled.
+  tab=$'\t'
+  while IFS= read -r -d '' record; do
+    TRACKED_MODE+=("${record%% *}")
+    TRACKED+=("${record#*"$tab"}")
+  done < "$FILELIST"
+
+  # Scoped to the two modes that read tracked files. `--stdin` scans text that is not a
+  # file and `--self-id` opens only this one, so neither would be reporting green from a
+  # scan that read nothing, and refusing them here would red a consumer's pull-request
+  # text step over a property of a tree that step never looked at.
+  if [ "${#TRACKED[@]}" -eq 0 ] && { [ "$MODE" = files ] || [ "$MODE" = list ]; }; then
+    echo "ERROR: check-no-emdash - no tracked files to scan. Refusing to report green" >&2
+    echo "       from a scan that read nothing." >&2
+    exit 1
+  fi
+}
+
+# git answers 128 for a missing repository and for most other fatals alike, so its status
+# cannot tell those apart. What it can say is whether a work tree is in hand, which is the
+# question every mode below needs answered.
+INSIDE_WORK_TREE=$(git rev-parse --is-inside-work-tree 2> "$GITERR" || true)
+
+TRACKED=()
+TRACKED_MODE=()
+ROOT=''
+if [ "$INSIDE_WORK_TREE" = true ]; then
+  ROOT=$(git rev-parse --show-toplevel 2> "$GITERR") || refuse_git "git rev-parse --show-toplevel"
+  cd "$ROOT"
+  ROOT=$(pwd -P)
+  enumerate_tracked
+elif [ "$MODE" = files ] || [ "$MODE" = list ]; then
+  echo "ERROR: check-no-emdash - this is not a git work tree, so there is no tracked file" >&2
+  echo "       list to read: $(pwd)" >&2
+  cat "$GITERR" >&2
+  echo "       Refusing to report on a repository this gate could not read. Run it from a" >&2
+  echo "       readable checkout of the repository it is meant to scan." >&2
+  exit 1
+fi
+
+is_tracked() {
+  local needle="$1" t
+  if [ "${#TRACKED[@]}" -eq 0 ]; then return 1; fi
+  for t in "${TRACKED[@]}"; do
+    if [ "$t" = "$needle" ]; then return 0; fi
+  done
+  return 1
+}
+
+# Does any tracked path answer to this entry? A prefix entry is answered by anything
+# beneath it; any other entry only by itself. Both are LITERAL comparisons: `$entry` is
+# quoted inside the pattern, so a glob character in a declared path is a character
+# rather than a wildcard.
+entry_matches_a_tracked_path() {
+  local entry="$1" t
+  if [ "${#TRACKED[@]}" -eq 0 ]; then return 1; fi
+  case $entry in
+    */)
+      for t in "${TRACKED[@]}"; do
+        case $t in
+          "$entry"*) return 0 ;;
+        esac
+      done
+      ;;
+    *)
+      for t in "${TRACKED[@]}"; do
+        if [ "$t" = "$entry" ]; then return 0; fi
+      done
+      ;;
+  esac
+  return 1
+}
+
+# ---- the exclusion declaration ---------------------------------------------------
+EXCLUDES=()
+refuse_declaration() {
+  local line="$1" entry="$2" what="$3"
+  echo "ERROR: check-no-emdash - unusable entry in ${DECLARATION}, line ${line}: ${entry}" >&2
+  echo "       ${what}" >&2
+  echo "       Refusing to scan under a declaration this gate cannot honour." >&2
+  exit 1
+}
+
+if is_tracked "$DECLARATION"; then
+  if [ ! -r "$DECLARATION" ]; then
+    echo "ERROR: check-no-emdash - the exclusion declaration is tracked but could not be" >&2
+    echo "       read: ${DECLARATION}" >&2
+    echo "       Refusing to scan without knowing what the declaration leaves out." >&2
+    exit 1
+  fi
+  lineno=0
+  line=''
+  # `|| [ -n "$line" ]` so a final entry with no trailing newline is still read.
+  while IFS= read -r line || [ -n "$line" ]; do
+    lineno=$((lineno + 1))
+    # Blank lines and comments are ignored, and the comment test is on the first
+    # NON-SPACE character, so an indented comment is still a comment. `stripped` exists
+    # only to answer those two questions; the ENTRY below is the line verbatim.
+    stripped=${line#"${line%%[![:space:]]*}"}
+    if [ -z "$stripped" ]; then continue; fi
+    case $stripped in
+      '#'*) continue ;;
+    esac
+
+    # The entry is the line VERBATIM. See the header: nothing is trimmed, because a path
+    # is bytes. The anchor rules are the whole of what makes an entry usable on its face.
+    entry=$line
+    case $entry in
+      /*)
+        refuse_declaration "$lineno" "$entry" \
+          "An entry is repo-root-relative, and this one is absolute. Drop the leading /."
+        ;;
+      ./*)
+        refuse_declaration "$lineno" "$entry" \
+          "An entry is anchored at the repository root, so it does not begin with ./."
+        ;;
+      *..*)
+        refuse_declaration "$lineno" "$entry" \
+          "An entry may not contain .., which would reach outside the repository."
+        ;;
+    esac
+
+    if ! entry_matches_a_tracked_path "$entry"; then
+      echo "ERROR: check-no-emdash - stale entry in ${DECLARATION}, line ${lineno}: ${entry}" >&2
+      if [ "$entry" != "$stripped" ] || [ "$entry" != "${entry%[[:space:]]}" ]; then
+        echo "       The entry carries leading or trailing whitespace (a stray space, or a" >&2
+        echo "       trailing carriage return from a CRLF file), and that whitespace is part" >&2
+        echo "       of the path this gate looked for. Remove it." >&2
+      elif [ "${entry%/}" != "$entry" ]; then
+        echo "       No tracked path lies beneath it. An exclusion that has outlived its" >&2
+        echo "       subject is a hole nobody is looking at: delete the entry, or correct" >&2
+        echo "       it to the directory it was meant to name." >&2
+      else
+        echo "       No tracked path is spelled that way. An exclusion that has outlived its" >&2
+        echo "       subject is a hole nobody is looking at: delete the entry, or correct it" >&2
+        echo "       to the path it was meant to name. A directory entry ends in /." >&2
+      fi
+      exit 1
+    fi
+
+    EXCLUDES+=("$entry")
+  done < "$DECLARATION"
+elif [ -e "$DECLARATION" ]; then
+  echo "NOTE: check-no-emdash - ${DECLARATION} exists but is not tracked, so it is being" >&2
+  echo "      IGNORED and nothing is excluded by it. What this gate scans is decided only" >&2
+  echo "      by files that have been reviewed and committed. Track it, or delete it." >&2
+fi
+
+is_excluded() {
+  local p="$1" e
+  if [ "${#EXCLUDES[@]}" -eq 0 ]; then return 1; fi
+  for e in "${EXCLUDES[@]}"; do
+    case $e in
+      */)
+        case $p in
+          "$e"*) return 0 ;;
+        esac
+        ;;
+      *)
+        if [ "$p" = "$e" ]; then return 0; fi
+        ;;
+    esac
+  done
+  return 1
+}
+
 # ---- --self-id: which bytes am I ------------------------------------------------
 #
-# Answered FIRST, before the scanner assertions and before anything is created in the
-# temporary directory, because this mode reads no scanned content and reports nothing
-# about a tree. It is what a consuming repo runs to prove it is executing the canonical
-# rather than a drifted copy, and that question is worth answering precisely when
-# something else about the environment is wrong.
+# Answered before the scanner assertions, because this mode reads no scanned content and
+# reports nothing about a tree: a grep that cannot see leaves the answer no less true. It
+# is what a consuming repo runs to prove it is executing the canonical rather than a
+# drifted copy, and that question is worth answering precisely when something else about
+# the environment is wrong, which is why it needs no work tree either.
+#
+# It comes AFTER the declaration for the one reason the criterion gives: an unusable
+# declaration is refused in every mode, and a digest handed back over one would be an
+# answer nobody asked for standing beside a hole nobody is looking at.
 #
 # The digest tool is whichever of the three is present, and the answer is CHECKED to be
 # 64 lowercase hex characters before it is printed: a tool that emitted a different
@@ -366,20 +668,6 @@ if [ "$MODE" = self-id ]; then
   printf '%s\n' "$DIGEST"
   exit 0
 fi
-
-# Anything the scanner writes to stderr means either that it did not read everything it
-# was given, or that it matched inside input it classifies as binary. Neither may print
-# OK, and exit status cannot carry either signal: grep exits 1 on "no match", which
-# xargs in turn reports as 123, so "clean" and "died part way through the batch" are
-# indistinguishable by code, while a binary match exits 0 with empty stdout.
-ERRLOG=$(mktemp)
-FILELIST=$(mktemp)
-SCANLIST=$(mktemp)
-PLAINLIST=$(mktemp)
-STDINBUF=$(mktemp)
-BINPROBE=$(mktemp)
-PROBEERR=$(mktemp)
-trap 'rm -f "$ERRLOG" "$FILELIST" "$SCANLIST" "$PLAINLIST" "$STDINBUF" "$BINPROBE" "$PROBEERR"' EXIT
 
 if [ "$MODE" = files ] || [ "$MODE" = stdin ]; then
   # SELF-TEST: prove the scanner can still MATCH what it is meant to catch before any
@@ -492,204 +780,6 @@ if [ "$MODE" = stdin ]; then
   exit 0
 fi
 
-# ---- the two modes that enumerate tracked paths ----------------------------------
-#
-# `git ls-files` is relative to the working directory, so from a subdirectory it lists
-# a subtree and the scan would report OK having skipped the rest of the repo. That
-# matters more here than in a flat repo: config is a pnpm workspace and `pnpm -r` runs
-# scripts from each package directory. Anchor at the top level, which also keeps the
-# declaration's path and the self-exclusion's comparison below correct.
-cd "$(git rev-parse --show-toplevel)"
-ROOT=$(pwd -P)
-
-# The choices below each close a route by which the scan could report green without
-# having actually read its input, because a gate that prints OK when it did not read
-# its input is worse than no gate at all.
-#
-# This list is NOT a claim of exhaustiveness. The bare `-` operand route was found by a
-# refuter against a copy whose own comment implied it was already closed. Treat this as
-# the routes that are known and closed, not as proof that no other exists.
-#
-#   the file list is built as its own command, not as the head of the pipeline, so a
-#   `git ls-files` that fails (an unreadable or corrupt index) stops the run. Piped,
-#   its status is erased by the `|| true` the no-match case needs, and the scan would
-#   report OK over an empty list. An empty list is refused for the same reason.
-#
-#   -z, and -0 on the xargs below: `git ls-files` C-quotes any path holding a space, a
-#   quote, or a non-ASCII byte, and unseparated, grep is handed a name no file has.
-#   -r on xargs drops the grep invocation entirely when the list is empty; without it
-#   grep falls back to reading stdin and prints OK.
-#
-#   -e before the pattern and -- after it, so neither the pattern nor a tracked
-#   filename that starts with a dash is read as a grep option.
-#
-#   EVERY PATH IS `./`-PREFIXED as the list is built, which is what actually closes the
-#   dash family. `--` alone does NOT: it stops `-` being parsed as an OPTION, but grep
-#   then reads the bare operand `-` as STANDARD INPUT, and xargs points its child's
-#   stdin at /dev/null. A tracked file literally named `-` (a `cmd > -` typo, which
-#   `git add -A` stages without complaint) is therefore never opened, and the gate
-#   prints OK over a live em dash. Prefixing in the LOOP rather than through `sed -z`
-#   also keeps the scan a single command, so the stderr capture binds to all of it, and
-#   drops a GNU-only dependency that has no self-test.
-#
-#   THE `./` PREFIX IS FOR GREP AND NOT FOR THE REPORT. `--list-scanned` writes the
-#   repo-root-relative path, so the loop builds BOTH spellings in one pass rather than
-#   transforming one into the other afterwards: a second pass is a second place for the
-#   reported set and the scanned set to disagree, and the whole value of that mode is
-#   that they cannot.
-#
-#   -H so every hit carries its filename. grep omits the name when handed exactly one
-#   file, which an xargs batch boundary can produce, and an unattributable hit in a red
-#   build is a worse report for no saving.
-#
-#   NO -d skip. It is the one fail-OPEN flag in this pipeline's ancestry: with it, a
-#   tracked symlink to a directory is skipped silently (no stderr, so
-#   refuse_if_incomplete never fires and the gate goes green). It is not needed, because
-#   the loop below refuses a tracked entry that is not a regular file BY NAME, which is
-#   louder still. Note that a plain `[ -d "$f" ]` test would reopen the same hole from
-#   the other side: `-d` follows symlinks, so a symlink to a directory tests true and
-#   would be skipped as if it were a gitlink. Hence the `! -L` guard.
-#
-#   no -I, and no binary partition: see BINARY POSTURE in the header.
-#
-#   stderr is captured and any of it fails the run (see refuse_if_incomplete above).
-git ls-files -z > "$FILELIST"
-
-if [ ! -s "$FILELIST" ]; then
-  echo "ERROR: check-no-emdash - no tracked files to scan. Refusing to report green" >&2
-  echo "       from a scan that read nothing." >&2
-  exit 1
-fi
-
-TRACKED=()
-while IFS= read -r -d '' f; do
-  TRACKED+=("$f")
-done < "$FILELIST"
-
-is_tracked() {
-  local needle="$1" t
-  for t in "${TRACKED[@]}"; do
-    if [ "$t" = "$needle" ]; then return 0; fi
-  done
-  return 1
-}
-
-# Does any tracked path answer to this entry? A prefix entry is answered by anything
-# beneath it; any other entry only by itself. Both are LITERAL comparisons: `$entry` is
-# quoted inside the pattern, so a glob character in a declared path is a character
-# rather than a wildcard.
-entry_matches_a_tracked_path() {
-  local entry="$1" t
-  case $entry in
-    */)
-      for t in "${TRACKED[@]}"; do
-        case $t in
-          "$entry"*) return 0 ;;
-        esac
-      done
-      ;;
-    *)
-      for t in "${TRACKED[@]}"; do
-        if [ "$t" = "$entry" ]; then return 0; fi
-      done
-      ;;
-  esac
-  return 1
-}
-
-# ---- the exclusion declaration ---------------------------------------------------
-EXCLUDES=()
-refuse_declaration() {
-  local line="$1" entry="$2" what="$3"
-  echo "ERROR: check-no-emdash - unusable entry in ${DECLARATION}, line ${line}: ${entry}" >&2
-  echo "       ${what}" >&2
-  echo "       Refusing to scan under a declaration this gate cannot honour." >&2
-  exit 1
-}
-
-if is_tracked "$DECLARATION"; then
-  if [ ! -r "$DECLARATION" ]; then
-    echo "ERROR: check-no-emdash - the exclusion declaration is tracked but could not be" >&2
-    echo "       read: ${DECLARATION}" >&2
-    echo "       Refusing to scan without knowing what the declaration leaves out." >&2
-    exit 1
-  fi
-  lineno=0
-  line=''
-  # `|| [ -n "$line" ]` so a final entry with no trailing newline is still read.
-  while IFS= read -r line || [ -n "$line" ]; do
-    lineno=$((lineno + 1))
-    # Blank lines and comments are ignored, and the comment test is on the first
-    # NON-SPACE character, so an indented comment is still a comment. `stripped` exists
-    # only to answer those two questions; the ENTRY below is the line verbatim.
-    stripped=${line#"${line%%[![:space:]]*}"}
-    if [ -z "$stripped" ]; then continue; fi
-    case $stripped in
-      '#'*) continue ;;
-    esac
-
-    # The entry is the line VERBATIM. See the header: nothing is trimmed, because a path
-    # is bytes. The anchor rules are the whole of what makes an entry usable on its face.
-    entry=$line
-    case $entry in
-      /*)
-        refuse_declaration "$lineno" "$entry" \
-          "An entry is repo-root-relative, and this one is absolute. Drop the leading /."
-        ;;
-      ./*)
-        refuse_declaration "$lineno" "$entry" \
-          "An entry is anchored at the repository root, so it does not begin with ./."
-        ;;
-      *..*)
-        refuse_declaration "$lineno" "$entry" \
-          "An entry may not contain .., which would reach outside the repository."
-        ;;
-    esac
-
-    if ! entry_matches_a_tracked_path "$entry"; then
-      echo "ERROR: check-no-emdash - stale entry in ${DECLARATION}, line ${lineno}: ${entry}" >&2
-      if [ "$entry" != "$stripped" ] || [ "$entry" != "${entry%[[:space:]]}" ]; then
-        echo "       The entry carries leading or trailing whitespace (a stray space, or a" >&2
-        echo "       trailing carriage return from a CRLF file), and that whitespace is part" >&2
-        echo "       of the path this gate looked for. Remove it." >&2
-      elif [ "${entry%/}" != "$entry" ]; then
-        echo "       No tracked path lies beneath it. An exclusion that has outlived its" >&2
-        echo "       subject is a hole nobody is looking at: delete the entry, or correct" >&2
-        echo "       it to the directory it was meant to name." >&2
-      else
-        echo "       No tracked path is spelled that way. An exclusion that has outlived its" >&2
-        echo "       subject is a hole nobody is looking at: delete the entry, or correct it" >&2
-        echo "       to the path it was meant to name. A directory entry ends in /." >&2
-      fi
-      exit 1
-    fi
-
-    EXCLUDES+=("$entry")
-  done < "$DECLARATION"
-elif [ -e "$DECLARATION" ]; then
-  echo "NOTE: check-no-emdash - ${DECLARATION} exists but is not tracked, so it is being" >&2
-  echo "      IGNORED and nothing is excluded by it. What this gate scans is decided only" >&2
-  echo "      by files that have been reviewed and committed. Track it, or delete it." >&2
-fi
-
-is_excluded() {
-  local p="$1" e
-  if [ "${#EXCLUDES[@]}" -eq 0 ]; then return 1; fi
-  for e in "${EXCLUDES[@]}"; do
-    case $e in
-      */)
-        case $p in
-          "$e"*) return 0 ;;
-        esac
-        ;;
-      *)
-        if [ "$p" = "$e" ]; then return 0; fi
-        ;;
-    esac
-  done
-  return 1
-}
-
 # ---- the self-exclusion, resolved rather than named ------------------------------
 #
 # The implementation's path AS THIS REPO WOULD SPELL IT, which exists only when the
@@ -707,7 +797,8 @@ gitlinks=0
 scanned=0
 self_excluded=0
 declared_excluded=0
-for f in "${TRACKED[@]}"; do
+for i in "${!TRACKED[@]}"; do
+  f=${TRACKED[$i]}
   # The implementation under scan, excluded only because it is tracked HERE. It has to
   # name the encodings it bans, and nothing checks the checker.
   if [ -n "$SELF_REL" ] && [ "$f" = "$SELF_REL" ]; then
@@ -723,11 +814,13 @@ for f in "${TRACKED[@]}"; do
   fi
 
   # `git ls-files` lists a submodule as a gitlink, which on disk is a REAL directory.
-  # config has none today (checked: `git ls-files -s` lists no mode 160000 entry), but
-  # keep the rule narrow so it cannot quietly grow into the `-d skip` hole: a real
-  # directory is skipped, a SYMLINK to a directory is not, and falls through to the
-  # not-a-regular-file refusal below.
-  if [ -d "$f" ] && [ ! -L "$f" ]; then
+  # config has none today (checked: `git ls-files -s` lists no mode 160000 entry). The
+  # skip is keyed on the INDEX MODE and never on the type on disk, because the two
+  # disagree in the case that costs the most: a tracked regular file shadowed on disk by
+  # a directory tests as a directory, so a type-keyed skip reads none of its indexed
+  # content, counts it as a gitlink it is not, and prints OK over it. Keyed on 160000 it
+  # falls through to the not-a-regular-file refusal below and is named.
+  if [ "${TRACKED_MODE[$i]}" = 160000 ]; then
     gitlinks=$((gitlinks + 1))
     continue
   fi
