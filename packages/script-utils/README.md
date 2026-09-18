@@ -122,6 +122,26 @@ resolveConfig(config).problems; // => undefined
 canonicalRuleNames().length; // => 6
 ```
 
+The `attw` publish gate is the fourth. It exists because `attw` prints "This package does not
+contain types." and exits **0**: for a package that ships types, that sentence means the
+declarations were not in the tarball, which is a broken publish reported as a pass. Your repo keeps
+`scripts/attw.mjs` and an `attw` script whose body is exactly `node scripts/attw.mjs`; that file is
+a caller, and this is the whole of it:
+
+```ts runnable
+import { runAttwGate } from "@cosyte/script-utils/attw";
+
+// The one line a consuming repo's `scripts/attw.mjs` carries:
+//
+//     process.exitCode = runAttwGate({ callerUrl: import.meta.url });
+//
+// `callerUrl` is required and has no default. `attw` is resolved as `../node_modules/.bin/attw`
+// from it, so the binary that runs is YOUR package's own; defaulted to this module's location it
+// would resolve inside `node_modules/@cosyte/`, where your package has no attw at all. The gate
+// RETURNS the code to exit with and never calls `process.exit`, so it is testable in-process.
+typeof runAttwGate; // => "function"
+```
+
 ## Entry points
 
 | entry point                          | what it is                                                               |
@@ -129,6 +149,7 @@ canonicalRuleNames().length; // => 6
 | `@cosyte/script-utils`               | `isCliEntrypoint(moduleUrl)`, the entry-point guard                      |
 | `@cosyte/script-utils/phi-scan`      | `runPhiScan(config)` and `exemptsMarkdown(relPath)`, the shared PHI gate |
 | `@cosyte/script-utils/internal-refs` | `runInternalRefsScan(config)`, the shared internal-reference gate        |
+| `@cosyte/script-utils/attw`          | `runAttwGate(options)`, the shared `attw` publish gate                   |
 
 They are separate subpaths because they are separately adoptable: a repo can take the entry-point
 guard without taking a position on PHI scanning, a repo can take the internal-reference gate without
@@ -155,6 +176,15 @@ will not accept is a configuration that SUBTRACTS. The canonical rule set, the s
 every completeness refusal are not caller inputs, and an option that reaches for one of them is
 refused by name rather than ignored. So is an option the gate has never heard of: an ignored setting
 reads, from the caller's side, exactly like an honoured one.
+
+`runAttwGate` takes the narrowest bargain of the four, and deliberately. A caller supplies where it
+lives (`callerUrl`, required, no default) and may supply the arguments to forward; everything else
+is the gate's. The arguments it will forward are an ALLOW-LIST of two (`--profile` with its value,
+and `--no-definitely-typed`), because a deny-list of blinding spellings bought exactly one more
+evasion per round: each of `--quiet`, `-q`, `--format json`, `-fjson`, `-qP`, `--config-path`,
+`--help` and `--version` was measured making attw exit 0 with nothing for the gate to read.
+Widening that set is a deliberate one-line edit in this package, reviewed here, and not something a
+caller can do. No net can be switched off.
 
 ## PHI and safety
 
@@ -365,13 +395,43 @@ shape rule, which flags the segment-field references a parser's documentation ex
 so a prefix shadowed by a standards designation refuses the run instead of silently contributing
 nothing. That is the axis a caller edits most, and a dead entry there is a rule that stopped seeing.
 
+### `runAttwGate(options)`
+
+The `attw` publish gate, run in the working directory of the package being checked. It returns the
+exit code a caller should exit with: 0 when every net passed, attw's own status when attw itself
+judged the package, and 1 for every refusal.
+
+`attw --pack .` prints "This package does not contain types." and exits **0**, because
+`getExitCode()` returns before it reads the problem list whenever the analysis found no types at
+all. For a package that ships types, that is a broken publish reported as a pass, and the window it
+arrives through is ordinary: `tsup` emits JS in one pass and declarations in a later one, so every
+build has a moment where `dist/` holds `.mjs`/`.cjs` and no `.d.ts`.
+
+Four nets, each catching something the others cannot:
+
+1. **Preflight**, over every relative artifact path the manifest promises. A path that is missing or
+   empty reds and is named. A manifest that declares NOTHING is refused rather than reported as
+   checked: three of the four nets grade that one set, so an empty set makes them vacuous at once.
+2. **The document attw prints**, never its prose. The gate forces `--format json` and asserts
+   `analysis.types.kind === "included"`, so a route that hides or reformats the output leaves stdout
+   unparseable, and unparseable fails closed.
+3. **npm's own pack listing.** A declared path can be on disk and out of the tarball, which net 1
+   cannot see and which a committed `.attw.json` can hide from attw's exit code. This net asks npm.
+4. **The manifest pnpm WOULD PUBLISH.** pnpm applies `publishConfig` as publish-time overrides and
+   rewrites the manifest inside the tarball; `npm pack` does not. This org publishes with pnpm, so
+   the document net 3 grades is not the one that ships.
+
+What each net does and does not claim, and every measurement behind them, is in `attw.js`'s own
+docblock. It is not restated here: a claim written down twice is a claim that drifts.
+
 ## Compatibility
 
-Node `>=22.14`, ESM only, published as source (`index.js`, `phi-scan.js` and `internal-refs.js` with
-hand-written `.d.ts` files) with no build step, so a consumer can import it by relative path from a
-checkout as well as by specifier. `runPhiScan` shells out to `git` for the index-backed half of its
-sweep, so `all` mode needs git on the path, and `runInternalRefsScan` shells out to `git` for its
-whole enumeration.
+Node `>=22.14`, ESM only, published as source (`index.js`, `phi-scan.js`, `internal-refs.js` and
+`attw.js` with hand-written `.d.ts` files) with no build step, so a consumer can import it by
+relative path from a checkout as well as by specifier. `runPhiScan` shells out to `git` for the
+index-backed half of its sweep, so `all` mode needs git on the path, `runInternalRefsScan` shells
+out to `git` for its whole enumeration, and `runAttwGate` spawns the consuming package's own `attw`
+binary, `npm pack` and, where a `publishConfig` object is present, `pnpm pack`.
 
 ## Contributing
 
