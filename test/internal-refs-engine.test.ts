@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { afterAll, describe, expect, it } from "vitest";
@@ -8,6 +8,7 @@ import {
   CONFIG_AXES,
   REFUSED_OPTIONS,
   canonicalRuleNames,
+  classifyTrackedMode,
   runInternalRefsScan,
 } from "@cosyte/script-utils/internal-refs";
 
@@ -449,6 +450,51 @@ describe("a target enumerated and never read is a refusal, never a clean run", (
     expect(result.code).not.toBe(0);
     expect(result.err).toContain("docs-content/loop");
     expect(result.err).toContain("not a regular file");
+  });
+
+  it("refuses a target replaced by a directory after enumeration, rather than counting it as a submodule", () => {
+    // THE DEFECT THIS PINS, and it is why the read path asks the INDEX what an entry is and the
+    // DESCRIPTOR what it holds, never the path twice. A guard that stats the working tree sees a
+    // directory here, and a directory at a tracked path is what a submodule looks like. So the
+    // entry is skipped as a gitlink, the skip is accounted for against the enumeration, every
+    // target is "accounted for", and the run reports a clean tree having never opened the file.
+    // That is a silent green produced by a race, on the one seam this gate exists to close.
+    const repo = scratch("irefs-swapped");
+    repo.write("docs-content/page.md", "# Page\n\nOrdinary prose.\n");
+    repo.track("docs-content/page.md");
+
+    const before = runGate({ ...baseConfig(repo), surfacePaths: ["README.md", "docs-content"] });
+    expect(before.code, before.all).toBe(0);
+    expect(before.out).toContain("0 gitlink(s) skipped");
+
+    rmSync(join(repo.root, "docs-content", "page.md"));
+    mkdirSync(join(repo.root, "docs-content", "page.md"));
+
+    const after = runGate({ ...baseConfig(repo), surfacePaths: ["README.md", "docs-content"] });
+    expect(after.code, after.all).not.toBe(0);
+    expect(after.err).toContain("docs-content/page.md");
+    expect(after.err).toContain("not a regular file");
+    expect(after.out).toBe("");
+    // And it is NOT reported as a skipped submodule, which is the wrong branch taken quietly.
+    // `skips a gitlink and says how many it skipped` is the other side of this boundary: a REAL
+    // submodule is still passed over, so this case cannot be satisfied by refusing everything.
+    expect(after.all).not.toContain("1 gitlink(s) skipped");
+  });
+
+  it("decides what an entry is from the mode git recorded, and refuses a mode it does not know", () => {
+    // THE ONE BRANCH OF THE READ PATH THE REAL ENUMERATOR CANNOT PRODUCE. Git emits four modes, so
+    // no scratch repository can hand the loop a fifth, and a branch no case can reach is a branch
+    // no evidence covers. It is graded here directly instead of left as a defensive line that
+    // cannot fail.
+    expect(classifyTrackedMode("160000")).toBe("skip");
+    for (const mode of ["100644", "100755", "120000"]) {
+      expect(classifyTrackedMode(mode), `${mode} should be read`).toBe("read");
+    }
+    // A tree, a zeroed entry and a truncated record are each something the scan cannot account
+    // for, and fail-closed means refusing them by name rather than reading the path anyway.
+    for (const mode of ["040000", "000000", "12000", "", "100644 "]) {
+      expect(classifyTrackedMode(mode), `${JSON.stringify(mode)} should be refused`).toBe("refuse");
+    }
   });
 
   it("refuses a surface that enumerated nothing at all", () => {

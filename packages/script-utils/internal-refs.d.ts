@@ -180,6 +180,14 @@ export declare function runInternalRefsScan(config: InternalRefsConfig): number;
 /** The canonical rule set's identity: a stable id and the name a hit report prints, in run order. */
 export declare const CANONICAL_RULE_INDEX: readonly { id: string; name: string }[];
 
+/**
+ * What the scan may do with one tracked entry, from the mode `git ls-files -s` recorded for it.
+ *
+ * `skip` is a gitlink and is the only entry the scan may pass over; `read` is a regular blob or a
+ * symbolic link; `refuse` is everything else, including a mode this version has never seen.
+ */
+export declare function classifyTrackedMode(mode: string): "skip" | "read" | "refuse";
+
 /** The reader-facing names of the canonical rules, in the order they run. */
 export declare function canonicalRuleNames(): string[];
 

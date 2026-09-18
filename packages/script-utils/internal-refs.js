@@ -24,7 +24,7 @@
 // change what this gate looks for or what it concludes.
 
 import { execFileSync } from "node:child_process";
-import { readFileSync, lstatSync, statSync } from "node:fs";
+import { closeSync, constants as fsConstants, fstatSync, openSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 /**
@@ -784,6 +784,117 @@ function trackedUnder(root, paths) {
   return out.split("\0").filter((entry) => entry !== "");
 }
 
+/** Git's modes for an entry that has bytes at its path. A gitlink and anything else do not. */
+const GITLINK_MODE = "160000";
+const READABLE_MODES = new Set(["100644", "100755", "120000"]);
+
+/**
+ * What the scan may do with one tracked entry, decided from the mode git recorded for it.
+ *
+ * Three answers and no fourth. `skip` is a gitlink, which names a commit rather than bytes and is
+ * the ONLY entry the scan is allowed to pass over. `read` is a regular blob or a symbolic link,
+ * whose content is then decided by opening it rather than by predicting it. `refuse` is everything
+ * else, including a mode this version has never seen: an entry the scan cannot account for is a
+ * refusal naming it, never an entry quietly dropped from the enumeration.
+ *
+ * Exported because it is the one branch of the read path that the real enumerator cannot produce.
+ * Git emits four modes, so a case driving the scan can never reach the third answer, and a branch
+ * no case can reach is a branch no evidence covers. Grading it directly is the honest alternative
+ * to a defensive line nobody can fail.
+ *
+ * @param {string} mode - The six-character mode from `git ls-files -s`.
+ * @returns {"skip" | "read" | "refuse"} What to do with the entry.
+ */
+export function classifyTrackedMode(mode) {
+  if (mode === GITLINK_MODE) return "skip";
+  if (READABLE_MODES.has(mode)) return "read";
+  return "refuse";
+}
+
+/**
+ * The tracked entries under one or more pathspecs, each with the MODE git recorded for it.
+ *
+ * THE KIND OF AN ENTRY COMES FROM THE INDEX, NOT FROM A STAT ON THE WORKING TREE, and that is a
+ * correctness decision rather than a performance one. Asking the filesystem what an enumerated path
+ * is and then reading that path is two questions about a tree that can change between them, and the
+ * branch taken on the first answer is one the second has no way to check. The concrete loss is
+ * silent: a tracked file replaced by a directory after enumeration looks exactly like a gitlink to a
+ * stat, gitlinks are skipped, the skip is accounted for, and the run reports a clean tree having
+ * never opened the file. Git's index already says which entries are gitlinks, which are symbolic
+ * links and which are regular blobs, and it says so AS PART OF the enumeration.
+ *
+ * @param {string} root - Repository top level.
+ * @param {string[]} paths - Pathspecs.
+ * @returns {{ mode: string, path: string }[] | null} The entries, or `null` when git failed.
+ */
+function trackedEntriesUnder(root, paths) {
+  const out = gitOrNull(root, ["ls-files", "-s", "-z", "--", ...paths], "utf8");
+  if (out === null) return null;
+  const entries = [];
+  for (const record of out.split("\0")) {
+    if (record === "") continue;
+    const tab = record.indexOf("\t");
+    // A record git wrote in a shape this cannot parse is a refusal, never an entry dropped from the
+    // list: a dropped entry is a target the scan never reads and never mentions.
+    if (tab === -1 || record.length < 7) return null;
+    entries.push({ mode: record.slice(0, 6), path: record.slice(tab + 1) });
+  }
+  return entries;
+}
+
+/**
+ * Read one target with ONE open, deriving every verdict from that open and its own descriptor.
+ *
+ * NO CHECK-THEN-READ, ANYWHERE ON THIS PATH. A guard that stats a path and then reads the same path
+ * decides on state that the read is not holding: between the two, the target can be removed,
+ * replaced by a directory, or swapped for a link somewhere else, and the guard has already chosen
+ * the branch. So the file is opened first and every question is asked of the DESCRIPTOR, which
+ * names one file for as long as it is held: `fstat` on the fd cannot describe a different object
+ * from the one the subsequent read drains. What the path was at some earlier instant never enters
+ * into it.
+ *
+ * A failure is therefore classified from the error the operation actually raised rather than from a
+ * prediction made before it, which is also the only classification the contract can be held to: an
+ * enumerated target that could not be read is a refusal naming that target, whatever became of it.
+ *
+ * @param {string} absolute - The target's absolute path.
+ * @returns {{ bytes?: Buffer, error?: string }} The bytes, or why there are none.
+ */
+function readTarget(absolute) {
+  let fd;
+  try {
+    // O_NONBLOCK, so that opening cannot BLOCK on something that is not a regular file. A tracked
+    // symbolic link may point at a named pipe, and a plain read-only open of one waits for a writer
+    // that may never come: a gate that hangs is a gate whose verdict never arrives, which is worse
+    // than either answer. With this flag the open returns, `fstat` sees what it really is, and the
+    // refusal below names it. The flag has no effect on a regular file.
+    fd = openSync(absolute, fsConstants.O_RDONLY | (fsConstants.O_NONBLOCK ?? 0));
+  } catch (cause) {
+    const code = cause?.code;
+    if (code === "ENOENT" || code === "ENOTDIR") {
+      return { error: `disappeared between enumeration and reading (${String(cause)})` };
+    }
+    return { error: `could not be opened (${String(cause)})` };
+  }
+  try {
+    const stat = fstatSync(fd);
+    if (!stat.isFile()) {
+      return {
+        error: stat.isDirectory()
+          ? "is a tracked entry that is not a regular file: it resolves to a directory, which has " +
+            "no bytes to scan"
+          : "is a tracked entry that is not a regular file",
+      };
+    }
+    return { bytes: readFileSync(fd) };
+  } catch (cause) {
+    return { error: `could not be read (${String(cause)})` };
+  } finally {
+    // `readFileSync` does not close a descriptor it was handed, so this owns the whole lifetime.
+    closeSync(fd);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Text passes
 // ---------------------------------------------------------------------------
@@ -991,7 +1102,7 @@ export function runInternalRefsScan(config) {
     );
   }
 
-  const enumerated = trackedUnder(root, resolved.surfacePaths);
+  const enumerated = trackedEntriesUnder(root, resolved.surfacePaths);
   if (enumerated === null) return refuse("git could not enumerate the public surface.");
   if (enumerated.length === 0) {
     return refuse(
@@ -1004,42 +1115,35 @@ export function runInternalRefsScan(config) {
   // the silent-green shape this gate exists to close: a file that vanished between the two steps,
   // an unreadable one, and one a matcher classifies as binary all land here rather than in the
   // hit list, and each of them is a refusal naming the target.
+  //
+  // THE ONLY ENTRY THIS LOOP MAY PASS OVER IS A GITLINK, AND THAT IS DECIDED FROM THE INDEX. Git
+  // records a submodule as mode 160000, which names a commit rather than bytes at that path. Every
+  // other tracked mode is opened, and whether it can be read is answered by the open rather than
+  // predicted before it. Deciding the skip from the working tree instead is how a file replaced by
+  // a directory after enumeration gets counted as a submodule and never read.
   const documents = [];
   const unread = [];
   let gitlinks = 0;
-  for (const rel of enumerated) {
-    const absolute = join(root, rel);
-    let link;
-    let kind;
-    try {
-      link = lstatSync(absolute);
-      kind = statSync(absolute);
-    } catch (cause) {
-      unread.push({
-        path: rel,
-        why: `disappeared between enumeration and reading (${String(cause)})`,
-      });
-      continue;
-    }
-    if (kind.isDirectory() && !link.isSymbolicLink()) {
-      // A gitlink: git lists it as a tracked entry and there are no bytes at that path. A SYMBOLIC
-      // link to a directory is NOT one, and is refused below rather than skipped: skipping it is
-      // how a tracked entry gets enumerated and never read with nothing saying so.
+  for (const entry of enumerated) {
+    const rel = entry.path;
+    const verdict = classifyTrackedMode(entry.mode);
+    if (verdict === "skip") {
       gitlinks += 1;
       continue;
     }
-    if (!kind.isFile()) {
-      unread.push({ path: rel, why: "is a tracked entry that is not a regular file" });
+    if (verdict === "refuse") {
+      unread.push({
+        path: rel,
+        why: `is tracked with mode ${entry.mode}, which names nothing this scan can read`,
+      });
       continue;
     }
-    let bytes;
-    try {
-      bytes = readFileSync(absolute);
-    } catch (cause) {
-      unread.push({ path: rel, why: `could not be read (${String(cause)})` });
+    const read = readTarget(join(root, rel));
+    if (read.error !== undefined) {
+      unread.push({ path: rel, why: read.error });
       continue;
     }
-    if (looksBinary(bytes)) {
+    if (looksBinary(read.bytes)) {
       unread.push({
         path: rel,
         why:
@@ -1048,7 +1152,7 @@ export function runInternalRefsScan(config) {
       });
       continue;
     }
-    documents.push({ path: rel, text: bytes.toString("utf8") });
+    documents.push({ path: rel, text: read.bytes.toString("utf8") });
   }
 
   if (unread.length > 0) {
@@ -1116,7 +1220,7 @@ export function runInternalRefsScan(config) {
       );
     }
 
-    const sourceTracked = trackedUnder(root, resolved.sourceDocComments.paths);
+    const sourceTracked = trackedEntriesUnder(root, resolved.sourceDocComments.paths);
     if (sourceTracked === null || sourceTracked.length === 0) {
       return refuse(
         `no tracked source files under ${resolved.sourceDocComments.paths.join(", ")} to scan for ` +
@@ -1126,30 +1230,33 @@ export function runInternalRefsScan(config) {
     }
     const docLines = [];
     const docParagraphs = [];
-    for (const rel of sourceTracked) {
-      const absolute = join(root, rel);
-      let bytes;
-      try {
-        const kind = lstatSync(absolute);
-        if (kind.isDirectory()) continue;
-        if (!kind.isFile()) {
-          return refuse(`tracked source entry is not a regular file: ${rel}`);
-        }
-        bytes = readFileSync(absolute);
-      } catch (cause) {
+    // Same discipline as the public surface: the kind comes from the index, the bytes come from one
+    // open, and nothing here predicts a read before performing it.
+    for (const entry of sourceTracked) {
+      const rel = entry.path;
+      const verdict = classifyTrackedMode(entry.mode);
+      if (verdict === "skip") continue;
+      if (verdict === "refuse") {
         return refuse(
-          `tracked source file ${rel} could not be read (${String(cause)}). Refusing to report ` +
-            "green from a scan that could not open its input.",
+          `tracked source entry ${rel} has mode ${entry.mode}, which names nothing this scan can ` +
+            "read. Refusing to report green from a scan that skipped one of its inputs.",
         );
       }
-      if (looksBinary(bytes)) {
+      const read = readTarget(join(root, rel));
+      if (read.error !== undefined) {
+        return refuse(
+          `tracked source file ${rel} ${read.error}. Refusing to report green from a scan that ` +
+            "could not open its input.",
+        );
+      }
+      if (looksBinary(read.bytes)) {
         return refuse(
           `tracked source file ${rel} holds a NUL byte, so a text matcher classifies it as ` +
             "binary. Refusing to report green over input it cannot read.",
         );
       }
       sourceFiles += 1;
-      const extracted = extractDocComments(bytes.toString("utf8"), rel);
+      const extracted = extractDocComments(read.bytes.toString("utf8"), rel);
       docLines.push(...extracted.lines);
       docParagraphs.push(...extracted.paragraphs);
     }
