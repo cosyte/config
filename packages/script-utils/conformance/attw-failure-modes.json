@@ -193,7 +193,10 @@
           "corpus": "test-utils",
           "case": "RED BEFORE, GREEN AFTER: a path declared only through",
           "asserts": ["declares paths the published tarball would NOT carry"],
-          "declares": ["[\"man-string\", { man: \"extra.1\" }", "[\"man-array\", { man: [\"./extra.1\"] }"]
+          "declares": [
+            "[\"man-string\", { man: \"extra.1\" }",
+            "[\"man-array\", { man: [\"./extra.1\"] }"
+          ]
         }
       ]
     },
@@ -209,7 +212,10 @@
           "corpus": "test-utils",
           "case": "RED BEFORE, GREEN AFTER: a path declared only through",
           "asserts": ["declares paths the published tarball would NOT carry"],
-          "declares": ["[\"unpkg\", { unpkg: \"./extra.mjs\" }", "[\"jsdelivr\", { jsdelivr: \"./extra.mjs\" }"]
+          "declares": [
+            "[\"unpkg\", { unpkg: \"./extra.mjs\" }",
+            "[\"jsdelivr\", { jsdelivr: \"./extra.mjs\" }"
+          ]
         }
       ]
     },
@@ -596,7 +602,7 @@
         {
           "corpus": "scaffold",
           "case": "exactly one body of the net logic exists in this repository",
-          "asserts": ["function declaredArtifacts("]
+          "asserts": ["ls-files", "planted-second-body.js", "BODY_MARKER"]
         }
       ]
     },
@@ -695,7 +701,9 @@
       "canonical": "not-carried",
       "detects": "attw's own untyped SENTENCE appearing in the gate's output",
       "reason": "The canonical forces `--format json`, in which attw renders no prose at all, so the sentence cannot appear. The DETECTION half (the non-zero exit on an untyped tarball) is unaffected and is entry net2-untyped-tarball. config's own corpus asserts the sentence's ABSENCE and reads `analysed this package as UNTYPED` instead. Recorded here because it is one of the three known class-(b) collisions the hl7 half has to re-express; hl7's corpus is not in this repository and nothing here grades it.",
-      "assertions": [{ "corpus": "hl7", "case": "fails when the tarball carries no types, where attw exits 0" }]
+      "assertions": [
+        { "corpus": "hl7", "case": "fails when the tarball carries no types, where attw exits 0" }
+      ]
     },
     {
       "id": "hl7-accepts-no-summary-no-emoji-no-color",
@@ -705,7 +713,9 @@
       "canonical": "not-carried",
       "detects": "`--no-summary`, `--no-emoji` and `--no-color` accepted, as a control against over-strictness",
       "reason": "The canonical's allow-list refuses all three, which is strictly stricter. config's corpus carries the equivalent over-strictness control against the allow-list (forwarding --profile and --no-definitely-typed), so the control is not lost, only re-homed. Second of the three known class-(b) collisions; graded in hl7, not here.",
-      "assertions": [{ "corpus": "hl7", "case": "does not refuse the option forms that blind nothing" }]
+      "assertions": [
+        { "corpus": "hl7", "case": "does not refuse the option forms that blind nothing" }
+      ]
     },
     {
       "id": "hl7-green-run-prints-no-attw-gate",
@@ -715,7 +725,9 @@
       "canonical": "not-carried",
       "detects": "the absence of the string `attw gate` from a green run's output",
       "reason": "The canonical's PASS line begins `attw gate:`, so a green run prints it by design. Third of the three known class-(b) collisions; graded in hl7, not here.",
-      "assertions": [{ "corpus": "hl7", "case": "does not refuse the option forms that blind nothing" }]
+      "assertions": [
+        { "corpus": "hl7", "case": "does not refuse the option forms that blind nothing" }
+      ]
     },
     {
       "id": "hl7-attw-json-key-refusal",

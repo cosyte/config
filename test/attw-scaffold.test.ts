@@ -16,21 +16,37 @@
  * all, and asserting it on the template alone would not prove it: the scaffolder
  * substitutes tokens as it copies, so what matters is the emitted tree.
  *
- * The end-to-end case therefore runs the REAL scaffolder, plumbs an `attw` binary
- * into the emitted repo at the path the emitted wrapper looks for, and shows the
- * emitted gate reddening on a pack that bare `attw` passes. `pnpm install` is not
- * available to a test, so the binary is reached through a generated shim; nothing
- * else about the emitted tree is touched.
+ * The end-to-end case therefore runs the REAL scaffolder, SIMULATES THE INSTALL,
+ * and shows the emitted gate reddening on a pack that bare `attw` passes.
+ * `pnpm install` is not available to a test, so the simulation is two plants and
+ * nothing else: the `attw` binary at the path the emitted wrapper looks for,
+ * reached through a generated shim, and `@cosyte/script-utils` where pnpm would
+ * put it. The second plant is new, and it is what the consolidation costs this
+ * suite: the emitted wrapper is now a CALLER of `@cosyte/script-utils/attw`
+ * rather than a 1500-line copy of the gate, so a tree with no `node_modules`
+ * would fail to resolve the body instead of running it. A COPY rather than a
+ * symlink, for the reason `test/phi-scan-scaffold.test.ts` gives about its own
+ * engine plant: a symlink into this workspace would let a test mutate the source
+ * tree.
  *
  * SECURITY: every subprocess call uses spawnSync with array args. No exec, no
  * shell form.
  */
 
-import { spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import {
+  chmodSync,
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -38,6 +54,20 @@ const REPO_ROOT = process.cwd();
 const TEMPLATE = join(REPO_ROOT, "scripts", "parser-template");
 const SCAFFOLDER = join(REPO_ROOT, "scripts", "scaffold-parser.mjs");
 const TEST_UTILS = join(REPO_ROOT, "packages", "test-utils");
+/** The one body of the probe. Every wrapper in this repo is a caller of it. */
+const SHARED_PACKAGE_SRC = join(REPO_ROOT, "packages", "script-utils");
+const SHARED_BODY = join(SHARED_PACKAGE_SRC, "attw.js");
+/**
+ * The marker a SECOND body would carry: the DECLARATION of the function nets 1, 3 and 4 all derive
+ * their one set from. A copy of the gate carries it; a file that merely talks about the gate does
+ * not.
+ *
+ * ASSEMBLED RATHER THAN WRITTEN OUT, and that is not obfuscation. A detector whose own source
+ * contains its needle reports itself, so the first shape of this case named this file and the
+ * inventory beside it as bodies of the gate. Joining the two halves keeps the literal out of every
+ * file but the one being detected, which is the only way "exactly one" can be an exact number.
+ */
+const BODY_MARKER = ["function", "declaredArtifacts("].join(" ");
 const UNTYPED = "This package does not contain types.";
 const OFFLINE = ["--no-definitely-typed"];
 // `attw --pack` runs a real `npm pack`, which is far past the default timeout.
@@ -62,6 +92,20 @@ interface RunResult {
  * case is what carries them into the scaffolded copy.
  */
 const PACK_PLACEMENT_CONFIG = /^npm_config_(dry[_-]run|pack[_-]destination)$/i;
+
+/**
+ * Put `@cosyte/script-utils` where `pnpm install` would put it for one tree.
+ *
+ * `node_modules` is filtered out of the copy: the package's own dev tree is irrelevant to a
+ * consumer and dragging vitest into every fixture costs seconds per case.
+ */
+function installShared(dir: string): void {
+  cpSync(SHARED_PACKAGE_SRC, join(dir, "node_modules", "@cosyte", "script-utils"), {
+    recursive: true,
+    dereference: true,
+    filter: (src) => !src.includes("node_modules"),
+  });
+}
 
 function run(bin: string, args: string[], cwd: string): RunResult {
   const env = Object.fromEntries(
@@ -106,6 +150,11 @@ beforeAll(() => {
   writeFileSync(shim, `#!/bin/sh\nexec "${process.execPath}" "${attwEntry}" "$@"\n`);
   chmodSync(shim, 0o755);
 
+  // ...and the shared body, where `pnpm install` would put it. The emitted wrapper imports
+  // `@cosyte/script-utils/attw`; without this plant it would not resolve, and every case below
+  // would measure a missing dependency rather than the gate.
+  installShared(scaffold);
+
   // The fixture: a package that ships types on disk but leaves them out of the
   // tarball. This is precisely the case attw reports and does not fail on.
   typesNotPacked = join(root, "types-not-packed");
@@ -131,20 +180,42 @@ beforeAll(() => {
   // real CLI cannot answer "what did the gate forward?": it reports on a tarball,
   // not on its own arguments, and `--no-definitely-typed` only suppresses a
   // network lookup, so dropping it changes nothing this suite could otherwise
-  // observe. The manifest declares no artifacts, so the wrapper's preflight has
-  // nothing to find missing and the run reaches the spawn.
+  // observe.
+  //
+  // THE MANIFEST DECLARES ONE PATH, AND IT USED TO DECLARE NONE. The old comment
+  // here read "the manifest declares no artifacts, so the wrapper's preflight has
+  // nothing to find missing and the run reaches the spawn", which was true of the
+  // 1500-line body and is not true of the shared one: a manifest that declares
+  // nothing is now REFUSED before the spawn, because nets 1, 3 and 4 all grade
+  // that one set and an empty set makes three of the four vacuous. So the fixture
+  // declares the smallest thing that still reaches the spawn: one `main` with the
+  // file present and packed. Nothing about what is FORWARDED changes, and the
+  // argv assertions below are unchanged.
   argvProbe = join(root, "argv-probe");
   argvLog = join(root, "argv-probe.log");
   mkdirSync(join(argvProbe, "scripts"), { recursive: true });
   writeFileSync(
     join(argvProbe, "package.json"),
-    JSON.stringify({ name: "attw-argv-probe", version: "1.0.0", private: true }, null, 2),
+    JSON.stringify(
+      {
+        name: "attw-argv-probe",
+        version: "1.0.0",
+        private: true,
+        main: "./index.js",
+        files: ["index.js"],
+      },
+      null,
+      2,
+    ),
   );
-  // The EMITTED wrapper, so this pins what a scaffolded parser would really run.
+  writeFileSync(join(argvProbe, "index.js"), "module.exports.a = 1;\n");
+  // The EMITTED wrapper, so this pins what a scaffolded parser would really run,
+  // and the shared body it calls, at the path its import resolves through.
   writeFileSync(
     join(argvProbe, "scripts", "attw.mjs"),
     readFileSync(join(scaffold, "scripts", "attw.mjs")),
   );
+  installShared(argvProbe);
   const probeBin = join(argvProbe, "node_modules", ".bin");
   mkdirSync(probeBin, { recursive: true });
   const probeShim = join(probeBin, "attw");
@@ -204,13 +275,80 @@ describe("the attw wrapper is carried by both manifests this repo owns", () => {
   });
 
   it("both copies of the wrapper are byte-identical, so neither can drift", () => {
-    // Two copies exist because the template's has to travel into a new repo while
+    // Two files exist because the template's has to travel into a new repo while
     // test-utils' has to sit beside its own node_modules. Nothing keeps them in
     // step except this assertion, so a one-sided edit reds here rather than
     // leaving one gate weaker than the other.
+    //
+    // WHAT THEY ARE COPIES OF CHANGED, AND THE ASSERTION DID NOT. Each used to be
+    // a 1500-line copy of the whole gate, and this line was the only thing
+    // stopping the two drifting; they are now callers of
+    // `@cosyte/script-utils/attw`, which is where drift is prevented instead. The
+    // assertion is kept rather than deleted because two callers can still drift
+    // (an argument dropped here, a different url passed there), and the case below
+    // is what pins the stronger claim the caller shape now allows.
     const fromTemplate = readFileSync(join(TEMPLATE, "scripts", "attw.mjs"));
     const fromPackage = readFileSync(join(TEST_UTILS, "scripts", "attw.mjs"));
     expect(fromTemplate.equals(fromPackage)).toBe(true);
+  });
+
+  it("every wrapper is a CALLER: it imports the shared body and carries no net of its own", () => {
+    for (const wrapper of [
+      join(TEMPLATE, "scripts", "attw.mjs"),
+      join(TEST_UTILS, "scripts", "attw.mjs"),
+    ]) {
+      const src = readFileSync(wrapper, "utf8");
+      expect(src, `${wrapper} does not call the shared body`).toContain(
+        'from "@cosyte/script-utils/attw"',
+      );
+      // `callerUrl` is what makes the gate spawn THIS package's own attw rather
+      // than one resolved relative to wherever the shared body was installed. A
+      // wrapper that dropped it would be refused at run time; this says so at
+      // read time, per wrapper, so the reason is visible in a diff.
+      expect(src, `${wrapper} does not hand the gate its own url`).toContain(
+        "runAttwGate({ callerUrl: import.meta.url })",
+      );
+      expect(src, `${wrapper} carries net logic of its own`).not.toContain(BODY_MARKER);
+    }
+  });
+
+  it("exactly one body of the net logic exists in this repository", () => {
+    // THE DUPLICATION THIS SLICE REMOVED, PINNED SO IT CANNOT COME BACK. Two bodies of a gate
+    // drift, every escape found in one keeps shipping from the other, and that is what the
+    // byte-identity assertion above was buying at the price of a 1500-line copy. Derived from
+    // git's own list of tracked files rather than a walk, so an untracked scratch copy in a
+    // working tree is not a false red and a COMMITTED one cannot hide.
+    const tracked = execFileSync("git", ["ls-files", "-z"], { cwd: REPO_ROOT, encoding: "utf8" })
+      .split("\0")
+      .filter(Boolean);
+    expect(tracked.length, "git listed no tracked files").toBeGreaterThan(50);
+
+    const bodies = (paths: string[]): string[] =>
+      paths.filter((rel) => {
+        // `resolve` rather than `join`, because the mutation control below hands this an ABSOLUTE
+        // path and `join` would happily glue it onto the repo root and then find nothing: the
+        // control would pass by missing its own plant, which is the vacuous shape it exists to
+        // rule out. Measured: it did exactly that in the first draft.
+        const full = resolve(REPO_ROOT, rel);
+        try {
+          if (statSync(full).size > 2 * 1024 * 1024) return false;
+          return readFileSync(full, "utf8").includes(BODY_MARKER);
+        } catch {
+          return false;
+        }
+      });
+
+    expect(bodies(tracked)).toEqual(["packages/script-utils/attw.js"]);
+
+    // NON-VACUITY, AND THE MUTATION THIS CHECK HAS TO FAIL AGAINST. A detector that matched
+    // nothing would pass the assertion above by accident on a repository that still held two
+    // copies, so the marker is proved to select the shipped body, and a second file carrying it is
+    // proved to be caught. The copy is written outside the repository and never tracked.
+    expect(readFileSync(SHARED_BODY, "utf8")).toContain(BODY_MARKER);
+    const planted = join(root, "planted-second-body.js");
+    writeFileSync(planted, readFileSync(SHARED_BODY));
+    expect(bodies([...tracked, planted])).toEqual(["packages/script-utils/attw.js", planted]);
+    rmSync(planted, { force: true });
   });
 });
 

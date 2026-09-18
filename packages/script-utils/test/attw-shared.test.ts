@@ -134,10 +134,9 @@ describe("the inventory is a grader, not a list", () => {
     for (const entry of inventory.entries) {
       expect(entry.id, `${entry.id}: id`).toMatch(/^[a-zA-Z0-9-]+$/);
       expect(entry.detects.length, `${entry.id}: detects`).toBeGreaterThan(20);
-      expect(
-        ["detection", "non-detection", "reading-difference"],
-        `${entry.id}: class`,
-      ).toContain(entry.class);
+      expect(["detection", "non-detection", "reading-difference"], `${entry.id}: class`).toContain(
+        entry.class,
+      );
       for (const body of entry.carriedBy) {
         expect(Object.keys(inventory.bodies), `${entry.id}: carriedBy`).toContain(body);
       }
@@ -289,7 +288,10 @@ function makeConsumer(
     mkdirSync(binDir, { recursive: true });
     const path = join(binDir, "attw");
     if (bin === "real") {
-      writeFileSync(path, `#!/bin/sh\n: > ${JSON.stringify(marker)}\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(attwEntry)} "$@"\n`);
+      writeFileSync(
+        path,
+        `#!/bin/sh\n: > ${JSON.stringify(marker)}\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(attwEntry)} "$@"\n`,
+      );
     } else {
       // A shim that records being run and prints a PASSING document. `kind: "included"` is the one
       // shape net 2 accepts, so a case that reaches the spawn stays green for a reason that is not
@@ -357,9 +359,10 @@ describe("the refusal the 297-line variant had and the 1500-line one did not", (
     expect(r.out).toContain("checked nothing");
     // AND IT REFUSED BEFORE THE SPAWN, so it is not reporting from a run attw was allowed to
     // judge. The shim leaves a file behind when it runs; there is none.
-    expect(existsSync(consumer.marker), "attw was spawned over a manifest that declared nothing").toBe(
-      false,
-    );
+    expect(
+      existsSync(consumer.marker),
+      "attw was spawned over a manifest that declared nothing",
+    ).toBe(false);
   });
 
   it("CONTROL: one declared path is enough, and the same fixture is then green", () => {
@@ -423,12 +426,7 @@ describe("the modes neither corpus pinned", () => {
 
 describe("which dependency tree the binary came from, which only a SHARED body can get wrong", () => {
   it("reds, naming the path it looked for, when the consuming package has no attw binary", () => {
-    const consumer = makeConsumer(
-      "no-binary",
-      WELL_FORMED.manifest,
-      WELL_FORMED.files,
-      "none",
-    );
+    const consumer = makeConsumer("no-binary", WELL_FORMED.manifest, WELL_FORMED.files, "none");
     const r = runGate(consumer);
     expect(r.code).not.toBe(0);
     expect(r.out).toContain(join(consumer.dir, "node_modules", ".bin", "attw"));
@@ -452,7 +450,12 @@ describe("which dependency tree the binary came from, which only a SHARED body c
     // `node_modules/@cosyte/script-utils`, so a gate that resolved its binary relative to ITSELF
     // would look inside `node_modules/@cosyte/` and, if something were there, would analyse a
     // dependency tree nobody asked about. A decoy is planted at exactly that path.
-    const consumer = makeConsumer("foreign-binary", WELL_FORMED.manifest, WELL_FORMED.files, "none");
+    const consumer = makeConsumer(
+      "foreign-binary",
+      WELL_FORMED.manifest,
+      WELL_FORMED.files,
+      "none",
+    );
     const decoyMarker = join(consumer.dir, "decoy-ran");
     const decoyBin = join(consumer.dir, "node_modules", "@cosyte", "node_modules", ".bin");
     mkdirSync(decoyBin, { recursive: true });
@@ -497,7 +500,9 @@ describe("one body, consumed rather than copied", () => {
     const consumer = makeConsumer("unedited-consumer", WELL_FORMED.manifest, WELL_FORMED.files);
     const ownFiles = ["package.json", join("scripts", "attw.mjs")];
     const hash = (rel: string): string =>
-      createHash("sha256").update(readFileSync(join(consumer.dir, rel))).digest("hex");
+      createHash("sha256")
+        .update(readFileSync(join(consumer.dir, rel)))
+        .digest("hex");
     const before = ownFiles.map(hash);
 
     const green = runGate(consumer);
