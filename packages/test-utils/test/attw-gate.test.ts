@@ -91,6 +91,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
@@ -100,6 +101,34 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 const PKG_ROOT = process.cwd();
 const WRAPPER = join(PKG_ROOT, "scripts", "attw.mjs");
 const ATTW_BIN = join(PKG_ROOT, "node_modules", ".bin", "attw");
+/**
+ * THE GATE ITSELF, which is no longer inside `scripts/attw.mjs`.
+ *
+ * That file is now a CALLER of `@cosyte/script-utils/attw`, three lines long; the nets, the field
+ * set and the disclosure live in the shared body, which every `@cosyte/*` repo consumes rather than
+ * copies. Everything below that RUNS the gate still runs it through the wrapper, unchanged, because
+ * that is what `pnpm attw` runs. What changed is where the cases that READ the gate's source look:
+ * the counterfactual slices and the known-unread disclosure are derived from this path.
+ *
+ * Resolved through node rather than written as `../script-utils/attw.js`, so it is the file this
+ * package's own dependency resolution reaches. A relative path would keep passing if the dependency
+ * were removed.
+ */
+const CANONICAL = createRequire(join(PKG_ROOT, "package.json")).resolve(
+  "@cosyte/script-utils/attw",
+);
+/**
+ * The real attw CLI ENTRY POINT, as a file rather than as the `.bin` shim.
+ *
+ * The counterfactual trees below spawn node against this path directly. `bin` is read off the
+ * manifest because the package's `exports` map does not expose the entry point.
+ */
+const ATTW_ENTRY = (() => {
+  const require = createRequire(join(PKG_ROOT, "package.json"));
+  const manifestPath = require.resolve("@arethetypeswrong/cli/package.json");
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { bin: { attw: string } };
+  return join(manifestPath, "..", manifest.bin.attw);
+})();
 const UNTYPED = "This package does not contain types.";
 /**
  * THE WRAPPER'S OWN untyped verdict, which is what net 2 now produces. It is a
@@ -158,6 +187,66 @@ function run(
     out: `${r.stdout ?? ""}${r.stderr ?? ""}`,
     stdout: r.stdout ?? "",
   };
+}
+
+/**
+ * A gate built from a MODIFIED COPY of the shared body, runnable exactly like the shipped wrapper.
+ *
+ * THE RED-BEFORE HALF OF THIS SUITE IS DERIVED FROM THE SHIPPED SOURCE, NEVER PASTED BESIDE IT, and
+ * that is unchanged by the consolidation: `slice` cuts a marked block out of the real body, so a
+ * counterfactual cannot drift away from the thing it is the counterfactual for, and if a marker
+ * stops matching the case reds instead of silently testing the shipped gate.
+ *
+ * WHAT DID CHANGE IS WHERE THE CALLER IMPORTS FROM. The shipped wrapper imports the body by the
+ * specifier a consumer writes (`@cosyte/script-utils/attw`), which would resolve to the REAL body
+ * and defeat the slice; the generated caller here imports the sliced copy by relative path instead.
+ * It hands the gate its own `import.meta.url`, exactly as the shipped one does, so the binary
+ * resolution under test is the same: `../node_modules/.bin/attw` from the caller.
+ *
+ * THE BINARY IS REACHED BY A GENERATED SHIM, AND THAT CLOSES A RESIDUAL THIS SUITE HAD DISCLOSED.
+ * The construction used to symlink this package's whole `node_modules` into the temp tree, which
+ * was better than symlinking the one bin and was still box-dependent: pnpm's `.bin/attw` is a shell
+ * script that reaches the store through `$basedir/../../../..`, `dirname` and Node both collapse
+ * `..` LEXICALLY, and a temp tree sits at a different depth than
+ * `packages/test-utils/node_modules/.bin`, so the relative reach lands somewhere with no store
+ * under it. The comment here disclosed that as open ("a fresh clone plus a stock `pnpm install`
+ * reds these cases, ON THE BASE COMMIT TOO") and named the fix as its own item: reach `attw`
+ * without depending on the shim's relative reach at all. That is what this does, with the same
+ * generated shim `test/attw-scaffold.test.ts` already uses for the scaffolded tree: an absolute
+ * path to the real CLI entry point, resolved through this package's own dependency tree.
+ *
+ * MEASURED ON THIS BOX BEFORE CHANGING IT, so the change is not a guess about which failure it
+ * fixes: the PRE-CONSOLIDATION 1500-line wrapper, copied into a symlinked temp tree exactly the way
+ * this suite used to build one, dies with MODULE_NOT_FOUND on
+ * `<tmpdir-two-levels-up>/node_modules/.pnpm/@arethetypeswrong+cli@0.18.4/...` before `attw` runs.
+ * Every counterfactual case in this file reds that way and none of them is about the gate.
+ */
+function counterfactual(
+  label: string,
+  slice: (src: string) => string,
+): { caller: string; root: string } {
+  const root = mkdtempSync(join(tmpdir(), `attw-gate-${label}-`));
+  mkdirSync(join(root, "scripts"), { recursive: true });
+  const binDir = join(root, "node_modules", ".bin");
+  mkdirSync(binDir, { recursive: true });
+  const shim = join(binDir, "attw");
+  writeFileSync(
+    shim,
+    `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(ATTW_ENTRY)} "$@"\n`,
+  );
+  chmodSync(shim, 0o755);
+  writeFileSync(join(root, "attw-body.js"), slice(readFileSync(CANONICAL, "utf8")));
+  const caller = join(root, "scripts", "attw.mjs");
+  writeFileSync(
+    caller,
+    [
+      'import { runAttwGate } from "../attw-body.js";',
+      "",
+      "process.exitCode = runAttwGate({ callerUrl: import.meta.url });",
+      "",
+    ].join("\n"),
+  );
+  return { caller, root };
 }
 
 const runAttw = (cwd: string, extraEnv: Record<string, string> = {}): RunResult =>
@@ -893,9 +982,33 @@ describe("what the pass line may and may not claim", () => {
       const dir = join(root, "big-output");
       mkdirSync(join(dir, "node_modules", ".bin"), { recursive: true });
       mkdirSync(join(dir, "scripts"), { recursive: true });
+      // THE MANIFEST DECLARES ONE PATH, AND IT USED TO DECLARE NONE. `{ name, version, private }`
+      // reached the shim under the old body; the shared body refuses a manifest that declares
+      // nothing before it spawns anything, so this fixture would be measuring that refusal instead
+      // of the read buffer. One packed `main` is the smallest manifest that still reaches the spawn,
+      // and the buffer assertion below is unchanged.
       writeFileSync(
         join(dir, "package.json"),
-        JSON.stringify({ name: "attw-gate-fixture-big", version: "1.0.0", private: true }, null, 2),
+        JSON.stringify(
+          {
+            name: "attw-gate-fixture-big",
+            version: "1.0.0",
+            private: true,
+            main: "./index.js",
+            files: ["index.js"],
+          },
+          null,
+          2,
+        ),
+      );
+      writeFileSync(join(dir, "index.js"), "module.exports.a = 1;\n");
+      // The wrapper is a caller, so the fixture gets the body at the path its import resolves
+      // through: the same plant `pnpm install` makes, symlinked because nothing here mutates it.
+      mkdirSync(join(dir, "node_modules", "@cosyte"), { recursive: true });
+      symlinkSync(
+        join(PKG_ROOT, "node_modules", "@cosyte", "script-utils"),
+        join(dir, "node_modules", "@cosyte", "script-utils"),
+        "dir",
       );
       writeFileSync(join(dir, "scripts", "attw.mjs"), readFileSync(WRAPPER));
       const shim = join(dir, "node_modules", ".bin", "attw");
@@ -1101,60 +1214,27 @@ describe("net 3: the DECLARED paths must be in the tarball", () => {
   }
 
   /**
-   * The wrapper with net 3 SURGICALLY REMOVED. This is the RED-BEFORE half, and it
-   * is derived from the shipped file at test time rather than pasted, so it cannot
-   * drift away from the thing it is the counterfactual for; if the markers stop
-   * matching it reds here instead of silently testing nothing.
-   *
-   * It is written to a THROWAWAY TREE, never beside the real one, because a second
-   * copy of a gate inside the repo is a file that can be committed by accident. The
-   * wrapper resolves `attw` at `../node_modules/.bin/attw` relative to its own URL,
-   * so the tree symlinks THE WHOLE `node_modules` DIRECTORY rather than that one
-   * bin.
-   *
-   * THAT DISTINCTION IS NOT TIDINESS, IT IS A CI RED THIS SUITE ALREADY TOOK: on
-   * PR #55 these three cases passed locally and failed on both runner legs, dying
-   * in ~70 ms with a module-not-found before `attw` ever ran, so the exit-0
-   * assertion saw a 1. Linking the directory instead of the one bin is what turned
-   * the runner green (measured on the runner: red before, green after, Node 22 and
-   * 24 alike).
-   *
-   * ▶ WHAT IS DELIBERATELY NOT WRITTEN HERE IS *WHY* THAT WORKS, BECAUSE A DRAFT OF
-   * THIS COMMENT GOT IT WRONG AND A REFUTER CAUGHT IT. pnpm's `.bin` entry is a
-   * shell shim whose reach back into the store varies by layout, and Node collapses
-   * `..` LEXICALLY, so for a shim that climbs several levels no symlink placed at
-   * the temp tree is on the path it resolves. A mechanism sentence here would be a
-   * claim about every layout from a sample of one box, which is the exact failure
-   * this file's own subject matter is about.
-   *
-   * ▶ SO THIS CONSTRUCTION IS STILL BOX-DEPENDENT, AND THAT IS AN OPEN RESIDUAL
-   * RATHER THAN A CLOSED PROBLEM: a fresh clone plus a stock `pnpm install` reds
-   * these three cases, ON THE BASE COMMIT TOO. Linking the directory is strictly
-   * better than linking the bin, everywhere it was measured, and it is not a fix for
-   * the general case. The real fix is for the counterfactual to reach `attw` without
-   * depending on the shim's relative reach at all; that is its own item, not a
-   * widening of this one.
+   * The gate with net 3 SURGICALLY REMOVED: the RED-BEFORE half of this block. See `counterfactual`
+   * above for how the copy is built and what is known to be box-dependent about it.
    */
   let withoutNet3 = "";
   let withoutNet3Root = "";
 
   beforeAll(() => {
-    const src = readFileSync(WRAPPER, "utf8");
-    const from = src.indexOf("// ---- Net 3:");
-    // A NAMED CLOSING MARKER, and it replaced a cut to the pass line's own comment.
-    // That older shape put everything added between net 3 and the pass line inside
-    // the slice: net 4 landed there and took a `let` declaration the pass line reads
-    // with it, and these three cases died on a ReferenceError that reads as a plain
-    // exit 1. The marker keeps the slice to net 3 whatever grows after it.
-    const to = src.indexOf("// ---- END Net 3");
-    expect(from).toBeGreaterThan(-1);
-    expect(to).toBeGreaterThan(from);
-
-    withoutNet3Root = mkdtempSync(join(tmpdir(), "attw-gate-net3-base-"));
-    mkdirSync(join(withoutNet3Root, "scripts"), { recursive: true });
-    symlinkSync(join(PKG_ROOT, "node_modules"), join(withoutNet3Root, "node_modules"), "dir");
-    withoutNet3 = join(withoutNet3Root, "scripts", "attw.mjs");
-    writeFileSync(withoutNet3, src.slice(0, from) + src.slice(to));
+    const built = counterfactual("net3-base", (src) => {
+      const from = src.indexOf("// ---- Net 3:");
+      // A NAMED CLOSING MARKER, and it replaced a cut to the pass line's own comment.
+      // That older shape put everything added between net 3 and the pass line inside
+      // the slice: net 4 landed there and took a `let` declaration the pass line reads
+      // with it, and these three cases died on a ReferenceError that reads as a plain
+      // exit 1. The marker keeps the slice to net 3 whatever grows after it.
+      const to = src.indexOf("// ---- END Net 3");
+      expect(from).toBeGreaterThan(-1);
+      expect(to).toBeGreaterThan(from);
+      return src.slice(0, from) + src.slice(to);
+    });
+    withoutNet3 = built.caller;
+    withoutNet3Root = built.root;
   });
 
   afterAll(() => {
@@ -1383,31 +1463,25 @@ describe("the field set nets 1, 3 and 4 share: `exports` is not the only field t
   }
 
   /**
-   * The wrapper with those fields SLICED BACK OUT, derived from the shipped file
-   * at test time so the RED-BEFORE half cannot drift away from the thing it is the
-   * counterfactual for. Same throwaway-tree-plus-symlinked-`node_modules`
-   * construction as the net 3 block above, and it inherits that block's documented
-   * residual unchanged: the reach of `node_modules/.bin/attw` from a temp tree is
-   * box-dependent, and that is a pre-existing open residual rather than something
-   * this block introduces.
+   * The gate with those fields SLICED BACK OUT, derived from the shipped body so the RED-BEFORE
+   * half cannot drift away from the thing it is the counterfactual for. Same construction as the
+   * net 3 block above, and it inherits that block's documented residual unchanged.
    */
   let withoutFields = "";
   let withoutFieldsRoot = "";
 
   beforeAll(() => {
-    const src = readFileSync(WRAPPER, "utf8");
-    const from = src.indexOf("// ---- BEYOND `exports`:");
-    const to = src.indexOf("// ---- END BEYOND `exports`");
-    // If either marker stops matching, this reds rather than silently testing a
-    // counterfactual identical to the shipped gate.
-    expect(from).toBeGreaterThan(-1);
-    expect(to).toBeGreaterThan(from);
-
-    withoutFieldsRoot = mkdtempSync(join(tmpdir(), "attw-gate-fieldset-base-"));
-    mkdirSync(join(withoutFieldsRoot, "scripts"), { recursive: true });
-    symlinkSync(join(PKG_ROOT, "node_modules"), join(withoutFieldsRoot, "node_modules"), "dir");
-    withoutFields = join(withoutFieldsRoot, "scripts", "attw.mjs");
-    writeFileSync(withoutFields, src.slice(0, from) + src.slice(to));
+    const built = counterfactual("fieldset-base", (src) => {
+      const from = src.indexOf("// ---- BEYOND `exports`:");
+      const to = src.indexOf("// ---- END BEYOND `exports`");
+      // If either marker stops matching, this reds rather than silently testing a
+      // counterfactual identical to the shipped gate.
+      expect(from).toBeGreaterThan(-1);
+      expect(to).toBeGreaterThan(from);
+      return src.slice(0, from) + src.slice(to);
+    });
+    withoutFields = built.caller;
+    withoutFieldsRoot = built.root;
   });
 
   afterAll(() => {
@@ -1621,7 +1695,7 @@ describe("the field set nets 1, 3 and 4 share: `exports` is not the only field t
    * the pass line prints it, so a name that appears in one appears in both.
    */
   function knownUnreadFields(): string[] {
-    const src = readFileSync(WRAPPER, "utf8");
+    const src = readFileSync(CANONICAL, "utf8");
     const decl = /const KNOWN_UNREAD_FIELDS = \[([^\]]*)\];/.exec(src);
     // If the constant is renamed or deleted, this reds rather than silently
     // grading an empty list, which would pass vacuously.
@@ -1694,20 +1768,30 @@ describe("the field set nets 1, 3 and 4 share: `exports` is not the only field t
   );
 
   it(
-    "THE DISCLOSURE PRINTS ON THE ZERO-DECLARED RUN TOO, WHICH IS THE RUN IT IS MOST FOR",
+    "THE DISCLOSURE PRINTS OUTSIDE EVERY BRANCH, ON THE SMALLEST DECLARED SET THERE CAN BE",
     () => {
       // The sentence sat inside the "all N paths are packed" branch for one commit
-      // while the docblock said it printed every run. A package that declares no
-      // path through a field `declaredArtifacts()` reads lands in the other branch,
-      // and that is exactly where a still-unread field could hide: this fixture
-      // declares its trees ONLY through `directories`, which is what the sentence
-      // now names.
-      const dir = join(root, "zero-declared");
+      // while the docblock said it printed every run. The run where a still-unread
+      // field could hide is the one with the least declared beside it, and this
+      // fixture is that run: it declares ONE path and declares its trees ONLY
+      // through `directories`, which is what the sentence names.
+      //
+      // RE-EXPRESSED, AND THE INPUT IS WHY. This case used to declare NOTHING at
+      // all and assert the pass line's zero-declared branch. The shared body
+      // REFUSES that manifest (nets 1, 3 and 4 all grade the one set, so an empty
+      // set makes three of them vacuous), which is the refusal the 297-line variant
+      // carried and this one did not, so the branch is unreachable and was deleted
+      // with it. The refusal has its own case in
+      // `packages/script-utils/test/attw-shared.test.ts`; what THIS case is for,
+      // the disclosure printing outside every branch, is unchanged and is asserted
+      // on the smallest input that still reaches the pass line.
+      const dir = join(root, "smallest-declared");
       writePkg(
         dir,
         {
-          name: "attw-gate-fixture-zero-declared",
+          name: "attw-gate-fixture-smallest-declared",
           version: "1.0.0",
+          main: "./index.js",
           directories: { lib: "./absent-lib" },
           files: ["index.js", "index.d.ts"],
         },
@@ -1718,7 +1802,10 @@ describe("the field set nets 1, 3 and 4 share: `exports` is not the only field t
       );
       const r = runWrapper(dir);
       expect(r.code, r.out).toBe(0);
-      expect(r.out).toContain("declares no relative artifact paths");
+      // One declared path, and the `directories` trees beside it went unseen: if the
+      // field were read, `./absent-lib` would have reddened net 1 before attw ran.
+      expect(r.out).toContain("all 1 relative artifact path(s) package.json declares are in the");
+      expect(r.out).not.toContain("./absent-lib");
       expect(r.out).toContain(`Known-unread: ${knownUnreadFields().join(", ")}.`);
     },
     SPAWN_TIMEOUT,
@@ -1885,29 +1972,25 @@ describe("net 4: the manifest PNPM would publish, which is not the manifest on d
   }
 
   /**
-   * The wrapper with NET 4 SLICED BACK OUT, derived from the shipped file at test
-   * time so the RED-BEFORE half cannot drift away from the thing it is the
-   * counterfactual for. Same construction as the two blocks above, and it inherits
-   * their documented residual unchanged: the reach of `node_modules/.bin/attw` from
-   * a temp tree is box-dependent.
+   * The gate with NET 4 SLICED BACK OUT, derived from the shipped body so the RED-BEFORE half
+   * cannot drift away from the thing it is the counterfactual for. Same construction as the two
+   * blocks above, and it inherits their documented residual unchanged.
    */
   let withoutNet4 = "";
   let withoutNet4Root = "";
 
   beforeAll(() => {
-    const src = readFileSync(WRAPPER, "utf8");
-    const from = src.indexOf("// ---- Net 4: the manifest PNPM would publish");
-    const to = src.indexOf("// ---- END Net 4");
-    // If either marker stops matching, this reds rather than silently testing a
-    // counterfactual identical to the shipped gate.
-    expect(from).toBeGreaterThan(-1);
-    expect(to).toBeGreaterThan(from);
-
-    withoutNet4Root = mkdtempSync(join(tmpdir(), "attw-gate-net4-base-"));
-    mkdirSync(join(withoutNet4Root, "scripts"), { recursive: true });
-    symlinkSync(join(PKG_ROOT, "node_modules"), join(withoutNet4Root, "node_modules"), "dir");
-    withoutNet4 = join(withoutNet4Root, "scripts", "attw.mjs");
-    writeFileSync(withoutNet4, src.slice(0, from) + src.slice(to));
+    const built = counterfactual("net4-base", (src) => {
+      const from = src.indexOf("// ---- Net 4: the manifest PNPM would publish");
+      const to = src.indexOf("// ---- END Net 4");
+      // If either marker stops matching, this reds rather than silently testing a
+      // counterfactual identical to the shipped gate.
+      expect(from).toBeGreaterThan(-1);
+      expect(to).toBeGreaterThan(from);
+      return src.slice(0, from) + src.slice(to);
+    });
+    withoutNet4 = built.caller;
+    withoutNet4Root = built.root;
   });
 
   afterAll(() => {
@@ -2238,27 +2321,37 @@ describe("net 4: the manifest PNPM would publish, which is not the manifest on d
       // from any of them, and an unprinted branch is where a wrong sentence hides:
       // #61 shipped the known-unread disclosure inside an else-branch for a commit
       // for exactly that reason.
-      const dir = join(root, "net4-zero-declared");
-      writePkg(
-        dir,
-        {
+      //
+      // RE-EXPRESSED, AND THE INPUT IS WHY. The fixture used to declare nothing but
+      // `publishConfig: { access: "public" }`, which the shared body now refuses at
+      // net 1 before net 4 could run. NET 4's BRANCH IS STILL REACHABLE, because the
+      // document it grades is a DIFFERENT manifest: a package that declares paths of
+      // its own and publishes a `publishConfig.directory` subtree whose manifest
+      // declares none lands exactly here. The net 3 half of the old assertion is
+      // gone with net 3's own zero-declared branch, and the case that used to carry
+      // it is above.
+      const dir = overrideFixture("zero-declared", { publishConfig: { directory: "sub" } }, {}, [
+        "sub",
+      ]);
+      mkdirSync(join(dir, "sub"), { recursive: true });
+      writeFileSync(
+        join(dir, "sub", "package.json"),
+        JSON.stringify({
           name: "attw-gate-fixture-net4-zero-declared",
           version: "1.0.0",
-          publishConfig: { access: "public" },
-          files: ["index.js", "index.d.ts"],
-        },
-        {
-          "index.js": "module.exports.a = 1;\n",
-          "index.d.ts": "export declare const a: number;\n",
-        },
+          files: ["built.js"],
+        }),
       );
+      writeFileSync(join(dir, "sub", "built.js"), "module.exports.a = 1;\n");
+
       const r = runWrapper(dir);
       expect(r.code, r.out).toBe(0);
       // Net 4 RAN here: `publishConfig` is an object, so this is not the skip line.
       expect(r.out).toContain("the manifest pnpm would publish declares no relative artifact");
       expect(r.out).not.toContain("declares no publishConfig OBJECT");
-      // And net 3's own zero-declared branch, so the two are not being confused.
-      expect(r.out).toContain("package.json declares no relative artifact paths");
+      // ...and net 3 graded the ON-DISK manifest, which declares four, so the two
+      // documents are not being confused.
+      expect(r.out).toContain("all 4 relative artifact path(s) package.json declares are in the");
     },
     SPAWN_TIMEOUT,
   );
