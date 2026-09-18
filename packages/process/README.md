@@ -81,6 +81,29 @@ do carry has exactly this body:
 Script bodies are never edited per repo. If a repo needs something different, that is what the
 override file below is for.
 
+Two further invocations are **not verbs**: they are canonical script bodies a repo used to keep its
+own copy of, reached through the bin it already has.
+
+```sh
+cosyte-process sync-version           # write package.json's version into the exported VERSION constant
+cosyte-process pack-docs [outputdir]  # build docs-content.tar.gz and source.tar.gz
+```
+
+Wire either one where the script it replaces was wired:
+
+```json
+{
+  "scripts": {
+    "sync-version": "cosyte-process sync-version",
+    "docs:artifacts": "cosyte-process pack-docs"
+  }
+}
+```
+
+Neither is graded by `cosyte-process check`, and neither is an overridable verb: the override file's
+top-level keys stay `build`, `test`, `lint`, `typecheck` and `format`. Carrying no script for either
+one is conforming, exactly as before they existed.
+
 ## Entry points
 
 | entry point       | what it is                                                                       |
@@ -99,7 +122,9 @@ expectedScriptBody("build"); // => "cosyte-process build"
 VERBS.includes("check"); // => true
 ```
 
-Nothing on that entry point has side effects, so importing it never runs a tool.
+Nothing on that entry point has side effects, so importing it never runs a tool. It also publishes
+the canonical trigger surface of the two security-workflow callers as data, plus the grader that
+compares a caller's text against it (see the API section below).
 
 ## Overrides
 
@@ -212,6 +237,68 @@ in your `package.json` is graded.
   }
 }
 ```
+
+### `cosyte-process sync-version`
+
+Writes the invoking package's `package.json` version into the exported `VERSION` constant in
+`src/index.ts`. The behaviour is five numbered conditions, and the numbers are part of the surface:
+every refusal names the condition it failed, and this is the text it names.
+
+1. The manifest's `version` is read. Missing, not a string, or empty is a refusal.
+2. Exactly one declaration of the form `export const VERSION: string = "<value>";`, anchored at
+   column 0, is found anywhere in `src/index.ts`. Zero matches is a refusal naming the rename; two or
+   more is a refusal naming the ambiguity, because a declaration sitting inside a comment must not be
+   rewritten ahead of the real one. A further declaration form may be added beside this one; this one
+   is never narrowed.
+3. The manifest string is spliced in literally. A version carrying `$&`, `$1` or a backtick sequence
+   is written character for character and is never interpreted as a replacement pattern.
+4. The run is idempotent. A tree already at that version is not written to at all, and the run
+   reports that it was already there.
+5. The exit vocabulary is closed: `0` for a write and for an already-synced tree, `1` for every
+   refusal under conditions 1 and 2.
+
+It takes no arguments. Its reports and its diagnostics go to stderr and stdout stays empty; a
+diagnostic names the file, the condition and the action available, and never echoes what it read: two
+competing declarations are reported by line number.
+
+### `cosyte-process pack-docs`
+
+Builds two tarballs into an output directory, named by the first positional argument and defaulting
+to `dist-artifacts`:
+
+| archive               | carries, at the tarball root               |
+| --------------------- | ------------------------------------------ |
+| `docs-content.tar.gz` | the contents of `docs-content/`            |
+| `source.tar.gz`       | `src/`, `package.json` and `tsconfig.json` |
+
+It fails fast. `docs-content/intro.md`, `docs-content/sidebars.json`, `src/`, `package.json` and
+`tsconfig.json` are all checked before the output directory is created, so a run that refuses leaves
+nothing behind for a release job to pick up: exit `1`, every missing input named on stderr, no
+directory and no archive. Members are written in a stable order, with no directory entries, so two
+runs over the same tree produce the same archive.
+
+### The security-workflow trigger surface
+
+A GitHub Actions workflow only runs when the file is in that repository's own `.github/workflows/`
+directory, so each repo keeps its own `codeql.yml` and `scorecard.yml`. What is shared is what those
+files have to SAY, published here as data with a grader over it:
+
+```ts runnable
+import { gradeWorkflowText, SECURITY_WORKFLOW_SURFACES } from "@cosyte/process";
+
+SECURITY_WORKFLOW_SURFACES["scorecard.yml"].schedule; // => ["27 3 * * 2"]
+SECURITY_WORKFLOW_SURFACES["scorecard.yml"].pullRequest; // => null
+gradeWorkflowText("name: Scorecard\n", SECURITY_WORKFLOW_SURFACES["scorecard.yml"]).length > 0; // => true
+```
+
+`gradeWorkflowText(text, surface)` returns one finding per differing element, each naming the file
+and the element; an empty array is a pass. `gradeWorkflowFile(path, surface)` grades the file at a
+path, and `gradeSecurityWorkflows(repoRoot)` grades both callers of a repository.
+
+A pass means every element of the surface was found and was equal. That the file exists is not one of
+the elements: a caller whose `schedule:` has been deleted is a file that exists and a scan that no
+longer runs. `scorecard.yml` carrying no `pull_request` trigger is an element in the same way as
+`codeql.yml` carrying one, so the two files are not interchangeable.
 
 ### Updating
 

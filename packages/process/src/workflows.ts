@@ -118,7 +118,12 @@ function equal(left: unknown, right: unknown): boolean {
 }
 
 /** Grade one element by structural equality. @internal */
-function gradeValue(file: string, element: string, want: unknown, got: YamlValue | undefined): string[] {
+function gradeValue(
+  file: string,
+  element: string,
+  want: unknown,
+  got: YamlValue | undefined,
+): string[] {
   return equal(want, got) ? [] : [`${file}: ${element}: want ${show(want)}, got ${show(got)}`];
 }
 
@@ -233,7 +238,12 @@ function gradeJob(surface: TriggerSurface, root: YamlMapping): string[] {
     return [`${file}: jobs.${id}: want a job calling the shared workflow, got ${show(job)}`];
   }
   return [
-    ...gradePermissions(file, `jobs.${id}.permissions`, surface.job.permissions, job["permissions"]),
+    ...gradePermissions(
+      file,
+      `jobs.${id}.permissions`,
+      surface.job.permissions,
+      job["permissions"],
+    ),
     ...gradeValue(file, `jobs.${id}.uses`, surface.job.uses, job["uses"]),
   ];
 }

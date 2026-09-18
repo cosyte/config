@@ -137,7 +137,10 @@ describe("AC-C8: each differing element is named", () => {
     },
     {
       what: "a second cron",
-      text: CODEQL.replace('- cron: "27 3 * * 1"', '- cron: "27 3 * * 1"\n    - cron: "27 4 * * 1"'),
+      text: CODEQL.replace(
+        '- cron: "27 3 * * 1"',
+        '- cron: "27 3 * * 1"\n    - cron: "27 4 * * 1"',
+      ),
       element: "codeql.yml: on.schedule",
     },
     {
@@ -225,7 +228,10 @@ describe("AC-C8: a file that cannot be read is a finding, never a pass", () => {
   });
 
   it("names a file written in a shape the subset refuses, rather than reading it as empty", () => {
-    const anchored = CODEQL.replace("permissions:\n  contents: read", "permissions: &perms\n  contents: read");
+    const anchored = CODEQL.replace(
+      "permissions:\n  contents: read",
+      "permissions: &perms\n  contents: read",
+    );
     const findings = gradeWorkflowText(anchored, codeqlSurface);
     expect(findings).toHaveLength(1);
     expect(findings[0]).toContain("cannot be read as a workflow");

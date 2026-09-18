@@ -54,7 +54,9 @@ export interface TarMember {
 
 /** A fixed-width octal field: `width - 1` digits, NUL terminated. @internal */
 function octalField(value: number, width: number): string {
-  return `${Math.trunc(value).toString(8).padStart(width - 1, "0")}\0`;
+  return `${Math.trunc(value)
+    .toString(8)
+    .padStart(width - 1, "0")}\0`;
 }
 
 /** Split a member name into the ustar `prefix` and `name` fields. @internal */

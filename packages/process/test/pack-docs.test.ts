@@ -115,7 +115,9 @@ describe("AC-C5: the two artifacts, with the member sets the contract names", ()
     expect(readFileSync(join(docs, "guides", "using.md"), "utf8")).toBe(
       TREE["docs-content/guides/using.md"],
     );
-    expect(readFileSync(join(source, "src", "lib", "util.ts"), "utf8")).toBe(TREE["src/lib/util.ts"]);
+    expect(readFileSync(join(source, "src", "lib", "util.ts"), "utf8")).toBe(
+      TREE["src/lib/util.ts"],
+    );
     expect(readFileSync(join(source, "tsconfig.json"), "utf8")).toBe(TREE["tsconfig.json"]);
   });
 

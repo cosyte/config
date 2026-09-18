@@ -223,7 +223,9 @@ describe("AC-C4: the manifest string is inserted literally", () => {
       'export const VERSION: string = "1.0.0-$&+$1-`x`";',
     );
     // `$&` expanded against the match would have produced the whole declaration inside the value.
-    expect(readFileSync(source, "utf8")).not.toContain("export const VERSION: string = \"1.0.0-export");
+    expect(readFileSync(source, "utf8")).not.toContain(
+      'export const VERSION: string = "1.0.0-export',
+    );
   });
 
   it("version-sync condition 3: reading the declaration back reports exactly what was written", () => {

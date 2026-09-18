@@ -45,9 +45,9 @@ describe("AC-C9: this repository's canonical caller texts match the surface it p
       const [cron] = SECURITY_WORKFLOW_SURFACES[file].schedule;
       const withoutSchedule = text.replace(`  schedule:\n    - cron: "${String(cron)}"\n`, "");
       expect(withoutSchedule).not.toBe(text);
-      expect(gradeWorkflowText(withoutSchedule, SECURITY_WORKFLOW_SURFACES[file]).join("\n")).toContain(
-        `${file}: on.schedule`,
-      );
+      expect(
+        gradeWorkflowText(withoutSchedule, SECURITY_WORKFLOW_SURFACES[file]).join("\n"),
+      ).toContain(`${file}: on.schedule`);
     },
   );
 

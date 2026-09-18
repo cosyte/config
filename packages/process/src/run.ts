@@ -157,11 +157,17 @@ function runEntryPoint(
   }
 
   if (args.length > 1) {
-    return fail(stderr, `pack-docs takes at most one output directory, got ${args.join(" ")}`, true);
+    return fail(
+      stderr,
+      `pack-docs takes at most one output directory, got ${args.join(" ")}`,
+      true,
+    );
   }
   try {
     const result = packDocs(cwd, args[0]);
-    stderr.write(`cosyte-process: pack-docs: wrote ${String(result.artifacts.length)} artifact(s)\n`);
+    stderr.write(
+      `cosyte-process: pack-docs: wrote ${String(result.artifacts.length)} artifact(s)\n`,
+    );
     for (const artifact of result.artifacts) {
       stderr.write(`cosyte-process: pack-docs: ${artifact}\n`);
     }

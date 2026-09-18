@@ -108,7 +108,10 @@ function findKeyColon(body: string): number {
     }
     if (character === '"' || character === "'") {
       quote = character;
-    } else if (character === ":" && (index + 1 === body.length || /\s/.test(body[index + 1] ?? ""))) {
+    } else if (
+      character === ":" &&
+      (index + 1 === body.length || /\s/.test(body[index + 1] ?? ""))
+    ) {
       return index;
     }
   }
@@ -217,7 +220,9 @@ export function parseYamlSubset(text: string): YamlMapping {
       }
       const entry = body === "-" ? "" : body.slice(2).trim();
       if (findKeyColon(entry) === -1) {
-        sequence.push(entry.startsWith("[") ? parseFlowSequence(entry, line) : parseScalar(entry, line));
+        sequence.push(
+          entry.startsWith("[") ? parseFlowSequence(entry, line) : parseScalar(entry, line),
+        );
         continue;
       }
       // A mapping opens inside the sequence entry: its keys sit two columns right of the dash.
@@ -247,9 +252,7 @@ export function parseYamlSubset(text: string): YamlMapping {
       stack.push({ indent: keyIndent, container: child });
       continue;
     }
-    mapping[key] = rest.startsWith("[")
-      ? parseFlowSequence(rest, line)
-      : parseScalar(rest, line);
+    mapping[key] = rest.startsWith("[") ? parseFlowSequence(rest, line) : parseScalar(rest, line);
   }
 
   return root;
