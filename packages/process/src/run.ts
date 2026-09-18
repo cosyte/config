@@ -4,6 +4,7 @@ import { constants } from "node:os";
 import { join } from "node:path";
 
 import { checkWiring } from "./check.js";
+import { type EntryPoint, isEntryPoint } from "./entry-points.js";
 import {
   isModifierFor,
   MODIFIERS_BY_VERB,
@@ -11,7 +12,9 @@ import {
   applyModifier,
 } from "./modifiers.js";
 import { applyOverride, loadOverrides, OverrideError } from "./overrides.js";
+import { DEFAULT_OUTPUT_DIR, packDocs, PackDocsError } from "./pack-docs.js";
 import { ToolResolutionError, resolveToolBin } from "./resolve.js";
+import { syncVersion, SyncVersionError } from "./sync-version.js";
 import {
   BASELINE,
   DELEGATED_VERBS,
@@ -95,6 +98,10 @@ export function usageText(): string {
     ...DELEGATED_VERBS.map((verb) => `  ${verb.padEnd(10)} ${toArgv(BASELINE[verb]).join(" ")}`),
     "  check      verify this repo's process wiring (scripts and override file)",
     "",
+    "Entry points (not verbs: not graded by check, not overridable):",
+    "  sync-version           sync the exported VERSION constant from package.json",
+    `  pack-docs [outputdir]  build the docs artifacts, default ${DEFAULT_OUTPUT_DIR}`,
+    "",
     "Modifiers (at most one per invocation):",
     ...SUPPORTED_MODIFIER_PAIRS.map((pair) => `  cosyte-process ${pair}`),
     "",
@@ -111,6 +118,60 @@ function fail(stderr: NodeJS.WritableStream, message: string, withUsage = false)
     stderr.write(usageText());
   }
   return SELF_ERROR;
+}
+
+/**
+ * Run one of the entry points that are not verbs.
+ *
+ * Both write their report to stderr and nothing at all to stdout: neither emits output for a pipe to
+ * read, and a report on stdout would make one that carried a diagnostic too. A refusal names the
+ * path, the entry point and the action available, and exits with the same self-error code every
+ * other failure this bin detects uses, so the exit vocabulary stays closed at 0 and 1.
+ *
+ * @internal
+ */
+function runEntryPoint(
+  entry: EntryPoint,
+  args: readonly string[],
+  cwd: string,
+  stderr: NodeJS.WritableStream,
+): number {
+  if (entry === "sync-version") {
+    if (args.length > 0) {
+      return fail(stderr, `sync-version takes no arguments, got ${args.join(" ")}`, true);
+    }
+    try {
+      const result = syncVersion(cwd);
+      stderr.write(
+        result.outcome === "already-synced"
+          ? `cosyte-process: sync-version: ${result.file}: already at ${result.version}, nothing written\n`
+          : `cosyte-process: sync-version: ${result.file}: VERSION set to ${result.version}\n`,
+      );
+      return 0;
+    } catch (error: unknown) {
+      if (error instanceof SyncVersionError) {
+        return fail(stderr, error.message);
+      }
+      throw error;
+    }
+  }
+
+  if (args.length > 1) {
+    return fail(stderr, `pack-docs takes at most one output directory, got ${args.join(" ")}`, true);
+  }
+  try {
+    const result = packDocs(cwd, args[0]);
+    stderr.write(`cosyte-process: pack-docs: wrote ${String(result.artifacts.length)} artifact(s)\n`);
+    for (const artifact of result.artifacts) {
+      stderr.write(`cosyte-process: pack-docs: ${artifact}\n`);
+    }
+    return 0;
+  } catch (error: unknown) {
+    if (error instanceof PackDocsError) {
+      return fail(stderr, error.message);
+    }
+    throw error;
+  }
 }
 
 /** Run a tool as a child of the current Node executable, inheriting all three streams. @internal */
@@ -153,6 +214,11 @@ export async function run(argv: readonly string[], options: RunOptions = {}): Pr
 
   if (verb === undefined) {
     return fail(stderr, "no verb given", true);
+  }
+  // The entry points are dispatched ahead of the verbs, and ahead of the shared package.json check
+  // below, so that each one owns every diagnostic about the tree it reads.
+  if (isEntryPoint(verb)) {
+    return runEntryPoint(verb, rest, cwd, stderr);
   }
   if (!isVerb(verb)) {
     return fail(stderr, `unknown verb "${verb}"`, true);

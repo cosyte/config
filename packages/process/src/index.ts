@@ -14,6 +14,7 @@ export {
   RESERVED_VARIANTS,
   type ReservedVariant,
 } from "./check.js";
+export { ENTRY_POINTS, type EntryPoint, isEntryPoint } from "./entry-points.js";
 export {
   applyModifier,
   isModifierFor,
@@ -30,8 +31,27 @@ export {
   type Overrides,
   type VerbOverride,
 } from "./overrides.js";
+export {
+  DEFAULT_OUTPUT_DIR,
+  DOCS_ARTIFACT,
+  PACK_DOCS_INPUTS,
+  packDocs,
+  PackDocsError,
+  type PackDocsResult,
+  type RequiredInput,
+  SOURCE_ARTIFACT,
+} from "./pack-docs.js";
 export { resolveToolBin, ToolResolutionError } from "./resolve.js";
 export { run, type RunOptions, type SpawnTool, usageText } from "./run.js";
+export {
+  findVersionDeclarations,
+  SOURCE_ENTRY_POINT,
+  syncVersion,
+  SyncVersionError,
+  type SyncVersionOutcome,
+  type SyncVersionResult,
+  type VersionDeclaration,
+} from "./sync-version.js";
 export {
   BASELINE,
   DELEGATED_VERBS,
@@ -45,3 +65,14 @@ export {
   type Verb,
   VERBS,
 } from "./verbs.js";
+export {
+  gradeSecurityWorkflows,
+  gradeWorkflowFile,
+  gradeWorkflowText,
+  SECURITY_WORKFLOW_FILES,
+  SECURITY_WORKFLOW_SURFACES,
+  type SecurityWorkflowFile,
+  type TriggerSurface,
+  WORKFLOW_DIRECTORY,
+  type WorkflowPermissions,
+} from "./workflows.js";
