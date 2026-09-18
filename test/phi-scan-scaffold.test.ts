@@ -392,7 +392,12 @@ describe("controls: the suite is exercising the emitted scanner, and it can stil
       // measured exit-0-over-an-unopened-corpus hole.
       'const scanPaths = mode === "paths" ? this.dedupeByRepoPath(seed) : paths;',
       "const unmatched = [...allowed].filter((p) => !enumerated.has(p));",
-      "const unread = [...enumerated].filter((p) => !read.has(p));",
+      "const unread = [...enumerated].filter((p) => !read.has(p) && !skipped.has(p));",
+      // THE PER-ROOT OBSERVATION RULE and the ENUMERATION TOCTOU WINDOW: a root that produced no
+      // read leaves the sweep narrower than its own configuration says, and a vanished target is
+      // only ever skipped when it was untracked, in `all` mode, and still absent at the end.
+      "this.cfg.scanRoots.filter((root) => !this.anyReadUnder(root, read))",
+      "if (this.isVanishedUntracked(err, t, index)) {",
       // THE UNION. The sweep reads the bytes git carries, keyed on STAGE 0, and
       // deduplicated against the walk BY CONTENT.
       '["ls-files", "-s", "-z"]',
@@ -827,7 +832,10 @@ describe("a target enumerated but never read refuses, in every mode", () => {
         'const scanPaths = mode === "paths" ? this.dedupeByRepoPath(seed) : paths;',
         "const scanPaths = paths.length > 0 ? paths : [...allowFixtures];",
       ],
-      ["const unread = [...enumerated].filter((p) => !read.has(p));", "const unread = [];"],
+      [
+        "const unread = [...enumerated].filter((p) => !read.has(p) && !skipped.has(p));",
+        "const unread = [];",
+      ],
       [
         "const unmatched = [...allowed].filter((p) => !enumerated.has(p));",
         "const unmatched = [];",

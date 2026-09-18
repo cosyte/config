@@ -390,6 +390,11 @@ describe("whole-repository scan roots, which is what a fresh scaffold needs", ()
     // The measured hole: with `["test/fixtures", "src"]` a scaffold had ONE of its tracked files in
     // scope, so a tracked test carrying a dashed identifier exited 0. Both polarities are asserted
     // here, so the widening is shown to be the cause.
+    //
+    // BOTH NARROW ROOTS HAVE TO YIELD A FILE THAT IS READ, or the per-root observation rule
+    // refuses the narrow run for the ROOT being starved rather than letting it report the clean
+    // it is being measured for. The fixture below is what keeps this case about the WIDENING.
+    write("test/fixtures/in-scope.txt", "nothing to see\n");
     write("test/leak.test.ts", `const ssn = "${SSN}";\nexport default ssn;\n`);
     write("src/index.ts", "export const x = 1;\n");
     commitAll();

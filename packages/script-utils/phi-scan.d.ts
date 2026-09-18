@@ -85,7 +85,12 @@ export type DetectFn = (ctx: DetectContext) => void;
 
 /** The three codes this repo's own exit contract assigns. All three must differ. */
 export interface PhiScanExitCodes {
-  /** The scan ran, read every target it enumerated, and found nothing. */
+  /**
+   * The scan ran, read every target it enumerated, and found nothing. The ONE subtraction is the
+   * enumeration TOCTOU window: an UNTRACKED file the walk listed, in `all` mode, that was gone by
+   * read time and is still gone at the end of the run, is reported SKIPPED. Git carries no bytes
+   * at such a path, so nothing this repository holds went unread.
+   */
   clean: number;
   /** This corpus contains something that looks like PHI. */
   hits: number;
@@ -124,11 +129,16 @@ export interface PhiScanConfig {
    * WHAT DERIVING GIVES UP: a declaration can notice that a root is not the KIND it was meant to be
    * and derivation cannot, so a root that changes kind is silently treated as what it now is. A root
    * that is NEITHER a file nor a directory is still refused, and a root naming a symbolic link is
-   * refused rather than followed. A MISSING root is skipped, which is unchanged from the copied
-   * scanners. It is not the last state in which a root contributes nothing without saying so, and
-   * two others are known: a file root the read filter drops (a `.md` file root reads nothing under
-   * the default `isWalkReadable`, so porting one means overriding that filter too), and an
-   * UNREADABLE root, which is reported the same way a missing one is.
+   * refused rather than followed. A MISSING root is skipped by the WALK, which is unchanged from the
+   * copied scanners.
+   *
+   * 🛑 EVERY ROOT MUST YIELD AT LEAST ONE FILE THAT WAS ACTUALLY READ, OR `all` MODE REFUSES AND
+   * NAMES THE STARVED ROOTS. That is what closes the class the paragraph above used to end with:
+   * a root that contributes nothing WITHOUT SAYING SO. All three of the known members are in it - a
+   * missing root, an UNREADABLE root (reported the same way a missing one is), and a root whose
+   * every file the read filter drops, which is what a `.md` file root does under the default
+   * `isWalkReadable`. A root is a scope decision, and a scope decision that silently selected
+   * nothing is the sweep reporting on a corpus it never had.
    */
   scanRoots: readonly string[];
 

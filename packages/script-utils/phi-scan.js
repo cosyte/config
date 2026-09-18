@@ -59,6 +59,27 @@ class InvocationError extends Error {
   }
 }
 
+/**
+ * A target whose bytes could not be read, carrying the errno the filesystem gave.
+ *
+ * IT IS AN `InvocationError`, SO THE DEFAULT IS STILL REFUSAL. The subclass exists for exactly one
+ * decision, the ENUMERATION TOCTOU WINDOW in `run`: between the walk listing a path and the sweep
+ * opening it, an editor, a build or a test can remove it. The errno is what tells "the file is
+ * gone" from "the file is there and something else failed", and nothing else in this engine may
+ * branch on it. Every other read failure keeps taking the refuse path unchanged.
+ */
+class TargetReadError extends InvocationError {
+  /**
+   * @param {string} message
+   * @param {string | undefined} errnoCode The `code` the filesystem error carried, when it had one.
+   */
+  constructor(message, errnoCode) {
+    super(message);
+    this.name = "TargetReadError";
+    this.errnoCode = errnoCode;
+  }
+}
+
 /** git's file modes for a regular blob. Every other mode names something with no bytes to read. */
 const DEFAULT_REGULAR_BLOB_MODES = new Set(["100644", "100755"]);
 
@@ -753,17 +774,19 @@ class PhiScan {
    * cases silently. What is NOT given up is the non-regular case: a root that is neither is collected
    * as unscannable and refused, exactly as an entry inside one would be.
    *
-   * A MISSING ROOT IS SKIPPED, AND THAT IS UNCHANGED FROM THE COPIED SCANNERS rather than chosen
-   * here. Two root states are refused or normalised away in `normalizeConfig` (a spelling that
-   * matches no index path is normalised away and the run proceeds; a root outside the repository
-   * throws), and this one is neither.
+   * A MISSING ROOT IS SKIPPED BY THE WALK, AND THAT IS UNCHANGED FROM THE COPIED SCANNERS rather
+   * than chosen here. Two root states are refused or normalised away in `normalizeConfig` (a
+   * spelling that matches no index path is normalised away and the run proceeds; a root outside the
+   * repository throws), and this one is neither.
    *
-   * NO CLAIM IS MADE THAT IT IS THE LAST SUCH STATE, and a draft of this paragraph said it was. At
-   * least two others are known: a file root the read filter drops, described above and created by
-   * the same change that added file roots; and an UNREADABLE root, which `lstatOrNull`'s bare catch
-   * reports the same way it reports a missing one, so the word MISSING there covers a state that is
-   * not missing (an `EACCES` on a parent directory, or an `ELOOP`). Both contribute nothing without
-   * saying so. The set is not enumerated because nothing here has measured it to be complete.
+   * WHAT IT NO LONGER DOES IS CONTRIBUTE NOTHING IN SILENCE, and that is a change. A draft of this
+   * paragraph claimed the states in which a root contributes nothing were not enumerable, and named
+   * three anyway: a MISSING root; an UNREADABLE one, which `lstatOrNull`'s bare catch reports the
+   * same way (an `EACCES` on a parent directory, or an `ELOOP`); and a root whose every file the
+   * read filter drops, which is what a `.md` file root does under the default `isWalkReadable`. The
+   * set still is not enumerated, because nothing here has measured it to be complete - and it no
+   * longer has to be. `run`'s PER-ROOT OBSERVATION RULE asks the question from the other end, of
+   * the paths actually READ, so a root that yielded nothing refuses whatever put it in that state.
    *
    * The result is SORTED by repo-relative path, so a report and a refusal read the same way twice.
    *
@@ -1128,6 +1151,65 @@ class PhiScan {
   }
 
   /**
+   * The absolute path of a repo-relative one, for a question about the filesystem rather than
+   * about the corpus. Only the TOCTOU re-check asks one.
+   *
+   * @param {string} relPath
+   * @returns {string}
+   */
+  absolutePath(relPath) {
+    return relPath === "." ? this.cfg.repoRoot : join(this.cfg.repoRoot, ...relPath.split("/"));
+  }
+
+  /**
+   * Did this root yield at least one file whose bytes were ACTUALLY READ?
+   *
+   * IT IS ASKED OF `read`, WHICH IS EVIDENCE OF OBSERVATION RATHER THAN A PLAN TO OBSERVE, and it
+   * is asked per root rather than of the union, because the union is exactly what hides a starved
+   * root: one productive root makes the whole sweep look productive.
+   *
+   * @param {string} root A normalised scan root.
+   * @param {Set<string>} read The repo-relative paths this run opened.
+   * @returns {boolean}
+   */
+  anyReadUnder(root, read) {
+    for (const p of read) {
+      if (root === "." || p === root || p.startsWith(`${root}/`)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Is this read failure the ENUMERATION TOCTOU WINDOW rather than a state the run must refuse?
+   *
+   * FOUR CONDITIONS, ALL OF THEM NECESSARY, because each one is a different question the run can
+   * still answer honestly afterwards:
+   *
+   *   1. `all` MODE. The other two routes were asked for a path BY NAME - on argv, or by git's
+   *      own index - so a caller is owed an answer about that path rather than a shrug.
+   *   2. THE WALK'S OWN TARGET, never the union's. The union reads an OBJECT by id, which cannot
+   *      go missing between enumeration and read.
+   *   3. `ENOENT`, exactly. Every other errno says the entry is still there and something else
+   *      went wrong, which is the state a scan must never report past.
+   *   4. UNTRACKED. Git carries bytes at a tracked path, so a tracked file that vanished still
+   *      leaves this run with content it declared it would read and did not.
+   *
+   * @param {unknown} err
+   * @param {import("./phi-scan.js").Target} target
+   * @param {Map<string, import("./phi-scan.js").IndexEntry> | null} index
+   * @returns {boolean}
+   */
+  isVanishedUntracked(err, target, index) {
+    return (
+      err instanceof TargetReadError &&
+      err.errnoCode === "ENOENT" &&
+      index !== null &&
+      target.origin === undefined &&
+      !index.has(target.path)
+    );
+  }
+
+  /**
    * Refuse over entries the enumeration reached and cannot scan. EVERY offender IN THE GROUP is
    * named, not just the first: a developer who has to re-run the gate once per link learns to
    * distrust it.
@@ -1227,8 +1309,9 @@ class PhiScan {
     try {
       buf = target.read();
     } catch (err) {
-      throw new InvocationError(
+      throw new TargetReadError(
         `could not read ${target.path}: ${err instanceof Error ? err.message : String(err)}`,
+        err !== null && typeof err === "object" && "code" in err ? String(err.code) : undefined,
       );
     }
     const text = buf.toString("utf8");
@@ -1317,7 +1400,13 @@ class PhiScan {
    * THE EXIT CONTRACT IS THE CALLER'S, NOT THIS FILE'S. The three codes come from `exitCodes`, and
    * their meanings are:
    *
-   *   clean   the scan ran, READ EVERY TARGET IT ENUMERATED, and found nothing.
+   *   clean   the scan ran, READ EVERY TARGET IT ENUMERATED, and found nothing. THE ONE
+   *           SUBTRACTION IS THE ENUMERATION TOCTOU WINDOW, and it is bounded rather than
+   *           described: an UNTRACKED file the walk itself listed, in `all` mode, whose read
+   *           failed with `ENOENT`, and which is still absent at the end of the run, is reported
+   *           SKIPPED and does not hold the clean code back. Git carries no bytes at such a path,
+   *           so nothing this repository holds went unread. Every other shape of the same failure
+   *           is in `refuse` below.
    *   hits    this corpus contains something that looks like PHI. Nothing this engine RAISES ever
    *           takes it. It is NOT exclusive, and the escapes are named rather than left to be
    *           discovered: an allow-list or an override log that EXISTS but cannot be READ throws a
@@ -1327,8 +1416,22 @@ class PhiScan {
    *           does not enumerate, an in-scope entry that is not a regular file, an unparseable
    *           `git diff --cached` record, an index git cannot name or names empty, an in-scope index
    *           entry that is not a regular blob, an in-scope path with no stage-0 blob (unmerged), a
-   *           target whose bytes cannot be read, a field detector that threw, and a target
-   *           enumerated but never read.
+   *           target whose bytes cannot be read, a field detector that threw, a target enumerated
+   *           but never read, a target that was absent at read time and PRESENT AGAIN at the end
+   *           of the run, and (`all` mode) a SCAN ROOT THAT YIELDED NO FILE THAT WAS READ.
+   * ===========================================================================================
+   * THE PER-ROOT OBSERVATION RULE, `all` MODE ONLY. The completeness rule asks whether every
+   * target was read. It cannot ask whether a root produced a target at all, and a root that
+   * produces none is a sweep that is narrower than its own configuration says: a typo, a directory
+   * that moved or was never created, a root whose every file the read filter drops. ONE
+   * PRODUCTIVE ROOT MAKES THE WHOLE RUN LOOK PRODUCTIVE, which is why the question is asked per
+   * root and answered from the set of paths actually READ, and why the refusal names every starved
+   * root rather than the first.
+   *
+   * IT APPLIES TO A MISSING ROOT TOO, AND THAT DOES NOT CONTRADICT "A MISSING ROOT IS SKIPPED".
+   * The walk still skips it: it is not reported as an unscannable KIND and it does not crash the
+   * enumeration, which is what a missing root used to do. What it no longer does is contribute
+   * nothing in silence.
    * ===========================================================================================
    *
    * @returns {number}
@@ -1410,6 +1513,13 @@ class PhiScan {
     /** @type {Map<string, string>} */
     const readOids = new Map();
     const objectHash = index === null ? null : this.gitObjectHash();
+    /**
+     * Paths the walk listed and that were GONE by read time. WHAT THIS MEANS IS DECIDED AFTER THE
+     * SWEEP, not here: see the resolution below for why the window is left open as long as the
+     * run lasts.
+     */
+    /** @type {Set<string>} */
+    const vanished = new Set();
 
     /**
      * @param {import("./phi-scan.js").Target[]} batch
@@ -1422,6 +1532,13 @@ class PhiScan {
         try {
           bytes = this.scanTarget(t, allow, hits);
         } catch (err) {
+          // THE ENUMERATION TOCTOU WINDOW: the ONE read failure that is not settled here. It is
+          // recorded and judged after the sweep, because whether the path came back is part of
+          // the answer and this is the earliest the run could possibly know.
+          if (this.isVanishedUntracked(err, t, index)) {
+            vanished.add(t.path);
+            continue;
+          }
           if (err instanceof InvocationError) {
             // HITS FOUND SO FAR ARE PRINTED BEFORE THIS REFUSAL, DELIBERATELY, AND THIS IS A CHANGE
             // FROM THE COPIED SCANNERS. A refuter measured the old ordering: a fatal partway through
@@ -1454,13 +1571,60 @@ class PhiScan {
       if (unionFailure !== null) return unionFailure;
     }
 
+    // THE TOCTOU WINDOW IS RESOLVED AT THE END OF THE RUN, NOT AT THE MOMENT OF THE FAILURE, AND
+    // THE LATE ANSWER IS THE STRONGER ONE. A path that was absent when the sweep reached it and is
+    // present now was not a file being deleted: something wrote there while this run was looking
+    // away, and no verdict this run can give covers the bytes that lived at it in between. Asking
+    // immediately would answer within microseconds of the failure and miss almost all of that.
+    /** @type {string[]} */
+    const reappeared = [];
+    /** @type {Set<string>} */
+    const skipped = new Set();
+    for (const p of vanished) {
+      if (lstatOrNull(this.absolutePath(p)) === null) skipped.add(p);
+      else reappeared.push(p);
+    }
+
     // THE COMPLETENESS RULE. A SET DIFFERENCE, NEVER A SIZE COMPARISON: a count counts the targets
     // that DID get read, so `n read of n targets` is exactly the arithmetic that hides which ones did
     // not. Names every offender.
-    const unread = [...enumerated].filter((p) => !read.has(p));
+    //
+    // THE SKIPPED SET IS THE ONE SUBTRACTION, AND IT IS BOUNDED BY `isVanishedUntracked` RATHER
+    // THAN BY A JUDGEMENT CALL: `all` mode, the walk's own target, `ENOENT`, untracked, and still
+    // absent at the end of the run. Nothing git carries can enter it, so the rule keeps its whole
+    // meaning over the repository and gives up only what the filesystem took away mid-run.
+    const unread = [...enumerated].filter((p) => !read.has(p) && !skipped.has(p));
 
-    // Hits FIRST, so the refusal below can never swallow one.
+    // THE PER-ROOT OBSERVATION RULE, `all` MODE ONLY. The completeness rule asks whether every
+    // target was read; it cannot ask whether a root produced a target in the first place, and a
+    // root that produces none is the silently-narrowed sweep: a typo, a directory that moved, a
+    // root whose every file the read filter drops. One productive root makes the whole run look
+    // productive, so the question is asked per root and answered from `read`.
+    const starved =
+      index === null ? [] : this.cfg.scanRoots.filter((root) => !this.anyReadUnder(root, read));
+
+    // Hits FIRST, so nothing below can swallow one.
     this.reportHits(hits);
+
+    if (skipped.size > 0) {
+      process.stderr.write(
+        `[phi-scan] skipped ${String(skipped.size)} untracked target(s) the walk listed and that ` +
+          `were gone by read time:\n${[...skipped].map((p) => `  - ${p}`).join("\n")}\n` +
+          `Nothing this repository carries was left unread: git has no bytes at such a path. ` +
+          `Re-run the scan if the file was meant to stay.\n`,
+      );
+    }
+
+    if (reappeared.length > 0) {
+      process.stderr.write(
+        `[phi-scan] refusing the scan: ${String(reappeared.length)} target(s) were absent when ` +
+          `the sweep reached them and present again at the end of the run:\n` +
+          `${reappeared.map((p) => `  - ${p}`).join("\n")}\n` +
+          `A path that came back carried bytes this run never opened, so the scan has no verdict ` +
+          `about it. Re-run the scan on a tree nothing else is writing to.\n`,
+      );
+      return EXIT_REFUSE;
+    }
 
     if (unread.length > 0) {
       process.stderr.write(
@@ -1469,6 +1633,18 @@ class PhiScan {
           `A scan that did not open a file has no clean verdict to give about it. If the file is ` +
           `genuinely synthetic, declare its identifiers in ${this.relAllowList()} rather than ` +
           `withdrawing the file from the scan.\n`,
+      );
+      return EXIT_REFUSE;
+    }
+
+    if (starved.length > 0) {
+      process.stderr.write(
+        `[phi-scan] refusing the sweep: ${String(starved.length)} scan root(s) yielded no file ` +
+          `that was read:\n${starved.map((r) => `  - ${r}`).join("\n")}\n` +
+          `A root that contributes nothing leaves this sweep covering less than its own ` +
+          `configuration says, and no other tier can see that. Point the root at a directory or ` +
+          `a file this run can read, widen the read filter that drops its contents, or drop the ` +
+          `root.\n`,
       );
       return EXIT_REFUSE;
     }
