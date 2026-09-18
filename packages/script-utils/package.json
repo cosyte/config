@@ -33,6 +33,10 @@
     "./internal-refs": {
       "types": "./internal-refs.d.ts",
       "default": "./internal-refs.js"
+    },
+    "./attw": {
+      "types": "./attw.d.ts",
+      "default": "./attw.js"
     }
   },
   "files": [
@@ -42,13 +46,21 @@
     "phi-scan.d.ts",
     "internal-refs.js",
     "internal-refs.d.ts",
+    "attw.js",
+    "attw.d.ts",
     "README.md",
     "CHANGELOG.md"
   ],
+  "scripts": {
+    "test": "vitest run"
+  },
   "engines": {
     "node": ">=22.14"
   },
   "publishConfig": {
     "access": "public"
+  },
+  "devDependencies": {
+    "vitest": "4.1.4"
   }
 }
