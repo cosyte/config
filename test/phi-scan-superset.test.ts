@@ -326,15 +326,34 @@ describe("the guarantees, graded as guarantees rather than as behaviour that hap
     }
   });
 
-  it("AC-23: a refusal and a surfaced detector message name a position and never a value or a link target", () => {
+  it("AC-23: a finding, a refusal and a surfaced detector message name a position and never a value or a link target", () => {
     // EVERY SURFACE ON WHICH THIS ENGINE SYNTHESISES TEXT ABOUT CONTENT IT CANNOT VOUCH FOR:
-    // the non-regular refusal (which must never echo what is on the other side of a link), the
-    // starved-root refusal, the skipped-target line, and the one disclosed residual, a detector's
-    // own thrown message. A diagnostic ABOUT a PHI leak is itself a PHI surface
-    // (`phi-safety` P4, `observability` B1 and B2).
+    // THE FINDING ITSELF, the non-regular refusal (which must never echo what is on the other side
+    // of a link), the starved-root refusal, the skipped-target line, and the one disclosed
+    // residual, a detector's own thrown message. A diagnostic ABOUT a PHI leak is itself a PHI
+    // surface (`phi-safety` P4, `observability` B1 and B2).
     const outside = join(repo, "..", "phi-scan-superset-secret-target.txt");
     writeFileSync(outside, `ssn ${SSN}\n`, "utf8");
     try {
+      // THE FINDING SURFACE, WHICH IS THE ONE THE CRITERION NAMES FIRST AND THE ONE THE RULE
+      // ACTUALLY COSTS SOMETHING ON: it is where the engine has the matched token in hand. A
+      // refusal that never echoes a link target is easy; a hit report that names the position and
+      // stops is the clause. The token reaches no stderr line, so it reaches no CI log and no
+      // transcript of one, and that holds on BOTH branches of the cross-cutting floor.
+      write("test/fixtures/bad.txt", `ssn ${SSN} and mail ${UNDECLARED_EMAIL}\n`);
+      commitAll();
+
+      const found = run();
+      expect(found.code, found.out).toBe(1);
+      // POSITION: the path, the locator inside it, and the rule that fired.
+      expect(found.out).toContain("HIT: test/fixtures/bad.txt");
+      expect(found.out).toContain("segment=(ssn) (dashed SSN pattern)");
+      expect(found.out).toContain("segment=(email) (email with non-test domain)");
+      // ...and NOT the matched value, on either branch.
+      expect(found.out).not.toContain(SSN);
+      expect(found.out).not.toContain(UNDECLARED_EMAIL);
+      rmSync(abs("test/fixtures/bad.txt"));
+
       write("src/index.ts", "export const x = 1;\n");
       commitAll();
       symlinkSync(outside, abs("tools-link.txt"));

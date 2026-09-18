@@ -90,6 +90,19 @@
 // HAS adopted but has no `node_modules` produces a scanner that cannot start,
 // which prints no marker and lands on `inconclusive` rather than on a pass.
 //
+// WHAT COUNTS AS "THE PAYLOAD WAS DETECTED" IS A DIALECT, SO IT IS A PARAMETER.
+// The probe grounds its premise by looking for a `marker` in the scanner's
+// output, and the manifest's default marker is the payload's own identifier,
+// which a scanner that echoes what it matched will print. THE SHARED ENGINE DOES
+// NOT ECHO IT: a hit report names a position and a rule and never the token, so
+// a diagnostic about a PHI leak cannot become a second copy of it in a CI log.
+// The CONTROLS run the shared engine, so they carry their own marker
+// (`ENGINE_FINDING_MARKER`, below) taken from that report. A TARGET REPO'S
+// MARKER IS UNCHANGED AND STAYS THE MANIFEST'S: a repo that has not adopted the
+// engine carries its own scanner and its own output dialect, and one that adopts
+// it owes this file a marker its installed engine actually prints, or it is
+// graded `inconclusive` rather than passed.
+//
 // `gradeProbeControls` IS DELIBERATELY GENERIC, and nothing in it mentions PHI.
 // `phi-scan` is the first of several scripts every parser repo carries in a
 // byte-distinct copy, and the next consolidation needs the same shape: run the
@@ -474,13 +487,36 @@ const COMPLETENESS_LINE =
   "const unread = [...enumerated].filter((p) => !read.has(p) && !skipped.has(p));";
 
 /**
+ * What the shared engine prints when the cross-cutting floor finds a dashed identifier, and the
+ * marker the CONTROLS ground their premise on.
+ *
+ * IT IS THE FINDING LINE, NOT THE PAYLOAD. The engine's hit report carries the locus, the locator
+ * and the rule that fired, and never the matched token, so a control that looked for the payload
+ * would ask the engine for the one thing it refuses to print and would answer `inconclusive` over a
+ * scanner that is working perfectly. This string can only be written by a hit report: a refusal
+ * before any read prints nothing like it, which is the property the premise needs.
+ *
+ * IT IS SCOPED TO THE CONTROLS on purpose. A target repo is graded through `checkRepoPhiScan`,
+ * which plants that repo's own installed engine and uses the manifest's marker unchanged, so
+ * nothing here changes how any other repo is graded. When a repo adopts an engine carrying this
+ * report, its manifest entry owes a marker that engine prints.
+ *
+ * IF THE ENGINE REWORDS EITHER TOKEN, THE CONTROLS GO `inconclusive` AND THE RUN REFUSES TO GRADE
+ * ANYTHING. That is the same loud failure `COMPLETENESS_LINE` has, and it is why both live here
+ * rather than being spelled inline.
+ */
+export const ENGINE_FINDING_MARKER = "segment=(ssn) (dashed SSN pattern)";
+
+/**
  * The phi-scan probe's two controls: the shipped template scanner over the shipped engine must come
  * back `ok`, and the same scanner over an engine with the completeness rule DELETED must come back
  * `drift`. The deletion is asserted to have landed, so the control cannot go vacuous if the engine
  * is reworded.
  */
 export function phiScanProbeControls() {
-  const spec = phiScanProbeSpec("__control__");
+  // The manifest's parameters, with the premise marker replaced by the one the SHARED ENGINE
+  // prints: these two runs are the only ones in this file that grade `config`'s own engine.
+  const spec = { ...phiScanProbeSpec("__control__"), marker: ENGINE_FINDING_MARKER };
   const allowList = readFileSync(TEMPLATE_ALLOW_LIST, "utf8");
   const scannerSource = templateScannerSource();
   const engine = sharedPhiScanSource();

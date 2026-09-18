@@ -23,8 +23,18 @@ than described. A tracked file, a non-`ENOENT` failure, a path named on argv, an
 BACK before the run ended all still refuse, and the re-check happens at the END of the run, which is
 the widest window the run can offer.
 
+**A finding names a position and stops there.** A hit report prints the locus, the locator inside it
+and the rule that fired, and no longer the token that matched: `segment=(ssn) (dashed SSN pattern)`
+where it used to carry the identifier as well. stderr is a CI log, and a diagnostic ABOUT a PHI leak
+that quotes the leak is a second copy of it somewhere with no retention policy. The value a detector
+passes to `ctx.hit` is accepted and DROPPED at the boundary rather than stored, so `Hit.value` is
+now optional and a hit the engine reports never carries one; a detector's own source needs no
+change. A consumer whose gate tests assert that the matched identifier reaches stderr asserts on the
+locator and the rule instead, which is also the stronger observable: it can only be written by a
+report of a finding, where an echoed payload can be written by a scanner that never graded it.
+
 Neither the exports, the configuration surface, nor the detection rules change: both subpaths export
 exactly what `0.0.2` exports, and the cross-cutting floor detects the same two shapes it always did.
-What changes is what the engine refuses to call clean. It lands in the same release as the
-settled-surface line move, whose own entry records that that change touched no engine code; this
-entry is the one that did.
+What changes is what the engine refuses to call clean, and what a report of a finding says. It lands
+in the same release as the settled-surface line move, whose own entry records that that change
+touched no engine code; this entry is the one that did.

@@ -30,6 +30,13 @@ import { exemptsMarkdown, runPhiScan } from "@cosyte/script-utils/phi-scan";
 /** A synthetic dashed identifier the floor detects, and its undashed rendering. */
 const SSN = "123-45-6789";
 const SSN_DIGITS = "123456789";
+/**
+ * What a report of that identifier LOOKS LIKE: a locator and the rule that fired, never the token.
+ * A finding carries a position and nothing else (`phi-safety` P4), so this is the observable for
+ * "the scanner reported it" and the payload is not one. An assertion that looked for the payload
+ * would pass over a scanner that echoes bytes it never graded, and fail over one working correctly.
+ */
+const SSN_FINDING = "segment=(ssn) (dashed SSN pattern)";
 
 const CODES = { clean: 0, hits: 1, refuse: 2 } as const;
 
@@ -268,14 +275,14 @@ describe("a per-standard detector is handed the locus, and cannot take down the 
       },
     });
     expect(r.code).toBe(2);
-    expect(r.out).toContain(SSN); // the hit survived the fatal
+    expect(r.out).toContain(SSN_FINDING); // the hit survived the fatal
     expect(r.out).toContain("test/fixtures/a-hit.txt");
     expect(r.out).toContain("field detector threw");
     expect(r.out).not.toContain("OK: no hits");
 
     // ANTI-VACUITY: the ordering is what is being measured, so the hit has to come first in the
     // stream rather than merely be present somewhere in it.
-    expect(r.out.indexOf(SSN)).toBeLessThan(r.out.indexOf("field detector threw"));
+    expect(r.out.indexOf(SSN_FINDING)).toBeLessThan(r.out.indexOf("field detector threw"));
   });
 });
 
@@ -416,7 +423,7 @@ describe("whole-repository scan roots, which is what a fresh scaffold needs", ()
     commitAll();
     const r = run();
     expect(r.code, r.out).toBe(0);
-    expect(r.out).not.toContain(SSN);
+    expect(r.out).not.toContain(SSN_FINDING);
   });
 
   it("PRUNES ONLY WHAT THE FILE FILTER WOULD HAVE DROPPED: a TRACKED file under an ignored dir is still read", () => {
@@ -443,7 +450,7 @@ describe("whole-repository scan roots, which is what a fresh scaffold needs", ()
     expect(git(["check-ignore", "--", "node_modules"]).code).toBe(0);
     const pruned = run();
     expect(pruned.code, pruned.out).toBe(0);
-    expect(pruned.out).not.toContain(SSN);
+    expect(pruned.out).not.toContain(SSN_FINDING);
   });
 
   it("SKIPS `.git` by name, which git does not report as ignored", () => {
@@ -458,7 +465,7 @@ describe("whole-repository scan roots, which is what a fresh scaffold needs", ()
     writeFileSync(join(repo, ".git", "leak.txt"), `ssn ${SSN}\n`, "utf8");
     const r = run();
     expect(r.code, r.out).toBe(0);
-    expect(r.out).not.toContain(SSN);
+    expect(r.out).not.toContain(SSN_FINDING);
   });
 
   it("still refuses a non-regular entry anywhere in the repository, not just under a corpus dir", () => {

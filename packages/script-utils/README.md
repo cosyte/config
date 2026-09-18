@@ -130,9 +130,11 @@ files which may contain patient data. What it does with them, stated narrowly:
 
 - It reads your repository's own files, in your own process, to look for PHI-shaped content. It sends
   nothing anywhere and opens no network connection.
-- It **does not log, echo or persist a matched value**. A finding names a path, a line and the rule
-  that fired; the matched bytes are not written into the report, because a gate that prints the
-  secret it found has published it into a CI log.
+- It **does not log, echo or persist a matched value**. A finding names a path, a locator inside it
+  (`(ssn)`, `(email)`, or the field id your own detector raised it against) and the rule that fired;
+  the matched bytes are not written into the report, because a gate that prints the secret it found
+  has published it into a CI log. A `value` your detector passes to `ctx.hit` is dropped at the
+  boundary rather than stored, so nothing downstream can print what no record carries.
 - The allow-list and the override log record DECLARATIONS about paths, never content.
 - Detection is a floor, not a proof: this package owns a dashed SSN shape and an email at an
   undeclared domain, and everything field-level is yours to supply through `detect`. A clean run

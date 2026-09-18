@@ -7,15 +7,28 @@
  * The caller owns the five per-repo axes below and the per-standard field detectors.
  */
 
-/** A reported PHI finding. `path` is the LOCUS the engine chose, never a path the caller invents. */
+/**
+ * A reported PHI finding: a POSITION and a RULE, never the token that matched. `path` is the LOCUS
+ * the engine chose, never a path the caller invents.
+ *
+ * 🛑 THE MATCHED VALUE IS NOT PART OF A FINDING. The report goes to stderr, stderr is a CI log, and
+ * a diagnostic about a PHI leak that quotes the leak is a second copy of it somewhere worse
+ * (`phi-safety` P4). A detector may pass `value`; the engine drops it at the boundary rather than
+ * storing it, so no reporting path downstream can print what no record carries.
+ */
 export interface Hit {
   /** The reported locus: the target's repo-relative path, plus an origin label when it has one. */
   path: string;
   /** A locator inside the target: `(ssn)`, `(email)`, or a field id from a per-standard detector. */
   segment: string;
-  /** The offending value, as found. */
-  value: string;
-  /** Why it was raised, in a few words. */
+  /**
+   * The offending value, as a detector found it. ACCEPTED AND DISCARDED: the engine neither stores
+   * nor prints it, and a hit the engine reports never carries one. It stays in the surface so a
+   * detector that has the token in hand can keep saying so at its own call site without the engine
+   * becoming the place that publishes it.
+   */
+  value?: string;
+  /** Why it was raised, in a few words. This is what the report prints beside the locator. */
   reason: string;
 }
 

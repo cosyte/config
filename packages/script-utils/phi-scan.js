@@ -1257,6 +1257,11 @@ class PhiScan {
    * The declared form is matched BOTH as written and with its separators removed, so one `ID` entry
    * covers both renderings rather than requiring a repo to guess which one a fixture uses.
    *
+   * THE MATCHED TOKEN IS A LOCAL, AND IT STAYS ONE. It decides whether the allow-list already
+   * declares this identifier and is then dropped: the hit that leaves this function carries a
+   * position and a rule, so there is no record for a later reporting path to print. See
+   * `reportHits` for why that is structural rather than a call-site decision.
+   *
    * @param {string} path The reported LOCUS.
    * @param {string} content
    * @param {import("./phi-scan.js").AllowList} allow
@@ -1267,12 +1272,12 @@ class PhiScan {
       const value = m[0];
       if (allow.ids.has(value.toUpperCase())) continue;
       if (allow.ids.has(value.replace(/\D/g, ""))) continue;
-      hits.push({ path, segment: "(ssn)", value, reason: "dashed SSN pattern" });
+      hits.push({ path, segment: "(ssn)", reason: "dashed SSN pattern" });
     }
     for (const m of content.matchAll(/\b[A-Za-z0-9._%+-]+@([A-Za-z0-9.-]+\.[A-Za-z]{2,})\b/g)) {
       const domain = (m[1] ?? "").toLowerCase();
       if (!allow.emailDomains.has(domain)) {
-        hits.push({ path, segment: "(email)", value: m[0], reason: "email with non-test domain" });
+        hits.push({ path, segment: "(email)", reason: "email with non-test domain" });
       }
     }
   }
@@ -1330,7 +1335,12 @@ class PhiScan {
           bytes: buf,
           allow,
           hit: (h) => {
-            hits.push({ path: locus, segment: h.segment, value: h.value, reason: h.reason });
+            // THE LOCUS AND THE RULE ARE TAKEN; ANY `value` A DETECTOR PASSES IS DROPPED HERE. A
+            // per-standard detector holds the record it parsed, so it is the caller most likely to
+            // hand over a token that is real PHI, and the engine is the side that can refuse to
+            // carry it. Dropping it at the boundary is what makes "no matched value reaches a
+            // report" a property of this engine rather than of every detector's discipline.
+            hits.push({ path: locus, segment: h.segment, reason: h.reason });
           },
         });
       } catch (err) {
@@ -1354,6 +1364,19 @@ class PhiScan {
    * FIRST, so a run that is both incomplete and carrying hits prints both. The clean line is printed
    * only once every tier has passed, so it can never appear beside a refusal.
    *
+   * IT NAMES A POSITION AND STOPS THERE: the repo-relative locus, the locator inside it, and the
+   * rule that fired. THE MATCHED TOKEN IS NEVER PRINTED. This is the one surface that would have
+   * the token in hand, which is exactly why the rule is stated on it: stderr is a CI log, a CI log
+   * is a transcript nobody retains deliberately, and a diagnostic ABOUT a PHI leak that quotes the
+   * leak is a second copy of it in a worse place (`phi-safety` P4, `observability` B1). Nothing is
+   * redacted here either, because the value never reaches this function: a seam a call site has to
+   * remember is a seam the next call site forgets.
+   *
+   * WHAT A DEVELOPER DOES WITH A HIT THEY CANNOT READ THE VALUE OF, since an error owes an action
+   * (`observability` B2): open the named path, find the shape the named rule describes, and either
+   * remove it or declare it in the allow-list the footer names if it is genuinely synthetic. The
+   * position is what locates the token; the token itself was never the remedy.
+   *
    * THE FOOTER IS SCOPED TO WHAT THIS ENGINE KNOWS. It does not claim the allow-list reaches a clean
    * run for every hit, because a per-repo detector supplied through `detect` may raise one without
    * consulting the allow-list at all, and a sibling shipped exactly that claim and had it refuted.
@@ -1375,9 +1398,7 @@ class PhiScan {
     for (const [path, group] of byPath) {
       process.stderr.write(`[phi-scan] HIT: ${path}\n`);
       for (const h of group) {
-        process.stderr.write(
-          `  segment=${h.segment} value=${JSON.stringify(h.value)} (${h.reason})\n`,
-        );
+        process.stderr.write(`  segment=${h.segment} (${h.reason})\n`);
       }
     }
     process.stderr.write(
