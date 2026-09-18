@@ -18,6 +18,13 @@
 // SCOPE AT THIS SHA, stated rather than implied: exactly one entry is populated, so every row below
 // is a contradiction between hl7's variant and a source that variant itself records. There is no
 // variant-against-variant row yet, and there will not be until a second entry is populated.
+//
+// WHICH ROWS THE GRADER CAN DERIVE, and why none of these carry `exposedBy`. `deriveContradictions`
+// reads the populated entries and reports every text one rule set flags that another records as
+// reference material. The upstream list the rows below argue with is NOT a corpus entry - nobody
+// transcribed it, and nobody may - so no derivation can produce these five, and they are recorded
+// by hand with their evidence. The moment a second entry lands, a contradiction between two entries
+// IS derivable, and the grader refuses until a row names it: see `exposedBy`.
 
 /**
  * One recorded contradiction.
@@ -30,6 +37,18 @@
  * @property {"configuration-axis" | "canonical"} resolution Which of the two honest resolutions.
  * @property {string} decidedAs The axis name, or the canonical behaviour, the resolution produced.
  * @property {string} why The reasoning, including whose evidence it rests on.
+ * @property {ExposedPair[]} [exposedBy] The derived pairs this row accounts for, when the
+ *   contradiction is one the corpus entries expose. Absent on a row arguing with a source outside
+ *   the corpus, which no derivation over the corpus can produce.
+ */
+
+/**
+ * One derived pair a row accounts for, written the way the grader's refusal prints it.
+ *
+ * @typedef {object} ExposedPair
+ * @property {string} flaggedBy `repo/ruleSetId/ruleName` of the rule set that flags the text.
+ * @property {string} letThroughBy `repo/ruleSetId/ruleName` of the rule set that protects it.
+ * @property {string} text The sample the two disagree about.
  */
 
 /** @type {Conflict[]} */

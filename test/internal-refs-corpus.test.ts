@@ -8,8 +8,11 @@ import { CONFIG_AXES } from "@cosyte/script-utils/internal-refs";
 import {
   CONFLICTS,
   REPOS,
+  deriveContradictions,
   loadCorpus,
+  planSuperset,
   samplesOf,
+  unregisteredContradictions,
   validateEntry,
 } from "../conformance/internal-refs/index.js";
 
@@ -316,6 +319,183 @@ describe("the conflict register", () => {
         expect(POPULATED, `${conflict.id} cites ${repo}, which is not populated`).toContain(repo);
       }
     }
+  });
+
+  it("names both rule sets and the text on every pair it claims to account for", () => {
+    // [AC-3]: a row accounts for a derived pair by NAMING it. A row carrying a half-written
+    // `exposedBy` would match no derived contradiction and quietly account for nothing.
+    for (const conflict of CONFLICTS) {
+      for (const pair of conflict.exposedBy ?? []) {
+        for (const field of ["flaggedBy", "letThroughBy", "text"] as const) {
+          expect(typeof pair[field], `${conflict.id}.exposedBy.${field}`).toBe("string");
+          expect(pair[field].trim(), `${conflict.id}.exposedBy.${field}`).not.toBe("");
+        }
+        expect(pair.flaggedBy, `${conflict.id} names one side twice`).not.toBe(pair.letThroughBy);
+      }
+    }
+  });
+});
+
+describe("the contradictions the populated entries expose", () => {
+  /**
+   * [AC-3], last sentence: "The grader derives the contradictions from the populated entries and
+   * fails on one absent from the register."
+   *
+   * WHY THE DERIVATION AND NOT A READING. Every other assertion about the register grades the
+   * register against itself: the rows are well shaped, they resolve onto axes that exist, they cite
+   * populated repositories. None of that can tell whether a row is MISSING, and a missing row is
+   * the failure the register exists to prevent - a contradiction resolved by quietly dropping a
+   * sample leaves a corpus that reads exactly like one with nothing to resolve.
+   */
+
+  /** A populated entry whose rule flags a text hl7's entry records as reference material. */
+  const CONTRADICTING_ENTRY = {
+    repo: "mllp",
+    state: "populated",
+    sha: "0".repeat(40),
+    sourcePath: "scripts/check-no-internal-refs.sh",
+    canonicalConfig: {
+      projectPrefixes: ["MLLP"],
+      standardsDesignations: [],
+      surfacePaths: ["README.md"],
+      accountedTarballFiles: [],
+    },
+    ruleSets: [
+      {
+        id: "surface",
+        surface: "public",
+        appliesTo: "README.md",
+        rules: [
+          {
+            name: "segment-shape identifier",
+            pattern: String.raw`\b[A-Z]{2,4}-\d+\b`,
+            // hl7's `internal project identifier` rule records this very string, inside a longer
+            // line, as material it must NEVER flag. This rule set flags it.
+            positive: "MSH-2 encoding characters",
+            negative: "nothing here resembles an identifier",
+          },
+        ],
+      },
+    ],
+  };
+
+  /** The real corpus with that entry in mllp's slot, the way the malformed cases above inject. */
+  const INJECTED = CORPUS.map((record) =>
+    record.repo === "mllp"
+      ? { repo: "mllp", state: "populated", entry: CONTRADICTING_ENTRY, loadError: null }
+      : record,
+  );
+
+  it("holds none this register does not record", () => {
+    // [AC-3]. The live claim: every contradiction the corpus exposes today is written down.
+    const missing = unregisteredContradictions(CORPUS).map(
+      (found) =>
+        `${found.flaggedBy} flags ${JSON.stringify(found.text)}, which ${found.letThroughBy} ` +
+        "records as reference material",
+    );
+    expect(missing, `\n${missing.join("\n")}\n`).toEqual([]);
+  });
+
+  it("is derived from the entries alone, naming both rule sets and the rule", () => {
+    // [AC-3]. The derivation runs over entry DATA: no rule set is enumerated by hand, so an entry
+    // a later sweep writes is graded the day it lands rather than the day someone remembers it.
+    const derived = deriveContradictions(INJECTED);
+    expect(derived.length).toBeGreaterThan(0);
+    const first = derived.find((found) => found.letThroughBy.startsWith("hl7/surface/"));
+    expect(first?.flaggedBy).toBe("mllp/surface/segment-shape identifier");
+    expect(first?.letThroughBy).toBe("hl7/surface/internal project identifier");
+    expect(first?.rule).toBe("segment-shape identifier");
+    expect(first?.text).toBe("MSH-2 encoding characters");
+    expect(first?.repos.sort()).toEqual(["hl7", "mllp"]);
+
+    // hl7 keeps two rule sets that are allowed to diverge, and both protect this text, so both
+    // sides of the disagreement are reported rather than only the first one found.
+    expect(derived.map((found) => found.letThroughBy)).toContain(
+      "hl7/src-doc-comments/internal project identifier",
+    );
+  });
+
+  it("fails the corpus when one is absent from the register, naming the pair and the text", () => {
+    // [AC-3]. This is the case the register's completeness rests on: the grader must REFUSE, not
+    // report a superset over a corpus that disagrees with itself about the same bytes.
+    const missing = unregisteredContradictions(INJECTED);
+    expect(missing.length).toBeGreaterThan(0);
+
+    const report = planSuperset(INJECTED).refusals.join("\n");
+    expect(report).toContain("MSH-2 encoding characters");
+    expect(report).toContain("mllp/surface/segment-shape identifier");
+    expect(report).toContain("hl7/surface/internal project identifier");
+    expect(report).toContain("conflicts.js");
+  });
+
+  it("stops failing once a register row records that exact pair, and not before", () => {
+    // [AC-3]. A refusal nothing can satisfy is as useless as one nothing can trigger: the register
+    // has to be the way out. The row has to name THIS pair, though - a row recording a different
+    // one, or naming only the text, accounts for nothing.
+    const derived = deriveContradictions(INJECTED);
+    const recorded = [
+      ...CONFLICTS,
+      {
+        id: "segment-shape-against-hl7-reference-material",
+        rule: "internal project identifier",
+        repos: ["hl7", "mllp"],
+        between: [],
+        resolution: "configuration-axis",
+        decidedAs: "projectPrefixes",
+        why: "recorded by this test",
+        exposedBy: derived.map((found) => ({
+          flaggedBy: found.flaggedBy,
+          letThroughBy: found.letThroughBy,
+          text: found.text,
+        })),
+      },
+    ];
+    expect(unregisteredContradictions(INJECTED, recorded)).toEqual([]);
+    expect(planSuperset(INJECTED, recorded).refusals).toEqual([]);
+
+    const wrongPair = recorded.map((row) =>
+      row.id === "segment-shape-against-hl7-reference-material"
+        ? {
+            ...row,
+            exposedBy: row.exposedBy?.map((pair) => ({
+              ...pair,
+              letThroughBy: "hl7/surface/ADR reference",
+            })),
+          }
+        : row,
+    );
+    expect(unregisteredContradictions(INJECTED, wrongPair).length).toBe(derived.length);
+  });
+
+  it("is not silenced by dropping the sample the two sides disagree about", () => {
+    // [AC-3]: "SHALL NOT resolve it by dropping either sample." Deleting the flagging side's
+    // positive sample deletes the case that proves the shared gate carries that rule at all, so
+    // the corpus grader reds on the entry instead. The evasion has no green to reach.
+    const dropped = INJECTED.map((record) =>
+      record.repo === "mllp"
+        ? {
+            ...record,
+            entry: {
+              ...CONTRADICTING_ENTRY,
+              ruleSets: [
+                {
+                  ...CONTRADICTING_ENTRY.ruleSets[0],
+                  rules: [
+                    {
+                      ...CONTRADICTING_ENTRY.ruleSets[0].rules[0],
+                      positive: undefined,
+                    },
+                  ],
+                },
+              ],
+            },
+          }
+        : record,
+    );
+    const report = planSuperset(dropped).refusals.join("\n");
+    expect(report).toContain("mllp:");
+    expect(report).toContain("positive");
+    expect(report).toContain("is missing");
   });
 });
 

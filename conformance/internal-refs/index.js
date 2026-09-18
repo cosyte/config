@@ -182,6 +182,138 @@ export function samplesOf(rule, direction) {
 }
 
 /**
+ * One contradiction between two rule sets, derived from the corpus entries alone.
+ *
+ * @typedef {object} Contradiction
+ * @property {string} text The sample one rule set flags and another records as reference material.
+ * @property {string} flaggedBy `repo/ruleSetId/ruleName` of the rule holding it as a POSITIVE.
+ * @property {string} letThroughBy `repo/ruleSetId/ruleName` of the rule whose NEGATIVE holds it.
+ * @property {string} rule The rule the flagging side calls it.
+ * @property {string} letThroughRule The rule the other side calls it.
+ * @property {string[]} repos The repositories the two sides come from.
+ */
+
+/** `repo/ruleSetId/ruleName`: the one label that names a rule set AND the rule inside it. */
+function owner(repo, set, rule) {
+  return `${repo}/${set.id}/${rule.name}`;
+}
+
+/**
+ * Derive every contradiction the populated entries expose, FROM THE ENTRIES THEMSELVES.
+ *
+ * A NEGATIVE SAMPLE IS A PROMISE ABOUT A WHOLE TEXT: this line must come back clean. So when one
+ * rule set's POSITIVE sample occurs inside another rule set's NEGATIVE sample, the two disagree
+ * about the same bytes - running the first rule over the second's reference material flags it. That
+ * is the contradiction the register exists to record, and deriving it here is what stops the
+ * register from being a claim nothing can falsify: a corpus with a contradiction nobody wrote down
+ * looks exactly like a corpus with none.
+ *
+ * CONTAINMENT, NOT EQUALITY, and only in that direction. A positive that is a SUPERSTRING of some
+ * negative is not a contradiction: the flagging side may be flagging the part the other side never
+ * spoke about. A positive INSIDE a negative is, because the other side spoke about all of it.
+ *
+ * Rules are compared across rule sets and across repositories, including two rule sets of one
+ * entry: hl7 keeps a public-surface set and a source doc-comment set that are allowed to diverge,
+ * and a divergence where one flags what the other protects is the same defect as one between two
+ * repositories.
+ *
+ * An entry that does not validate contributes nothing here; `planSuperset` already refuses on it,
+ * and deriving over a half-read entry would report a contradiction against material nobody can
+ * attribute.
+ *
+ * @param {{ repo: string, state: string, entry: object | null, loadError: string | null }[]} records
+ *   The loaded corpus.
+ * @returns {Contradiction[]} Every contradicting pair, in corpus order.
+ */
+export function deriveContradictions(records) {
+  const rules = [];
+  for (const record of records) {
+    const entry = record.entry;
+    if (!isPlainObject(entry) || entry.state !== "populated") continue;
+    if (validateEntry(record.repo, entry, record.loadError).length > 0) continue;
+    for (const set of entry.ruleSets) {
+      for (const rule of set.rules) {
+        rules.push({
+          repo: record.repo,
+          owner: owner(record.repo, set, rule),
+          rule: rule.name,
+          positives: samplesOf(rule, "positive"),
+          negatives: samplesOf(rule, "negative"),
+        });
+      }
+    }
+  }
+
+  const found = [];
+  for (const flags of rules) {
+    for (const letsThrough of rules) {
+      if (flags.owner === letsThrough.owner) continue;
+      for (const text of flags.positives) {
+        for (const negative of letsThrough.negatives) {
+          if (!negative.includes(text)) continue;
+          found.push({
+            text,
+            flaggedBy: flags.owner,
+            letThroughBy: letsThrough.owner,
+            rule: flags.rule,
+            letThroughRule: letsThrough.rule,
+            repos: [...new Set([flags.repo, letsThrough.repo])],
+          });
+        }
+      }
+    }
+  }
+  return found;
+}
+
+/**
+ * Does this register row record this contradiction?
+ *
+ * THE MATCH IS EXACT AND STRUCTURED, never prose. A row whose paragraphs happen to quote the text
+ * would silently absorb the next contradiction that shares a word, which is the failure mode of a
+ * register graded by reading. A row accounts for a derived pair by naming it: which rule set flags
+ * it, which rule set protects it, and the text itself.
+ */
+function covers(row, contradiction) {
+  const exposed = Array.isArray(row?.exposedBy) ? row.exposedBy : [];
+  return exposed.some(
+    (side) =>
+      isPlainObject(side) &&
+      side.text === contradiction.text &&
+      side.flaggedBy === contradiction.flaggedBy &&
+      side.letThroughBy === contradiction.letThroughBy,
+  );
+}
+
+/**
+ * The derived contradictions no register row records. Empty is the only passing answer.
+ *
+ * @param {{ repo: string, state: string, entry: object | null, loadError: string | null }[]} records
+ *   The loaded corpus.
+ * @param {object[]} [conflicts] The register to grade against. Defaults to the shipped one.
+ * @returns {Contradiction[]} The unrecorded pairs.
+ */
+export function unregisteredContradictions(records, conflicts = CONFLICTS) {
+  return deriveContradictions(records).filter(
+    (contradiction) => !conflicts.some((row) => covers(row, contradiction)),
+  );
+}
+
+/** What a refusal has to say for the reader to be able to resolve it without rediscovering it. */
+function contradictionRefusal(contradiction) {
+  return (
+    "the populated entries contradict each other and the conflict register does not record it: " +
+    `${contradiction.flaggedBy} FLAGS ${JSON.stringify(contradiction.text)}, and ` +
+    `${contradiction.letThroughBy} records that same text as reference material it must never ` +
+    "flag. Resolve it through a per-repository configuration value and record the pair in " +
+    "`conflicts.js` - both rule sets, the rule, and what it was decided as - carrying " +
+    `\`exposedBy: [{ flaggedBy: ${JSON.stringify(contradiction.flaggedBy)}, letThroughBy: ` +
+    `${JSON.stringify(contradiction.letThroughBy)}, text: ${JSON.stringify(contradiction.text)} }]\`. ` +
+    "Dropping either sample is not a resolution: it deletes the evidence the disagreement existed."
+  );
+}
+
+/**
  * Turn a loaded corpus into the superset grader's worklist, or into the reasons it cannot run.
  *
  * THE REFUSAL IS THE POINT. A grader handed an entry it cannot read has two options, and only one
@@ -193,12 +325,18 @@ export function samplesOf(rule, direction) {
  * A PENDING ENTRY IS REPORTED AS PENDING AND CONTRIBUTES NO CASE. It never counts toward a pass:
  * nobody has read that repository's variant, so there is nothing to be a superset of yet.
  *
+ * AN UNRECORDED CONTRADICTION IS A REFUSAL TOO. Two rule sets that disagree about the same bytes
+ * make the superset claim self-contradictory - it would assert both that the text is flagged and
+ * that it is not - and the resolution belongs in the register, where a reader can see which side
+ * was given up and on what axis.
+ *
  * @param {{ repo: string, state: string, entry: object | null, loadError: string | null }[]} records
  *   The loaded corpus.
+ * @param {object[]} [conflicts] The register to grade against. Defaults to the shipped one.
  * @returns {{ cases: object[], pending: { repo: string, reason: string }[], refusals: string[] }}
  *   One case per repository per rule per direction, the pending report, and the refusals.
  */
-export function planSuperset(records) {
+export function planSuperset(records, conflicts = CONFLICTS) {
   const cases = [];
   const pending = [];
   const refusals = [];
@@ -239,6 +377,10 @@ export function planSuperset(records) {
         }
       }
     }
+  }
+
+  for (const contradiction of unregisteredContradictions(records, conflicts)) {
+    refusals.push(contradictionRefusal(contradiction));
   }
 
   if (refusals.length === 0 && cases.length === 0) {

@@ -152,6 +152,13 @@ describe("every rule of every populated variant, in both directions", () => {
         `${entry.repo} (${entry.sha}) flags this and the shared implementation did not:\n` +
           `${entry.sample}\n${result.all}`,
       ).not.toBe(0);
+      // A HIT, NOT A REFUSAL. The self-test floor writes the canonical rule name into its own
+      // refusal, so "non-zero, and the report names the rule" is satisfied by a run that could not
+      // flag the sample at all. The hit report is the line that separates the two.
+      expect(
+        result.err,
+        `no hit was reported, so this may be a refusal rather than a flag:\n${result.all}`,
+      ).toContain("internal project bookkeeping found on a public surface");
       const canonical = entry.canonicalId === null ? null : CANONICAL_NAMES.get(entry.canonicalId);
       if (canonical !== null && canonical !== undefined) {
         expect(

@@ -39,6 +39,9 @@ adopting, because no implementer may read another repository's source.
    paths, the tarball accounting, and whether the source doc-comment pass runs.
 4. Add every contradiction against an already-populated entry to `conflicts.js`, with both rule
    sets, the rule, and whether it was decided as a configuration axis or as canonical behaviour.
+   You do not have to find them by reading: the graders derive them from the entries and refuse
+   until a row records each one, printing the `exposedBy` line to paste. Resolving one by deleting
+   a sample is not a resolution, and it is the route this derivation exists to close.
 5. Run the corpus and superset suites. They grade the entry you just wrote.
 
 `entries/hl7.js` is the worked example.
