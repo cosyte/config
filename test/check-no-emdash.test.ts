@@ -372,7 +372,9 @@ describe("[Contract: THE SURFACE] the exit vocabulary is closed at two codes", (
       const enumerates = mode.args.length === 0 || mode.args[0] === "--list-scanned";
       expect(run.code, `${mode.name} answered with ${run.code}`).toBe(enumerates ? 1 : 0);
       if (enumerates) {
-        expect(run.stderr, mode.name).toContain("ERROR: check-no-emdash");
+        // The refusal has to say what failed, not merely decline to be 128: a status reduced
+        // without a diagnostic leaves a reader hunting a cause nobody named.
+        expect(run.stderr, mode.name).toContain("this is not a git work tree");
         expect(run.stdout.length, mode.name).toBe(0);
       }
     }
@@ -388,7 +390,8 @@ describe("[Contract: THE SURFACE] the exit vocabulary is closed at two codes", (
     for (const mode of EVERY_MODE) {
       const run = runGate(repo, mode.args, GATE, mode.input);
       expect(run.code, `${mode.name} answered with ${run.code}`).toBe(1);
-      expect(run.stderr, mode.name).toContain("ERROR: check-no-emdash");
+      // Naming the call that failed is the half a reduced status cannot supply on its own.
+      expect(run.stderr, mode.name).toContain("git ls-files -s -z failed");
       expect(run.stdout.length, mode.name).toBe(0);
     }
   });
