@@ -130,8 +130,15 @@ function commitAll(): void {
 // ===========================================================================================
 
 describe("the guarantees, graded as guarantees rather than as behaviour that happens to hold", () => {
-  it("AC-4: no setting a caller can reach produces a clean verdict over a corpus nothing was read from", () => {
+  it("AC-4: no setting a caller can reach produces a clean verdict over an `all` SWEEP that read nothing", () => {
     // THE SUBTRACTIVE END OF THE OPTION SURFACE, which is the end AC-17 and AC-18 do not reach.
+    // THE HEADLINE NAMES THE MODE BECAUSE THE MODE IS THE BOUND. What is measured here is the
+    // `all` sweep, where the per-root observation rule holds a run that enumerated a corpus and
+    // read none of it. `--staged` has no counterpart: `isStagedReadable` IS the read half of that
+    // mode's scope, a hook decision each repo takes for itself, and a staged run whose predicate
+    // admits nothing enumerated nothing rather than skipping something. Neither the floor nor the
+    // completeness rule is subtractable in either mode, which is what the criterion asks; a
+    // headline claiming every mode would be claiming more than this case drives.
     // `isWalkReadable` is a READ filter, so one that admits nothing leaves both sweeping routes
     // with no target at all: the walk reads nothing and the union's candidate set is filtered by
     // the same predicate. MEASURED BEFORE THE PER-ROOT OBSERVATION RULE EXISTED: this exact
