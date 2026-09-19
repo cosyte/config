@@ -40,11 +40,11 @@ that is not the kind it was declared refuses. We do not take it.
 All three kinds now have one settled outcome each, and the engine's own suite carries a case per
 kind:
 
-| kind | outcome |
-|---|---|
-| a regular file | scanned as ONE target, through the same read filter every other file goes through. A root the filter drops yields nothing, so the per-root rule refuses. |
-| a directory that cannot be enumerated | REFUSED at the caller's `refuse` code, naming the path and the errno. It used to escape `readdirSync` uncaught and take node's own exit 1, the code the contract reserves for HITS FOUND. |
-| a symbolic link | REFUSED rather than followed, named with its kind. A root is the one place a link could have been followed by construction, because the walk starts there instead of meeting it as a directory entry. |
+| kind                                  | outcome                                                                                                                                                                                               |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| a regular file                        | scanned as ONE target, through the same read filter every other file goes through. A root the filter drops yields nothing, so the per-root rule refuses.                                              |
+| a directory that cannot be enumerated | REFUSED at the caller's `refuse` code, naming the path and the errno. It used to escape `readdirSync` uncaught and take node's own exit 1, the code the contract reserves for HITS FOUND.             |
+| a symbolic link                       | REFUSED rather than followed, named with its kind. A root is the one place a link could have been followed by construction, because the walk starts there instead of meeting it as a directory entry. |
 
 Above those, the per-root observation rule stands: an `all`-mode sweep refuses unless EVERY scan root
 yielded at least one file that was actually READ, and the refusal names every starved root. That is
@@ -69,7 +69,7 @@ sweeping routes, so the Markdown exemption and `excludedPaths` mean one thing ra
 - A skipped target now qualifies the CLEAN LINE on stdout, not only the report on stderr. A reader
   watching stdout could otherwise take an unqualified OK from a sweep that skipped a file.
 - A hit in the bytes git carries is labelled `(git index)` or `(git index; the working tree
-  differs)`, and a footer counts how many of the reported hits are in those bytes. One label hid
+differs)`, and a footer counts how many of the reported hits are in those bytes. One label hid
   that re-staging is part of the remedy for the second kind.
 - An index-route refusal prints the hits the walk already found BEFORE refusing. Refusing at
   enumeration time discarded them, so a consumer saw a refusal with no indication that PHI had

@@ -58,6 +58,10 @@ export interface Target {
   /**
    * Where these bytes came from, when it is not simply the file at `path`. Set only by the index
    * union, and it decorates the REPORTED LOCUS ONLY.
+   *
+   * TWO VALUES, BECAUSE THE REMEDY DIFFERS. `git index` is a path whose working-tree copy this run
+   * did not read at all; `git index; the working tree differs` is one whose disk copy WAS read and
+   * carries other bytes, so the file a developer opens is clean and re-staging is part of the fix.
    */
   origin?: string;
 }
@@ -102,7 +106,9 @@ export interface PhiScanExitCodes {
    * The scan ran, read every target it enumerated, and found nothing. The ONE subtraction is the
    * enumeration TOCTOU window: an UNTRACKED file the walk listed, in `all` mode, that was gone by
    * read time and is still gone at the end of the run, is reported SKIPPED. Git carries no bytes
-   * at such a path, so nothing this repository holds went unread.
+   * at such a path, so nothing this repository holds went unread. WHEN THAT HAPPENS THE CLEAN LINE
+   * ITSELF SAYS SO on stdout, counting the skipped files, so the subtraction is visible to a reader
+   * who never sees stderr; with nothing skipped the line is byte-identical to what it always was.
    */
   clean: number;
   /** This corpus contains something that looks like PHI. */
@@ -140,10 +146,18 @@ export interface PhiScanConfig {
    * contract reserves for HITS FOUND.
    *
    * WHAT DERIVING GIVES UP: a declaration can notice that a root is not the KIND it was meant to be
-   * and derivation cannot, so a root that changes kind is silently treated as what it now is. A root
-   * that is NEITHER a file nor a directory is still refused, and a root naming a symbolic link is
-   * refused rather than followed. A MISSING root is skipped by the WALK, which is unchanged from the
-   * copied scanners.
+   * and derivation cannot, so a root that changes kind is silently treated as what it now is. That
+   * is a recorded narrowing rather than an oversight, with its compensating control named:
+   * `documentation/decisions/0003-the-phi-scan-engine-gap-settlements.md`, N2. Every TRACKED file
+   * that lived under such a root is still read, because the index half of `all` mode is not narrowed
+   * by this parameter at all.
+   *
+   * ALL THREE KINDS HAVE ONE SETTLED OUTCOME. A REGULAR FILE is scanned as one target. A SYMBOLIC
+   * LINK is refused rather than followed, and so is anything that is neither a file nor a directory.
+   * A DIRECTORY THAT CANNOT BE ENUMERATED is refused at the caller's `refuse` code, naming the path
+   * and the errno; it used to escape `readdirSync` uncaught and take node's own exit 1, the code
+   * this contract reserves for HITS FOUND. A MISSING root is skipped by the WALK, which is unchanged
+   * from the copied scanners, and is then caught by the rule below.
    *
    * 🛑 EVERY ROOT MUST YIELD AT LEAST ONE FILE THAT WAS ACTUALLY READ, OR `all` MODE REFUSES AND
    * NAMES THE STARVED ROOTS. That is what closes the class the paragraph above used to end with:
@@ -166,6 +180,16 @@ export interface PhiScanConfig {
    * scan root, so the non-regular refusal never saw it, and the route read the link's TARGET PATH
    * as if it were content and reported clean at exit 0. A staged path this admits and no scan root
    * covers is now REFUSED, naming the path.
+   *
+   * 🛑 THIS PREDICATE ALSO DECIDES WHAT THE `--staged` ROUTE REFUSES, which is a change. Its
+   * non-regular and unmerged refusals used to key on the ROOT half of scope, so a caller whose
+   * staged scope is narrower than its roots had commits blocked that its own gate had always let
+   * through. What a commit is blocked on is this key's job. THE COST: a staged non-regular entry
+   * this predicate declines is no longer refused HERE. `all` mode still refuses it twice over (the
+   * walk classifies it under a scan root, and the index route refuses the tracked record wherever it
+   * sits), so a repository's own sweep still does. Recorded as N1 in
+   * `documentation/decisions/0003-the-phi-scan-engine-gap-settlements.md`; widen this predicate if
+   * you want the wider refusal.
    */
   isStagedReadable: (relPath: string) => boolean;
 

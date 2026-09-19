@@ -118,6 +118,11 @@ a summary.
   a version bump. 🛑 **Never port an exit code in or out.** 🛑 **An exclusion is a LITERAL PATH, never
   a class**. A sibling measured that a "binary blob" predicate would have dropped two of its own
   hand-written sources, which embed NUL bytes as HMAC domain separators.
+  🛑 **`isStagedReadable` decides what the `--staged` route REFUSES, not only what it reads.** The
+  staged non-regular and unmerged refusals key on it, because what a commit is blocked on is this
+  repo's own decision. A staged link this filter declines is not refused on the pre-commit route and
+  IS refused by `all` mode, on the walk and again on the index. Widen the filter if you want the hook
+  to refuse it too.
 - **THE SCAN ROOTS ARE THE WHOLE REPOSITORY (`["."]`), AND NARROWING THEM IS A MEASURED DECISION.**
   This template shipped `["test/fixtures", "src"]` and it was measured against a fresh scaffold: **35
   tracked files, ONE in scope**, so a tracked `test/leak.test.ts` carrying a dashed SSN exited 0 on
@@ -135,9 +140,11 @@ a summary.
   while its footer claimed the token allow-list was the only remedy, and its reviewer caught the
   claim as false. The engine's own floor consults the allow-list on both branches.
 - **RAISE HITS THROUGH `ctx.hit`, NEVER BY BUILDING A PATH.** The sweep reads the bytes git carries
-  as a union with the working-tree walk, and a hit found in a tracked blob whose disk copy differs is
-  labelled `(as git carries it)`. The engine fills that locus in, so a hit cannot be reported against
-  a path a developer would open and find clean.
+  as a union with the working-tree walk, and a hit found in those bytes is labelled `(git index)` or
+  `(git index; the working tree differs)` with a footer counting them: the second means the file on
+  disk reads clean, so **re-staging is part of the remedy**. The engine fills that locus in, so a hit
+  cannot be reported against a path a developer would open and find clean. **That union is not
+  narrowed by `SCAN_ROOTS`**: every tracked path is read, and the roots bound the walk.
 - **THE EXIT CONTRACT IS DEFINED IN THIS REPO'S OWN SCANNER, NOT INHERITED**: 0 clean, 1 hits, 2
   every state the engine RAISES in which the scan cannot account for something. **`1` is reserved but
   NOT exclusive**, and the engine names the escapes it does not close rather than claiming there are

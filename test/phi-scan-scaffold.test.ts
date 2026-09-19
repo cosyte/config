@@ -391,7 +391,20 @@ describe("controls: the suite is exercising the emitted scanner, and it can stil
     expect(engine).toBe(shipped);
     for (const line of [
       "isUnderScanRoot(relPath) {",
-      "this.isUnderScanRoot(s.path) &&",
+      // THE `--staged` ROUTE KEYS ON THE CALLER'S OWN SCOPE. It used to key on the root half, which
+      // refused commits a caller's own gate admitted; the narrowing that cost is recorded in
+      // `documentation/decisions/0003-the-phi-scan-engine-gap-settlements.md` and measured in the
+      // case that names AC-8 below.
+      "stagedReadable(s) && !unmerged.includes(s) &&",
+      // The index route is NOT narrowed by `scanRoots`: a root list is the walk's scope, and the
+      // index answers what the repository carries.
+      ".filter(([p, e]) => this.cfg.regularBlobModes.has(e.mode) && this.cfg.isWalkReadable(p))",
+      // The index route's refusals are raised after the walk sweep, so no hit is swallowed.
+      "if (indexRefusals.length > 0) {",
+      // Which index origin a hit came from, because re-staging is part of one remedy and not the
+      // other, and the clean line that carries the skip count to a reader watching stdout alone.
+      'readOids.has(path) ? "git index; the working tree differs" : "git index",',
+      "untracked file(s) skipped, see stderr",
       '["diff", "--cached", "--raw", "-z", "--no-renames", "--diff-filter=d"]',
       "unscannable.push({ path: this.normalizePath(full), kind: direntKind(e) });",
       // The completeness rule. Each of these is a line whose loss reopens a
