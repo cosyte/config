@@ -76,7 +76,7 @@ jobs:
           else
             node experiments/perf-calibration/analyze.mjs | tee -a "$GITHUB_STEP_SUMMARY"
           fi
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         with:
           name: perf-calibration-data
           path: experiments/perf-calibration/data/
