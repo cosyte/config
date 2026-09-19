@@ -122,6 +122,20 @@ jobs:
       # is a report again. Zero-dependency node, like the five gates above, so it runs before
       # install.
       - run: node scripts/drift-check.js
+      # THE PUBLISH TOOLCHAIN GATE (S0317). Trusted publishing is the only authentication the release
+      # path has, and it requires an npm CLI at or above a floor the credential declaration states.
+      # Two things about that are decidable from committed text, so they are decided HERE rather than
+      # at publish time: the npm the publish path declares must meet the floor and must be
+      # determinable from the workflow file without running it (a Node release's BUNDLED npm is not,
+      # and it moves under us), and the release dry run below must declare the SAME toolchain, since
+      # a dry run on a different npm is not evidence about the real publish.
+      #
+      # It belongs in `verify` for the reason the six gates above do: `verify` is a REQUIRED status
+      # check in this repo's `config-ci-required-checks` ruleset, so this is the copy that can REFUSE
+      # A MERGE. Catching it on the release path instead would mean catching it after an approver has
+      # been asked to approve a run that cannot authenticate. Zero-dependency node, so it runs before
+      # install like the rest.
+      - run: node scripts/publish-toolchain.mjs
       - run: pnpm install --frozen-lockfile
       # The em-dash brand gate's FILE half also runs in no-emdash.yml, which additionally
       # covers the PR title, body and commit messages and carries the `edited` trigger those
@@ -172,6 +186,19 @@ jobs:
         with:
           node-version: "22.14"
           cache: pnpm
+      # THE SAME TOOLCHAIN THE PUBLISH PATH DECLARES, PINNED THE SAME WAY, and scripts/
+      # publish-toolchain.mjs refuses this workflow if the two ever drift apart. A dry run is only
+      # evidence about the real publish if it runs on the binary the real publish uses: `pnpm publish`
+      # calls `npm publish` through the `npm` it resolves off PATH, so the npm here decides what this
+      # job is actually proving.
+      - name: The npm CLI that publishes must be one trusted publishing can use
+        env:
+          NPM_CLI_VERSION: "11.19.1"
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --global "npm@$NPM_CLI_VERSION"
+          echo "npm on the dry-run path is now $(npm --version)."
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       # Exercise the publish command path (auth-free dry run; never uploads).

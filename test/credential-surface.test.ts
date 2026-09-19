@@ -187,13 +187,18 @@ describe("the committed surface is the declared surface (positive control)", () 
   });
 });
 
+/** The publish step's own `env:` block, which no other step in the workflow carries. */
+const PUBLISH_STEP_ENV =
+  "          # npm provenance requires a PUBLIC source repo; auto-enables when this repo is public.\n" +
+  "          NPM_CONFIG_PROVENANCE: ${{ github.event.repository.visibility == 'public' }}\n";
+
 describe("a secret the declaration does not name (AC2)", () => {
   it("fails, and reports both the secret and where it was found", () => {
     const root = fixture();
     edit(root, WORKFLOW, (text) =>
       text.replace(
-        "          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}\n",
-        "          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}\n          SMUGGLED: ${{ secrets.LEGACY_DEPLOY_KEY }}\n",
+        PUBLISH_STEP_ENV,
+        `${PUBLISH_STEP_ENV}          SMUGGLED: \${{ secrets.LEGACY_DEPLOY_KEY }}\n`,
       ),
     );
     const result = run(["--repo", root]);
@@ -215,10 +220,11 @@ describe("a secret the declaration does not name (AC2)", () => {
   });
 
   it("does not mistake the workflow's prose for wiring", () => {
-    // release.yml's header comments name NPM_TOKEN, NODE_AUTH_TOKEN and RELEASE_PR_TOKEN in
-    // ordinary English several times. A gate that grepped would report every one of those.
+    // release.yml's comments name NODE_AUTH_TOKEN and RELEASE_PR_TOKEN in ordinary English several
+    // times, explaining what is no longer wired and what is optional. A gate that grepped would
+    // report every one of those.
     const workflow = readFileSync(join(REPO, WORKFLOW), "utf8");
-    expect(workflow).toContain("# register the npm-side Trusted Publisher, then remove NPM_TOKEN");
+    expect(workflow).toContain("RELEASE_PR_TOKEN is optional");
     const root = fixture();
     edit(root, WORKFLOW, (text) =>
       text.replace(
@@ -234,13 +240,13 @@ describe("a declared credential that is no longer where it says (AC3)", () => {
   it("fails and names the credential rather than passing because nothing extra was found", () => {
     const root = fixture();
     edit(root, WORKFLOW, (text) =>
-      text.replace("          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}\n", ""),
+      text.replace("          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n", ""),
     );
     const result = run(["--repo", root]);
     expect(result.status).toBe(1);
     expect(result.output).toContain("declared-exposure-absent");
-    expect(result.output).toContain("NPM_TOKEN");
-    expect(result.output).toContain("NODE_AUTH_TOKEN");
+    expect(result.output).toContain("GITHUB_TOKEN");
+    expect(result.output).toContain("GH_TOKEN");
     expect(result.output).not.toContain("undeclared-secret");
   });
 
@@ -249,27 +255,34 @@ describe("a declared credential that is no longer where it says (AC3)", () => {
     // `replaceAll`, not `replace`, and the difference is load-bearing rather than stylistic. This
     // case is about the credential being gone EVERYWHERE, so the mutation has to remove every
     // reference; a single-occurrence replace leaves one behind the moment a second step legitimately
-    // consumes the token, and the checker then correctly reports per-exposure findings instead of
-    // the whole-credential one. S0081 added exactly such a step (the configuration allow-check, which
-    // must resolve the same npmrc the publish resolves and therefore needs the same NODE_AUTH_TOKEN),
-    // and that is what turned this into a fixture bug rather than a checker bug. The assertion below
-    // is unchanged: the refusal this case exists for is intact.
+    // consumes the credential, and the checker then correctly reports per-exposure findings instead
+    // of the whole-credential one.
+    //
+    // The presence test is REWRITTEN rather than deleted: deleting it would leave a step with an
+    // `env:` block and no entries, which is a different defect (an unparseable workflow) and would
+    // grade the YAML reader rather than this refusal.
     edit(root, WORKFLOW, (text) =>
       text
-        .replaceAll("          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}\n", "")
-        .replaceAll("          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}\n", ""),
+        .replaceAll(
+          "          HAS_RELEASE_PR_TOKEN: ${{ secrets.RELEASE_PR_TOKEN != '' }}\n",
+          "          HAS_RELEASE_PR_TOKEN: ${{ github.repository != '' }}\n",
+        )
+        .replaceAll(
+          "${{ secrets.RELEASE_PR_TOKEN || secrets.GITHUB_TOKEN }}",
+          "${{ secrets.GITHUB_TOKEN }}",
+        ),
     );
     const result = run(["--repo", root]);
     expect(result.status).toBe(1);
     expect(result.output).toContain("declared-credential-absent");
-    expect(result.output).toContain("NPM_TOKEN");
+    expect(result.output).toContain("RELEASE_PR_TOKEN");
   });
 
   it("reports a declared step that no longer exists in the workflow", () => {
     const root = fixture();
     editDeclaration(root, (declaration) => {
-      const npm = declaration.credentials.find((entry) => entry.name === "NPM_TOKEN");
-      npm!.exposures[0].step = "A step nobody wrote";
+      const github = declaration.credentials.find((entry) => entry.name === "GITHUB_TOKEN");
+      github!.exposures[0].step = "A step nobody wrote";
     });
     const result = run(["--repo", root]);
     expect(result.status).toBe(1);
@@ -279,25 +292,26 @@ describe("a declared credential that is no longer where it says (AC3)", () => {
 });
 
 describe("a credential exposed more broadly than declared (AC4)", () => {
-  it("fails when a step-scoped token is hoisted to job level, reporting both scopes", () => {
+  it("fails when a step-scoped credential is hoisted to job level, reporting both scopes", () => {
     const root = fixture();
     edit(root, WORKFLOW, (text) =>
       text.replace(
         "    environment: release\n    steps:\n",
-        "    environment: release\n    env:\n      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}\n    steps:\n",
+        "    environment: release\n    env:\n      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n    steps:\n",
       ),
     );
     const result = run(["--repo", root]);
     expect(result.status).toBe(1);
     expect(result.output).toContain("scope-widened");
     expect(result.output).toContain('job-level `env` in job "publish"');
-    expect(result.output).toContain('the declaration permits only step "Publish"');
+    expect(result.output).toContain("the declaration permits only");
+    expect(result.output).toContain("GITHUB_TOKEN");
   });
 
-  it("fails when a step-scoped token is hoisted to workflow level", () => {
+  it("fails when a step-scoped credential is hoisted to workflow level", () => {
     const root = fixture();
     edit(root, WORKFLOW, (text) =>
-      text.replace("jobs:\n", "env:\n  NPM_TOKEN: ${{ secrets.NPM_TOKEN }}\njobs:\n"),
+      text.replace("jobs:\n", "env:\n  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\njobs:\n"),
     );
     const result = run(["--repo", root]);
     expect(result.status).toBe(1);
@@ -305,12 +319,12 @@ describe("a credential exposed more broadly than declared (AC4)", () => {
     expect(result.output).toContain("workflow-level");
   });
 
-  it("fails when a token appears in a job the declaration never named", () => {
+  it("fails when a credential appears in a step the declaration never named", () => {
     const root = fixture();
     edit(root, WORKFLOW, (text) =>
       text.replace(
         "      - name: Changesets must be able to bump something\n",
-        "      - name: Changesets must be able to bump something\n        env:\n          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}\n",
+        "      - name: Changesets must be able to bump something\n        env:\n          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n",
       ),
     );
     const result = run(["--repo", root]);
@@ -407,13 +421,38 @@ describe("the registry-reaching job and its protected environment (AC5)", () => 
   });
 
   it("fails when a registry credential turns up in an ungated job", () => {
+    // Both halves are needed to build this state, and that is the point of the case: a credential
+    // the DECLARATION marks as registry authentication, wired into a job that asks for no
+    // deployment environment. Neither file alone can produce it, which is what makes the gate's
+    // environment rule about the publish path rather than about one file's text.
     const root = fixture();
     edit(root, WORKFLOW, (text) =>
       text.replace(
         "      - name: Report whether a version PR would be able to run its checks\n        env:\n",
-        "      - name: Report whether a version PR would be able to run its checks\n        env:\n          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}\n",
+        "      - name: Report whether a version PR would be able to run its checks\n        env:\n          A_REGISTRY_TOKEN: ${{ secrets.A_REGISTRY_TOKEN }}\n",
       ),
     );
+    editDeclaration(root, (declaration) => {
+      declaration.credentials.push({
+        name: "A_REGISTRY_TOKEN",
+        tokenClass: "A registry credential invented by this case, and by nothing else.",
+        storage: "organization",
+        requiredForPublish: false,
+        registryAuth: true,
+        exposures: [
+          {
+            job: "version",
+            step: "Report whether a version PR would be able to run its checks",
+            as: "env",
+            name: "A_REGISTRY_TOKEN",
+            mode: "value",
+          },
+        ],
+        issuedForms: [],
+        retiredWhen:
+          "When this case stops needing a registry credential to place in an ungated job.",
+      });
+    });
     const result = run(["--repo", root]);
     expect(result.status).toBe(1);
     expect(result.output).toContain("environment-missing");
@@ -514,19 +553,20 @@ describe("log scrubbing must cover every declared issued form (AC7)", () => {
 
   it("fails when a form is redacted but the post-redaction assertion stops looking for it", () => {
     const root = fixture();
-    edit(root, WORKFLOW, (text) =>
-      text.replace("if grep -rqiE 'npm_[A-Za-z0-9]{36}|", "if grep -rqiE 'placeholder_no_match|"),
-    );
+    edit(root, WORKFLOW, (text) => text.replace("|github_pat_[A-Za-z0-9_]{22,}|(_auth", "|(_auth"));
     const result = run(["--repo", root]);
     expect(result.status).toBe(1);
     expect(result.output).toContain("redaction-assertion-incomplete");
-    expect(result.output).toContain("npm_[A-Za-z0-9]{36}");
+    expect(result.output).toContain("github_pat_[A-Za-z0-9_]{22,}");
   });
 
   it("fails when the scrubbing rule itself is dropped", () => {
     const root = fixture();
     edit(root, WORKFLOW, (text) =>
-      text.replace("              -e 's/npm_[A-Za-z0-9]{36}/npm_REDACTED/g' \\\n", ""),
+      text.replace(
+        "              -e 's/github_pat_[A-Za-z0-9_]{22,}/github_pat_REDACTED/g' \\\n",
+        "",
+      ),
     );
     const result = run(["--repo", root]);
     expect(result.status).toBe(1);
@@ -671,11 +711,11 @@ describe("one run reports every disagreement (AC11)", () => {
       text
         // 1: an undeclared secret.
         .replace(
-          "          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}\n",
-          "          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}\n          SMUGGLED: ${{ secrets.LEGACY_DEPLOY_KEY }}\n",
+          PUBLISH_STEP_ENV,
+          `${PUBLISH_STEP_ENV}          SMUGGLED: \${{ secrets.LEGACY_DEPLOY_KEY }}\n`,
         )
         // 2: a declared exposure that is gone.
-        .replace("          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}\n", "")
+        .replace("          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n", "")
         // 3: the protected environment removed.
         .replace("    environment: release\n", "")
         // 4: a permission grant widened.
