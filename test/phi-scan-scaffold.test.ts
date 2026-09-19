@@ -527,7 +527,7 @@ describe("all mode refuses a non-regular entry under a scan root", () => {
   });
 });
 
-describe("--staged refuses a non-regular entry, and keys on the ROOT half of scope", () => {
+describe("--staged refuses a non-regular entry inside the caller's own staged scope", () => {
   it("refuses a staged link under test/fixtures", () => {
     resetToBaseline();
     symlinkSync(payload, join(scaffold, "test", "fixtures", "leak.txt"));
@@ -538,34 +538,55 @@ describe("--staged refuses a non-regular entry, and keys on the ROOT half of sco
     expect(r.out).not.toContain(TARGET_TOKEN);
   });
 
-  it("refuses a .md-named link under src/ on BOTH routes, where a shared predicate would not", () => {
-    // The disagreement two sibling ports shipped: `src/notes.md` is a link, and
-    // the READ filter drops it while the walk refuses it. Keying the refusal on
-    // the read filter instead makes the pre-commit route pass a mode-120000 blob
-    // green over a corpus all-mode refuses.
+  it("AC-8, AC-16: the --staged route keys on the CALLER'S staged scope, and `all` mode still refuses", () => {
+    // THE NARROWING THIS ITEM MAKES, AND ITS COMPENSATING CONTROL, IN ONE CASE. The staged route's
+    // non-regular refusal used to key on the ROOT half of scope, so it refused a staged
+    // mode-120000 entry that the caller's OWN `isStagedReadable` declines. That decides what a
+    // COMMIT is blocked on, which is a hook decision each repo takes for itself: the first
+    // consumer's `src/**.ts` staged scope exits 0 over a staged `src/notes.txt` link and the
+    // engine refused it at 2. It now keys on `isStagedReadable`, so this template's own `.md`
+    // exemption drops `src/notes.md` here too. Recorded as a narrowing in
+    // `documentation/decisions/0003-the-phi-scan-engine-gap-settlements.md`.
     //
-    // WHICH READ FILTER, STATED CURRENTLY RATHER THAN FROM MEMORY: this template's
-    // `isStagedReadable` is now the shared Markdown exemption, so what drops
-    // `src/notes.md` is its `.md` name. It used to be `src/**.ts`, and an earlier
-    // version of this comment still said so after the axis moved. The point is
-    // unchanged and is about the SHAPE of the two predicates, not about either
-    // one's current body: a link's NAME is no evidence about what is on the other
-    // side of it, which is exactly what a read filter may assume about a FILE.
+    // WHAT STILL REFUSES IT IS THE HALF THAT MATTERS FOR A CORPUS: `all` mode, twice over. The walk
+    // classifies the entry with `Dirent.isSymbolicLink()` (its name is no evidence about what is on
+    // the other side of it), and the INDEX route refuses the tracked mode-120000 record wherever it
+    // sits. So a repository's sweep refuses it; the pre-commit hook no longer does.
     resetToBaseline();
     symlinkSync(payload, join(scaffold, "src", "notes.md"));
     git(["add", "src/notes.md"]);
 
-    expect(scan("scripts/phi-scan.ts").code).toBe(2);
-    const staged = scan("scripts/phi-scan.ts", ["--staged"]);
-    expect(staged.code).toBe(2);
-    expect(staged.out).toContain("src/notes.md");
+    const swept = scan("scripts/phi-scan.ts");
+    expect(swept.code, swept.out).toBe(2);
+    expect(swept.out).toContain("src/notes.md");
+    expect(swept.out).toContain("a symbolic link");
+    // ...and never what is on the other side of it.
+    expect(swept.out).not.toContain(TARGET_TOKEN);
 
-    const collapsed = weakened(
-      "collapsed-predicate.ts",
-      "this.isUnderScanRoot(s.path) &&",
-      "this.cfg.isStagedReadable(s.path) &&",
+    const staged = scan("scripts/phi-scan.ts", ["--staged"]);
+    expect(staged.code, staged.out).toBe(0);
+
+    // THE DISCRIMINATION, so this is the rule and not an accident: the same entry under a name the
+    // caller's staged scope DOES admit is refused on the staged route, with its own noun.
+    resetToBaseline();
+    symlinkSync(payload, join(scaffold, "src", "notes.ts"));
+    git(["add", "src/notes.ts"]);
+    const admitted = scan("scripts/phi-scan.ts", ["--staged"]);
+    expect(admitted.code, admitted.out).toBe(2);
+    expect(admitted.out).toContain("src/notes.ts");
+    expect(admitted.out).toContain("entry is not a regular file");
+
+    // ...and the OLD keying, rebuilt, so the change is measured rather than asserted: keyed on the
+    // root half, the `.md`-named link is refused on the staged route too.
+    resetToBaseline();
+    symlinkSync(payload, join(scaffold, "src", "notes.md"));
+    git(["add", "src/notes.md"]);
+    const rootHalf = weakened(
+      "root-half-staged-predicate.ts",
+      "stagedReadable(s) && !unmerged.includes(s) &&",
+      "this.isUnderScanRoot(s.path) && !unmerged.includes(s) &&",
     );
-    expect(scan(collapsed, ["--staged"]).code).toBe(0); // the defect, reproduced
+    expect(scan(rootHalf, ["--staged"]).code).toBe(2);
   });
 
   it("--no-renames is load-bearing: a plain `git mv` of a link into the corpus is refused", () => {
@@ -794,22 +815,45 @@ describe("--staged refuses a non-regular entry, and keys on the ROOT half of sco
  * counts the targets that DID get read.
  */
 describe("a target enumerated but never read refuses, in every mode", () => {
-  /** The four shapes that used to exit 0. Each must now name the unread path. */
-  const shapes: { label: string; argv: string[] }[] = [
+  /**
+   * The four shapes that used to exit 0. Each must still refuse and still NAME the path.
+   *
+   * WHICH TIER REFUSES IS PART OF THE PIN (AC-17), and it turns on the MODE rather than on the
+   * flag. In `paths` mode the run's declared scope is argv, so a bypass naming something argv does
+   * not carry subtracts nothing and lands on the UNMATCHED tier; where the bypass names a
+   * positional, or the mode is `all` (where the declared scope is the whole corpus) or `--staged`
+   * (where it is the staged set), the path IS enumerated and the COMPLETENESS tier refuses. Both
+   * are refusals at the same code and neither can reach the clean line, which is what the four
+   * shapes are here to hold; asserting the tier as well keeps the pair from collapsing into one.
+   */
+  const shapes: { label: string; argv: string[]; tier: string }[] = [
     // The item's own reproduction: a clean positional plus a bypass on a violator.
-    { label: "a clean positional path alongside a bypass", argv: ["README.md", BYPASS, VIOLATOR] },
+    {
+      label: "a clean positional path alongside a bypass",
+      argv: ["README.md", BYPASS, VIOLATOR],
+      tier: "does not enumerate",
+    },
     // The floor of one at whole-run scope: the entire target list withdrawn.
-    { label: "the same path as target and bypass", argv: [VIOLATOR, BYPASS, VIOLATOR] },
+    {
+      label: "the same path as target and bypass",
+      argv: [VIOLATOR, BYPASS, VIOLATOR],
+      tier: "enumerated and never read",
+    },
     // No positional at all. The worst of the four: it reads like a full sweep.
-    { label: "a bare bypass with no positional path", argv: [BYPASS, VIOLATOR] },
+    {
+      label: "a bare bypass with no positional path",
+      argv: [BYPASS, VIOLATOR],
+      tier: "enumerated and never read",
+    },
     // The route a commit is actually blocked on.
     {
       label: "--staged with a bypass on the only staged violator",
       argv: ["--staged", BYPASS, VIOLATOR],
+      tier: "enumerated and never read",
     },
   ];
 
-  for (const { label, argv } of shapes) {
+  for (const { label, argv, tier } of shapes) {
     it(`refuses: ${label}`, () => {
       resetToBaseline();
       writeViolator();
@@ -818,7 +862,7 @@ describe("a target enumerated but never read refuses, in every mode", () => {
 
       const r = scan("scripts/phi-scan.ts", argv);
       expect(r.code, r.out).toBe(2);
-      expect(r.out).toContain("enumerated and never read");
+      expect(r.out).toContain(tier);
       expect(r.out).toContain(VIOLATOR);
       // A refusal, not a report: the clean line must never appear beside it.
       expect(r.out).not.toContain("OK: no hits");
@@ -885,9 +929,13 @@ describe("a target enumerated but never read refuses, in every mode", () => {
   });
 
   it("refuses a bypass naming a path the run does not enumerate", () => {
-    // `docs/notes.md` is nowhere near a scan root, so an all-mode run never
-    // enumerates it and the flag subtracts nothing. Honouring it silently would
-    // let a developer believe a file was acknowledged.
+    // `docs/notes.md` is a `.md` the read exemption drops on both sweeping routes, so a run whose
+    // declared scope is argv never enumerates it and the flag subtracts nothing. Honouring it
+    // silently would let a developer believe a file was acknowledged.
+    //
+    // THE POSITIONAL IS WHAT PUTS THE RUN IN THAT MODE, and it is the apparatus rather than
+    // decoration (AC-17): a LONE bypass declares its own path into an `all`-mode run's enumerated
+    // set, so it is refused by the completeness tier instead, which the shapes table above pins.
     resetToBaseline();
     mkdirSync(join(scaffold, "docs"), { recursive: true });
     writeFileSync(join(scaffold, "docs", "notes.md"), "ordinary prose\n", "utf8");
@@ -895,7 +943,7 @@ describe("a target enumerated but never read refuses, in every mode", () => {
 
     writeViolator(); // a live hit sitting in the corpus the whole time
 
-    const r = scan("scripts/phi-scan.ts", ["--allow-fixture", "docs/notes.md"]);
+    const r = scan("scripts/phi-scan.ts", ["README.md", "--allow-fixture", "docs/notes.md"]);
     expect(r.code, r.out).toBe(2);
     expect(r.out).toContain("does not enumerate");
     expect(r.out).toContain("docs/notes.md");
@@ -1094,7 +1142,9 @@ describe("all mode reads the bytes git carries as a UNION with the walk", () => 
     const r = scan("scripts/phi-scan.ts");
     expect(r.code, r.out).toBe(1);
     expect(r.out).toContain(SSN_FINDING);
-    expect(r.out).toContain("as git carries it");
+    // The working-tree copy was never read (a directory sits at that path), so the label is the
+    // plain index one rather than the differs one (AC-14).
+    expect(r.out).toContain(`HIT: ${rel} (git index)`);
 
     // THE DEFECT, REPRODUCED: without the union the same tree reports clean.
     const before = scan(withoutUnion(), []);
@@ -1112,7 +1162,8 @@ describe("all mode reads the bytes git carries as a UNION with the walk", () => 
     const r = scan("scripts/phi-scan.ts");
     expect(r.code, r.out).toBe(1);
     expect(r.out).toContain(rel);
-    expect(r.out).toContain("as git carries it");
+    // Nothing on disk to read, so there is no working-tree copy to differ from.
+    expect(r.out).toContain(`HIT: ${rel} (git index)`);
 
     const before = scan(withoutUnion(), []);
     expect(before.code, before.out).toBe(0);
@@ -1128,7 +1179,10 @@ describe("all mode reads the bytes git carries as a UNION with the walk", () => 
 
     const r = scan("scripts/phi-scan.ts");
     expect(r.code, r.out).toBe(1);
-    expect(r.out).toContain("as git carries it");
+    // The disk copy WAS read and carries other bytes, so this is the label that says so and the
+    // footer counts it: re-staging is part of the remedy (AC-14).
+    expect(r.out).toContain(`HIT: ${rel} (git index; the working tree differs)`);
+    expect(r.out).toContain("1 of those are in bytes git carries at that path");
 
     const before = scan(withoutUnion(), []);
     expect(before.code, before.out).toBe(0);
@@ -1156,7 +1210,7 @@ describe("all mode reads the bytes git carries as a UNION with the walk", () => 
     expect(r.code, r.out).toBe(1);
     // Two loci for one path: the disk copy and the copy git carries.
     expect(r.out).toContain(`HIT: ${rel}\n`);
-    expect(r.out).toContain(`HIT: ${rel} (as git carries it)`);
+    expect(r.out).toContain(`HIT: ${rel} (git index; the working tree differs)`);
   });
 
   it("DEDUPE IS BY CONTENT: a clean checkout reads each file ONCE", () => {
@@ -1169,7 +1223,7 @@ describe("all mode reads the bytes git carries as a UNION with the walk", () => 
     const r = scan("scripts/phi-scan.ts");
     expect(r.code, r.out).toBe(1);
     expect(r.out.split("segment=").length - 1).toBe(1);
-    expect(r.out).not.toContain("as git carries it");
+    expect(r.out).not.toContain("(git index");
 
     // The defect, reproduced: with the dedupe disabled every tracked file is
     // read twice and the same SSN is reported twice, which is a scanner that

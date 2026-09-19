@@ -237,10 +237,13 @@ describe("a per-standard detector is handed the locus, and cannot take down the 
       },
     });
     expect(r.code).toBe(1);
-    // Both copies were offered to the detector, and only the union's carries the label.
+    // Both copies were offered to the detector, and only the union's carries the label. The label
+    // says WHICH of the two index origins this is (AC-14): the disk copy was read and carries other
+    // bytes, so the remedy includes re-staging and the label has to be able to say so.
     expect(seen).toContain("test/fixtures/tracked.txt");
-    expect(seen).toContain("test/fixtures/tracked.txt (as git carries it)");
-    expect(r.out).toContain("HIT: test/fixtures/tracked.txt (as git carries it)");
+    expect(seen).toContain("test/fixtures/tracked.txt (git index; the working tree differs)");
+    expect(r.out).toContain("HIT: test/fixtures/tracked.txt (git index; the working tree differs)");
+    expect(r.out).toContain("1 of those are in bytes git carries at that path");
   });
 
   it("REFUSES when a detector throws, rather than taking node's own exit code", () => {
@@ -393,24 +396,36 @@ describe("the two containments a reviewer falsified, now enforced rather than as
 });
 
 describe("whole-repository scan roots, which is what a fresh scaffold needs", () => {
-  it("reads a tracked file no narrow root would have covered", () => {
-    // The measured hole: with `["test/fixtures", "src"]` a scaffold had ONE of its tracked files in
-    // scope, so a tracked test carrying a dashed identifier exited 0. Both polarities are asserted
-    // here, so the widening is shown to be the cause.
+  it("reads a TRACKED file no narrow root covers, through the index, and still bounds the WALK", () => {
+    // THE ROOTS BOUND THE WALK AND NOT THE INDEX (AC-12), and this case is the discrimination
+    // between the two halves. It used to assert that narrow roots left `test/leak.test.ts`
+    // unread and that widening them to `["."]` was the fix; the index route now reads every path
+    // git carries, so the narrow run finds the same tracked identifier and labels it.
     //
     // BOTH NARROW ROOTS HAVE TO YIELD A FILE THAT IS READ, or the per-root observation rule
-    // refuses the narrow run for the ROOT being starved rather than letting it report the clean
-    // it is being measured for. The fixture below is what keeps this case about the WIDENING.
+    // refuses the narrow run for the ROOT being starved rather than letting it report on the
+    // corpus it is being measured for. The fixture below is what keeps this case about scope.
     write("test/fixtures/in-scope.txt", "nothing to see\n");
     write("test/leak.test.ts", `const ssn = "${SSN}";\nexport default ssn;\n`);
     write("src/index.ts", "export const x = 1;\n");
     commitAll();
 
-    expect(run({ scanRoots: ["test/fixtures", "src"] }).code).toBe(0);
+    const narrow = run({ scanRoots: ["test/fixtures", "src"] });
+    expect(narrow.code, narrow.out).toBe(1);
+    expect(narrow.out).toContain("test/leak.test.ts (git index)");
 
     const wide = run();
     expect(wide.code).toBe(1);
     expect(wide.out).toContain("test/leak.test.ts");
+
+    // ...and the WALK is still bounded by the roots, so this is not "the roots stopped meaning
+    // anything": an UNTRACKED file outside them is read by neither route, and the same file inside
+    // one is read by the walk. git carries no bytes at an untracked path, which is why the index
+    // half cannot reach it and why the roots still decide what a sweep opens on disk.
+    write("notes/untracked-leak.txt", `ssn ${SSN}\n`);
+    const stillNarrow = run({ scanRoots: ["test/fixtures", "src"] });
+    expect(stillNarrow.out).not.toContain("notes/untracked-leak.txt");
+    expect(run().out).toContain("notes/untracked-leak.txt");
   });
 
   it("PRUNES an ignored directory during descent instead of walking it", () => {
