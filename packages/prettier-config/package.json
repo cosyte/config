@@ -1,6 +1,6 @@
 {
   "name": "@cosyte/prettier-config",
-  "version": "0.0.4",
+  "version": "0.1.0",
   "description": "Shared Prettier configuration for @cosyte/* packages.",
   "keywords": [
     "prettier",
