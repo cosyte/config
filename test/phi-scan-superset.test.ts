@@ -668,15 +668,19 @@ describe("SUPERSET: everything the consumer's local variant did on the engine ha
     expect(logged.out).toContain("enumerated and never read");
 
     // LOGGED AND NOT ENUMERATED: refused by the companion tier, because a flag that subtracts
-    // nothing lets a developer believe a file was acknowledged.
+    // nothing lets a developer believe a file was acknowledged. WHICH TIER FIRES IS THE CONTRACT
+    // (AC-17), and it turns on the MODE: this argv names a positional, so the run's declared scope
+    // is argv and the bypass names nothing in it. A LONE bypass declares its own path instead, and
+    // is refused by the completeness tier above.
     write("phi-scan-overrides.md", "### test/fixtures/decoy.txt\n### nowhere/absent.txt\n");
     commitAll();
     const unmatched = run({
       scanRoots: ["src"],
-      argv: ["--allow-fixture", "nowhere/absent.txt"],
+      argv: ["src/index.ts", "--allow-fixture", "nowhere/absent.txt"],
     });
     expect(unmatched.code, unmatched.out).toBe(2);
     expect(unmatched.out).toContain("does not enumerate");
+    expect(unmatched.out).toContain("nowhere/absent.txt");
 
     // IN NO MODE DOES IT REACH THE CLEAN CODE.
     const inPaths = run({
@@ -820,7 +824,10 @@ describe("SUPERSET: everything the consumer's local variant did on the engine ha
         detect: (ctx) => seen.push(ctx.path),
       });
       expect(deduped.code, deduped.out).toBe(0);
-      expect(seen).toEqual(["src/index.ts"]);
+      // The WALK offers `src/index.ts` exactly once, which is what dedupe of the root spellings
+      // buys. The other loci are the index route's, which is not bounded by the roots (AC-12), so
+      // the assertion is on the walk's own targets rather than on the whole offer list.
+      expect(seen.filter((p) => !p.includes("(git index"))).toEqual(["src/index.ts"]);
     } finally {
       rmSync(outside, { force: true });
     }
@@ -846,7 +853,7 @@ describe("SUPERSET: everything the consumer's local variant did on the engine ha
     const both: string[] = [];
     expect(run({ detect: (ctx) => both.push(ctx.path) }).code).toBe(0);
     expect(both).toContain("test/fixtures/eol.txt");
-    expect(both).toContain("test/fixtures/eol.txt (as git carries it)");
+    expect(both).toContain("test/fixtures/eol.txt (git index; the working tree differs)");
 
     // ...and a violator living in only ONE of the two forms is still found.
     writeFileSync(abs("test/fixtures/eol.txt"), `ssn ${SSN}\r\n`, "utf8");

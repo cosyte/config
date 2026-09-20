@@ -141,10 +141,13 @@ const EXIT_CODES = { clean: 0, hits: 1, refuse: 2 } as const;
  * read as a claim that nothing is left out.
  *
  * 🛑 NARROWING THIS IS A SCOPE DECISION AND IT IS THE AXIS MOST LIKELY TO BE
- * WRONG. A sibling that widened its walk to the whole repository found tracked
- * files that had never been opened by either route. If you narrow it, measure
- * what the narrowing STOPS reading rather than assuming it stops reading
- * nothing.
+ * WRONG. If you narrow it, measure what the narrowing STOPS reading rather than
+ * assuming it stops reading nothing. WHAT IT NO LONGER NARROWS IS THE INDEX:
+ * `all` mode reads the bytes git carries at EVERY tracked path, whatever the
+ * roots say, because a root list is the WALK's scope and the index answers what
+ * this repository CARRIES. So narrowing this stops the sweep opening UNTRACKED
+ * files outside the roots, and a sibling that widened its walk found tracked
+ * files that had never been opened by either route.
  */
 const SCAN_ROOTS: readonly string[] = ["."];
 
@@ -186,12 +189,16 @@ const EXCLUDED_PATHS: ReadonlySet<string> = new Set<string>([
  * commit flow to change, because the repo is being created, so the two routes
  * are given one boundary from the start.
  *
- * 🛑 THIS IS STILL NOT `isUnderScanRoot`. The engine's non-regular and non-blob
- * refusals key on the ROOT half of scope, never on this read filter: a
- * `.md`-named symbolic link must be refused on both routes even though no route
- * would read a `.md` FILE. A link's name is no evidence about what is on the
- * other side of it. Two sibling ports collapsed the two predicates and both had
- * the routes disagree about the same entry.
+ * 🛑 THIS KEY DECIDES WHAT THE `--staged` ROUTE REFUSES, NOT ONLY WHAT IT READS.
+ * The engine's staged non-regular and unmerged refusals key on THIS predicate,
+ * because what a commit is blocked on is a hook decision each repo takes for
+ * itself. So a staged symbolic link whose name this filter drops is NOT refused
+ * on the pre-commit route, and IS refused by `all` mode twice over: the walk
+ * classifies it under a scan root, and the index route refuses the tracked
+ * mode-120000 record wherever it sits. Widen this filter if you want the
+ * pre-commit route to refuse it too. The `all`-mode refusals still key on the
+ * ROOT half of scope and on the index, never on a read filter: a link's name is
+ * no evidence about what is on the other side of it.
  */
 function isStagedReadable(relPath: string): boolean {
   return exemptsMarkdown(relPath);

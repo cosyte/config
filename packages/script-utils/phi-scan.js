@@ -303,13 +303,19 @@ function normalizeConfig(config) {
  * `git rev-parse --show-object-format` per `all`-mode run, because the deduplication needs the
  * algorithm before it can compare anything. Where the two copies of a path DIFFER, BOTH are scanned.
  *
- * A HIT FROM THE UNION IS LABELLED `(as git carries it)`, ON THE REPORTED LOCUS ONLY. A hit naming
- * the bare path would send a developer to open a file that is clean, or not there at all. The
+ * A HIT FROM THE UNION IS LABELLED `(git index)` OR `(git index; the working tree differs)`, ON THE
+ * REPORTED LOCUS ONLY, and a footer counts how many of the reported hits came from those bytes. A
+ * hit naming the bare path would send a developer to open a file that is clean, or not there at all,
+ * and a single label would hide that re-staging is part of the remedy for the second kind. The
  * target's `path` stays undecorated because every filter, exclusion and completeness tier keys on it.
  * The `detect` callback is handed the LOCUS as `path`, so a caller cannot get this wrong.
  *
- * `all` MODE REFUSES WHEN GIT CANNOT NAME THE INDEX, OR NAMES IT EMPTY, and the two arrive through
- * DIFFERENT branches. Measured on git 2.39.5: a directory that is no repository at all FATALS (exit
+ * THE INDEX HALF IS NOT NARROWED BY `scanRoots`: every path the index carries is considered, because
+ * a root list is the WALK's scope and not a statement about what the repository carries. `--staged`
+ * is untouched by that and keeps its own scope, which is what a COMMIT is blocked on.
+ *
+ * `all` MODE REFUSES WHEN GIT CANNOT READ THE INDEX, OR READS IT EMPTY, and the two arrive through
+ * DIFFERENT branches and carry DIFFERENT sentences, because the remedies differ. Measured on git 2.39.5: a directory that is no repository at all FATALS (exit
  * 128), so the `catch` is what turns it into a refusal, and WITHOUT that catch the throw escapes and
  * the run takes node's own exit 1, which this contract reserves for HITS FOUND. A repository whose
  * index is empty, and a directory inside a repository with nothing tracked under it, both print
@@ -338,6 +344,9 @@ class PhiScan {
     this.cfg = cfg;
     /** Does any scan root name the repository root itself? Then everything is in scope. */
     this.wholeRepo = cfg.scanRoots.includes(".");
+    /** Reported loci whose bytes came from the index, for the report's per-origin footer. */
+    /** @type {Set<string>} */
+    this.indexLoci = new Set();
   }
 
   // -------------------------------------------------------------------------
@@ -439,14 +448,18 @@ class PhiScan {
     else if (paths.length > 0) mode = "paths";
     else mode = "all";
 
-    // UNCONDITIONAL, DEDUPED SEEDING, so the flag has ONE meaning in every argv. The old form was
-    // `paths.length > 0 ? paths : [...allowFixtures]`, which seeded the target list ONLY when no
-    // positional path was given: with one present the bypass was a silent no-op and the named file
-    // was never ADMITTED to the run rather than withdrawn from it. Unioning admits it in every case,
-    // so the withdrawal below is always a withdrawal of something enumerated and is therefore always
-    // caught by the completeness rule. Dedupe is by repo-relative path, so a file named both as a
-    // positional and as a bypass is one target, not two.
-    const seed = [...paths, ...allowFixtures];
+    // A BYPASS IS NOT A TARGET LIST, AND WHICH TIER REFUSES IT IS THE CONTRACT (AC-17). In `paths`
+    // mode the run's declared scope is argv, so a bypass naming something else subtracts nothing and
+    // is refused by the UNMATCHED tier, which says so and names it. In `all` mode the declared scope
+    // is the whole corpus, so a bypass declares a path this run would have read and is refused by the
+    // COMPLETENESS tier: `run` adds it to the enumerated set for exactly that reason. Both refuse,
+    // and neither can reach the clean code.
+    //
+    // WHAT THIS IS NOT: the flag still does not choose the MODE. Letting it made
+    // `--allow-fixture X` scan exactly `X`, then withdraw it, then report a clean whole run over a
+    // corpus it never touched, and that is the hole the mode rule below closes. Dedupe is by
+    // repo-relative path, so one file named twice on argv is one target, not two.
+    const seed = [...paths];
     const scanPaths = mode === "paths" ? this.dedupeByRepoPath(seed) : paths;
 
     return { mode, paths: scanPaths, allowFixtures };
@@ -659,10 +672,13 @@ class PhiScan {
 
   /**
    * Every stage-0 index entry keyed by repo-relative path, plus the paths that have a record but NO
-   * stage-0 record, or `null` when git could not answer.
+   * stage-0 record.
    *
-   * AN EMPTY ANSWER COUNTS AS NO ANSWER: an empty map would make every tracked path untracked, which
-   * is the one state in which the union silently stops existing.
+   * THREE OUTCOMES, NOT TWO, AND THE SPLIT IS THE POINT (AC-18). `unreadable` means git could not
+   * say what this repository carries; `empty` means it said, and the answer is nothing. Both refuse
+   * the sweep, and an empty answer still counts as no corpus: an empty map would make every tracked
+   * path untracked, which is the one state in which the union silently stops existing. What differs
+   * is the REMEDY, so the two states carry different sentences rather than one that covers both.
    *
    * 🛑 THE STAGE DIGIT IS READ, AND KEYING ON IT IS NOT OPTIONAL. THE RULE IS THE ABSENCE OF STAGE 0.
    * Do NOT re-derive it from a record count or from a mode, and do NOT port it from the `--staged`
@@ -673,7 +689,7 @@ class PhiScan {
    * labelled it as the bytes git carries, and printed a clean line over a marker living only in
    * stage 3.
    *
-   * @returns {{ entries: Map<string, import("./phi-scan.js").IndexEntry>, unmerged: string[] } | null}
+   * @returns {{ status: "read", entries: Map<string, import("./phi-scan.js").IndexEntry>, unmerged: string[] } | { status: "unreadable" | "empty" }}
    */
   gitIndexEntries() {
     let out;
@@ -690,7 +706,7 @@ class PhiScan {
     } catch {
       // LOAD-BEARING. A directory that is no repository FATALS at 128; without this catch the throw
       // escapes and the run takes node's exit 1, which this contract reserves for HITS FOUND.
-      return null;
+      return { status: "unreadable" };
     }
     /** @type {Map<string, import("./phi-scan.js").IndexEntry>} */
     const entries = new Map();
@@ -706,8 +722,9 @@ class PhiScan {
       const path = m?.[4];
       if (mode === undefined || oid === undefined || stage === undefined || path === undefined) {
         // An unparseable record means the list may be SHORT in a way we cannot see, which is the one
-        // thing this sweep must never scan past.
-        return null;
+        // thing this sweep must never scan past. It is UNREADABLE rather than empty: git answered,
+        // and the answer is one this engine cannot account for.
+        return { status: "unreadable" };
       }
       if (stage === "0") entries.set(path, { mode, oid });
       else higherStages.add(path);
@@ -715,8 +732,8 @@ class PhiScan {
     // A path is unmerged when it has a record and none of them is stage 0. The set difference is
     // taken rather than assuming the two are disjoint.
     const unmerged = [...higherStages].filter((p) => !entries.has(p));
-    if (entries.size === 0 && unmerged.length === 0) return null;
-    return { entries, unmerged };
+    if (entries.size === 0 && unmerged.length === 0) return { status: "empty" };
+    return { status: "read", entries, unmerged };
   }
 
   // -------------------------------------------------------------------------
@@ -788,15 +805,25 @@ class PhiScan {
    * longer has to be. `run`'s PER-ROOT OBSERVATION RULE asks the question from the other end, of
    * the paths actually READ, so a root that yielded nothing refuses whatever put it in that state.
    *
+   * A DIRECTORY THE WALK CANNOT LIST IS COLLECTED AND REFUSED, NOT THROWN OUT OF. `readdirSync` used
+   * to run bare here, so an `EACCES` on a root (or on any directory under one) escaped uncaught and
+   * the run took node's own exit 1, the code this contract reserves for HITS FOUND. It is the third
+   * of the three root KINDS this engine settles (AC-10): a regular file root is scanned as one
+   * target, a root naming a symbolic link is refused rather than followed, and a directory that
+   * cannot be enumerated is refused at the caller's `refuse` code, naming the path.
+   *
    * The result is SORTED by repo-relative path, so a report and a refusal read the same way twice.
    *
-   * @returns {{ files: string[], unscannable: import("./phi-scan.js").Unscannable[] }}
+   * @returns {{ files: string[], unscannable: import("./phi-scan.js").Unscannable[], unenumerable: import("./phi-scan.js").Unscannable[] }}
    */
   walkRoots() {
     /** @type {string[]} */
     const files = [];
     /** @type {import("./phi-scan.js").Unscannable[]} */
     const unscannable = [];
+    /** Directories the walk reached and could not list. `kind` is the errno, never a path. */
+    /** @type {import("./phi-scan.js").Unscannable[]} */
+    const unenumerable = [];
 
     // Split the roots by what is actually THERE, before the descent. A root naming a regular file is
     // one target; a root naming a directory is a frontier; a root naming anything else is refused
@@ -823,7 +850,22 @@ class PhiScan {
       const nextDirs = [];
       for (const dir of frontier) {
         if (!existsSync(dir)) continue;
-        for (const e of readdirSync(dir, { withFileTypes: true })) {
+        let listing;
+        try {
+          listing = readdirSync(dir, { withFileTypes: true });
+        } catch (err) {
+          // A DIRECTORY THAT CANNOT BE LISTED IS A REFUSAL, NEVER A CRASH. The errno is recorded
+          // and nothing else: a message off the filesystem is text this engine cannot vouch for.
+          unenumerable.push({
+            path: this.normalizePath(dir),
+            kind:
+              err !== null && typeof err === "object" && "code" in err
+                ? String(err.code)
+                : "unreadable",
+          });
+          continue;
+        }
+        for (const e of listing) {
           const full = join(dir, e.name);
           if (e.isDirectory()) {
             if (e.name === ".git") continue;
@@ -846,7 +888,8 @@ class PhiScan {
 
     files.sort((a, b) => (this.normalizePath(a) < this.normalizePath(b) ? -1 : 1));
     unscannable.sort((a, b) => (a.path < b.path ? -1 : 1));
-    return { files, unscannable };
+    unenumerable.sort((a, b) => (a.path < b.path ? -1 : 1));
+    return { files, unscannable, unenumerable };
   }
 
   /**
@@ -864,18 +907,45 @@ class PhiScan {
   // -------------------------------------------------------------------------
 
   /**
-   * `all` mode's enumeration: the walk, PLUS the in-scope index the union half reads.
+   * `all` mode's enumeration: the walk, PLUS the index the union half reads.
    *
-   * @returns {{ targets: import("./phi-scan.js").Target[], index: Map<string, import("./phi-scan.js").IndexEntry> }}
+   * THE TWO INDEX-ROUTE REFUSALS ARE RETURNED RATHER THAN THROWN, AND THAT IS A CHANGE (AC-15).
+   * They used to fire here, BEFORE the sweep, so an unmerged entry or a tracked link discarded every
+   * hit the walk was about to find and a consumer saw a refusal with no indication that PHI had
+   * already been found. The caller raises them after the walk sweep, printing the hits first. The
+   * refusal still wins the exit code and the clean line is still unreachable from there; what
+   * changes is that a finding already made is not thrown away. The cost is stated rather than
+   * hidden: a developer now waits out the walk before being told the index is unreadable at one
+   * path.
+   *
+   * @returns {{ targets: import("./phi-scan.js").Target[], index: Map<string, import("./phi-scan.js").IndexEntry>, indexRefusals: string[] }}
    */
   buildTargetsForAll() {
-    const { files, unscannable } = this.walkRoots();
+    const { files, unscannable, unenumerable } = this.walkRoots();
 
-    // One `git check-ignore` over both lists, so a link and a file get the same boundary.
+    // One `git check-ignore` over all three lists, so a link, a file and an unlistable directory get
+    // the same boundary.
     const ignored = this.gitIgnored([
       ...files.map((f) => this.normalizePath(f)),
       ...unscannable.map((u) => u.path),
+      ...unenumerable.map((u) => u.path),
     ]);
+
+    const blocked = unenumerable.filter(
+      (u) => !ignored.has(u.path) && !this.cfg.excludedPaths.has(u.path),
+    );
+    if (blocked.length > 0) {
+      // AC-10, the third root kind. Named one by one rather than listed under a count, because the
+      // remedy is per path and a developer re-running the gate once per directory learns to
+      // distrust it.
+      const named = blocked.map((u) => `${u.path} (${u.kind})`).join(", ");
+      throw new InvocationError(
+        `refusing the scan: could not enumerate ${named}. A directory the walk cannot list ` +
+          `contributes nothing while looking exactly like one that is empty, so the sweep would ` +
+          `cover less than its own configuration says. Make it readable, or drop it from the scan ` +
+          `roots.`,
+      );
+    }
 
     this.refuseUnscannable(
       unscannable.filter((u) => !ignored.has(u.path) && !this.cfg.excludedPaths.has(u.path)),
@@ -885,56 +955,79 @@ class PhiScan {
     );
 
     const listed = this.gitIndexEntries();
-    if (listed === null) {
+    if (listed.status !== "read") {
+      // AC-18: TWO STATES, TWO MESSAGES, because the remedies differ. "Run this inside a git
+      // repository with a readable index" is no help to somebody whose repository is fine and whose
+      // index is empty, and one sentence for both was measured sending a reader to the wrong one.
       throw new InvocationError(
-        "refusing the sweep: git could not name this repository's index, or named it empty, so the " +
-          "sweep would be the working-tree walk's word alone and could report clean over tracked " +
-          "bytes it never opened. Run it inside a git repository with a readable index.",
+        listed.status === "empty"
+          ? "refusing the sweep: the git index holds no entries, so every check the sweep makes " +
+              "against what git carries would pass vacuously and every path would look untracked. " +
+              "Stage and commit this repository's corpus, then re-run."
+          : "refusing the sweep: could not read this repository's git index, so the sweep would be " +
+              "the working-tree walk's word alone and could report clean over tracked bytes it " +
+              "never opened. Run it inside a git repository with a readable index.",
       );
     }
 
+    /** @type {string[]} */
+    const indexRefusals = [];
+
+    // THE INDEX ROUTE IS NOT FILTERED TO `scanRoots` (AC-12). `scanRoots` is the WALK's scope: it
+    // answers "what is on disk under the roots this repo declared". The index answers "what does
+    // this repository CARRY", which is not a question a root list is entitled to narrow. Measured on
+    // the first consumer: three real messages under an undeclared top-level directory were read by
+    // neither route, and a tracked link outside every root was reached by neither. So every path the
+    // index carries is considered here, and `--staged` is untouched by that: it keeps its own scope,
+    // which is what a COMMIT is blocked on.
+    //
     // Unmerged first, and under its OWN sentence: an unmerged path is not a link and not a gitlink,
     // and reporting it as one sends a developer looking for something that is not there.
-    this.refuseUnscannable(
+    const unmergedMessage = this.unscannableMessage(
       listed.unmerged
-        .filter((p) => this.isUnderScanRoot(p) && !this.cfg.excludedPaths.has(p))
+        .filter((p) => !this.cfg.excludedPaths.has(p))
         .map((p) => ({ path: p, kind: "no stage-0 blob" })),
       "An unmerged path has no single merged blob, so there is no one set of bytes git carries here " +
         "for the sweep to read, only the conflicting sides and, when there is one, their base.",
       "Resolve the conflict and stage the result, then re-run.",
       { one: "path is unmerged", many: "paths are unmerged" },
     );
+    if (unmergedMessage !== null) indexRefusals.push(unmergedMessage);
 
-    // The index's own non-blob entries, refused BEFORE anything is read so a developer is not made
-    // to wait out a whole sweep for it. `120000` is a symbolic link, whose blob is its TARGET PATH
-    // and not any content; `160000` is a gitlink, which carries a commit id and no bytes at this
-    // path at all.
-    this.refuseUnscannable(
+    // The index's own non-blob entries. `120000` is a symbolic link, whose blob is its TARGET PATH
+    // and not any content; `160000` is a gitlink, which carries another repository's commit id and
+    // no bytes at this path at all.
+    const nonBlobMessage = this.unscannableMessage(
       [...listed.entries]
         .filter(
-          ([p, e]) =>
-            this.isUnderScanRoot(p) &&
-            !this.cfg.regularBlobModes.has(e.mode) &&
-            !this.cfg.excludedPaths.has(p),
+          ([p, e]) => !this.cfg.regularBlobModes.has(e.mode) && !this.cfg.excludedPaths.has(p),
         )
         .map(([p, e]) => ({ path: p, kind: gitModeKind(e.mode) })),
-      "Git records no readable content at such a path, so scanning it would prove nothing about " +
-        "what it stands for.",
+      "Git records no readable content at such a path: a symbolic link's blob is its target path, " +
+        "and a gitlink is another repository's commit id, never bytes here.",
       "Untrack it, or replace it with a regular file.",
       // Its own noun: the offender is an INDEX RECORD, and a gitlink's working tree may not exist at
       // all, so "not a regular file" would send a developer to a path where there is nothing to see.
       { one: "index entry is not a regular blob", many: "index entries are not regular blobs" },
     );
+    if (nonBlobMessage !== null) indexRefusals.push(nonBlobMessage);
 
     const targets = files
       .map((abs) => ({ abs, rel: this.normalizePath(abs) }))
       .filter(({ rel }) => !ignored.has(rel) && !this.cfg.excludedPaths.has(rel))
       .map(({ abs, rel }) => ({ path: rel, read: () => readFileSync(abs) }));
-    return { targets, index: listed.entries };
+    return { targets, index: listed.entries, indexRefusals };
   }
 
   /**
-   * The in-scope tracked paths the union half is entitled to read.
+   * The tracked paths the union half is entitled to read: EVERY regular blob the index carries, not
+   * only the ones under a scan root (AC-12).
+   *
+   * `scanRoots` IS THE WALK'S SCOPE AND NOT THE INDEX'S. The walk answers "what is on disk under the
+   * roots this repo declared"; the index answers "what does this repository CARRY", and narrowing
+   * the second by the first was measured hiding three real messages under an undeclared top-level
+   * directory from BOTH routes. The two READ filters still apply, so the `.md` exemption and
+   * `excludedPaths` mean the same thing on both sweeping routes: one boundary, not two.
    *
    * IT IS COMPUTED BEFORE THE FIRST BYTE IS READ, AND THAT IS LOAD-BEARING. This set is part of what
    * `all` mode ENUMERATES, so both completeness tiers see it: a bypass naming a tracked-but-absent
@@ -946,12 +1039,7 @@ class PhiScan {
    */
   unionCandidatePaths(index) {
     return [...index]
-      .filter(
-        ([p, e]) =>
-          this.cfg.regularBlobModes.has(e.mode) &&
-          this.isUnderScanRoot(p) &&
-          this.cfg.isWalkReadable(p),
-      )
+      .filter(([p, e]) => this.cfg.regularBlobModes.has(e.mode) && this.cfg.isWalkReadable(p))
       .filter(([p]) => !this.cfg.excludedPaths.has(p))
       .map(([p]) => p);
   }
@@ -964,6 +1052,13 @@ class PhiScan {
    * from it was never opened, whatever the reason, so its blob is scanned; a path present with a
    * DIFFERENT id had a different copy read, so its blob is scanned too. That second case is the EOL
    * axis.
+   *
+   * THOSE TWO CASES CARRY DIFFERENT ORIGIN LABELS, AND THE REMEDY IS WHY (AC-14). `(git index)` is a
+   * path whose working-tree copy this run did not read at all: it is absent, occupied by a
+   * directory, or outside the walk's roots, so there is nothing on disk to open. `(git index; the
+   * working tree differs)` is a path whose disk copy WAS read and carries other bytes, so the file a
+   * developer opens is clean and RE-STAGING is part of the fix. One label for both hid that
+   * difference behind the same sentence.
    *
    * @param {Map<string, import("./phi-scan.js").IndexEntry>} index
    * @param {Map<string, string>} readOids
@@ -978,7 +1073,7 @@ class PhiScan {
       if (readOids.get(path) === entry.oid) continue;
       targets.push({
         path,
-        origin: "as git carries it",
+        origin: readOids.has(path) ? "git index; the working tree differs" : "git index",
         // SECURITY: array-form execFileSync, no shell. The object id is git's own output, and naming
         // the OBJECT rather than the path is the whole point: it cannot be redirected by whatever
         // the working tree currently holds. `maxBuffer` defaults to 1 MiB, so a larger tracked blob
@@ -1062,7 +1157,7 @@ class PhiScan {
     // record that does not parse REFUSES rather than being skipped: a silently shortened list is
     // exactly the shape this scan must never report clean over.
     const fields = listBuf.toString("utf8").split("\0");
-    /** @type {{ path: string, mode: string }[]} */
+    /** @type {{ path: string, mode: string, status: string }[]} */
     const staged = [];
     let i = 0;
     while (i < fields.length) {
@@ -1073,33 +1168,40 @@ class PhiScan {
       }
       const m = RAW_RECORD.exec(info);
       const mode = m?.[1];
+      const status = m?.[2];
       const path = fields[i + 1];
-      if (mode === undefined || path === undefined || path.length === 0) {
+      if (mode === undefined || status === undefined || path === undefined || path.length === 0) {
         throw new InvocationError(
           "could not read the output of `git diff --cached --raw -z`: unrecognized record. " +
             "Refusing rather than scanning a list that may be short.",
         );
       }
-      staged.push({ path, mode });
+      staged.push({ path, mode, status });
       i += 2;
     }
 
-    // THE REFUSAL KEYS ON THE ROOT HALF OF SCOPE, NOT ON THE READ FILTER. Running `isStagedReadable`
-    // first would let a link whose NAME the read filter drops fall out through a filter that exists
-    // to judge a file's BYTES, and this route would then disagree with the walk about the same entry.
-    this.refuseUnscannable(
-      staged
-        .filter(
-          (s) =>
-            this.isUnderScanRoot(s.path) &&
-            !this.cfg.regularBlobModes.has(s.mode) &&
-            !this.cfg.excludedPaths.has(s.path),
-        )
-        .map((s) => ({ path: s.path, kind: gitModeKind(s.mode) })),
-      "The index holds no file content for such an entry, so scanning it would prove nothing about " +
-        "what it refers to.",
-      "Unstage it, or replace it with a regular file.",
-    );
+    // THIS ROUTE'S REFUSALS KEY ON `isStagedReadable`, WHICH IS THE CALLER'S OWN SCOPE FOR IT
+    // (AC-16). They used to key on the ROOT half instead, and for a caller whose staged scope is
+    // narrower than its roots that REFUSED a commit the repo's own gate had always let through:
+    // measured on the first consumer, a staged `src/notes.txt` symbolic link is outside a
+    // `src/**.ts` staged scope and was refused at the refuse code where the repo's own scanner
+    // exited 0. What a commit is blocked on is a hook decision each repo takes for itself, and
+    // widening it from inside a shared engine takes that decision away.
+    //
+    // 🛑 THIS NARROWS WHAT THIS ROUTE REFUSES, AND THE COMPENSATING CONTROL IS NAMED RATHER THAN
+    // ASSUMED. A staged non-regular entry the caller's staged scope declines is no longer refused
+    // HERE. It is still refused by `all` mode twice over: the walk classifies it with
+    // `Dirent.isSymbolicLink()` when it sits under a scan root, and the index route refuses the
+    // tracked mode-120000 record wherever it sits, now that that route is not narrowed to the roots
+    // either. So the sweep a repository runs in CI still refuses it; the pre-commit hook no longer
+    // does. See `documentation/decisions/0003-the-phi-scan-engine-gap-settlements.md`.
+    //
+    // AN UNMERGED PATH IS NOT ONE OF THESE. Its destination mode is `000000`, which the mode rule
+    // would otherwise describe as "a git mode-000000 entry" beside a sentence about content git
+    // holds at the path, and both halves are false for a conflicted regular file.
+    const unmerged = staged.filter((s) => s.status === "U" || s.mode === "000000");
+    const stagedReadable = (/** @type {{ path: string, mode: string, status: string }} */ s) =>
+      this.cfg.isStagedReadable(s.path) && !this.cfg.excludedPaths.has(s.path);
 
     // THE CONTAINMENT IS ENFORCED, NOT ASSUMED, AND IT USED TO BE THE WORD "by construction".
     // `isStagedReadable` and `scanRoots` are two independent keys a repo fills in, and nothing
@@ -1133,8 +1235,31 @@ class PhiScan {
       },
     );
 
-    // Every remaining readable record is a regular blob under a scan root: anything non-regular was
-    // refused above, and anything outside the roots was refused just now.
+    // THE MISCONFIGURATION REFUSAL ABOVE COMES FIRST ON PURPOSE. Both it and the two below can fire
+    // over the same entry, and a developer whose `isStagedReadable` admits a path no root covers
+    // needs to hear that rather than a sentence about this one entry's kind.
+    this.refuseUnscannable(
+      unmerged.filter(stagedReadable).map((s) => ({ path: s.path, kind: "no stage-0 blob" })),
+      "An unmerged path has no stage-0 blob, so the index holds no single set of bytes a commit " +
+        "would carry here, only the conflicting sides and, when there is one, their base.",
+      "Resolve the conflict and stage the result, then re-run.",
+      { one: "staged path is unmerged", many: "staged paths are unmerged" },
+    );
+
+    this.refuseUnscannable(
+      staged
+        .filter(
+          (s) =>
+            stagedReadable(s) && !unmerged.includes(s) && !this.cfg.regularBlobModes.has(s.mode),
+        )
+        .map((s) => ({ path: s.path, kind: gitModeKind(s.mode) })),
+      "The index holds no file content for such an entry, so scanning it would prove nothing about " +
+        "what it refers to.",
+      "Unstage it, or replace it with a regular file.",
+    );
+
+    // Every remaining readable record is a regular blob: anything non-regular was refused above,
+    // anything unmerged was refused above it, and anything outside the roots before that.
     return staged
       .filter((s) => this.cfg.isStagedReadable(s.path) && !this.cfg.excludedPaths.has(s.path))
       .map((s) => s.path)
@@ -1225,18 +1350,34 @@ class PhiScan {
    * @param {string} remedy
    * @param {{ one: string, many: string }} [noun]
    */
-  refuseUnscannable(
+  refuseUnscannable(entries, why, remedy, noun) {
+    const message = this.unscannableMessage(entries, why, remedy, noun);
+    if (message !== null) throw new InvocationError(message);
+  }
+
+  /**
+   * The refusal message for a group of unscannable entries, or `null` when the group is empty.
+   *
+   * SPLIT FROM THE THROW so a refusal can be DEFERRED rather than raised where it is computed. The
+   * index route's two refusals are built before the sweep and raised after it, so the hits the walk
+   * found are printed first; every other caller throws immediately, as before.
+   *
+   * @param {import("./phi-scan.js").Unscannable[]} entries
+   * @param {string} why
+   * @param {string} remedy
+   * @param {{ one: string, many: string }} [noun]
+   * @returns {string | null}
+   */
+  unscannableMessage(
     entries,
     why,
     remedy,
     noun = { one: "entry is not a regular file", many: "entries are not regular files" },
   ) {
-    if (entries.length === 0) return;
+    if (entries.length === 0) return null;
     const lines = entries.map((u) => `  - ${u.path} (${u.kind})`).join("\n");
     const phrase = entries.length === 1 ? noun.one : noun.many;
-    throw new InvocationError(
-      `refusing the scan: ${String(entries.length)} ${phrase}:\n${lines}\n${why} ${remedy}`,
-    );
+    return `refusing the scan: ${String(entries.length)} ${phrase}:\n${lines}\n${why} ${remedy}`;
   }
 
   // -------------------------------------------------------------------------
@@ -1323,6 +1464,9 @@ class PhiScan {
     // Scope is decided on the target's own path; only the REPORTED locus carries the origin label,
     // so a labelled target is never a differently-scoped one.
     const locus = target.origin === undefined ? target.path : `${target.path} (${target.origin})`;
+    // Recorded rather than re-derived from the locus string: the footer counts hits in bytes git
+    // carries, and reading that back off the text of a path is a parse of the engine's own prose.
+    if (target.origin !== undefined) this.indexLoci.add(locus);
 
     this.scanCommonShapes(locus, text, allow, hits);
 
@@ -1400,6 +1544,18 @@ class PhiScan {
       for (const h of group) {
         process.stderr.write(`  segment=${h.segment} (${h.reason})\n`);
       }
+    }
+    // THE PER-ORIGIN FOOTER, AND IT IS A REMEDY RATHER THAN A STATISTIC (AC-14). A hit in bytes git
+    // carries is not answered by editing the file on disk: the identifier is in the index, so
+    // re-staging (or removing the blob) is part of the fix, and a reader counting `HIT:` lines has
+    // no way to tell how many of them are in that state.
+    const fromIndex = hits.filter((h) => this.indexLoci.has(h.path)).length;
+    if (fromIndex > 0) {
+      process.stderr.write(
+        `[phi-scan] ${String(fromIndex)} of those are in bytes git carries at that path, not in ` +
+          `the file on disk: fix the content and RE-STAGE it, or the next sweep reports the same ` +
+          `hit over a working tree that reads clean.\n`,
+      );
     }
     process.stderr.write(
       `[phi-scan] ${String(hits.length)} hit(s) across ${String(byPath.size)} file(s). ` +
@@ -1482,6 +1638,9 @@ class PhiScan {
     /** `all` mode's index, read once: it is the union half's whole enumeration. */
     /** @type {Map<string, import("./phi-scan.js").IndexEntry> | null} */
     let index = null;
+    /** The index route's refusals, raised AFTER the walk sweep so no hit is swallowed. */
+    /** @type {string[]} */
+    let indexRefusals = [];
     try {
       // `loadAllowList()` IS INSIDE THIS HANDLER, AND THAT PLACEMENT IS THE POINT. Outside it, a
       // missing allow-list escaped as an uncaught throw and took node's exit 1, which this contract
@@ -1493,6 +1652,7 @@ class PhiScan {
         const built = this.buildTargetsForAll();
         targets = built.targets;
         index = built.index;
+        indexRefusals = built.indexRefusals;
       }
     } catch (err) {
       if (err instanceof InvocationError) {
@@ -1507,10 +1667,17 @@ class PhiScan {
     // does not fire on them. In `all` mode it is the walk's targets UNION the in-scope tracked paths.
     const enumerated = new Set(targets.map((t) => t.path));
     if (index !== null) for (const p of this.unionCandidatePaths(index)) enumerated.add(p);
+    // IN `all` MODE A BYPASS IS ITSELF AN ENUMERATION (AC-17). The run's declared scope is the whole
+    // corpus, so naming a path in `--allow-fixture` says "this run would have read that", and the
+    // honest tier for withdrawing it is the completeness rule rather than the unmatched one. It
+    // holds whatever the sweep happens to reach: a path the walk never listed and the index never
+    // carried is still refused HERE, naming it, instead of being reported as subtracting nothing.
+    if (args.mode === "all") for (const p of allowed) enumerated.add(p);
 
     // TIER: A BYPASS MUST NAME A PATH THIS RUN ENUMERATES. Otherwise it subtracts nothing, and a
     // flag that subtracts nothing lets a developer believe a file was acknowledged when the run
-    // never had it in scope. Compared by DIFFERENCE, and every offender is named.
+    // never had it in scope. Compared by DIFFERENCE, and every offender is named. In `all` mode the
+    // line above makes this tier unreachable, deliberately: there it is the completeness rule's job.
     //
     // THIS TIER FIRES BEFORE ANY TARGET IS READ, so no hit exists for it to swallow. That is a
     // narrower guarantee than the unread tier's and is stated as such rather than generalised.
@@ -1585,6 +1752,18 @@ class PhiScan {
     const walkFailure = sweep(targets);
     if (walkFailure !== null) return walkFailure;
 
+    // THE INDEX ROUTE'S OWN REFUSALS, RAISED HERE RATHER THAN WHERE THEY ARE COMPUTED (AC-15). An
+    // unmerged entry or a tracked link anywhere in the index refuses the whole sweep, and the walk
+    // may have found PHI under a root that yielded perfectly well. Refusing at enumeration time
+    // discarded those findings: measured, exit 2 with the refusal alone over a repository whose walk
+    // had five hits in hand. The exit code is still the refusal's, because an incomplete sweep is
+    // not a verdict whatever it found.
+    if (indexRefusals.length > 0) {
+      this.reportHits(hits);
+      for (const message of indexRefusals) process.stderr.write(`[phi-scan] ${message}\n`);
+      return EXIT_REFUSE;
+    }
+
     // THE UNION. It runs AFTER the walk, not instead of it, and only over the paths the walk did not
     // already read verbatim.
     if (index !== null) {
@@ -1629,8 +1808,8 @@ class PhiScan {
 
     if (skipped.size > 0) {
       process.stderr.write(
-        `[phi-scan] skipped ${String(skipped.size)} untracked target(s) the walk listed and that ` +
-          `were gone by read time:\n${[...skipped].map((p) => `  - ${p}`).join("\n")}\n` +
+        `[phi-scan] skipped ${String(skipped.size)} untracked file(s) gone between enumeration ` +
+          `and read:\n${[...skipped].map((p) => `  - ${p}`).join("\n")}\n` +
           `Nothing this repository carries was left unread: git has no bytes at such a path. ` +
           `Re-run the scan if the file was meant to stay.\n`,
       );
@@ -1660,10 +1839,12 @@ class PhiScan {
 
     if (starved.length > 0) {
       process.stderr.write(
-        `[phi-scan] refusing the sweep: ${String(starved.length)} scan root(s) yielded no file ` +
-          `that was read:\n${starved.map((r) => `  - ${r}`).join("\n")}\n` +
+        `[phi-scan] refusing the sweep: the all-mode sweep observed no files under ` +
+          `${String(starved.length)} of its ${String(this.cfg.scanRoots.length)} scan roots ` +
+          `(${starved.join(", ")}).\n` +
           `A root that contributes nothing leaves this sweep covering less than its own ` +
-          `configuration says, and no other tier can see that. Point the root at a directory or ` +
+          `configuration says, and no other tier can see that: the index route reads what git ` +
+          `carries and cannot vouch for a directory on disk. Point the root at a directory or ` +
           `a file this run can read, widen the read filter that drops its contents, or drop the ` +
           `root.\n`,
       );
@@ -1671,13 +1852,28 @@ class PhiScan {
     }
 
     if (hits.length > 0) return EXIT_HITS;
-    process.stdout.write("[phi-scan] OK: no hits\n");
+    // THE CLEAN LINE CARRIES THE SUBTRACTION (AC-13). A reader watching stdout alone must not be
+    // able to take an unqualified OK from a sweep that skipped a file: the skip is on stderr, and
+    // stderr is where a CI log buries it. The unqualified line is byte-for-byte what it was when
+    // nothing was skipped, so a consumer matching it exactly still matches.
+    process.stdout.write(
+      skipped.size > 0
+        ? `[phi-scan] OK: no hits (${String(skipped.size)} untracked file(s) skipped, see stderr)\n`
+        : "[phi-scan] OK: no hits\n",
+    );
     return EXIT_CLEAN;
   }
 }
 
-/** `:<srcmode> <dstmode> <srcsha> <dstsha> <status>`: the info half of a `--raw -z` record. */
-const RAW_RECORD = /^:(?:\d{6}) (\d{6}) [0-9a-f]+ [0-9a-f]+ [A-Z]\d*$/;
+/**
+ * `:<srcmode> <dstmode> <srcsha> <dstsha> <status>`: the info half of a `--raw -z` record.
+ *
+ * THE STATUS LETTER IS CAPTURED, not merely matched, because `U` (unmerged) is the one status whose
+ * refusal has to say something different: its destination mode is `000000`, and calling that "a git
+ * mode-000000 entry" beside a sentence about content git holds at the path is false twice over for a
+ * conflicted regular file.
+ */
+const RAW_RECORD = /^:(?:\d{6}) (\d{6}) [0-9a-f]+ [0-9a-f]+ ([A-Z])\d*$/;
 
 /**
  * `lstatSync` that reports a missing path as `null` rather than throwing. LSTAT, not stat, so a

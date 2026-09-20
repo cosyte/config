@@ -16,14 +16,73 @@ pre-alpha rule. See
 
 ### Changed
 
-- **The package leaves the pre-alpha version ladder for the `0.1.x` line.** No change to
-  `isCliEntrypoint` and no change to the shared phi-scan engine: both subpaths export exactly what
-  `0.0.2` exports, and the PHI detection rules are untouched. What moves is the version policy this
-  package states about itself, and the reasoning is in
+- **The package leaves the pre-alpha version ladder for the `0.1.x` line.** `isCliEntrypoint`
+  exports exactly what `0.0.2` exports. The phi-scan engine does NOT: see the entries below, which
+  are what this release actually carries on that subpath. The version policy itself is unchanged in
+  substance and the reasoning is in
   [ADR 0002](../../documentation/decisions/0002-the-0-1-0-version-line.md). A consumer pinned at
-  `^0.0.2` does not resolve this release and has to widen its range once. The parser template still
-  names `@cosyte/script-utils@^0.0.2`, which this release does not widen; that is recorded as break
+  `^0.0.2` does not resolve this release and has to widen its range once, which is recorded as break
   candidate BC-2 in `documentation/release-0.1.0-audit.md`.
+- **`phi-scan`: `all` mode refuses unless EVERY scan root yielded a file that was read**, naming the
+  starved roots. The completeness rule asks whether every target was read; nothing asked whether a
+  root produced a target at all, and one productive root made the whole run look productive.
+  Measured before the change: a caller supplying an `isWalkReadable` that admits nothing read no
+  file on either sweeping route and printed `OK: no hits` at the CLEAN code over a tracked file
+  carrying a live dashed identifier.
+- **`phi-scan`: an UNTRACKED file removed mid-run is reported SKIPPED rather than refusing.** A
+  target the walk listed and that was gone by read time refused unconditionally, which made an
+  ordinary mid-run deletion look like an unaccounted-for file. Git carries no bytes at such a path,
+  so nothing the repository holds went unread. The exception is bounded: a tracked file, a
+  non-`ENOENT` failure, a path named on argv and a path that came BACK before the run ended all
+  still refuse.
+- **`phi-scan`: a finding names a position and stops there.** A hit report prints the locus, the
+  locator inside it and the rule that fired, and no longer the token that matched:
+  `segment=(ssn) (dashed SSN pattern)` where it used to carry the identifier as well. stderr is a CI
+  log, and a diagnostic ABOUT a PHI leak that quotes the leak is a second copy of it somewhere with
+  no retention policy. `Hit.value` is now optional, a hit the engine reports never carries one, and
+  **a gate test asserting that the matched identifier reaches stderr asserts on the locator and the
+  rule instead.**
+- **`phi-scan`: `all` mode reads the bytes git carries at EVERY tracked path.** `scanRoots` bounds
+  the WALK, which answers what is on disk under the roots you declared; the index answers what your
+  repository CARRIES, and a root list was narrowing that too. Measured on the first consumer to
+  adopt this engine: three real messages under an undeclared top-level directory were read by
+  neither route, and a tracked symbolic link outside every root was reached by neither. **A
+  repository whose roots are narrower than itself has more of it read after this release.** The two
+  READ filters are unchanged and still apply on both sweeping routes, so a tracked `.md` and an
+  `excludedPaths` entry mean what they meant. `--staged` is untouched.
+- **`phi-scan`: the `--staged` route refuses what `isStagedReadable` admits, and nothing else.** Its
+  non-regular and unmerged refusals used to fire for any path under a scan root, so a repository
+  whose staged scope is narrower than its roots had commits blocked that its own gate had always let
+  through: what a commit is blocked on is a hook decision each repository takes for itself. **This
+  refuses LESS at the pre-commit hook.** A staged entry your staged scope declines is still refused
+  by `all` mode on both of its routes, so your own sweep catches it; widen `isStagedReadable` if you
+  want the hook to refuse it too. Recorded with its compensating control as N1 in
+  [ADR 0003](../../documentation/decisions/0003-the-phi-scan-engine-gap-settlements.md).
+- **`phi-scan`: a hit in the bytes git carries says WHICH kind it is.** The single
+  `(as git carries it)` label becomes `(git index)` for a path whose working-tree copy the run never
+  read and `(git index; the working tree differs)` for one whose disk copy carries other bytes, with
+  a footer counting how many reported hits are in those bytes. The second kind reads clean in the
+  file a developer opens, so re-staging is part of its remedy and one label hid that. **A gate test
+  asserting the old label asserts one of the two new ones.**
+- **`phi-scan`: an index-route refusal no longer discards the hits already in hand.** An unmerged
+  index entry or a tracked link refused the whole sweep before anything was read, so a consumer saw
+  a refusal with no indication that PHI had already been found. The walk sweeps first, prints what
+  it found, and the refusal follows at the same code.
+- **`phi-scan`: a clean run that skipped a file says so on stdout**, as
+  `OK: no hits (N untracked file(s) skipped, see stderr)`. With nothing skipped the line is
+  byte-identical to what it was.
+- **`phi-scan`: a scan root has one settled outcome per KIND.** A regular file is scanned as one
+  target, a symbolic link is refused rather than followed, and a directory that cannot be listed is
+  refused at your `refuse` code naming the path: that one used to escape `readdirSync` uncaught and
+  take node's own exit 1, the code this contract reserves for HITS FOUND. The kind stays DERIVED
+  from the filesystem rather than declared, and what that gives up is recorded as N2 in ADR 0003.
+- **`phi-scan`: two refusals reworded because their remedies differ.** "git could not read this
+  repository's git index" and "the git index holds no entries" were one sentence. The starved-root
+  refusal says how many of how many roots went unobserved and names them.
+- **`phi-scan`: which tier refuses `--allow-fixture` follows the MODE.** A bypass beside a positional
+  path names something the run does not enumerate; a lone bypass declares a path an `all`-mode run
+  would have read and is refused by the completeness rule. Both name the path, and neither reaches a
+  clean run, which is unchanged.
 - The `README.md` in the tarball now opens its `## Status` section on the settled-line sentence
   instead of the pre-alpha ladder one, so the policy text a consumer reads agrees with the version
   printed beside it. `scripts/readme-check.mjs` grades that sentence against the release line the

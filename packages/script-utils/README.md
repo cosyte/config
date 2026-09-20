@@ -362,7 +362,20 @@ because without it the sweep is the working-tree walk's word alone. A freshly sc
 file that was read, and names it. A root that is missing, unreadable, or whose every file your read
 filter drops used to leave the sweep quietly narrower than its own configuration said, and one
 productive root made the whole run look productive. If you narrow `scanRoots`, this is the tier that
-tells you what the narrowing stopped reading.
+tells you what the narrowing stopped reading. A root naming a regular file is scanned as one target;
+one naming a symbolic link is refused rather than followed; one naming a directory that cannot be
+listed is refused, naming the path.
+
+**`scanRoots` bounds the WALK, not the index.** `all` mode reads the bytes git carries at every
+tracked path, whatever your roots say, because a root list answers what is on disk under it and the
+index answers what your repository carries. A hit found there is labelled `(git index)` or
+`(git index; the working tree differs)`, with a footer counting them: the second means the file on
+disk reads clean, so re-staging is part of the remedy.
+
+**`isStagedReadable` decides what `--staged` REFUSES, not only what it reads.** A staged entry that
+is not a regular blob, or that has no stage-0 blob, is refused when this predicate admits it and left
+alone when it does not, because what a commit is blocked on is your repository's decision. `all` mode
+still refuses such an entry on both of its routes.
 
 ### `runInternalRefsScan(config)`
 
