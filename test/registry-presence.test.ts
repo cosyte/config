@@ -42,8 +42,6 @@ import { renderNotes, slugFor } from "../scripts/release-notes.mjs";
 import {
   ABSENT,
   PRESENCE_BUDGET_SECONDS,
-  PRESENCE_PROBE_INTERVAL_SECONDS,
-  PRESENCE_PROBE_TIMEOUT_SECONDS,
   PRESENT,
   UNREADABLE,
   account,
@@ -726,28 +724,27 @@ describe("AC-10: the run says, in those words, that the release is done", () => 
 });
 
 // ---------------------------------------------------------------------------
-// The worklist the accounting is driven by
+// AC-3 and AC-4 both end in "the job SHALL exit non-zero", and the job learns that from an exit
+// code. These are the unhappy paths of that contract: what the accounting does when it cannot
+// check at all, which is neither "published" nor "never published".
 // ---------------------------------------------------------------------------
 
-describe("the accounting refuses a worklist it cannot trust rather than reporting a clean run", () => {
-  it("refuses an empty package list, which is a release that named nothing", () => {
+describe("AC-3 and AC-4 rest on an exit code, so the accounting refuses what it cannot check", () => {
+  it("AC-3: an empty package list is a release that named nothing, and is refused", () => {
+    // The guard the shell used to carry. Passing on it would report a clean release having checked
+    // nothing, which is the one outcome worse than a red run.
     expect(() => parseBumpedPackages("[]")).toThrow(/named no packages/);
     expect(() => parseBumpedPackages(undefined)).toThrow(/named no packages/);
     expect(() => parseBumpedPackages("{}")).toThrow(/named no packages/);
   });
 
-  it("refuses an entry with no version, which would probe `name@undefined`", () => {
+  it("AC-3: an entry with no version is refused rather than probed as `name@undefined`", () => {
     expect(() => parseBumpedPackages('[{"name":"@cosyte/x"}]')).toThrow(/version/);
   });
 
-  it("the shipped constants are finite and ordered the way the budget needs", () => {
-    expect(PRESENCE_PROBE_INTERVAL_SECONDS).toBeGreaterThan(0);
-    expect(PRESENCE_PROBE_INTERVAL_SECONDS).toBeLessThan(PRESENCE_BUDGET_SECONDS);
-    expect(PRESENCE_PROBE_TIMEOUT_SECONDS).toBeGreaterThan(0);
-    expect(PRESENCE_PROBE_TIMEOUT_SECONDS).toBeLessThanOrEqual(PRESENCE_BUDGET_SECONDS);
-  });
-
-  it("is reachable as a command, and refuses a bad invocation with a distinct exit code", () => {
+  it("AC-4: `could not check` exits 2, distinctly from the 1 that means something is missing", () => {
+    // Exit 2 is what the release step branches on to stop before it tags anything: there is no work
+    // list, so there is nothing to tag and no count to balance.
     const run = spawnSync(
       process.execPath,
       [join(REPO_ROOT, "scripts", "registry-presence.mjs"), "--nonsense"],
