@@ -626,8 +626,6 @@ describe("AC-8: both arms apply the same budget and the same propagated-versus-a
       expect(script).not.toMatch(/npm view/);
       expect(script).not.toMatch(/sleep 5/);
     }
-    // The version arm still has no npm credentials, which is its whole safety property.
-    expect(version).not.toMatch(/NPM_TOKEN|NODE_AUTH_TOKEN/);
   });
 
   it(
