@@ -174,9 +174,32 @@ green, and the version arm opens a PR on the next run.
 ### (c) A publish partially succeeds, leaving bumped packages unpublished
 
 **Symptom.** The `publish` job reds with `Bumped but never published`, naming the packages that are
-missing from the registry, or with `Release accounting does not balance`. **Or** the `version` job
-reds with `Bumped but never published (version arm)`, which is the same state reached by a different
-route and has its own terminal action below.
+missing from the registry and how many of the bumped total they are, or with
+`Release accounting does not balance`. **Or** the `version` job reds with
+`Bumped but never published (version arm)`, which is the same state reached by a different route and
+has its own terminal action below.
+
+**What is not this failure state.** Two things read like it and are not, and treating either as a
+failed publish is how a completed release gets re-run.
+
+- **A propagation wait is not a failure.** A version the registry has just accepted can go on being
+  reported as absent for minutes: on run 35512528046 the slowest of the eight packages took 242.594
+  seconds from the start of the publishing step, which is measured package by package in
+  [`documentation/registry-propagation-evidence.md`](documentation/registry-propagation-evidence.md).
+  The accounting waits that out, on a budget derived from that measurement, rather than reading a
+  slow registry as a failed publish. When it waited, the log carries a line opening
+  `Propagation wait:` and naming the package, the version and the elapsed seconds to first success.
+  That line is a green step doing its job and there is nothing to do about it. If waits start landing
+  near the budget, re-measure into that document and move the budget in
+  `scripts/registry-presence.mjs` from the new maximum; do not move it in either direction on a
+  hunch.
+- **`Registry could not be read` is a different failure.** No probe got an answer at all: a transport
+  failure, a DNS failure, an authentication failure, a 5xx, or no reply. Nothing in it says those
+  packages are missing, so looking for them on npm is the wrong first move. Check the registry's
+  status and the runner's network access, then re-run the job; the accounting reads the registry
+  rather than the run's own output, so a re-run completes whatever is still owed.
+  `Release accounting could not run` is a third state again, and the narrowest: the accounting
+  refused its own inputs, so nothing was checked, tagged or released.
 
 **Why the job can tell you this at all.** The tag-and-release step is driven by **what the version
 commit bumped**, not by what a given run published, and it asks the **registry** whether each package

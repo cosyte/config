@@ -377,6 +377,44 @@ no package, so entries here are **dated** rather than versioned.
 
 ### Fixed
 
+- **The release workflow reded a release that had in fact completed, because its registry-presence
+  check was shorter than npm's propagation delay** (publish run `35512528046`). The check gave a
+  just-published version three probes and two five second waits, so about ten seconds. On that run
+  all eight packages published and the registry recorded `@cosyte/test-utils@0.1.0` **73.594 seconds
+  after the check had already given up**, so the run failed with
+  `Bumped but never published: @cosyte/test-utils@0.1.0` and clearing it cost a second approval on
+  the protected `release` environment. This entry is repo-level, bumps no package and publishes
+  nothing, so it carries **no changeset**, which is the home `RELEASING.md` prescribes for a note
+  like this.
+  - **`documentation/registry-propagation-evidence.md`** is the measurement the new budget is
+    derived from: the reference run and the attempt each reading came from, that attempt's
+    publishing-step and presence-step windows, and one row per package published, each with the
+    registry's own acceptance instant and the resulting delay as a lower and an upper bound. The
+    bounds are intervals rather than points because the publishing step does not record when inside
+    its window each package went up. The maximum upper bound is **242.594 seconds**.
+  - **`scripts/registry-presence.mjs`** now owns the question, at a budget of **300 seconds**, the
+    smallest whole minute at or above that maximum. It replaces one copy of inline shell in each arm
+    of `release.yml`, so the gated `publish` job and the ungated `version` job cannot drift into
+    tolerating different things, and a test can drive the whole accounting against a registry it
+    starts itself rather than against the public one.
+  - **Three states where there were two.** The registry answering that a version does not exist
+    still reds as `Bumped but never published`, unchanged. A registry that never answered at all
+    now reds separately as `Registry could not be read`, because a transport failure, a 5xx or an
+    authentication failure is not evidence that a package is missing and sends a reader to the wrong
+    place. A wait the budget absorbed is named in the log with the package, the version and the
+    elapsed seconds, so a slow run and an instant one are no longer the same silent green step.
+  - **Nothing was weakened.** The predicate, the failing outcome for a package that genuinely never
+    published, the registry-only decision that makes a re-run self-healing, tag and release
+    creation, the `expected` versus `accounted` balance assertion, the `!cancelled()` conditions and
+    the `version` arm's deliberate absence of npm credentials are all as they were. One probe is now
+    bounded too, which is what makes the budget a bound at all: npm's own fetch timeout is five
+    minutes, so a registry that accepts a connection and never answers would otherwise hold a probe
+    far past the budget.
+  - **`test/registry-presence.test.ts`** grades it against a fixture registry on the loopback
+    interface answered by the real `npm view`: a version that 404s and then appears is the race
+    reproduced rather than described. The end-to-end cases run the `run:` block sliced out of
+    `.github/workflows/release.yml`, so a change to the shipped step changes what they grade.
+
 - **The attw gate was SILENTLY blind to the one form of `license` that names a file**
   (`CONFIG-SCAFFOLD-RESIDUALS`). `license` names a file in exactly one form, npm's own
   `SEE LICEN[CS]E IN <filename>`, whose remainder is a file inside the package. The string
