@@ -314,7 +314,7 @@ paths, and the `all`-mode sweep); reading the allow-list and the override log; t
 the union of the working-tree walk with the bytes git carries at every index path, deduplicated **by
 content** under git's own `blob <len>\0` framing; the completeness rule (a target the run enumerated
 and never read refuses, naming the paths); the per-root observation rule (`all` mode refuses unless
-every `scanRoots` entry yielded a file that was read, naming the starved roots); every refusal; and a
+every `scanRoots` entry yielded a file the WALK read, naming the starved roots); every refusal; and a
 cross-cutting detection floor that finds a dashed SSN shape and an email at an undeclared domain over
 every file, always.
 
@@ -359,12 +359,13 @@ because without it the sweep is the working-tree walk's word alone. A freshly sc
 `git init` and commit before an `all`-mode run means anything.
 
 **Every scan root has to produce something.** `all` mode refuses when a `scanRoots` entry yielded no
-file that was read, and names it. A root that is missing, unreadable, or whose every file your read
-filter drops used to leave the sweep quietly narrower than its own configuration said, and one
-productive root made the whole run look productive. If you narrow `scanRoots`, this is the tier that
-tells you what the narrowing stopped reading. A root naming a regular file is scanned as one target;
-one naming a symbolic link is refused rather than followed; one naming a directory that cannot be
-listed is refused, naming the path.
+file the walk read, and names it, even when git tracks files under it: those are still read from the
+index, but what git carries cannot vouch for a directory on disk. A root that is missing, unreadable,
+or whose every file your read filter drops used to leave the sweep quietly narrower than its own
+configuration said, and one productive root made the whole run look productive. If you narrow
+`scanRoots`, this is the tier that tells you what the narrowing stopped reading. A root naming a
+regular file is scanned as one target; one naming a symbolic link is refused rather than followed;
+one naming a directory that cannot be listed is refused, naming the path.
 
 **`scanRoots` bounds the WALK, not the index.** `all` mode reads the bytes git carries at every
 tracked path, whatever your roots say, because a root list answers what is on disk under it and the

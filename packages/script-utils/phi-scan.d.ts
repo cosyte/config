@@ -159,13 +159,18 @@ export interface PhiScanConfig {
    * this contract reserves for HITS FOUND. A MISSING root is skipped by the WALK, which is unchanged
    * from the copied scanners, and is then caught by the rule below.
    *
-   * 🛑 EVERY ROOT MUST YIELD AT LEAST ONE FILE THAT WAS ACTUALLY READ, OR `all` MODE REFUSES AND
-   * NAMES THE STARVED ROOTS. That is what closes the class the paragraph above used to end with:
-   * a root that contributes nothing WITHOUT SAYING SO. All three of the known members are in it - a
-   * missing root, an UNREADABLE root (reported the same way a missing one is), and a root whose
-   * every file the read filter drops, which is what a `.md` file root does under the default
+   * 🛑 EVERY ROOT MUST YIELD AT LEAST ONE FILE THE WALK READ, OR `all` MODE REFUSES AND NAMES THE
+   * STARVED ROOTS. That is what closes the class the paragraph above used to end with: a root that
+   * contributes nothing WITHOUT SAYING SO. All three of the known members are in it - a missing
+   * root, an UNREADABLE root (reported the same way a missing one is), and a root whose every file
+   * the read filter drops, which is what a `.md` file root does under the default
    * `isWalkReadable`. A root is a scope decision, and a scope decision that silently selected
    * nothing is the sweep reporting on a corpus it never had.
+   *
+   * THE INDEX HALF NEVER CREDITS A ROOT. A root that is missing or empty on disk is starved even
+   * when git tracks files under it: those files are still read from the bytes git carries, and any
+   * hit in them is reported before the refusal, but what git carries cannot vouch for a directory
+   * on disk.
    */
   scanRoots: readonly string[];
 

@@ -1287,14 +1287,16 @@ class PhiScan {
   }
 
   /**
-   * Did this root yield at least one file whose bytes were ACTUALLY READ?
+   * Did this root yield at least one file the WALK actually read?
    *
-   * IT IS ASKED OF `read`, WHICH IS EVIDENCE OF OBSERVATION RATHER THAN A PLAN TO OBSERVE, and it
-   * is asked per root rather than of the union, because the union is exactly what hides a starved
-   * root: one productive root makes the whole sweep look productive.
+   * IT IS ASKED OF THE WALK'S READS, WHICH ARE EVIDENCE OF OBSERVATION RATHER THAN A PLAN TO
+   * OBSERVE, and never of the index union's: the union reads the bytes git carries at a tracked
+   * path, and that cannot vouch for a directory on disk. It is asked per root rather than of the
+   * whole sweep, because the whole sweep is exactly what hides a starved root: one productive root
+   * makes the whole sweep look productive.
    *
    * @param {string} root A normalised scan root.
-   * @param {Set<string>} read The repo-relative paths this run opened.
+   * @param {Set<string>} read The repo-relative paths the walk opened.
    * @returns {boolean}
    */
   anyReadUnder(root, read) {
@@ -1751,6 +1753,11 @@ class PhiScan {
 
     const walkFailure = sweep(targets);
     if (walkFailure !== null) return walkFailure;
+    // WHAT THE WALK READ, FROZEN BEFORE THE UNION ADDS TO `read`. The per-root observation rule is
+    // answered from this and nothing else: the union reads what git carries at a tracked path, which
+    // is not evidence that anything under a root exists on disk. `read` itself keeps both halves,
+    // because the completeness rule needs every read the run took.
+    const walkRead = new Set(read);
 
     // THE INDEX ROUTE'S OWN REFUSALS, RAISED HERE RATHER THAN WHERE THEY ARE COMPUTED (AC-15). An
     // unmerged entry or a tracked link anywhere in the index refuses the whole sweep, and the walk
@@ -1799,9 +1806,10 @@ class PhiScan {
     // target was read; it cannot ask whether a root produced a target in the first place, and a
     // root that produces none is the silently-narrowed sweep: a typo, a directory that moved, a
     // root whose every file the read filter drops. One productive root makes the whole run look
-    // productive, so the question is asked per root and answered from `read`.
+    // productive, so the question is asked per root and answered from `walkRead`: a root git
+    // tracks files under and that holds nothing on disk is starved, whatever the union read there.
     const starved =
-      index === null ? [] : this.cfg.scanRoots.filter((root) => !this.anyReadUnder(root, read));
+      index === null ? [] : this.cfg.scanRoots.filter((root) => !this.anyReadUnder(root, walkRead));
 
     // Hits FIRST, so nothing below can swallow one.
     this.reportHits(hits);

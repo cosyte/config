@@ -12,6 +12,20 @@ pre-alpha rule. See
 
 ## [Unreleased]
 
+## [0.1.1] - Unreleased
+
+### Fixed
+
+- **`phi-scan`: the per-root observation rule is answered from the WALK's reads only.** It was
+  answered from every read the run took, including the index-union reads of the bytes git carries,
+  so a scan root that was missing or empty on disk was credited whenever git tracked a file under
+  it. In a real repository every root holds tracked files, so the rule never fired for the state it
+  exists to catch. Measured before the change: two repositories with `src` emptied on disk, differing
+  only in whether `src/index.ts` was tracked, exited at the refuse code and at the clean code with
+  `OK: no hits`. **Such a root now refuses at the `refuse` code, naming it.** Those tracked files are
+  still read from the bytes git carries and a hit in them is printed before the refusal; the
+  completeness rule still counts every read, and a root the walk reads is not refused.
+
 ## [0.1.0] - Unreleased
 
 ### Changed
