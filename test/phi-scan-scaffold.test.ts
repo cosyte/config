@@ -413,8 +413,9 @@ describe("controls: the suite is exercising the emitted scanner, and it can stil
       "const unmatched = [...allowed].filter((p) => !enumerated.has(p));",
       "const unread = [...enumerated].filter((p) => !read.has(p) && !skipped.has(p));",
       // THE PER-ROOT OBSERVATION RULE and the ENUMERATION TOCTOU WINDOW: a root that produced no
-      // WALK read leaves the sweep narrower than its own configuration says, and a vanished target is
-      // only ever skipped when it was untracked, in `all` mode, and still absent at the end.
+      // WALK read leaves the sweep narrower than its own configuration says, and the index union
+      // never credits one (AC-1); a vanished target is only ever skipped when it was untracked, in
+      // `all` mode, and still absent at the end.
       "this.cfg.scanRoots.filter((root) => !this.anyReadUnder(root, walkRead))",
       "if (this.isVanishedUntracked(err, t, index)) {",
       // THE UNION. The sweep reads the bytes git carries, keyed on STAGE 0, and
