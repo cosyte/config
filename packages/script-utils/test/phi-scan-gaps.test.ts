@@ -254,6 +254,109 @@ describe("AC-11: a starved root refuses, at the REFUSE code, after the hits are 
 });
 
 // ===========================================================================================
+// AC-1 to AC-4: the per-root observation rule is answered from the WALK's reads alone
+// ===========================================================================================
+
+describe("AC-1 to AC-4: a root is credited by what the walk read, never by the index union", () => {
+  /** The one sentence every starved-root refusal carries, naming `root` as the only starved one. */
+  const starvedOneOfTwo = (root: string): string =>
+    `observed no files under 1 of its 2 scan roots (${root})`;
+
+  it("AC-1: per-root observation rule, a root MISSING or EMPTY on disk refuses though git tracks a file under it", () => {
+    write("src/index.ts", "export const x = 1;\n");
+    write("test/fixtures/data.txt", "nothing to see\n");
+    commitAll();
+    const roots = { scanRoots: ["src", "test/fixtures"] };
+
+    // The premise: with both roots yielding a walk read the sweep is clean.
+    expect(run(roots).code).toBe(0);
+
+    rmSync(abs("test/fixtures"), { recursive: true, force: true });
+    expect(git(["ls-files", "--", "test/fixtures"]).out).toBe("test/fixtures/data.txt\n");
+    const missing = run(roots);
+    expect(missing.code, missing.err).toBe(2);
+    expect(missing.err).toContain(starvedOneOfTwo("test/fixtures"));
+    expect(missing.out).not.toContain("OK: no hits");
+
+    mkdirSync(abs("test/fixtures"), { recursive: true });
+    const empty = run(roots);
+    expect(empty.code, empty.err).toBe(2);
+    expect(empty.err).toContain(starvedOneOfTwo("test/fixtures"));
+    expect(empty.out).not.toContain("OK: no hits");
+  });
+
+  /**
+   * One of AC-2's two throwaway repositories. The twins are built by this one function and differ
+   * ONLY in whether `src/index.ts` reaches the index before `src` is emptied on disk.
+   */
+  function starvedSrcTwin(tracked: boolean): ReturnType<typeof run> {
+    write("test/fixtures/data.txt", "nothing to see\n");
+    write("src/index.ts", "export const x = 1;\n");
+    git(["add", "--", "scripts", ".gitignore", "test/fixtures"]);
+    if (tracked) git(["add", "--", "src/index.ts"]);
+    expect(git(["commit", "-qm", "corpus", "--no-verify"]).code).toBe(0);
+    rmSync(abs("src/index.ts"));
+    expect(git(["ls-files", "--", "src"]).out).toBe(tracked ? "src/index.ts\n" : "");
+    return run({ scanRoots: ["test/fixtures", "src"] });
+  }
+
+  it("AC-2: per-root observation rule, the twin whose src/index.ts is UNTRACKED refuses naming src", () => {
+    const r = starvedSrcTwin(false);
+    expect(r.code, r.err).toBe(2);
+    expect(r.err).toContain(starvedOneOfTwo("src"));
+    expect(r.out).not.toContain("OK: no hits");
+  });
+
+  it("AC-2: per-root observation rule, the twin whose src/index.ts is TRACKED refuses the same way", () => {
+    const r = starvedSrcTwin(true);
+    expect(r.code, r.err).toBe(2);
+    expect(r.err).toContain(starvedOneOfTwo("src"));
+    expect(r.out).not.toContain("OK: no hits");
+  });
+
+  it("AC-3: per-root observation rule, a hit in the bytes git carries under a starved root prints BEFORE the refusal", () => {
+    // The index route still reads the starved root's tracked file and reports what it finds; it
+    // only stops vouching for the root. The refusal wins the exit code, as every refusal does.
+    write("test/fixtures/data.txt", "nothing to see\n");
+    write("src/leak.ts", `const ssn = "${SSN}";\nexport default ssn;\n`);
+    commitAll();
+    rmSync(abs("src/leak.ts"));
+
+    const r = run({ scanRoots: ["test/fixtures", "src"] });
+    expect(r.code, r.err).toBe(2);
+    expect(r.err).toContain(`HIT: src/leak.ts (git index)\n  ${SSN_FINDING}`);
+    expect(r.err).not.toContain(SSN);
+    expect(r.err).toContain(starvedOneOfTwo("src"));
+    expect(r.err.indexOf(SSN_FINDING)).toBeLessThan(r.err.indexOf("observed no files"));
+    expect(r.out).not.toContain("OK: no hits");
+  });
+
+  it("AC-4: per-root observation rule, roots the walk read keep their clean and hits codes, a differing working tree included", () => {
+    write("test/fixtures/data.txt", "nothing to see\n");
+    write("src/index.ts", "export const x = 1;\n");
+    commitAll();
+    const roots = { scanRoots: ["test/fixtures", "src"] };
+
+    // The walk reads a copy of `src/index.ts` that differs from the bytes git carries.
+    write("src/index.ts", "export const x = 2;\n");
+    const clean = run(roots);
+    expect(clean.code, clean.err).toBe(0);
+    expect(clean.out).toBe("[phi-scan] OK: no hits\n");
+    expect(clean.err).not.toContain("observed no files");
+
+    // The same shape with the identifier in the index bytes and a clean decoy on disk.
+    write("src/leak.ts", `const ssn = "${SSN}";\nexport default ssn;\n`);
+    commitAll();
+    write("src/leak.ts", "export default 0;\n");
+    const hits = run(roots);
+    expect(hits.code, hits.err).toBe(1);
+    expect(hits.out).toBe("");
+    expect(hits.err).toContain("HIT: src/leak.ts (git index; the working tree differs)");
+    expect(hits.err).not.toContain("observed no files");
+  });
+});
+
+// ===========================================================================================
 // AC-12: the index route is not narrowed by scanRoots
 // ===========================================================================================
 
