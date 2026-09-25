@@ -36,6 +36,7 @@
     "credentials:check": "node scripts/credential-surface.mjs",
     "install-hardening": "node scripts/install-hardening.mjs",
     "publish:preflight": "node scripts/publish-preflight.mjs",
+    "publish:toolchain": "node scripts/publish-toolchain.mjs",
     "test:root": "vitest run",
     "test:packages": "pnpm --filter \"./packages/*\" run test",
     "test": "pnpm run test:root && pnpm run test:packages",

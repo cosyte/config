@@ -220,8 +220,10 @@ is actually there. Both choices exist to close the same hole:
    the accounting reads `npm view` rather than the run's own output.
 2. If the re-run reports the same packages missing, the publish genuinely failed for them. Open the
    run's `npm-debug-log-config-run<id>-attempt<n>` artifact, which the workflow uploads on failure
-   with credentials redacted, and read the npm error. The usual causes are an expired or wrong-typed
-   `NPM_TOKEN` (see the authentication section) and an npm-side 403 on a scoped package.
+   with credentials redacted, and read the npm error. The usual causes are a trusted publisher npm
+   will not match (see [Authentication](#authentication), and note that npm reports a failed OIDC
+   publish as a **404 on the PUT**, which reads like a missing package rather than like a refused
+   credential) and an npm-side 403 on a scoped package.
 3. Fix the cause and re-run again. **Do not hand-publish and do not bump the version to get past it.**
    A version consumed by a failed publish is not burned: the same version can be published again
    because nothing reached the registry under it.
@@ -306,10 +308,9 @@ so a local refusal is not by itself evidence about the release. Read the source 
 
 **What it protects.** Everything that decides **where** these tarballs go, **what** goes inside them
 and **what metadata rides along** is npm/pnpm configuration, and that configuration is assembled at
-publish time out of sources nothing in this repository used to inspect: a global npmrc, the user
-npmrc `actions/setup-node` **generates** on the runner and points `NPM_CONFIG_USERCONFIG` at, a
-repository or per-package `.npmrc`, `pnpm-workspace.yaml`, the root manifest's `pnpm` block, each
-package's `publishConfig`, `.changeset/config.json`, and the job's own environment. A redirected
+publish time out of sources nothing in this repository used to inspect: a global npmrc, a user
+npmrc, a repository or per-package `.npmrc`, `pnpm-workspace.yaml`, the root manifest's `pnpm`
+block, each package's `publishConfig`, `.changeset/config.json`, and the job's own environment. A redirected
 `registry`, a disabled `provenance`, a widened `access` or an injected lifecycle-script setting
 changes what reaches the public registry **without changing a tracked file in a way review would
 see**. An npm publish is permanent and cannot be withdrawn.
@@ -480,21 +481,89 @@ multi-package shape, and now the ungated-version / gated-publish split, which is
 against `cosyte/.github` in the evidence record. If the shared workflow ever grows a multi-package
 mode, revisit this.
 
-## Authentication today
+## Authentication
 
-This repository is **public**, so publishing authenticates with `NPM_TOKEN`, an org-level secret
-shared across the `@cosyte/*` repositories, and **with provenance**. `NPM_CONFIG_PROVENANCE` is wired
-to `github.event.repository.visibility == 'public'`, so provenance is on with no workflow edit.
+**There is no npm registry token anywhere on this path.** The publish authenticates as the workflow
+itself: the `publish` job holds `id-token: write`, GitHub mints a short-lived OIDC token for that job,
+the npm CLI exchanges it for a publish grant, and npm accepts it because a **Trusted Publisher**
+registered on npmjs.com names this organization, this repository, this workflow file and this
+environment. Nothing is stored, so nothing can be stolen from storage, and there is nothing to rotate.
 
-`NPM_TOKEN` **must be an npm _Automation_ token** (or a granular token). A classic _Publish_ token
-demands a 2FA one-time password that CI cannot supply, and the publish dies with `EOTP This operation
-requires a one-time password from your authenticator`: after a green build, at the very last step.
-Note that a repository-level `NPM_TOKEN` silently overrides the org-level one, so keep the token in
-exactly one place.
+**The npm CLI is what makes the publish request, and its version is load-bearing.** `pnpm run release`
+is `changeset publish`; `changeset publish` spawns `pnpm publish` for a pnpm workspace; `pnpm publish`
+packs and then calls `npm publish` through the `npm` it resolves off `PATH`. So the binary that talks
+to the registry is the **npm CLI**, and trusted publishing requires **npm 11.5.1 or later**
+([docs.npmjs.com/trusted-publishers](https://docs.npmjs.com/trusted-publishers)). A Node release's
+bundled npm is not determinable from the workflow file and moves between two runs of it, so
+`release.yml`'s publish job **pins npm to an exact version** in an `NPM_CLI_VERSION` step variable and
+installs it, and `ci.yml`'s `release-dry-run` job declares the same one.
+`scripts/publish-toolchain.mjs` reads both at merge time, refuses a version below the floor declared in
+`.github/credential-surface.json`, refuses a version that is only discoverable at run time, and refuses
+a dry run whose toolchain differs from the publish path's. It runs in the **required** `verify` job.
 
-`NPM_TOKEN` and `NODE_AUTH_TOKEN` are supplied to the `publish` job **only**. The ungated `version`
-job has neither, and is given no `publish:` input either, so reaching the registry from an ungated job
-would take two independent mistakes rather than one. Keep it that way.
+**What a failure looks like.** npm answers a publish it cannot authenticate with a **404 on the PUT**,
+which reads like a missing package. There is no token in the environment to fall back to, by
+construction, so a failed exchange fails the run rather than quietly publishing under a second
+credential; the `Every bumped package must be published, tagged and released` step then refuses to
+report success while any bumped package is absent from the registry.
+
+**Provenance is on and stays on.** This repository is public, `NPM_CONFIG_PROVENANCE` is wired to
+`github.event.repository.visibility == 'public'`, and trusted publishing generates attestations by
+default. The configuration allow-check pins `provenance` at `true` and permits no other value.
+
+**`id-token: write` is granted to the `publish` job only.** The ungated `version` job does not have it
+and is given no `publish:` input either, so reaching the registry from an ungated job would take two
+independent mistakes rather than one. Keep it that way.
+
+**Publishing by hand does not work, and that is the design.** `pnpm run release` run from a laptop
+refuses in `scripts/publish-preflight.mjs`, because the OIDC request variables a GitHub Actions job
+has are not there. There is no token to substitute. A release happens through the workflow or it does
+not happen.
+
+### Registering the npm Trusted Publisher
+
+**A founder step on npmjs.com, not a build**, and npm **does not verify the configuration when you
+save it**, so a wrong field surfaces only as `ENEEDAUTH Unable to authenticate` at the first publish.
+Register one for **each of the eight published packages**: `@cosyte/eslint-config`,
+`@cosyte/prettier-config`, `@cosyte/process`, `@cosyte/script-utils`, `@cosyte/test-utils`,
+`@cosyte/tsconfig`, `@cosyte/tsup-config`, `@cosyte/vitest-config`.
+
+On the package's page: Settings, then Trusted Publisher, then GitHub Actions, then these four fields
+exactly:
+
+| field                | value                                                                  |
+| -------------------- | ---------------------------------------------------------------------- |
+| Organization or user | `cosyte`                                                               |
+| Repository           | `config`                                                               |
+| Workflow filename    | `release.yml` (**with the `.yml` extension**, character for character) |
+| Environment name     | `release`                                                              |
+
+The same four are declared in `.github/credential-surface.json` under
+`publishPath.authentication.trustedPublisher`, and `pnpm credentials:check` refuses a declaration whose
+workflow filename or environment differs from the workflow that actually publishes.
+
+**Allowed actions: choose `npm publish` explicitly.** A configuration **created after 2026-09-03** is
+automatically set to allow `npm stage publish`, and you choose whether to **also permit direct
+publishing with `npm publish`**. This repository publishes with **`npm publish`** (through
+`changeset publish`, then `pnpm publish`), so a registration that permits only `npm stage publish`
+refuses every release here. Tick direct publishing. (Configurations created before 2026-05-20 allow
+`npm publish` only; ones created between then and 2026-09-03 required an explicit choice.) A package
+may carry up to 10 trusted publishers at once, so adding one does not displace another.
+
+**Verify it the only way it can be verified: by publishing.** npm's own configuration screen does not
+check any of this. The first release after registering is the evidence, which is why this repository
+registers and proves **one** package before all eight.
+
+**Ordering, and it is not negotiable.** Registering the publisher before this workflow stopped using a
+token was safe: npm accepts OIDC _in addition to_ a token. Removing the token before the publisher
+exists is not: every publish fails until it does. If a release is refused with `ENEEDAUTH` or a 404 on
+the PUT, check the registration before changing anything in this repository.
+
+**Then harden npm.** Set each package and the organization to "Require two-factor authentication and
+disallow tokens". Trusted publishers keep working; any token that still exists anywhere becomes
+useless. Delete the organization-level `NPM_TOKEN` secret last, and note that it is shared by every
+`@cosyte/*` repository: deleting it breaks any sibling repository still publishing with it, so that
+deletion is an estate-wide decision rather than this repository's.
 
 ### The surface is declared, not described
 
@@ -538,49 +607,22 @@ token published. Every remedy below is a human action taken against npm or GitHu
 the compensating action per credential is the whole of it.
 
 **A published version is permanent.** A version that has reached the registry stays there and is not
-undone by revoking the credential that published it. Revoking `NPM_TOKEN` stops the **next** publish;
-it does nothing about the one that already happened. npm's unpublish window is narrow and its use is a
-founder decision with consumers on the other side of it, so the compensating action for a bad publish
-is a **new version**, not a withdrawal. Treat "the credential was compromised" and "the wrong bytes
-shipped" as two separate incidents with two separate remedies, and do not let revoking a token feel
-like it addressed the second.
+undone by revoking the credential that published it, or by removing the trusted publisher that
+authorized it. Ending a credential's access stops the **next** publish; it does nothing about the one
+that already happened. npm's unpublish window is narrow and its use is a founder decision with
+consumers on the other side of it, so the compensating action for a bad publish is a **new version**,
+not a withdrawal. Treat "the credential was compromised" and "the wrong bytes shipped" as two separate
+incidents with two separate remedies, and do not let revoking anything feel like it addressed the
+second.
 
-### `NPM_TOKEN`
-
-**Blast radius before you start.** This is an **organization** secret shared by every `@cosyte/*`
-repository. Rotating it affects all of them, not just this one, and there is no per-repository
-override that is safe to introduce: a repository-level `NPM_TOKEN` silently outranks the
-organization-level one, which is exactly how two tokens end up live with nobody sure which one
-published.
-
-- **Issue.** On npmjs.com as the `@cosyte` scope owner: Access Tokens, then Generate New Token, then
-  **Granular Access Token** (or **Automation**). Grant it read and write on the `@cosyte` scope,
-  nothing else, and set the shortest expiry the release cadence tolerates. **Do not issue a classic
-  Publish token**: it demands a 2FA one-time password that CI cannot supply, and the publish dies with
-  `EOTP This operation requires a one-time password from your authenticator` after a green build, at
-  the very last step.
-- **Install.** Set it in **exactly one place**: the `cosyte` organization secrets
-  (`gh secret set NPM_TOKEN --org cosyte --visibility all`). Then confirm no repository-level copy
-  exists anywhere it would shadow the organization one:
-  `gh secret list --repo cosyte/config` must not list `NPM_TOKEN`. Delete any that does.
-- **Verify.** Do not verify by publishing. Run the `Release` workflow on a `main` with no pending
-  changesets, approve the `publish` deployment, and read the run: `changeset publish` reports "no new
-  packages" and the accounting step says every bumped package is on the registry. A wrong-typed token
-  fails there with `EOTP` and an expired one with `E401`, both **before** anything is written, because
-  the publish preflight (`scripts/publish-preflight.mjs`) refuses an absent or empty token before the
-  build even runs.
-- **Revoke.** On npmjs.com, Access Tokens, revoke the old token **after** the new one is installed and
-  verified, not before: the two steps overlap deliberately so no release window is left with no
-  working token. Then re-read `gh secret list --org cosyte` and confirm one entry, one value.
-- **Compensating action.** If the token is believed compromised, invert the order: **revoke first**,
-  accept that every `@cosyte/*` publish is blocked until a replacement is installed, and say so in the
-  org channel because thirteen other repositories share it. Then `npm token list` and audit recent
-  versions of all eight packages (`npm view <pkg> versions --json`) against this repository's tags. A
-  version that reached the registry cannot be pulled back by revoking the token that published it: if
-  the bytes are wrong, publish a corrected **new** version and, only if the content is genuinely
-  dangerous, take the unpublish question to the founder. Finally, harden: set the packages and the org
-  to "Require two-factor authentication and disallow tokens", which makes a stolen token useless and
-  is the same setting the OIDC cutover wants anyway.
+**There is no registry credential in this section, and that is not an omission.** The publish path
+authenticates with the workflow's own OIDC identity (see [Authentication](#authentication)), so there
+is no npm token to issue, install, rotate or revoke. What plays the part of revocation is **removing
+the trusted publisher** on npmjs.com for the affected package, which stops the next publish from this
+workflow and is a founder action rather than a repository edit. A subsection appears here for every
+credential `.github/credential-surface.json` declares and for no others, in **both** directions:
+`pnpm credentials:check` refuses a declared credential with no procedure here, and a procedure here
+for a credential the declaration does not name.
 
 ### `RELEASE_PR_TOKEN`
 
@@ -704,27 +746,31 @@ with seven red cases on a tree whose only change was a `CHANGELOG.md`. The fix i
 than in the caller: **`scripts/attw.mjs` strips those two keys from the environment of the `attw`
 child**, in both copies of the wrapper, so every scaffolded parser inherits it.
 
-## Still deferred: OIDC trusted publishing
+## The repository half of trusted publishing, in one place
 
-**Provenance is live** (the repository is public). **OIDC trusted publishing**, publishing with no
-token at all, is the remaining step. A turnkey sequence:
+Done, and checked by gates rather than remembered:
 
-1. ~~**Bump the runner toolchain floor**~~: **DONE.** `packageManager` is now `pnpm@10.34.5`
-   (>= 10.16) and the `setup-node` pins are `22.14` (>= 22.14) across `ci.yml` (`release-dry-run`)
-   and `release.yml`; `engines.node` is `>=22.14`. Since publish runs via `pnpm run release`, **pnpm**
-   carries OIDC trusted publishing, so the npm-CLI floor (npm >= 11.5.1) is not on the publish path
-   and no `npm i -g npm@...` step is needed. `pnpm/action-setup@v6` reads `packageManager`, so the
-   dry-run and release jobs install 10.34.5.
-2. **Configure the Trusted Publisher on npm**: for each of the eight `@cosyte/*` packages: Settings,
-   then Trusted Publisher, then GitHub org `cosyte`, repository `config`, workflow filename
-   `release.yml`, environment name `release`, allowed action `npm publish`. **The environment name is
-   still `release` after the 2026-08-22 split**, because the publish job is the one that kept it.
-3. **Remove `NPM_TOKEN` / `NODE_AUTH_TOKEN`** from the workflow and repository secrets; keep
-   `permissions: id-token: write` on the `publish` job (already present).
-4. **Harden npm**: set the package and org to "Require two-factor authentication and disallow tokens";
-   OIDC trusted publishers keep working, stolen tokens become useless.
+1. **The workflow carries no registry credential.** `release.yml` references no npm token in any job
+   or step, and `pnpm credentials:check` refuses the file if one ever comes back, in either direction
+   and whichever of the three files moves first (the workflow, the declaration, this document). The
+   `publish` job keeps `id-token: write` and the protected `release` environment, which together are
+   the whole of its authentication.
+2. **The toolchain the publish needs is declared, not inherited.** `NPM_CLI_VERSION` pins the npm CLI
+   on the publish path to an exact version at or above the floor the declaration states, the release
+   dry run declares the same one, and `scripts/publish-toolchain.mjs` refuses a merge that breaks
+   either, inside the required `verify` job.
+3. **The release command path refuses early.** `scripts/publish-preflight.mjs` runs first in
+   `pnpm run release`, before the build and long before anything is packed: it checks that the
+   authentication the declaration names is actually available in this environment, and that the
+   resolved npm meets the floor. Nothing is contacted and no credential value is read.
 
-Steps 2 to 4 are founder steps, not a build.
+What is **not** the repository's half is registering the publisher on npmjs.com and retiring the
+organization secret. Both are founder actions:
+see [Registering the npm Trusted Publisher](#registering-the-npm-trusted-publisher).
+
+**The environment name is still `release` after the 2026-08-22 split**, because the publish job is the
+one that kept it. It is part of what the registry matches, so renaming it is a release-path change and
+not a cosmetic one.
 
 ## The evidence behind all of this
 
