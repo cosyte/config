@@ -112,7 +112,7 @@ function splitChangeset(contents) {
  * same rule the drift check follows. That is a real limitation and it is bounded in the right
  * direction: a frontmatter shape this cannot read is reported as unparseable (exit 2), never as
  * empty (exit 1) and never as fine (exit 0). The only shapes changesets itself writes, and the only
- * ones any cosyte repo has ever committed, are `"name": type` and `name: type`, one per line,
+ * ones any Cosyte repo has ever committed, are `"name": type` and `name: type`, one per line,
  * optionally with a trailing `# comment`.
  *
  * KNOWN AND ACCEPTED: a YAML flow map (`{ "@cosyte/tsconfig": patch }`) or a block scalar splitting
@@ -249,7 +249,7 @@ export function gradeChangeset(filename, contents, knownPackages) {
     );
   } else if (split.summary.includes(EM_DASH)) {
     problems.push(
-      `its summary contains an em dash, which is banned on every cosyte surface and would reach ` +
+      `its summary contains an em dash, which is banned on every Cosyte surface and would reach ` +
         `a public release body through scripts/release-notes.mjs.`,
     );
   }

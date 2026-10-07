@@ -7,7 +7,7 @@
 
 # @cosyte/tsup-config
 
-> One dual-format build baseline, so every cosyte library packs the same way.
+> One dual-format build baseline, so every Cosyte library packs the same way.
 
 [![npm version](https://img.shields.io/npm/v/@cosyte/tsup-config.svg)](https://www.npmjs.com/package/@cosyte/tsup-config)
 [![CI](https://img.shields.io/github/actions/workflow/status/cosyte/config/ci.yml?branch=main&label=CI)](https://github.com/cosyte/config/actions/workflows/ci.yml)
@@ -29,7 +29,7 @@ that uses it as a version bump.
 
 ## Status
 
-`@cosyte/tsup-config` is on the cosyte 0.1.x line: the public API is settled and bump types follow ordinary semver.
+`@cosyte/tsup-config` is on the Cosyte 0.1.x line: the public API is settled and bump types follow ordinary semver.
 
 Still moving: the compile target and the treeshake and splitting settings, all three of which change
 what a consumer's published artifact looks like. The `cosyteTsup(options)` shape itself is the part

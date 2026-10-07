@@ -77,8 +77,8 @@ function nodeBadge(floor: string): string {
  */
 function statusSentence(name: string, line: string): string {
   return line === "0.0.x"
-    ? `\`${name}\` is on the cosyte 0.0.x ladder: the public API is not yet settled and may change in any release.`
-    : `\`${name}\` is on the cosyte ${line} line: the public API is settled and bump types follow ordinary semver.`;
+    ? `\`${name}\` is on the Cosyte 0.0.x ladder: the public API is not yet settled and may change in any release.`
+    : `\`${name}\` is on the Cosyte ${line} line: the public API is settled and bump types follow ordinary semver.`;
 }
 
 interface PackageSpec {
@@ -712,7 +712,7 @@ describe("readme-check: the Status sentence (AC6)", () => {
       workspaceWith([
         {
           dir: "alpha",
-          mutate: (r) => r.replace("is on the cosyte 0.0.x ladder", "is on the 0.0.x ladder"),
+          mutate: (r) => r.replace("is on the Cosyte 0.0.x ladder", "is on the 0.0.x ladder"),
         },
       ]),
     );
@@ -881,7 +881,7 @@ describe("readme-check: a retired ladder assertion anywhere in the file (AC3)", 
           mutate: (r) =>
             r.replace(
               "Because the fixture needs a section here.",
-              "This package is on the cosyte 0.0.x ladder.",
+              "This package is on the Cosyte 0.0.x ladder.",
             ),
         },
       ]),
@@ -900,7 +900,7 @@ describe("readme-check: a retired ladder assertion anywhere in the file (AC3)", 
         mutate: (r) =>
           r.replace(
             "Because the fixture needs a section here.",
-            "Every package follows the cosyte ladder: **`0.0.x` until first alpha**.",
+            "Every package follows the Cosyte ladder: **`0.0.x` until first alpha**.",
           ),
       }),
     );
@@ -920,7 +920,7 @@ describe("readme-check: a retired ladder assertion anywhere in the file (AC3)", 
           mutate: (r) =>
             r.replace(
               "Because the fixture needs a section here.",
-              "This package is on the cosyte 0.0.x ladder.",
+              "This package is on the Cosyte 0.0.x ladder.",
             ),
         },
       ]),

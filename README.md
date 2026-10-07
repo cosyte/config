@@ -7,7 +7,7 @@
 
 # cosyte-config
 
-> One enforced toolchain for every cosyte package, published as eight small config packages.
+> One enforced toolchain for every Cosyte package, published as eight small config packages.
 
 [![CI](https://img.shields.io/github/actions/workflow/status/cosyte/config/ci.yml?branch=main&label=CI)](https://github.com/cosyte/config/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/cosyte/config/blob/main/LICENSE)
@@ -17,7 +17,7 @@ Shared build/lint/format configuration for the @cosyte/\* packages.
 
 ## Why this exists
 
-Every cosyte package needs the same TypeScript options, the same lint rules, the same formatter
+Every Cosyte package needs the same TypeScript options, the same lint rules, the same formatter
 settings, the same build and test wiring. Copied into each repository, those files drift: a rule
 relaxed in one place to unblock a release stays relaxed, and nobody finds out until two packages
 disagree about what "strict" means.
@@ -28,12 +28,12 @@ declares them as devDependencies, and a change to the standard reaches every rep
 bump and `pnpm install`.
 
 The standard these packages encode is [`drift-manifest.json`](drift-manifest.json), which is the
-cosyte estate's engineering baseline and says of itself that it inherits its authority from no other
+Cosyte estate's engineering baseline and says of itself that it inherits its authority from no other
 document. Every requirement in it carries its own provenance note. There is no prose twin.
 
 ## Status
 
-`cosyte-config` is on the cosyte 0.1.x line: the public API is settled and bump types follow ordinary semver.
+`cosyte-config` is on the Cosyte 0.1.x line: the public API is settled and bump types follow ordinary semver.
 
 This root package is `private: true` and is never published; it is the workspace that builds the
 eight `@cosyte/*` packages below, all of which are on that same line. Still moving: the
@@ -63,10 +63,10 @@ that adopts it:
 | Package                                               | What it is                                                                                                                  | How a package consumes it                                                                 |
 | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
 | [`@cosyte/tsconfig`](packages/tsconfig)               | `base.json` (type-check options) plus `library.json` (adds declaration and sourcemap emit)                                  | `"extends": "@cosyte/tsconfig/base.json"`                                                 |
-| [`@cosyte/eslint-config`](packages/eslint-config)     | ESLint 10 flat config: unified `typescript-eslint` (`recommendedTypeChecked`), JSDoc gates on public exports, cosyte rules  | `import cosyte from "@cosyte/eslint-config"; export default cosyte(import.meta.dirname);` |
-| [`@cosyte/prettier-config`](packages/prettier-config) | The cosyte Prettier settings                                                                                                | `"prettier": "@cosyte/prettier-config"` in `package.json`                                 |
-| [`@cosyte/tsup-config`](packages/tsup-config)         | The cosyte tsup baseline: dual ESM and CJS with declarations, ES2023, treeshake on                                          | `import { cosyteTsup } from "@cosyte/tsup-config";`                                       |
-| [`@cosyte/vitest-config`](packages/vitest-config)     | The cosyte Vitest baseline: v8 coverage with gating per-directory thresholds, plus the runnable-docs snippet suite          | `import { cosyteVitest } from "@cosyte/vitest-config";`                                   |
+| [`@cosyte/eslint-config`](packages/eslint-config)     | ESLint 10 flat config: unified `typescript-eslint` (`recommendedTypeChecked`), JSDoc gates on public exports, Cosyte rules  | `import cosyte from "@cosyte/eslint-config"; export default cosyte(import.meta.dirname);` |
+| [`@cosyte/prettier-config`](packages/prettier-config) | The Cosyte Prettier settings                                                                                                | `"prettier": "@cosyte/prettier-config"` in `package.json`                                 |
+| [`@cosyte/tsup-config`](packages/tsup-config)         | The Cosyte tsup baseline: dual ESM and CJS with declarations, ES2023, treeshake on                                          | `import { cosyteTsup } from "@cosyte/tsup-config";`                                       |
+| [`@cosyte/vitest-config`](packages/vitest-config)     | The Cosyte Vitest baseline: v8 coverage with gating per-directory thresholds, plus the runnable-docs snippet suite          | `import { cosyteVitest } from "@cosyte/vitest-config";`                                   |
 | [`@cosyte/script-utils`](packages/script-utils)       | Zero-dependency helpers for the gate scripts in `scripts/`: `isCliEntrypoint` and the shared PHI-scan engine                | `import { isCliEntrypoint } from "@cosyte/script-utils";`                                 |
 | [`@cosyte/test-utils`](packages/test-utils)           | The shared conformance kit for the parsers: round-trip, lenient-mode, immutability, warning-code and PHI-leak runners       | `import { roundTripProperty } from "@cosyte/test-utils";`                                 |
 | [`@cosyte/process`](packages/process)                 | One `cosyte-process` bin behind build, test, lint, typecheck, format and check, so script bodies stop being hand-maintained | `"build": "cosyte-process build"`                                                         |
@@ -143,7 +143,7 @@ grades `config` only; an estate-wide README group is a separate change.
 
 ## The estate baseline, and who it binds
 
-[`drift-manifest.json`](drift-manifest.json) IS the cosyte engineering baseline: it declares what
+[`drift-manifest.json`](drift-manifest.json) IS the Cosyte engineering baseline: it declares what
 every repository in the estate owes, and `pnpm run drift` grades each one against it and prints a
 per-repo worklist. `pnpm run drift:validate` validates the standard itself against
 [`drift-manifest.schema.json`](drift-manifest.schema.json) with nothing installed.

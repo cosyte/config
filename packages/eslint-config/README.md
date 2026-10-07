@@ -7,7 +7,7 @@
 
 # @cosyte/eslint-config
 
-> The cosyte lint bar in one factory call: no `any`, no undocumented public export, no drift.
+> The Cosyte lint bar in one factory call: no `any`, no undocumented public export, no drift.
 
 [![npm version](https://img.shields.io/npm/v/@cosyte/eslint-config.svg)](https://www.npmjs.com/package/@cosyte/eslint-config)
 [![CI](https://img.shields.io/github/actions/workflow/status/cosyte/config/ci.yml?branch=main&label=CI)](https://github.com/cosyte/config/actions/workflows/ci.yml)
@@ -24,12 +24,12 @@ keeps a published API from shipping undocumented. Copied per repository, those r
 locally to unblock a release and stay relaxed.
 
 The nearest alternative is `eslint-config-airbnb` or a hand-rolled flat config per repo. Neither
-encodes the cosyte rules, and neither closes the drift: this is a published package, so a rule added
+encodes the Cosyte rules, and neither closes the drift: this is a published package, so a rule added
 here reaches every consumer as a version bump.
 
 ## Status
 
-`@cosyte/eslint-config` is on the cosyte 0.1.x line: the public API is settled and bump types follow ordinary semver.
+`@cosyte/eslint-config` is on the Cosyte 0.1.x line: the public API is settled and bump types follow ordinary semver.
 
 The factory signature `cosyte(tsconfigRootDir, opts?)` is settling, but the RULE SET behind it is
 not: rules are added as the parsers find gaps, and a version bump can therefore red a consumer that

@@ -1,6 +1,6 @@
 # Drift enforcement: which repos the baseline's verdict binds
 
-`drift-manifest.json` is the cosyte estate's engineering baseline, and
+`drift-manifest.json` is the Cosyte estate's engineering baseline, and
 `scripts/drift-check.js` grades every repo against it. This file answers the one question the
 baseline used to leave to silence: **whose failure is anybody's problem?**
 

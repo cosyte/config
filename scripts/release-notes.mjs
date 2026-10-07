@@ -348,7 +348,7 @@ export function assertNotes({ body, packageName, version }) {
   }
 
   if (body.includes(EM_DASH)) {
-    problems.push("the body contains an em dash, which is banned on every cosyte surface");
+    problems.push("the body contains an em dash, which is banned on every Cosyte surface");
   }
 
   if (!body.includes(`${packageName}@${version}`)) {

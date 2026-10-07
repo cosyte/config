@@ -90,7 +90,7 @@ const CHANGELOG_DUMP_MARKERS = [
  * A line asserting that a package stays on the retired pre-alpha ladder.
  *
  * Both orders are matched because the repository wrote it both ways ("stays on the
- * `0.0.x`-until-first-alpha ladder" and "follows the cosyte ladder: `0.0.x` until first alpha").
+ * `0.0.x`-until-first-alpha ladder" and "follows the Cosyte ladder: `0.0.x` until first alpha").
  * The window is deliberately bounded to one line: a version token and the word "ladder" sixty
  * characters apart on the same line is an assertion; the same two words in different paragraphs is
  * not, and a whole-file test would have to exempt every document that mentions the retirement.
@@ -207,7 +207,7 @@ interface ChangesetFile {
  * Read the pending changesets.
  *
  * The frontmatter reader is the one-pair-per-line form `scripts/changeset-guard.mjs` documents as
- * the only shape changesets itself writes and the only shape any cosyte repo has committed. A case
+ * the only shape changesets itself writes and the only shape any Cosyte repo has committed. A case
  * below cross-checks it against `parseChangeset` from `scripts/release-notes.mjs`, so this local
  * copy cannot be quietly wrong about which packages a file bumps.
  *
@@ -827,7 +827,7 @@ describe("the repository states one version policy", () => {
     ).toBe(true);
     expect(
       LADDER_ASSERTION.test(
-        "Every package follows the cosyte ladder: **`0.0.x` until first alpha**.",
+        "Every package follows the Cosyte ladder: **`0.0.x` until first alpha**.",
       ),
     ).toBe(true);
     expect(LADDER_ASSERTION.test("this keeps each package on the `0.0.x` ladder")).toBe(true);

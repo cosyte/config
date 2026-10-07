@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # scripts/check-no-emdash.sh
-# Brand rule (founder directive, 2026-07-24): cosyte never uses the em dash.
+# Brand rule (founder directive, 2026-07-24): Cosyte never uses the em dash.
 # The em dash (U+2014) reads as an AI tell, so it is banned outright across every
-# cosyte surface. Source of truth: `knowledgebase/06-brand/voice-and-tone.md`
+# Cosyte surface. Source of truth: `knowledgebase/06-brand/voice-and-tone.md`
 # ("No em dashes. Ever."), which names COMMIT MESSAGES explicitly.
 #
 # THIS FILE IS THE ONE IMPLEMENTATION OF THE EM-DASH GATE FOR THIS ESTATE, and config
@@ -708,7 +708,7 @@ if [ "$MODE" = files ] || [ "$MODE" = stdin ]; then
     echo "       NUL byte and a seeded em dash: no hit on stdout, no diagnostic on stderr," >&2
     echo "       exit 0. That is a scanner that cannot see its subject, and it is" >&2
     echo "       indistinguishable from a clean tree." >&2
-    echo "       The known cause is a \`grep\` interposed with -I forced (the cosyte dev" >&2
+    echo "       The known cause is a \`grep\` interposed with -I forced (the Cosyte dev" >&2
     echo "       container ships one as a shell function; \`export -f grep\` reaches a child" >&2
     echo "       script). Run this gate with a real GNU grep." >&2
     exit 1
@@ -720,7 +720,7 @@ fail_with_hits() {
   echo "$hits" >&2
   echo "" >&2
   echo "ERROR: check-no-emdash - em dash (U+2014, or an encoded form) found in ${what}." >&2
-  echo "       cosyte never uses em dashes (founder directive; 06-brand/voice-and-tone.md)." >&2
+  echo "       Cosyte never uses em dashes (founder directive; 06-brand/voice-and-tone.md)." >&2
   echo "       Rewrite with a period, colon, comma, or parentheses. Never re-encode it." >&2
   exit 1
 }
@@ -749,7 +749,7 @@ refuse_if_incomplete() {
       echo "       has ever tracked. If it is the latter, read the BINARY POSTURE note in" >&2
       echo "       this script's header before changing anything." >&2
     fi
-    echo "       cosyte never uses em dashes (founder directive; 06-brand/voice-and-tone.md)." >&2
+    echo "       Cosyte never uses em dashes (founder directive; 06-brand/voice-and-tone.md)." >&2
   fi
   if grep -qiv 'binary file' "$ERRLOG"; then
     echo "ERROR: check-no-emdash - the scan reported errors, so it did not read all of" >&2

@@ -230,8 +230,8 @@ const SETTLED_API_CLAIMS = [
  * alone. Erring the other way would refuse honest prose that merely names the number.
  */
 const RETIRED_LADDER_CLAIMS = [
-  [/\b0\.0\.x\b[^\n]{0,60}?\bladder\b/i, "the cosyte 0.0.x ladder"],
-  [/\bladder\b[^\n]{0,60}?\b0\.0\.x\b/i, "the cosyte 0.0.x ladder"],
+  [/\b0\.0\.x\b[^\n]{0,60}?\bladder\b/i, "the Cosyte 0.0.x ladder"],
+  [/\bladder\b[^\n]{0,60}?\b0\.0\.x\b/i, "the Cosyte 0.0.x ladder"],
   [/\b0\.0\.x\b[^\n]{0,40}?\buntil\b[^\n]{0,40}?\balpha\b/i, "the 0.0.x-until-first-alpha ladder"],
 ];
 
@@ -608,9 +608,9 @@ function isLadderLine(line) {
  */
 export function statusSentence(name, line) {
   if (isLadderLine(line)) {
-    return `\`${name}\` is on the cosyte 0.0.x ladder: the public API is not yet settled and may change in any release.`;
+    return `\`${name}\` is on the Cosyte 0.0.x ladder: the public API is not yet settled and may change in any release.`;
   }
-  return `\`${name}\` is on the cosyte ${lineLabel(line)} line: the public API is settled and bump types follow ordinary semver.`;
+  return `\`${name}\` is on the Cosyte ${lineLabel(line)} line: the public API is settled and bump types follow ordinary semver.`;
 }
 
 /**

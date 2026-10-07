@@ -20,7 +20,7 @@ Zero-dependency helpers for the repo-local gate scripts in @cosyte/\* repos.
 
 A gate script that exits 0 without having checked anything is worse than no gate, because the run
 conclusion is the only thing anyone reads. Two ways of producing one turned out to be universal
-across the cosyte repositories: an entrypoint guard written by hand that answers `false` for ordinary
+across the Cosyte repositories: an entrypoint guard written by hand that answers `false` for ordinary
 invocations, and thirteen byte-distinct copies of one PHI scanner, each of which had to be fixed
 separately when an escape was found.
 
@@ -30,7 +30,7 @@ request and a version bump.
 
 ## Status
 
-`@cosyte/script-utils` is on the cosyte 0.1.x line: the public API is settled and bump types follow ordinary semver.
+`@cosyte/script-utils` is on the Cosyte 0.1.x line: the public API is settled and bump types follow ordinary semver.
 
 Still moving: the `runPhiScan` option surface, which is where the per-repo axes below are still being
 argued about, and the cross-cutting detection floor, which gains patterns as escapes are found. A new
@@ -246,7 +246,7 @@ Is this module the file Node was pointed at, rather than one imported by somethi
 
 #### Why not compare the strings
 
-The obvious spelling is a one-liner, and several cosyte repos wrote it by hand:
+The obvious spelling is a one-liner, and several Cosyte repos wrote it by hand:
 
 ```js
 // Do not do this.

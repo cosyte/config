@@ -43,7 +43,7 @@ pre-alpha rule. See
 
 ### Changed
 
-- Documentation no longer uses em dashes, in line with the cosyte brand voice. No build-option
+- Documentation no longer uses em dashes, in line with the Cosyte brand voice. No build-option
   change.
 
 ## [0.0.1] - 2026-06-25

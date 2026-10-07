@@ -7,7 +7,7 @@ import tsconfigLibrary from "@cosyte/tsconfig/library.json";
 import { cosyteTsup } from "@cosyte/tsup-config";
 import { cosyteVitest } from "@cosyte/vitest-config";
 
-// Smoke tests: every exported config loads and encodes the ratified cosyte standard.
+// Smoke tests: every exported config loads and encodes the ratified Cosyte standard.
 // This is the config repo "dogfooding" itself: if a config fails to import or drifts off the
 // standard, CI fails here.
 
@@ -73,7 +73,7 @@ describe("@cosyte/vitest-config", () => {
 });
 
 describe("@cosyte/prettier-config", () => {
-  it("uses the cosyte house style", () => {
+  it("uses the Cosyte house style", () => {
     expect(prettierConfig.printWidth).toBe(100);
     expect(prettierConfig.singleQuote).toBe(false);
     expect(prettierConfig.semi).toBe(true);

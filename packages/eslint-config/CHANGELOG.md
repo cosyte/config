@@ -43,7 +43,7 @@ pre-alpha rule. See
 
 ### Changed
 
-- Documentation and source comments no longer use em dashes, in line with the cosyte brand
+- Documentation and source comments no longer use em dashes, in line with the Cosyte brand
   voice. No rule, option, or behaviour change.
 
 ## [0.0.4] - 2026-06-26
@@ -72,7 +72,7 @@ pre-alpha rule. See
 
 ### Added
 
-- Initial release of the ESLint 9 flat config: `recommendedTypeChecked` + the cosyte guardrails (no `any`,
+- Initial release of the ESLint 9 flat config: `recommendedTypeChecked` + the Cosyte guardrails (no `any`,
   no unjustified casts, JSDoc + `@example` gate on public exports, `no-console` in library code).
 
   (`0.0.1` was never published.)
