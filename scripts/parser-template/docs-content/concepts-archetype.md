@@ -6,7 +6,7 @@ sidebar_position: 1
 
 # Core Concepts
 
-`{{PKG}}` follows the shared **cosyte parser archetype**: the same mental model every `@cosyte/*`
+`{{PKG}}` follows the shared **Cosyte parser archetype**: the same mental model every `@cosyte/*`
 parser implements, so what you learn here transfers across the suite. `@cosyte/hl7` is the reference
 implementation; this package mirrors its shape.
 

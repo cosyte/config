@@ -3,7 +3,7 @@
 > {{TITLE}} parser, serializer, and builder for Node.js and TypeScript: **lenient on parse,
 > spec-clean on emit**.
 
-`{{PKG}}` is a zero-dependency TypeScript toolkit that follows the cosyte parser archetype: a lenient
+`{{PKG}}` is a zero-dependency TypeScript toolkit that follows the Cosyte parser archetype: a lenient
 parser that turns real-world, vendor-quirky input into **warnings** rather than failures, paired with
 a serializer that always emits spec-clean output (Postel's Law). It mirrors the API shape of the
 reference parser, [`@cosyte/hl7`](https://github.com/cosyte/hl7).
@@ -30,7 +30,7 @@ result.warnings; // stable, positional tolerance warnings (never throws on quirk
 The parser is **lenient by default**: vendor quirks become warnings, not failures. A
 `{ strict: true }` mode (to be added) escalates every tolerated deviation to a thrown error.
 
-## The cosyte parser archetype
+## The Cosyte parser archetype
 
 - **Postel's Law**: liberal parser (lenient default + warnings), conservative serializer (always
   spec-clean), so quirks don't propagate downstream on round-trip.

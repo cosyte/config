@@ -1,5 +1,5 @@
 /**
- * Property-based conformance tests for the cosyte parser archetype, driven by the shared
+ * Property-based conformance tests for the Cosyte parser archetype, driven by the shared
  * `@cosyte/test-utils` invariant runners. The kit owns the **invariants**; this parser owns the
  * **format-specific arbitraries** (the `{{Pascal}}` generators below).
  *
