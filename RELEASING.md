@@ -571,7 +571,7 @@ published.
   build even runs.
 - **Revoke.** On npmjs.com, Access Tokens, revoke the old token **after** the new one is installed and
   verified, not before: the two steps overlap deliberately so no release window is left with no
-  working token. Then re-read `gh secret list --org cosyte` and confirm one entry, one value.
+  working token. Then re-read `gh secret list --org Cosyte` and confirm one entry, one value.
 - **Compensating action.** If the token is believed compromised, invert the order: **revoke first**,
   accept that every `@cosyte/*` publish is blocked until a replacement is installed, and say so in the
   org channel because thirteen other repositories share it. Then `npm token list` and audit recent

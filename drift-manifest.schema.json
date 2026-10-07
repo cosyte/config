@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://cosyte.com/schemas/drift-manifest.schema.json",
-  "title": "cosyte drift manifest",
-  "description": "The shape of drift-manifest.json, which IS the cosyte engineering baseline. Validated by scripts/validate-drift-manifest.mjs, which implements the subset of JSON Schema used here and nothing more: a manifest that needs a keyword the validator does not know is a change to BOTH files. The subset is type, required, properties, additionalProperties, patternProperties, propertyNames, items, minItems, minProperties, minLength, minimum, uniqueItems, enum, const, pattern and local $ref into $defs. No remote references: this file must validate with no network and no node_modules.",
+  "title": "Cosyte drift manifest",
+  "description": "The shape of drift-manifest.json, which IS the Cosyte engineering baseline. Validated by scripts/validate-drift-manifest.mjs, which implements the subset of JSON Schema used here and nothing more: a manifest that needs a keyword the validator does not know is a change to BOTH files. The subset is type, required, properties, additionalProperties, patternProperties, propertyNames, items, minItems, minProperties, minLength, minimum, uniqueItems, enum, const, pattern and local $ref into $defs. No remote references: this file must validate with no network and no node_modules.",
   "type": "object",
   "additionalProperties": false,
   "required": [

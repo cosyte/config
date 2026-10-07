@@ -135,7 +135,7 @@ pre-alpha rule. See
 ### Changed
 
 - Documentation, source comments, the npm package description, and seven assertion-failure
-  message strings no longer use em dashes, in line with the cosyte brand voice. No API, type, or
+  message strings no longer use em dashes, in line with the Cosyte brand voice. No API, type, or
   behaviour change: the message strings are the diagnostics a failing conformance run prints.
 
 ## [0.0.1] - 2026-06-26

@@ -7,7 +7,7 @@
 
 # @cosyte/prettier-config
 
-> One formatter setting sheet for every cosyte repository, adopted in a single line.
+> One formatter setting sheet for every Cosyte repository, adopted in a single line.
 
 [![npm version](https://img.shields.io/npm/v/@cosyte/prettier-config.svg)](https://www.npmjs.com/package/@cosyte/prettier-config)
 [![CI](https://img.shields.io/github/actions/workflow/status/cosyte/config/ci.yml?branch=main&label=CI)](https://github.com/cosyte/config/actions/workflows/ci.yml)
@@ -28,7 +28,7 @@ rather than ten pull requests.
 
 ## Status
 
-`@cosyte/prettier-config` is on the cosyte 0.1.x line: the public API is settled and bump types follow ordinary semver.
+`@cosyte/prettier-config` is on the Cosyte 0.1.x line: the public API is settled and bump types follow ordinary semver.
 
 Still moving: the `printWidth` and the per-filetype overrides. Both are the kind of setting that
 reformats an entire repository when it changes, so a consumer that cares should pin an exact version

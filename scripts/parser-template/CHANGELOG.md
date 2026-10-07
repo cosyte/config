@@ -10,7 +10,7 @@ this file is maintained by hand (Changesets handles the version bump and publish
 ## [Unreleased]
 
 The first pre-alpha release (`0.0.1`) will ship the initial public API surface. The package begins
-its public history at `0.0.x`, per the cosyte version ladder (`0.0.x` until first alpha).
+its public history at `0.0.x`, per the Cosyte version ladder (`0.0.x` until first alpha).
 
 ### Added
 

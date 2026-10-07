@@ -297,7 +297,7 @@ no package, so entries here are **dated** rather than versioned.
       `test/drift-check-phi-probe.test.ts` is where the controls actually run.
 
 - **`@cosyte/script-utils`**, a new zero-dependency, zero-build package, so that the entry-point
-  guard every cosyte gate script needs lands **once** rather than being respelled per repo
+  guard every Cosyte gate script needs lands **once** rather than being respelled per repo
   (`ENTRYPOINT-STRING-COMPARE`). It ships `isCliEntrypoint(import.meta.url)`. `website` (3 CLIs) and
   `docs` (4 `.mjs` gates, one of them the real `test:build` gate) hold the same shape and are the
   intended next consumers.
@@ -893,7 +893,7 @@ no package, so entries here are **dated** rather than versioned.
     path, exactly as it would be in `main`. A per-field exception to net 1's non-empty rule is a
     bigger surface than the cases it would buy.
   - **THE HONEST BOUND: this closed a LATENT hole and nothing in the org moves.** `typesVersions` is
-    the only one of the three any cosyte manifest uses (`ncpdp` and `@cosyte/test-utils`), and in
+    the only one of the three any Cosyte manifest uses (`ncpdp` and `@cosyte/test-utils`), and in
     BOTH of them every `typesVersions` target is already declared through `exports`, so the derived
     set is byte-for-byte what it was. `imports` and `browser` have no users here at all. The claim
     is not that anything shipped broken.

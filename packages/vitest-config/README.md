@@ -20,7 +20,7 @@ Shared Vitest config (v8 coverage, per-directory >=90 gates) for @cosyte/\* pack
 
 Coverage that is reported but not gated is a number nobody acts on, and a repo-wide threshold hides
 the one directory that has none: a package can sit at 92% overall while its serializer is at 40%.
-The cosyte baseline gates per directory, and it ships enabled rather than as a setting each repo
+The Cosyte baseline gates per directory, and it ships enabled rather than as a setting each repo
 remembers to switch on.
 
 The nearest alternative is a hand-written `vitest.config.ts` per repository with `coverage.thresholds`
@@ -29,7 +29,7 @@ from: nothing in that alternative proves the examples in your documentation stil
 
 ## Status
 
-`@cosyte/vitest-config` is on the cosyte 0.1.x line: the public API is settled and bump types follow ordinary semver.
+`@cosyte/vitest-config` is on the Cosyte 0.1.x line: the public API is settled and bump types follow ordinary semver.
 
 Still moving: the coverage exclude list and the snippet-suite options (`runnableTag`, `resolve`,
 `requireSnippet`), which have changed shape as the first consumers adopted them. The 90 threshold and

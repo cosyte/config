@@ -21,7 +21,7 @@ Framework-agnostic conformance test kit for the @cosyte/\* parsers: generic roun
 Every parser in this estate owes the same archetype invariants: round-trip, lenient parsing that
 never throws outside its sanctioned fatals, immutability, a stable warning-code surface, and no
 patient data on a diagnostic. Written per repository, those suites diverge, and an audit of thirteen
-cosyte repos (2026-07-30) found every PHI test green over unreachable space. Those tests could not
+Cosyte repos (2026-07-30) found every PHI test green over unreachable space. Those tests could not
 have failed.
 
 The nearest alternative is each parser writing its own property tests against `fast-check`. That is
@@ -30,7 +30,7 @@ in each parser, so the thing that is hard to get right is written once and revie
 
 ## Status
 
-`@cosyte/test-utils` is on the cosyte 0.1.x line: the public API is settled and bump types follow ordinary semver.
+`@cosyte/test-utils` is on the Cosyte 0.1.x line: the public API is settled and bump types follow ordinary semver.
 
 Still moving: the `./perf` subpath, whose ratio ceiling is an open question (see the "What it will
 not tell you" section below and the review triggers in ADR 0001), and the option surface of

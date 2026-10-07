@@ -46,7 +46,7 @@ pre-alpha rule. See
 
 ### Changed
 
-- Documentation and source comments no longer use em dashes, in line with the cosyte brand
+- Documentation and source comments no longer use em dashes, in line with the Cosyte brand
   voice. No config or behaviour change.
 
 ## [0.0.2] - 2026-07-15
