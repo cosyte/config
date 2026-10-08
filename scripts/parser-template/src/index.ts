@@ -24,7 +24,7 @@ export const VERSION = "0.0.0";
 /**
  * The result of parsing a {{TITLE}} payload.
  *
- * Mirrors the cosyte parser archetype: a parsed value plus the **warnings** the lenient parser
+ * Mirrors the Cosyte parser archetype: a parsed value plus the **warnings** the lenient parser
  * recovered from (Tier-2 deviations). The real model (an immutable document with dot-path access,
  * named helpers, and a spec-clean serializer) lands in subsequent phases; for now this captures the
  * minimal lenient-parse contract.
