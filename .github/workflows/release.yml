@@ -635,7 +635,7 @@ jobs:
           echo "Collected ${#logs[@]} npm debug log(s)."
       - name: Upload the npm debug log
         if: ${{ failure() && steps.npm-log.outputs.collected == 'true' }}
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ steps.npm-log.outputs.artifact-name }}
           path: ${{ runner.temp }}/npm-debug-logs/*.log
