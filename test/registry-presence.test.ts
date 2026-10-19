@@ -41,11 +41,16 @@ import { hermeticEnv } from "./support/fixture-registry.mjs";
 import { renderNotes, slugFor } from "../scripts/release-notes.mjs";
 import {
   ABSENT,
+  HAS_UNPUBLISHED,
+  NOTHING_UNPUBLISHED,
   PRESENCE_BUDGET_SECONDS,
   PRESENT,
+  UNPUBLISHED_UNKNOWN,
   UNREADABLE,
   account,
   parseBumpedPackages,
+  pending,
+  workspaceVersions,
 } from "../scripts/registry-presence.mjs";
 
 const REPO_ROOT = join(import.meta.dirname, "..");
@@ -752,5 +757,244 @@ describe("AC-3 and AC-4 rest on an exit code, so the accounting refuses what it 
     );
     expect(run.status).toBe(2);
     expect(`${run.stdout}${run.stderr}`).toMatch(/could not run/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// `pending`: is there anything for the gated publish job to do at all
+//
+// The ungated preflight asks this so that the `release` environment requests an approval only when
+// a publish could happen. The property that matters is ONE-SIDED: the answer may skip the publish
+// job only when the registry reported every version present, because that is the state in which
+// `changeset publish` publishes nothing. Every other registry answer must keep the job in. Graded
+// against the same loopback registry and the same real `npm view` as the accounting above.
+// ---------------------------------------------------------------------------
+
+/** Run `pending` against a fixture registry, collecting everything it said. */
+async function runPending(packages: { name: string; version: string }[], url: string) {
+  const lines: string[] = [];
+  const result = await pending({
+    packages,
+    probeTimeoutSeconds: 10,
+    env: registryEnv(url),
+    log: (line: string) => lines.push(line),
+  });
+  return { ...result, log: lines.join("\n") };
+}
+
+/** A throwaway workspace whose `packages/*` manifests are exactly `manifests`. */
+function workspace(manifests: Record<string, Record<string, unknown>>): string {
+  const root = tempDir("registry-presence-workspace-");
+  for (const [dir, manifest] of Object.entries(manifests)) {
+    mkdirSync(join(root, "packages", dir), { recursive: true });
+    writeFileSync(join(root, "packages", dir, "package.json"), JSON.stringify(manifest), "utf8");
+  }
+  return root;
+}
+
+/** The shipped CLI, run as the workflow runs it, without blocking the in-process registry. */
+function runPendingCli(
+  args: string[],
+  env: NodeJS.ProcessEnv,
+): Promise<{ status: number; output: string }> {
+  const child = spawn(
+    process.execPath,
+    [join(REPO_ROOT, "scripts", "registry-presence.mjs"), "pending", ...args],
+    { env, stdio: ["ignore", "pipe", "pipe"] },
+  );
+  let output = "";
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", (chunk: string) => (output += chunk));
+  child.stderr.on("data", (chunk: string) => (output += chunk));
+  return new Promise((resolve) => {
+    child.on("close", (status) => resolve({ status: status ?? -1, output }));
+  });
+}
+
+describe("pending: only a registry that has every version may skip the publish job", () => {
+  it(
+    "answers `false` when every version is on the registry, which is the one skipping answer",
+    { timeout: 60_000 },
+    async () => {
+      const a = pkg("pending-all-present-a");
+      const b = pkg("pending-all-present-b");
+      const registry = await startRegistry({
+        [a.name]: { kind: "present" },
+        [b.name]: { kind: "present" },
+      });
+
+      const result = await runPending([a, b], registry.url);
+
+      expect(result.answer).toBe(NOTHING_UNPUBLISHED);
+      expect(result.rows.map((row) => row.state)).toEqual([PRESENT, PRESENT]);
+      expect(result.log).toContain("would publish nothing");
+      expect(result.log).toContain("no approval is asked for");
+    },
+  );
+
+  it("answers `true` when one version is absent, and names it", { timeout: 60_000 }, async () => {
+    const here = pkg("pending-one-absent-here");
+    const gone = pkg("pending-one-absent-gone");
+    const registry = await startRegistry({
+      [here.name]: { kind: "present" },
+      [gone.name]: { kind: "absent" },
+    });
+
+    const result = await runPending([here, gone], registry.url);
+
+    expect(result.answer).toBe(HAS_UNPUBLISHED);
+    expect(result.log).toContain(`${gone.name}@${gone.version}`);
+    expect(result.log).toContain("The publish job runs");
+  });
+
+  it(
+    "answers `true` for a package the registry has never heard of",
+    { timeout: 60_000 },
+    async () => {
+      // The fixture registry 404s every name it was not told about, which is a first publish.
+      const brandNew = pkg("pending-never-published");
+      const registry = await startRegistry({});
+
+      const result = await runPending([brandNew], registry.url);
+
+      expect(result.rows[0].state).toBe(ABSENT);
+      expect(result.answer).toBe(HAS_UNPUBLISHED);
+    },
+  );
+
+  it(
+    "answers `unknown`, which keeps the job in, when the registry cannot be read",
+    { timeout: 120_000 },
+    async () => {
+      const here = pkg("pending-unreadable-here");
+      const dark = pkg("pending-unreadable-dark");
+      const registry = await startRegistry({
+        [here.name]: { kind: "present" },
+        [dark.name]: { kind: "status", code: 503 },
+      });
+
+      const result = await runPending([here, dark], registry.url);
+
+      expect(result.rows[1].state).toBe(UNREADABLE);
+      expect(result.answer).toBe(UNPUBLISHED_UNKNOWN);
+      expect(result.answer).not.toBe(NOTHING_UNPUBLISHED);
+      expect(result.log).toContain("::warning title=Registry could not be read::");
+      expect(result.log).toContain("cannot prove there is nothing to publish");
+    },
+  );
+
+  it(
+    "lets one absent version decide even when another could not be read",
+    { timeout: 120_000 },
+    async () => {
+      const gone = pkg("pending-mixed-gone");
+      const dark = pkg("pending-mixed-dark");
+      const registry = await startRegistry({
+        [gone.name]: { kind: "absent" },
+        [dark.name]: { kind: "status", code: 503 },
+      });
+
+      expect((await runPending([gone, dark], registry.url)).answer).toBe(HAS_UNPUBLISHED);
+    },
+  );
+
+  it(
+    "probes each version once and does not wait out propagation",
+    { timeout: 60_000 },
+    async () => {
+      // A version 404ing just after a publish reads here as "not published yet", which keeps the
+      // job in: the cheap direction. Waiting the accounting's budget on every ordinary push would
+      // make the push slower to say the same thing.
+      const racer = pkg("pending-racer");
+      const registry = await startRegistry({ [racer.name]: { kind: "appears-after", probes: 1 } });
+
+      const result = await runPending([racer], registry.url);
+
+      expect(result.answer).toBe(HAS_UNPUBLISHED);
+      expect(registry.hits.get(racer.name)).toBe(1);
+    },
+  );
+});
+
+describe("pending: the work list is what `changeset publish` would consider", () => {
+  it("reads every non-private packages/* manifest, sorted by name", () => {
+    const root = workspace({
+      b: { name: `${SCOPE}/b`, version: "2.0.0" },
+      a: { name: `${SCOPE}/a`, version: "1.0.0" },
+      root: { name: `${SCOPE}/private`, version: "0.0.0", private: true },
+    });
+    expect(workspaceVersions(root)).toEqual([
+      { name: `${SCOPE}/a`, version: "1.0.0" },
+      { name: `${SCOPE}/b`, version: "2.0.0" },
+    ]);
+  });
+
+  it("reads this repository's eight published packages", () => {
+    const names = workspaceVersions(REPO_ROOT).map((entry) => entry.name);
+    expect(names).toHaveLength(8);
+    expect(names.every((name) => name.startsWith("@cosyte/"))).toBe(true);
+  });
+
+  it("refuses a workspace with nothing publishable rather than answering `nothing to publish`", () => {
+    const root = workspace({ only: { name: `${SCOPE}/private`, version: "0.0.0", private: true } });
+    expect(() => workspaceVersions(root)).toThrow(/no publishable packages/);
+  });
+
+  it("refuses a manifest with no version rather than probing `name@undefined`", () => {
+    const root = workspace({ broken: { name: `${SCOPE}/broken` } });
+    expect(() => workspaceVersions(root)).toThrow(/has no version/);
+  });
+});
+
+describe("pending: the CLI the preflight step runs", () => {
+  it(
+    "appends `has-unpublished=<answer>` to the output file and exits 0",
+    { timeout: 60_000 },
+    async () => {
+      const root = workspace({ only: { name: `${SCOPE}/cli-present`, version: "1.0.0" } });
+      const registry = await startRegistry({ [`${SCOPE}/cli-present`]: { kind: "present" } });
+      const output = join(tempDir("registry-presence-output-"), "github-output");
+      writeFileSync(output, "has-changesets=false\n", "utf8");
+
+      const result = await runPendingCli(
+        ["--repo", root, "--output", output],
+        registryEnv(registry.url),
+      );
+
+      expect(result.status, result.output).toBe(0);
+      // Appended, not overwritten: earlier steps of the job write the same file.
+      expect(readFileSync(output, "utf8")).toBe("has-changesets=false\nhas-unpublished=false\n");
+    },
+  );
+
+  it(
+    "writes `true` for an absent version, which the publish job's condition reads as `run`",
+    { timeout: 60_000 },
+    async () => {
+      const root = workspace({ only: { name: `${SCOPE}/cli-absent`, version: "1.0.0" } });
+      const registry = await startRegistry({ [`${SCOPE}/cli-absent`]: { kind: "absent" } });
+      const output = join(tempDir("registry-presence-output-"), "github-output");
+
+      const result = await runPendingCli(
+        ["--repo", root, "--output", output],
+        registryEnv(registry.url),
+      );
+
+      expect(result.status, result.output).toBe(0);
+      expect(readFileSync(output, "utf8")).toBe("has-unpublished=true\n");
+    },
+  );
+
+  it("exits 2 and writes no answer when it could not read the workspace", async () => {
+    const root = workspace({});
+    const output = join(tempDir("registry-presence-output-"), "github-output");
+    writeFileSync(output, "", "utf8");
+
+    const result = await runPendingCli(["--repo", root, "--output", output], hermeticEnv());
+
+    expect(result.status).toBe(2);
+    expect(result.output).toMatch(/could not run/);
+    expect(readFileSync(output, "utf8")).toBe("");
   });
 });

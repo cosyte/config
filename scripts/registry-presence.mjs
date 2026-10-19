@@ -44,19 +44,30 @@
 // ZERO DEPENDENCIES, like the other release gates here, so a broken or malicious install cannot
 // decide whether a release gate runs.
 //
+// THE SECOND QUESTION: IS ANYTHING LEFT TO PUBLISH AT ALL (`pending`). Asked by the ungated
+// `preflight` job on a push with no pending changesets, so the gated `publish` job, and with it the
+// request for an approval on the `release` environment, starts only when there is something for it
+// to do. It is the question `changeset publish` asks itself before it publishes ("is this package's
+// version already on the registry"), over the same packages, asked one job earlier. The answer can
+// only ever skip a publish job whose `changeset publish` would have published nothing: a version the
+// registry does not report as present, for any reason, keeps the job in.
+//
 // Usage:
 //   node scripts/registry-presence.mjs account --arm publish|version [--out <file>]
 //                                              [--budget-seconds <n>] [--probe-interval-seconds <n>]
+//   node scripts/registry-presence.mjs pending [--repo <dir>] [--output <file>]
 //
 // Exit codes, which are a contract asserted by test/registry-presence.test.ts:
-//   0  every bumped package is on the registry
-//   1  at least one is absent after the whole budget, or could not be read at all
+//   0  `account`: every bumped package is on the registry. `pending`: an answer was reached and
+//      written (`true`, `false` or `unknown`).
+//   1  `account`: at least one is absent after the whole budget, or could not be read at all.
 //   2  the accounting could not run: a bad invocation, or a work list that names no packages.
 //      Distinct from 1 because "we could not check" is not "we checked and it was missing", and
 //      non-zero either way, so the release stops regardless.
 
 import { spawn } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { appendFileSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 
 import { isCliEntrypoint } from "../packages/script-utils/index.js";
 
@@ -410,6 +421,151 @@ export async function account({
   return { code: missing.length + unreadable.length > 0 ? 1 : 0, expected, rows };
 }
 
+/** `pending`'s answer when at least one version is not on the registry. */
+export const HAS_UNPUBLISHED = "true";
+/** `pending`'s answer when the registry reported every version present. */
+export const NOTHING_UNPUBLISHED = "false";
+/** `pending`'s answer when no version was reported absent but at least one could not be read. */
+export const UNPUBLISHED_UNKNOWN = "unknown";
+
+/**
+ * Every package `changeset publish` would consider, with the version it would publish.
+ *
+ * Read from the working tree, which is what `changeset publish` reads: every `packages/*` manifest
+ * that is not `private`. It refuses rather than returning nothing, because "no packages" answered as
+ * "nothing to publish" would skip the publish job on a workspace this check failed to read.
+ *
+ * @param {string} root Repository root.
+ * @returns {{ name: string, version: string }[]} One entry per publishable package, sorted by name.
+ */
+export function workspaceVersions(root) {
+  const packagesDir = join(root, "packages");
+  let entries;
+  try {
+    entries = readdirSync(packagesDir);
+  } catch (error) {
+    throw new InvocationError(`cannot read ${packagesDir}: ${error.message}`);
+  }
+  const found = [];
+  for (const entry of entries) {
+    const manifestPath = join(packagesDir, entry, "package.json");
+    try {
+      if (!statSync(manifestPath).isFile()) continue;
+    } catch {
+      continue;
+    }
+    let manifest;
+    try {
+      manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    } catch (error) {
+      throw new InvocationError(`cannot read ${manifestPath}: ${error.message}`);
+    }
+    if (manifest.private === true) continue;
+    if (typeof manifest.name !== "string" || manifest.name === "") {
+      throw new InvocationError(`${manifestPath} has no name`);
+    }
+    if (typeof manifest.version !== "string" || manifest.version === "") {
+      throw new InvocationError(`${manifestPath} has no version`);
+    }
+    found.push({ name: manifest.name, version: manifest.version });
+  }
+  if (found.length === 0) {
+    throw new InvocationError(`no publishable packages found under ${packagesDir}`);
+  }
+  return found.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * Is any package's version missing from the registry.
+ *
+ * ONE PROBE PER PACKAGE, NO BUDGET, and that is the opposite of `account` on purpose. `account`
+ * waits because a just-published version can 404 for minutes and reading that as "never published"
+ * reds a release that happened. Here the same delay reads as "not published yet", which keeps the
+ * publish job in and asks for an approval nobody needed: the cheap direction to be wrong in. Waiting
+ * would only make an ordinary push slower to say the same thing.
+ *
+ * The answer is ABSENT-FIRST: one version the registry reports absent is something to publish,
+ * whatever the other probes said. Only when every probe answered "present" is the answer "nothing".
+ * A probe that got no answer makes the answer `unknown`, which the workflow treats as "something":
+ * a check that could not read the registry cannot be the reason a publish job did not run.
+ *
+ * @param {object} options
+ * @param {{name: string, version: string}[]} options.packages The work list.
+ * @param {number} [options.probeTimeoutSeconds] How long one probe may take.
+ * @param {object} [options.env] The environment probes run in.
+ * @param {Function} [options.probe] The registry, which is the boundary a test replaces.
+ * @param {Function} [options.log] Where lines and annotations go.
+ * @returns {Promise<{answer: string, rows: object[]}>} The answer and one row per package.
+ */
+export async function pending({
+  packages,
+  probeTimeoutSeconds = PRESENCE_PROBE_TIMEOUT_SECONDS,
+  env = process.env,
+  probe = probeWithNpm,
+  log = (line) => process.stdout.write(`${line}\n`),
+} = {}) {
+  const rows = [];
+  for (const { name, version } of packages) {
+    const answer = await probe({ name, version, env, timeoutSeconds: probeTimeoutSeconds });
+    rows.push({ name, version, state: answer.state, detail: answer.detail });
+  }
+
+  const named = (state) =>
+    rows
+      .filter((row) => row.state === state)
+      .map((row) => `${row.name}@${row.version}`)
+      .join(", ");
+  const absent = rows.filter((row) => row.state === ABSENT);
+  const unreadable = rows.filter((row) => row.state === UNREADABLE);
+
+  for (const row of unreadable) {
+    log(`${row.name}@${row.version}: the registry did not answer. ${row.detail}`);
+  }
+
+  if (absent.length > 0) {
+    log(
+      `${absent.length} of ${rows.length} package version(s) are not on the registry: ` +
+        `${named(ABSENT)}. The publish job runs and asks for its approval.`,
+    );
+    return { answer: HAS_UNPUBLISHED, rows };
+  }
+  if (unreadable.length > 0) {
+    log(
+      `::warning title=Registry could not be read::${unreadable.length} of ${rows.length} ` +
+        `package version(s) could not be checked: ${named(UNREADABLE)}. Nothing was reported ` +
+        `absent, but this check cannot prove there is nothing to publish, so the publish job runs ` +
+        `and asks for its approval. If the approver finds nothing to publish, the job's own ` +
+        `\`changeset publish\` will say so.`,
+    );
+    return { answer: UNPUBLISHED_UNKNOWN, rows };
+  }
+  log(
+    `All ${rows.length} package version(s) are already on the registry, so \`changeset publish\` ` +
+      `would publish nothing. The publish job does not run and no approval is asked for.`,
+  );
+  return { answer: NOTHING_UNPUBLISHED, rows };
+}
+
+/**
+ * @param {string[]} argv Arguments after `pending`.
+ * @returns {{ repo: string, output?: string }} The parsed options.
+ */
+function parsePendingArgs(argv) {
+  const options = { repo: resolve(import.meta.dirname, "..") };
+  for (let i = 0; i < argv.length; i += 1) {
+    const flag = argv[i];
+    const value = argv[i + 1];
+    if (flag !== "--repo" && flag !== "--output") {
+      throw new InvocationError(`unknown argument ${JSON.stringify(flag)}`);
+    }
+    if (value === undefined) throw new InvocationError(`${flag} needs a value`);
+    i += 1;
+    if (flag === "--repo") options.repo = resolve(value);
+    else options.output = value;
+  }
+  return options;
+}
+
 /**
  * @param {string[]} argv Arguments after the script name.
  * @returns {object} The parsed options.
@@ -418,7 +574,7 @@ function parseArgs(argv) {
   const [subcommand, ...rest] = argv;
   if (subcommand !== "account") {
     throw new InvocationError(
-      `unknown subcommand ${JSON.stringify(subcommand ?? "")}. Expected \`account\`.`,
+      `unknown subcommand ${JSON.stringify(subcommand ?? "")}. Expected \`account\` or \`pending\`.`,
     );
   }
   const options = { arm: "publish" };
@@ -459,6 +615,16 @@ function parseArgs(argv) {
  * @returns {Promise<number>} The process exit code.
  */
 export async function main(argv, { env = process.env, log } = {}) {
+  if (argv[0] === "pending") {
+    const options = parsePendingArgs(argv.slice(1));
+    const packages = workspaceVersions(options.repo);
+    const result = await pending({ packages, env, log });
+    // Appended, because the file is `$GITHUB_OUTPUT`, which earlier steps of the job also write.
+    if (options.output !== undefined) {
+      appendFileSync(options.output, `has-unpublished=${result.answer}\n`, "utf8");
+    }
+    return 0;
+  }
   const options = parseArgs(argv);
   const packages = parseBumpedPackages(env.BUMPED_PACKAGES);
   const result = await account({ ...options, packages, env, log });

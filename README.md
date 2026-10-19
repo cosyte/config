@@ -177,8 +177,8 @@ line does and does not claim are in
 [ADR 0002](documentation/decisions/0002-the-0-1-0-version-line.md), and the per-package audit behind
 it is [`documentation/release-0.1.0-audit.md`](documentation/release-0.1.0-audit.md). Releases are
 managed with Changesets and, once the environment is created (a one-time setup step), gated on a
-protected `release` environment; the full pipeline (and the OIDC and npm provenance migration
-deferred to launch) is documented in [`RELEASING.md`](RELEASING.md).
+protected `release` environment and published through npm trusted publishing with provenance; the
+full pipeline is documented in [`RELEASING.md`](RELEASING.md).
 
 ## Contributing
 

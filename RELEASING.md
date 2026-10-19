@@ -37,21 +37,46 @@ waiting on a human is the step that produces a pull request, which anyone can cl
 Every step names its actor, what triggers it, and how you know it finished. Steps that wait on a
 human carry a budget.
 
-| #   | step                                                                         | actor                                                                                       | trigger                                                              | signal it completed                                                                                                                            | wait budget                                           |
-| --- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| 1   | Land a change with a changeset (`pnpm changeset`)                            | contributor                                                                                 | a pull request into `main`                                           | the PR merges with a `.changeset/*.md` file in it                                                                                              | none (ordinary review)                                |
-| 2   | `preflight` job: both release gates, then the verify ladder                  | automation, ungated                                                                         | push to `main`                                                       | the `preflight` job is green in the `Release` run                                                                                              | none, nothing waits                                   |
-| 3   | `version` job: open or refresh the "Version Packages" PR                     | automation, ungated                                                                         | `preflight` green **and** at least one pending changeset             | a PR titled `Version Packages` on branch `changeset-release/main` exists or was force-pushed, and its required checks are running              | none, nothing waits                                   |
-| 4   | Merge the "Version Packages" PR                                              | **release owner** (today: `NSchatz`)                                                        | that PR is open and its required checks are green                    | the PR is merged; a version commit lands on `main`                                                                                             | **24 hours** from the moment the PR's checks go green |
-| 5   | `publish` job: `changeset publish`, then tag and release each bumped package | automation, **gated on the protected `release` environment**                                | push to `main` with **no** pending changesets, and `preflight` green | the run leaves `waiting`, `npm view <pkg>@<version>` answers for every bumped package, and one GitHub release per `<pkg>@<version>` tag exists | **24 hours** from the run entering `waiting`          |
-| 6   | Approve the publish                                                          | **release approver** (today: `NSchatz`, the required reviewer on the `release` environment) | the `publish` job enters `waiting`                                   | the deployment is approved and the job starts                                                                                                  | counted inside step 5's budget                        |
+| #   | step                                                                         | actor                                                                                       | trigger                                                                                                | signal it completed                                                                                                                            | wait budget                                           |
+| --- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| 1   | Land a change with a changeset (`pnpm changeset`)                            | contributor                                                                                 | a pull request into `main`                                                                             | the PR merges with a `.changeset/*.md` file in it                                                                                              | none (ordinary review)                                |
+| 2   | `preflight` job: both release gates, then the verify ladder                  | automation, ungated                                                                         | push to `main`                                                                                         | the `preflight` job is green in the `Release` run                                                                                              | none, nothing waits                                   |
+| 3   | `version` job: open or refresh the "Version Packages" PR                     | automation, ungated                                                                         | `preflight` green **and** at least one pending changeset                                               | a PR titled `Version Packages` on branch `changeset-release/main` exists or was force-pushed, and its required checks are running              | none, nothing waits                                   |
+| 4   | Merge the "Version Packages" PR                                              | **release owner** (today: `NSchatz`)                                                        | that PR is open and its required checks are green                                                      | the PR is merged; a version commit lands on `main`                                                                                             | **24 hours** from the moment the PR's checks go green |
+| 5   | `publish` job: `changeset publish`, then tag and release each bumped package | automation, **gated on the protected `release` environment**                                | push to `main` with **no** pending changesets, `preflight` green, **and** something to release (below) | the run leaves `waiting`, `npm view <pkg>@<version>` answers for every bumped package, and one GitHub release per `<pkg>@<version>` tag exists | **24 hours** from the run entering `waiting`          |
+| 6   | Approve the publish                                                          | **release approver** (today: `NSchatz`, the required reviewer on the `release` environment) | the `publish` job enters `waiting`                                                                     | the deployment is approved and the job starts                                                                                                  | counted inside step 5's budget                        |
 
 The two arms in steps 3 and 5 are exclusive and the workflow chooses between them by asking the same
 question `changesets/action` asks itself: **are there pending changesets in `.changeset/`?** If yes,
-the ungated version arm runs and nothing is published. If no, the gated publish arm runs. Nothing
-else decides it, and in particular the `release-notes.mjs` classifier does not: a classifier that
-wrongly said "not a release" would withhold a publish on a green run, which is the exact failure the
-changeset guard exists to close.
+the ungated version arm runs and nothing is published. If no, the gated publish arm is the one that
+can run. The `release-notes.mjs` classifier does not choose the arm: a classifier that wrongly said
+"not a release" would withhold a publish on a green run, which is the exact failure the changeset
+guard exists to close.
+
+**The publish arm runs only when there is something to release** (2026-10-19). Until then it ran on
+every push to `main` without pending changesets, so the `release` environment asked for an approval
+on every ordinary push and the runs piled up waiting. Now `preflight` also asks the public registry
+whether every package's current version is already there (`scripts/registry-presence.mjs pending`),
+and the `publish` job's condition is:
+
+```yaml
+if: ${{ needs.preflight.outputs.has-changesets != 'true' && (needs.preflight.outputs.is-release == 'true' || needs.preflight.outputs.has-unpublished != 'false') }}
+```
+
+| push                                                   | `has-changesets` | `is-release` | `has-unpublished` | what runs                                                  |
+| ------------------------------------------------------ | ---------------- | ------------ | ----------------- | ---------------------------------------------------------- |
+| carries a pending changeset                            | `true`           | any          | (not asked)       | `version`; `publish` skipped, no deployment request        |
+| a version commit (a Version Packages PR merged)        | `false`          | `true`       | any               | `publish`, which waits for its approval                    |
+| no changesets, a package version npm does not have     | `false`          | `false`      | `true`            | `publish`, which waits for its approval                    |
+| no changesets, the registry could not be read          | `false`          | `false`      | `unknown`         | `publish`, which waits for its approval                    |
+| no changesets, every version already on npm (ordinary) | `false`          | `false`      | `false`           | `preflight` only; `publish` skipped, no deployment request |
+
+This cannot withhold a publish, and the reason is the same one that makes `has-changesets` safe to
+ask early. The only answer that skips the job is "every version is already on the registry", which is
+the question `changeset publish` asks before publishing each package, over the same manifests, so the
+skipped job would have published nothing. A version the registry lacks, a registry that did not
+answer, and a step that did not report all keep the job in. `test/release-arm-condition.test.ts`
+evaluates both jobs' `if:` lines, read from `release.yml`, on every row above.
 
 ### Roles, named
 
@@ -220,8 +245,10 @@ is actually there. Both choices exist to close the same hole:
    the accounting reads `npm view` rather than the run's own output.
 2. If the re-run reports the same packages missing, the publish genuinely failed for them. Open the
    run's `npm-debug-log-config-run<id>-attempt<n>` artifact, which the workflow uploads on failure
-   with credentials redacted, and read the npm error. The usual causes are an expired or wrong-typed
-   `NPM_TOKEN` (see the authentication section) and an npm-side 403 on a scoped package.
+   with credentials redacted, and read the npm error. The usual causes are a package whose npm
+   trusted publisher is missing or names a different repository, workflow or environment (see
+   [npm trusted publishing](#npm-trusted-publishing-the-owners-step-per-package)), and an npm-side
+   403 on a scoped package.
 3. Fix the cause and re-run again. **Do not hand-publish and do not bump the version to get past it.**
    A version consumed by a failed publish is not burned: the same version can be published again
    because nothing reached the registry under it.
@@ -306,9 +333,10 @@ so a local refusal is not by itself evidence about the release. Read the source 
 
 **What it protects.** Everything that decides **where** these tarballs go, **what** goes inside them
 and **what metadata rides along** is npm/pnpm configuration, and that configuration is assembled at
-publish time out of sources nothing in this repository used to inspect: a global npmrc, the user
-npmrc `actions/setup-node` **generates** on the runner and points `NPM_CONFIG_USERCONFIG` at, a
-repository or per-package `.npmrc`, `pnpm-workspace.yaml`, the root manifest's `pnpm` block, each
+publish time out of sources nothing in this repository used to inspect: a global npmrc, a user npmrc
+(on a runner, `actions/setup-node` **generates** one when given a `registry-url`, which the `publish`
+job deliberately is not), a repository or per-package `.npmrc`, `pnpm-workspace.yaml`, the root
+manifest's `pnpm` block, each
 package's `publishConfig`, `.changeset/config.json`, and the job's own environment. A redirected
 `registry`, a disabled `provenance`, a widened `access` or an injected lifecycle-script setting
 changes what reaches the public registry **without changing a tracked file in a way review would
@@ -418,14 +446,17 @@ human. The `preflight` and `version` jobs do not reference it and never wait.
 
 **If the approval budget lapses.** A `publish` run sitting in `waiting` for more than 24 hours is the
 release owner's to end: approve it, or cancel the run and say why in the version PR's thread. A
-cancelled publish is recoverable (the version commit is on `main` and the next push re-runs the
-publish arm); a forgotten one is what produces the backlog this pipeline was rebuilt to stop.
+cancelled publish is recoverable (the version commit is on `main`, the registry still lacks its
+versions, so the next push to `main` runs the publish arm again); a forgotten one is what produces the
+backlog this pipeline was rebuilt to stop.
 
 **Do not widen the reviewer set to admit an automation identity, and do not remove
 `environment: release` from the `publish` job.** Either would mean a package could reach npm with no
 human acknowledgment, a published version is permanent, and there is no operator decision authorizing
-it. If the queue is still painful after the organization-wide split lands, the next levers are a
-second human reviewer or npm Trusted Publishers with OIDC, and both are the operator's call.
+it. npm trusted publishing (below) changed the credential, not the gate: the trusted publisher names
+this environment, so it adds a second reason the gate cannot be skipped. If the queue is still painful
+after the organization-wide split lands, the next lever is a second human reviewer, and that is the
+operator's call.
 
 ## Release bodies: why `createGithubReleases` is off
 
@@ -480,21 +511,35 @@ multi-package shape, and now the ungated-version / gated-publish split, which is
 against `cosyte/.github` in the evidence record. If the shared workflow ever grows a multi-package
 mode, revisit this.
 
-## Authentication today
+## Authentication: npm trusted publishing
 
-This repository is **public**, so publishing authenticates with `NPM_TOKEN`, an org-level secret
-shared across the `@cosyte/*` repositories, and **with provenance**. `NPM_CONFIG_PROVENANCE` is wired
-to `github.event.repository.visibility == 'public'`, so provenance is on with no workflow edit.
+Publishing authenticates through **npm trusted publishing (OIDC)**, with **no npm token anywhere** in
+`release.yml` and none read by this repository. The `publish` job grants `permissions: id-token:
+write`, so the runner gives its steps the OIDC token request variables; inside `npm publish`, npm
+requests a GitHub-signed ID token and exchanges it, package by package, for a short-lived publish
+token. The registry issues one only when the ID token's claims match that package's trusted
+publisher: repository `cosyte/config`, workflow `release.yml`, environment `release`. This repository
+is **public**, so the publish is also **with provenance**: `NPM_CONFIG_PROVENANCE` is wired to
+`github.event.repository.visibility == 'public'`.
 
-`NPM_TOKEN` **must be an npm _Automation_ token** (or a granular token). A classic _Publish_ token
-demands a 2FA one-time password that CI cannot supply, and the publish dies with `EOTP This operation
-requires a one-time password from your authenticator`: after a green build, at the very last step.
-Note that a repository-level `NPM_TOKEN` silently overrides the org-level one, so keep the token in
-exactly one place.
+What has to be true on the runner, each checked or pinned in `release.yml`:
 
-`NPM_TOKEN` and `NODE_AUTH_TOKEN` are supplied to the `publish` job **only**. The ungated `version`
-job has neither, and is given no `publish:` input either, so reaching the registry from an ungated job
-would take two independent mistakes rather than one. Keep it that way.
+- **npm 11.5.1 or later.** [npm's trusted publishing page](https://docs.npmjs.com/trusted-publishers)
+  (read 2026-10-19) requires it, with Node 22.14.0 or later. `changeset publish` runs `pnpm publish`,
+  and pnpm 10.34.5 packs the tarball and then runs the `npm` CLI on PATH to upload it
+  (`runNpm(opts.npmPath, ["publish", "--ignore-scripts", <tarball>])` in its `dist/pnpm.cjs`, read
+  2026-10-19), so the npm version is what decides. Node 22.14 ships npm 10, so the `publish` job
+  installs exactly **npm 11.21.0** (published 2026-09-30) and reds if a different npm is first on
+  PATH. npm 12 needs Node `^22.22.2`, so it is not an option on this Node.
+- **A GitHub-hosted runner.** npm does not accept trusted publishing from self-hosted runners.
+- **No token in npm's configuration.** The `publish` job's `setup-node` takes no `registry-url`, so
+  no npmrc with a `${NODE_AUTH_TOKEN}` slot is generated, and `changesets/action` (v1.9.0, the pinned
+  sha) writes no `.npmrc` when it is given no npm token and the OIDC variables are present.
+
+`id-token: write` is granted to the `publish` job **only**. The ungated `version` job does not have
+it, and is given no `publish:` input either, so reaching the registry from an ungated job would take
+two independent mistakes rather than one. Keep it that way: `id-token: write` on any other job is the
+npm credential leaving the gated job, and `credential-surface.mjs` refuses it.
 
 ### The surface is declared, not described
 
@@ -538,49 +583,50 @@ token published. Every remedy below is a human action taken against npm or GitHu
 the compensating action per credential is the whole of it.
 
 **A published version is permanent.** A version that has reached the registry stays there and is not
-undone by revoking the credential that published it. Revoking `NPM_TOKEN` stops the **next** publish;
-it does nothing about the one that already happened. npm's unpublish window is narrow and its use is a
+undone by revoking the credential that published it. Revoking a package's trusted publisher stops the
+**next** publish; it does nothing about the one that already happened. npm's unpublish window is narrow and its use is a
 founder decision with consumers on the other side of it, so the compensating action for a bad publish
 is a **new version**, not a withdrawal. Treat "the credential was compromised" and "the wrong bytes
 shipped" as two separate incidents with two separate remedies, and do not let revoking a token feel
 like it addressed the second.
 
-### `NPM_TOKEN`
+### `GITHUB_OIDC_ID_TOKEN`
 
-**Blast radius before you start.** This is an **organization** secret shared by every `@cosyte/*`
-repository. Rotating it affects all of them, not just this one, and there is no per-repository
-override that is safe to introduce: a repository-level `NPM_TOKEN` silently outranks the
-organization-level one, which is exactly how two tokens end up live with nobody sure which one
-published.
+**What it is.** The OIDC ID token GitHub mints for a job that grants `id-token: write`, which npm
+exchanges for a short-lived publish token per package. Nothing is stored: the runner sets
+`ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN` in the `publish` job's steps, npm
+requests the ID token itself, and the exchanged token lives in npm's memory for one command. So the
+procedure below is about the two things that **can** be issued and revoked: the `id-token: write`
+grant in `release.yml`, and each package's **trusted publisher** on npm.
 
-- **Issue.** On npmjs.com as the `@cosyte` scope owner: Access Tokens, then Generate New Token, then
-  **Granular Access Token** (or **Automation**). Grant it read and write on the `@cosyte` scope,
-  nothing else, and set the shortest expiry the release cadence tolerates. **Do not issue a classic
-  Publish token**: it demands a 2FA one-time password that CI cannot supply, and the publish dies with
-  `EOTP This operation requires a one-time password from your authenticator` after a green build, at
-  the very last step.
-- **Install.** Set it in **exactly one place**: the `cosyte` organization secrets
-  (`gh secret set NPM_TOKEN --org cosyte --visibility all`). Then confirm no repository-level copy
-  exists anywhere it would shadow the organization one:
-  `gh secret list --repo cosyte/config` must not list `NPM_TOKEN`. Delete any that does.
-- **Verify.** Do not verify by publishing. Run the `Release` workflow on a `main` with no pending
-  changesets, approve the `publish` deployment, and read the run: `changeset publish` reports "no new
-  packages" and the accounting step says every bumped package is on the registry. A wrong-typed token
-  fails there with `EOTP` and an expired one with `E401`, both **before** anything is written, because
-  the publish preflight (`scripts/publish-preflight.mjs`) refuses an absent or empty token before the
-  build even runs.
-- **Revoke.** On npmjs.com, Access Tokens, revoke the old token **after** the new one is installed and
-  verified, not before: the two steps overlap deliberately so no release window is left with no
-  working token. Then re-read `gh secret list --org Cosyte` and confirm one entry, one value.
-- **Compensating action.** If the token is believed compromised, invert the order: **revoke first**,
-  accept that every `@cosyte/*` publish is blocked until a replacement is installed, and say so in the
-  org channel because thirteen other repositories share it. Then `npm token list` and audit recent
-  versions of all eight packages (`npm view <pkg> versions --json`) against this repository's tags. A
-  version that reached the registry cannot be pulled back by revoking the token that published it: if
-  the bytes are wrong, publish a corrected **new** version and, only if the content is genuinely
-  dangerous, take the unpublish question to the founder. Finally, harden: set the packages and the org
-  to "Require two-factor authentication and disallow tokens", which makes a stolen token useless and
-  is the same setting the OIDC cutover wants anyway.
+- **Issue.** The owner registers a trusted publisher on each of the eight packages, once, at the first
+  release that needs it: see
+  [npm trusted publishing](#npm-trusted-publishing-the-owners-step-per-package) for the commands. The
+  workflow side is already issued: `id-token: write` on the `publish` job, declared in
+  `.github/credential-surface.json` as the `runner` exposure this credential comes from.
+- **Install.** Nothing to install in GitHub: no secret, no variable. The grant is the installation,
+  and it changes only in a commit that changes `release.yml` and the declaration together. The
+  organization's `NPM_TOKEN` secret, which other `@cosyte/*` repositories may still read, is not
+  referenced here, and `credential-surface.mjs` refuses a release workflow that references any secret
+  the declaration does not name.
+- **Verify.** `npm trust list <pkg>` shows one GitHub configuration naming `cosyte/config`,
+  `release.yml` and `release` for every package. In a run, the `Publish` step logs
+  `No NPM_TOKEN found, but OIDC is available - using npm trusted publishing`, and the publish
+  preflight (`scripts/publish-preflight.mjs`) has already refused, before the build, any run in which
+  the two variables were missing. A package with no trusted publisher fails the upload with an
+  authentication error and publishes nothing; the accounting step then names it.
+- **Revoke.** `npm trust revoke --id <id> <pkg>` (the id from `npm trust list <pkg>`) on each package,
+  which stops the next publish of that package from this workflow. To stop every publish from this
+  repository at once, remove `id-token: write` from the `publish` job and from the declaration in one
+  commit; the preflight then refuses every release before the build.
+- **Compensating action.** If a trusted publisher is believed misused, revoke it first, then audit
+  recent versions of all eight packages (`npm view <pkg> versions --json`) against this repository's
+  tags and the `Release` runs that published them; every trusted publish carries a provenance
+  statement naming the run. A version that reached the registry cannot be pulled back by revoking the
+  publisher: if the bytes are wrong, publish a corrected **new** version and, only if the content is
+  genuinely dangerous, take the unpublish question to the founder. Then harden: set each package to
+  "Require two-factor authentication and disallow tokens", which leaves trusted publishing working and
+  makes any stolen npm token useless.
 
 ### `RELEASE_PR_TOKEN`
 
@@ -625,7 +671,8 @@ workflow-level grants, `id-token: write` included.
 - **Issue.** Not applicable, and deliberately so: no human issues this credential. The equivalent act
   is granting it a permission, which is an edit to a `permissions:` block in `release.yml` **and** to
   `.github/credential-surface.json` in the same commit. A grant added to only one of the two does not
-  merge.
+  merge. `id-token: write` is a grant of this kind with a second meaning: it is the source of
+  `GITHUB_OIDC_ID_TOKEN`, the npm credential, so it belongs on `publish` and on nothing else.
 - **Install.** Not applicable. The token is never stored. What is installed is the grant: keep every
   job's `permissions:` block explicit and minimal, and keep the workflow-level block as the ceiling
   rather than as a default anyone inherits by accident.
@@ -635,15 +682,16 @@ workflow-level grants, `id-token: write` included.
   nothing else.
 - **Revoke.** Narrow or remove the grant in `release.yml` and in the declaration together, then merge.
   The next job mints a token without it; there is no live credential to invalidate. Removing
-  `id-token: write` from `publish` also turns npm provenance off, so treat that grant as part of the
-  publish contract rather than as hygiene.
+  `id-token: write` from `publish` stops every publish (it is where the npm credential comes from) and
+  turns npm provenance off, so treat that grant as part of the publish contract rather than as
+  hygiene.
 - **Compensating action.** A leak of this token is bounded by the job that held it and expires with
   that job, so the remedy is not revocation but audit: read the run's log, list what the token could
   reach under that job's declared grants, and check `main`'s history and this repository's releases
   and pull requests for anything it wrote. If a grant turns out to have been wider than the work
   needed, narrow it in both files in one commit. Anything the token published to npm is out of its
-  reach by construction: it has never held registry credentials, and the version arm holds no npm
-  token at all.
+  reach by construction: it has never held registry credentials, and the version arm holds no
+  `id-token: write` at all.
 
 ## Proving the pipeline without burning a version
 
@@ -704,27 +752,38 @@ with seven red cases on a tree whose only change was a `CHANGELOG.md`. The fix i
 than in the caller: **`scripts/attw.mjs` strips those two keys from the environment of the `attw`
 child**, in both copies of the wrapper, so every scaffolded parser inherits it.
 
-## Still deferred: OIDC trusted publishing
+## npm trusted publishing: the owner's step, per package
 
-**Provenance is live** (the repository is public). **OIDC trusted publishing**, publishing with no
-token at all, is the remaining step. A turnkey sequence:
+The workflow side is done: no npm token in `release.yml`, `id-token: write` on the `publish` job, npm
+11.21.0 on its PATH. What is left is on npm, and it is the owner's: **each of the eight packages
+publishes this way only once it has a trusted publisher**, registered at the first release that needs
+it. Until then a publish of that package fails at the registry with an authentication error and
+publishes nothing, and the accounting step names it.
 
-1. ~~**Bump the runner toolchain floor**~~: **DONE.** `packageManager` is now `pnpm@10.34.5`
-   (>= 10.16) and the `setup-node` pins are `22.14` (>= 22.14) across `ci.yml` (`release-dry-run`)
-   and `release.yml`; `engines.node` is `>=22.14`. Since publish runs via `pnpm run release`, **pnpm**
-   carries OIDC trusted publishing, so the npm-CLI floor (npm >= 11.5.1) is not on the publish path
-   and no `npm i -g npm@...` step is needed. `pnpm/action-setup@v6` reads `packageManager`, so the
-   dry-run and release jobs install 10.34.5.
-2. **Configure the Trusted Publisher on npm**: for each of the eight `@cosyte/*` packages: Settings,
-   then Trusted Publisher, then GitHub org `cosyte`, repository `config`, workflow filename
-   `release.yml`, environment name `release`, allowed action `npm publish`. **The environment name is
-   still `release` after the 2026-08-22 split**, because the publish job is the one that kept it.
-3. **Remove `NPM_TOKEN` / `NODE_AUTH_TOKEN`** from the workflow and repository secrets; keep
-   `permissions: id-token: write` on the `publish` job (already present).
-4. **Harden npm**: set the package and org to "Require two-factor authentication and disallow tokens";
-   OIDC trusted publishers keep working, stolen tokens become useless.
+`npm trust` needs npm 11.15.0 or later locally, two-factor authentication on the account, and write
+access to the package (npm's `npm-trust` command page, read 2026-10-19). For each package:
 
-Steps 2 to 4 are founder steps, not a build.
+```bash
+for pkg in eslint-config prettier-config process script-utils test-utils tsconfig tsup-config vitest-config; do
+  npm trust github "@cosyte/$pkg" --repo cosyte/config --file release.yml --env release --allow-publish --yes
+  sleep 2
+done
+npm trust list @cosyte/tsconfig   # repeat per package to verify
+```
+
+Or on npmjs.com: the package's Settings, then Trusted Publisher, then GitHub Actions with organization
+`cosyte`, repository `config`, workflow filename `release.yml`, environment `release`. The workflow
+filename is the file name only, extension included. **The environment name matters**: it is what ties
+the token to the `release` approval, so leave it set.
+
+Then, once every package has published through it at least once, harden each package to "Require
+two-factor authentication and disallow tokens": trusted publishing keeps working and a stolen npm
+token stops working.
+
+**Retracted.** This section used to say that pnpm carries trusted publishing and that "the npm-CLI
+floor (npm >= 11.5.1) is not on the publish path and no `npm i -g npm@...` step is needed". pnpm
+10.34.5 delegates the upload to the npm CLI (see "Authentication: npm trusted publishing" above), so
+the npm floor is on the publish path, and the `publish` job now installs npm 11.21.0.
 
 ## The evidence behind all of this
 
