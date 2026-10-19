@@ -66,7 +66,7 @@
 //      non-zero either way, so the release stops regardless.
 
 import { spawn } from "node:child_process";
-import { appendFileSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { isCliEntrypoint } from "../packages/script-utils/index.js";
@@ -449,16 +449,20 @@ export function workspaceVersions(root) {
   const found = [];
   for (const entry of entries) {
     const manifestPath = join(packagesDir, entry, "package.json");
+    // Read once, with no existence check first: a check and a later read can disagree about the
+    // same path. An entry with no manifest (or a file under packages/) is not a package.
+    let text;
     try {
-      if (!statSync(manifestPath).isFile()) continue;
-    } catch {
-      continue;
+      text = readFileSync(manifestPath, "utf8");
+    } catch (error) {
+      if (error.code === "ENOENT" || error.code === "ENOTDIR") continue;
+      throw new InvocationError(`cannot read ${manifestPath}: ${error.message}`);
     }
     let manifest;
     try {
-      manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+      manifest = JSON.parse(text);
     } catch (error) {
-      throw new InvocationError(`cannot read ${manifestPath}: ${error.message}`);
+      throw new InvocationError(`cannot parse ${manifestPath}: ${error.message}`);
     }
     if (manifest.private === true) continue;
     if (typeof manifest.name !== "string" || manifest.name === "") {

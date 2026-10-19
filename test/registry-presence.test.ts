@@ -941,6 +941,20 @@ describe("pending: the work list is what `changeset publish` would consider", ()
     expect(() => workspaceVersions(root)).toThrow(/no publishable packages/);
   });
 
+  it("skips a directory with no manifest and a stray file under packages/", () => {
+    const root = workspace({ real: { name: `${SCOPE}/real`, version: "1.0.0" } });
+    mkdirSync(join(root, "packages", "empty"), { recursive: true });
+    writeFileSync(join(root, "packages", "README.md"), "not a package\n", "utf8");
+    expect(workspaceVersions(root)).toEqual([{ name: `${SCOPE}/real`, version: "1.0.0" }]);
+  });
+
+  it("refuses a manifest it cannot parse rather than skipping that package", () => {
+    const root = workspace({});
+    mkdirSync(join(root, "packages", "broken"), { recursive: true });
+    writeFileSync(join(root, "packages", "broken", "package.json"), "{ nope", "utf8");
+    expect(() => workspaceVersions(root)).toThrow(/cannot parse/);
+  });
+
   it("refuses a manifest with no version rather than probing `name@undefined`", () => {
     const root = workspace({ broken: { name: `${SCOPE}/broken` } });
     expect(() => workspaceVersions(root)).toThrow(/has no version/);
