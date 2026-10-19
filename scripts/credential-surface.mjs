@@ -38,8 +38,8 @@
 //
 // WHY IT PARSES THE WORKFLOW RATHER THAN GREPPING IT. Half of what this check has to answer is a
 // question about SCOPE ("is this secret reachable by one step or by every job"), and scope is
-// structure. A grep also cannot tell prose from wiring: `release.yml`'s header comments name
-// `NPM_TOKEN`, `NODE_AUTH_TOKEN` and `RELEASE_PR_TOKEN` several times in ordinary English, and a
+// structure. A grep also cannot tell prose from wiring: `release.yml`'s comments name
+// `RELEASE_PR_TOKEN`, `GITHUB_TOKEN` and `id-token: write` several times in ordinary English, and a
 // text scan would report every one of those as an exposure. So the file is parsed, comments and all,
 // by the deliberately small YAML subset reader below.
 //
@@ -88,8 +88,20 @@ const MIN_LABEL_TEXT = 20;
 /** Storage locations a credential may declare. One credential, one home: see AC1. */
 const STORAGE_LOCATIONS = ["organization", "repository", "environment", "github-provided"];
 
-/** How a credential reaches the thing that consumes it. */
-const EXPOSURE_ROUTES = ["env", "with"];
+/**
+ * How a credential reaches the thing that consumes it.
+ *
+ * `env` and `with` are a `secrets.NAME` reference the workflow writes into a step. `runner` is a
+ * variable the RUNNER sets in every step of a job because that job holds a permission grant, which
+ * is how GitHub hands out the OIDC token request (`id-token: write` sets
+ * `ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN`). No `secrets.` reference
+ * exists for it, so its exposure is the grant: a `runner` exposure names the permission that causes
+ * it (`grantedBy`), and it is where it says only when that job grants exactly that.
+ */
+const EXPOSURE_ROUTES = ["env", "with", "runner"];
+
+/** The shape of a `runner` exposure's `grantedBy`: one `permissions:` entry, `scope: level`. */
+const GRANT = /^([a-z][a-z-]*): (read|write)$/;
 
 /** What the workflow does with the credential at an exposure. */
 const EXPOSURE_MODES = ["value", "presence-test"];
@@ -637,6 +649,11 @@ function validateExposures(exposures, label) {
         `${label} has an exposure whose \`mode\` is not one of ${EXPOSURE_MODES.join(", ")}`,
       );
     }
+    if (exposure.as === "runner" && !GRANT.test(exposure.grantedBy ?? "")) {
+      problems.push(
+        `${label} has a \`runner\` exposure without a \`grantedBy\` of the form \`scope: read|write\``,
+      );
+    }
   }
   return problems;
 }
@@ -948,6 +965,7 @@ export function checkCredentialSurface({ repoRoot, declarationPath, workflowPath
 
   checkStepNameAmbiguity(declaration, jobs, findings);
   const matched = checkReferences(declaration, references, findings);
+  matchRunnerExposures(declaration, jobs, matched);
   checkDeclaredExposures(declaration, jobs, matched, findings);
   checkSettings(declaration, jobs, findings);
   checkPermissions(declaration, workflow, jobs, findings);
@@ -1056,6 +1074,38 @@ function exposureKey(name, exposure) {
 }
 
 /**
+ * @param job A job index entry.
+ * @param grantedBy A `scope: level` string.
+ * @returns Whether the job's own `permissions:` block grants exactly that.
+ */
+function jobGrants(job, grantedBy) {
+  const [, scope, level] = GRANT.exec(grantedBy) ?? [];
+  const found = readPermissions(job.node);
+  return scope !== undefined && found.grants !== null && found.grants[scope] === level;
+}
+
+/**
+ * A `runner` exposure is where the declaration says when its step exists and its job grants the
+ * permission that makes the runner set the variable. There is no reference to find, so this marks
+ * it seen on that evidence, and `checkDeclaredExposures` reports it absent otherwise.
+ *
+ * @param declaration The declaration.
+ * @param jobs The job index.
+ * @param seen Exposure keys matched so far; extended in place.
+ */
+function matchRunnerExposures(declaration, jobs, seen) {
+  for (const credential of declaration.credentials) {
+    for (const exposure of credential.exposures) {
+      if (exposure.as !== "runner") continue;
+      const job = jobs.get(exposure.job);
+      if (job === undefined) continue;
+      if (!job.steps.some((step) => step.id === exposure.step)) continue;
+      if (jobGrants(job, exposure.grantedBy)) seen.add(exposureKey(credential.name, exposure));
+    }
+  }
+}
+
+/**
  * A declaration is a promise in both directions: a credential that no longer appears where it says
  * it does is a failure, not a success on the grounds that nothing extra turned up.
  *
@@ -1078,9 +1128,11 @@ function checkDeclaredExposures(declaration, jobs, seen, findings) {
       const reason =
         job === undefined
           ? `job "${exposure.job}" does not exist in the workflow`
-          : job.steps.some((step) => step.id === exposure.step)
-            ? `that step does not set \`${exposure.as}: ${exposure.name}\` from it`
-            : `job "${exposure.job}" has no step named "${exposure.step}"`;
+          : !job.steps.some((step) => step.id === exposure.step)
+            ? `job "${exposure.job}" has no step named "${exposure.step}"`
+            : exposure.as === "runner"
+              ? `job "${exposure.job}" does not grant \`${exposure.grantedBy}\`, so the runner never sets \`${exposure.name}\``
+              : `that step does not set \`${exposure.as}: ${exposure.name}\` from it`;
       findings.push({
         code: "declared-exposure-absent",
         message: `\`${credential.name}\` is declared at ${describeDeclaredScope(exposure)} but ${reason}`,
@@ -1200,7 +1252,9 @@ function checkPermissions(declaration, workflow, jobs, findings) {
 /**
  * The job that can reach the registry must reference the protected deployment environment. Checked
  * against the declared publish job AND against every job actually holding registry credentials, so
- * hoisting `NPM_TOKEN` into an ungated job fails here as well as on scope.
+ * hoisting a registry secret into an ungated job fails here as well as on scope, and so does
+ * granting an ungated job the permission a `runner` registry credential comes from (`id-token:
+ * write` is enough to publish through npm trusted publishing).
  *
  * @param declaration The declaration.
  * @param jobs The job index.
@@ -1216,6 +1270,18 @@ function checkEnvironment(declaration, jobs, references, findings) {
   for (const reference of references) {
     if (registryAuth.has(reference.secret) && reference.location.job !== null) {
       mustBeGated.add(reference.location.job);
+    }
+  }
+  const registryGrants = new Set();
+  for (const credential of declaration.credentials) {
+    if (!credential.registryAuth) continue;
+    for (const exposure of credential.exposures) {
+      if (exposure.as === "runner") registryGrants.add(exposure.grantedBy);
+    }
+  }
+  for (const [jobId, job] of jobs) {
+    for (const grant of registryGrants) {
+      if (jobGrants(job, grant)) mustBeGated.add(jobId);
     }
   }
   for (const jobId of mustBeGated) {

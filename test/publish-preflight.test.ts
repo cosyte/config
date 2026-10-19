@@ -7,11 +7,13 @@ import { afterEach, describe, expect, it } from "vitest";
 
 // THE NEGATIVE CONTROL FOR THE PUBLISH PREFLIGHT.
 //
-// The defect: `changeset publish` discovers a missing npm token by asking the registry and being
-// refused, which happens at the LAST step of a job that has already checked out, installed, built
-// eight packages and waited for a human to approve a protected deployment. The approval is spent,
-// the build is paid for, and the diagnostic is an `E401` from npm rather than a sentence naming the
-// credential and where it is supposed to live.
+// The defect: `changeset publish` discovers a missing npm credential by asking the registry and
+// being refused, which happens at the LAST step of a job that has already checked out, installed,
+// built eight packages and waited for a human to approve a protected deployment. The approval is
+// spent, the build is paid for, and the diagnostic is an authentication error from npm rather than a
+// sentence naming the credential and where it is supposed to come from. Under npm trusted publishing
+// the credential is the OIDC token request the runner sets up for a job granted `id-token: write`,
+// and npm skips the exchange SILENTLY when it is missing, so the late failure is the only symptom.
 //
 // The preflight is worth exactly what its pair of controls proves, so this suite asserts BOTH
 // directions and one boundary:
@@ -31,7 +33,10 @@ const PREFLIGHT = join(REPO, "scripts", "publish-preflight.mjs");
 const DECLARATION = join(".github", "credential-surface.json");
 
 /** A value no message may ever echo. If it appears in the output, the preflight leaked a secret. */
-const SENTINEL = "npm_thisvalueMUSTneverBEprinted000000";
+const SENTINEL = "thisvalueMUSTneverBEprinted000000";
+
+/** The runner's OIDC token request URL, which carries no secret but is not echoed either. */
+const SENTINEL_URL = "https://token.actions.invalid/idtoken?api-version=2.0";
 
 const temporaryDirs: string[] = [];
 
@@ -80,48 +85,75 @@ function fixture(): string {
   return root;
 }
 
-/** Every environment variable the committed declaration requires, all present and plausible. */
-const FULLY_CREDENTIALED = { NPM_TOKEN: SENTINEL, NODE_AUTH_TOKEN: SENTINEL };
+/**
+ * Every environment variable the committed declaration requires, all present and plausible: what the
+ * runner sets in a job that grants `id-token: write`.
+ */
+const FULLY_CREDENTIALED = {
+  ACTIONS_ID_TOKEN_REQUEST_URL: SENTINEL_URL,
+  ACTIONS_ID_TOKEN_REQUEST_TOKEN: SENTINEL,
+};
 
 describe("a required credential that is absent or empty (AC8)", () => {
   it("stops before the registry is contacted and names the missing credential", () => {
     const result = run(fixture(), {});
     expect(result.status).toBe(1);
     expect(result.output).toContain("REFUSING TO PUBLISH");
-    expect(result.output).toContain("NPM_TOKEN");
-    expect(result.output).toContain("NODE_AUTH_TOKEN");
+    expect(result.output).toContain("ACTIONS_ID_TOKEN_REQUEST_URL");
+    expect(result.output).toContain("ACTIONS_ID_TOKEN_REQUEST_TOKEN");
+    expect(result.output).toContain("GITHUB_OIDC_ID_TOKEN");
     expect(result.output).toContain("the registry has NOT been contacted");
   });
 
   it("treats an empty value as absent", () => {
-    const result = run(fixture(), { NPM_TOKEN: "", NODE_AUTH_TOKEN: "" });
+    const result = run(fixture(), {
+      ACTIONS_ID_TOKEN_REQUEST_URL: "",
+      ACTIONS_ID_TOKEN_REQUEST_TOKEN: "",
+    });
     expect(result.status).toBe(1);
-    expect(result.output).toContain("NPM_TOKEN");
+    expect(result.output).toContain("ACTIONS_ID_TOKEN_REQUEST_TOKEN");
   });
 
   it("treats a whitespace-only value as absent", () => {
-    const result = run(fixture(), { NPM_TOKEN: "   ", NODE_AUTH_TOKEN: "  \t " });
+    const result = run(fixture(), {
+      ACTIONS_ID_TOKEN_REQUEST_URL: "   ",
+      ACTIONS_ID_TOKEN_REQUEST_TOKEN: "  \t ",
+    });
     expect(result.status).toBe(1);
-    expect(result.output).toContain("NPM_TOKEN");
+    expect(result.output).toContain("ACTIONS_ID_TOKEN_REQUEST_TOKEN");
   });
 
   it("catches the half-set case, where one of a credential's two variables is missing", () => {
-    const result = run(fixture(), { NPM_TOKEN: SENTINEL });
+    const result = run(fixture(), { ACTIONS_ID_TOKEN_REQUEST_URL: SENTINEL_URL });
     expect(result.status).toBe(1);
-    expect(result.output).toContain("NODE_AUTH_TOKEN");
+    expect(result.output).toContain("ACTIONS_ID_TOKEN_REQUEST_TOKEN");
+    expect(result.output).not.toContain("ACTIONS_ID_TOKEN_REQUEST_URL is empty");
   });
 
-  it("tells the operator the token class and the one place it may live", () => {
+  it("tells the operator what the credential is and the grant it comes from", () => {
     const result = run(fixture(), {});
-    expect(result.output).toContain("organization");
-    expect(result.output).toContain("Automation token");
+    expect(result.output).toContain("github-provided");
+    expect(result.output).toContain("OIDC ID token");
+    // The one fix for a runner-provided credential is the job's grant, so the refusal names it.
+    expect(result.output).toContain("grants `id-token: write`");
+    expect(result.output).toContain("`publish` job's `permissions:` block");
     expect(result.output).toContain("Credential rotation, revocation, and compensating actions");
   });
 
   it("never echoes a credential value", () => {
-    const result = run(fixture(), { NPM_TOKEN: SENTINEL });
+    const result = run(fixture(), { ACTIONS_ID_TOKEN_REQUEST_TOKEN: SENTINEL });
     expect(result.status).toBe(1);
     expect(result.output).not.toContain(SENTINEL);
+  });
+
+  it("requires the runner's OIDC variables, and no npm token, under trusted publishing", () => {
+    // The declaration is what the preflight reads, so this pins what the committed one requires:
+    // a leftover NPM_TOKEN requirement would refuse every trusted publish, and a missing OIDC one
+    // would let a job without `id-token: write` build eight packages before npm refused it.
+    const result = run(fixture(), { NPM_TOKEN: SENTINEL, NODE_AUTH_TOKEN: SENTINEL });
+    expect(result.status).toBe(1);
+    expect(result.output).not.toContain("NPM_TOKEN is empty");
+    expect(result.output).toContain("ACTIONS_ID_TOKEN_REQUEST_URL is empty");
   });
 
   it("passes when every required credential is present (positive control)", () => {

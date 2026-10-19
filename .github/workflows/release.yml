@@ -10,7 +10,7 @@ concurrency:
 
 permissions:
   contents: write # create the version PR / tags / releases
-  id-token: write # npm provenance
+  id-token: write # npm trusted publishing and provenance, granted to the publish job only
   pull-requests: write # open the "Version Packages" PR
 
 # Changesets flow: a push to main with pending changesets opens a "Version Packages" PR. Merging that
@@ -34,7 +34,7 @@ permissions:
 #     gate ran AFTER the approval, so an approver could be asked to approve a run that could not
 #     succeed. They now run before anyone is asked for anything.
 #   * `version` (UNGATED) opens or refreshes the Version Packages PR. It is given NO `publish:` input
-#     and NO npm credentials, so it cannot reach the registry even if something else here is wrong.
+#     and NO `id-token: write`, so it cannot reach the registry even if something else here is wrong.
 #     It carries its own copy of the Gate 1 accounting check, because the split would otherwise have
 #     let one push (a version commit that ALSO carries a pending changeset) skip both arms' checks
 #     and go green with packages bumped and unpublished. See that step for the full argument.
@@ -44,22 +44,57 @@ permissions:
 #     where the risk is.
 #
 # WHY THE ARM CONDITION IS NOT A CLASSIFIER, and this is the part not to "simplify". This repo
-# deliberately refuses to gate the publish on `release-notes.mjs`'s `is-release` output, because a
-# classifier that wrongly answered "not a release" would WITHHOLD A PUBLISH ON A GREEN RUN, which is
-# the exact silent-withholding failure Gate 1 exists to close (run 30640138565, 2026-07-31). That
-# refusal is unchanged. The arm condition below is `has-changesets`, which is the SAME question
-# `changesets/action` asks itself to choose its own arm ("are there pending changesets"), computed
-# from the same directory by the same rule. Moving that question one step earlier cannot change what
-# publishes: on the branch where it is wrong, the action would have taken the version arm and
-# published nothing anyway.
+# deliberately refuses to gate the publish on `release-notes.mjs`'s `is-release` output ALONE,
+# because a classifier that wrongly answered "not a release" would WITHHOLD A PUBLISH ON A GREEN RUN,
+# which is the exact silent-withholding failure Gate 1 exists to close (run 30640138565,
+# 2026-07-31). That refusal is unchanged. The arm condition below is `has-changesets`, which is the
+# SAME question `changesets/action` asks itself to choose its own arm ("are there pending
+# changesets"), computed from the same directory by the same rule. Moving that question one step
+# earlier cannot change what publishes: on the branch where it is wrong, the action would have taken
+# the version arm and published nothing anyway.
+#
+# THE PUBLISH ARM ALSO ASKS WHETHER THERE IS ANYTHING TO PUBLISH (2026-10-19). Before this, every
+# push to `main` with no pending changesets started the gated job, so the `release` environment asked
+# for an approval on every ordinary push, including the many with nothing to release, and the runs
+# piled up waiting. The publish job now starts only when the push is a version commit (`is-release`)
+# OR the registry does not report every package's current version as present (`has-unpublished`,
+# from scripts/registry-presence.mjs `pending`). The second question is the one `changeset publish`
+# itself asks before publishing each package, over the same manifests, so skipping the job on its
+# "nothing" answer skips a `changeset publish` that would have published nothing. Every other answer
+# keeps the job in: a version the registry lacks, a registry that could not be read (`unknown`), and
+# a step that did not report at all. So the classifier can still only ADD a run, never withhold one.
+# The paths, each with what it costs:
+#
+#   pending changesets                      -> `version` runs, `publish` skipped, nothing waits
+#   no changesets, version commit           -> `publish` runs and asks for its approval
+#   no changesets, a version npm lacks      -> `publish` runs and asks for its approval
+#   no changesets, registry unreadable      -> `publish` runs and asks for its approval
+#   no changesets, every version on npm     -> `publish` skipped, no deployment request
+#
+# test/release-arm-condition.test.ts evaluates the two jobs' `if:` lines, read out of this file, on
+# every one of those paths.
 # ---------------------------------------------------------------------------
 #
-# AUTH TODAY: NPM_TOKEN. This repo is PUBLIC, so npm provenance is already live; `NPM_CONFIG_PROVENANCE`
-# auto-enables below on the public visibility check. The runner toolchain floor is bumped for OIDC
-# (packageManager `pnpm@10.34.5` >= 10.16, Node `22.14`; publish runs via `pnpm run release`, so pnpm,
-# not npm, carries trusted publishing). What remains for tokenless OIDC is a FOUNDER step, not a build:
-# register the npm-side Trusted Publisher, then remove NPM_TOKEN / NODE_AUTH_TOKEN here. RELEASING.md
-# has the turnkey steps. Until then, NPM_TOKEN must stay an npm *Automation* token.
+# AUTH: npm TRUSTED PUBLISHING (OIDC), AND NO npm TOKEN ANYWHERE IN THIS FILE. The `publish` job
+# grants `id-token: write`, so the runner hands it the OIDC token request variables, and npm 11.5.1
+# or later exchanges a GitHub-signed ID token for a short-lived publish token per package. npm checks
+# that token's claims against the trusted publisher registered on each package: repository
+# `cosyte/config`, workflow `release.yml`, environment `release`. Nothing long-lived is stored.
+#
+#   * THE npm VERSION IS LOAD-BEARING. `changeset publish` runs `pnpm publish`, and pnpm 10.34.5 packs
+#     the tarball and then runs the `npm` CLI on PATH to upload it (`runNpm(opts.npmPath, ["publish",
+#     "--ignore-scripts", <tarball>])` in its dist/pnpm.cjs, read 2026-10-19), so pnpm does NOT carry
+#     trusted publishing on its own. Node 22.14 ships npm 10, which has no OIDC support, so the publish
+#     job installs an exact npm 11 first. See that step.
+#   * changesets/action at the sha pinned below (v1.9.0) writes no `.npmrc` when it is given no
+#     npm token and the OIDC variables are present, and logs "using npm trusted publishing".
+#   * npm accepts trusted publishing from GitHub-hosted runners only, which `ubuntu-latest` is.
+#   * Provenance stays on: this repo is PUBLIC and `NPM_CONFIG_PROVENANCE` is set from that below.
+#
+# A PACKAGE PUBLISHES THIS WAY ONLY ONCE ITS TRUSTED PUBLISHER IS REGISTERED ON npm, which is the
+# owner's step (`npm trust github`), done at the first release that needs it. RELEASING.md, "npm
+# trusted publishing", has the commands. Until then a publish fails at the registry with an
+# authentication error and publishes nothing.
 #
 # ---------------------------------------------------------------------------
 # WHY THIS IS STILL A STANDALONE WORKFLOW AND NOT A THIN CALLER OF
@@ -101,6 +136,7 @@ jobs:
       contents: read
     outputs:
       has-changesets: ${{ steps.pending.outputs.has-changesets }}
+      has-unpublished: ${{ steps.unpublished.outputs.has-unpublished }}
       is-release: ${{ steps.notes.outputs.is-release }}
       packages: ${{ steps.notes.outputs.packages }}
     steps:
@@ -181,6 +217,19 @@ jobs:
             echo "No pending changesets: this push takes the PUBLISH arm, gated on the release environment."
           fi
 
+      # IS THERE ANYTHING FOR THE PUBLISH ARM TO DO. Asked only on the publish arm, and only so that
+      # the gated job, and its request for an approval, can be left out when the answer is "nothing".
+      # The header says why this cannot withhold a publish: only "every version is on the registry"
+      # skips the job, and that is the state in which `changeset publish` publishes nothing.
+      #
+      # Before install, like the gates above: scripts/registry-presence.mjs is zero-dependency and
+      # reads the PUBLIC registry, so this job needs no credential for it. A step that fails here
+      # reds `preflight`, and then neither arm runs.
+      - name: Is any package version missing from the registry
+        id: unpublished
+        if: ${{ steps.pending.outputs.has-changesets == 'false' }}
+        run: node scripts/registry-presence.mjs pending --output "$GITHUB_OUTPUT"
+
       - run: pnpm install --frozen-lockfile
       - name: Verify
         run: |
@@ -194,7 +243,8 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # VERSION ARM. Ungated. Opens or refreshes the "Version Packages" PR and NOTHING ELSE. No
-  # `publish:` input, no NPM_TOKEN, no `id-token`, so this job cannot reach the registry.
+  # `publish:` input and no `id-token`, which is the only npm credential, so this job cannot reach the
+  # registry.
   # ---------------------------------------------------------------------------
   version:
     needs: preflight
@@ -258,8 +308,9 @@ jobs:
           version: pnpm run version
           # NO `publish:` INPUT, DELIBERATELY, AND IT IS THIS JOB'S WHOLE SAFETY PROPERTY. The action
           # only ever calls `runPublish` when a publish script was supplied; with none, the version
-          # arm is the only arm it can take. Combined with the absent NPM_TOKEN below, an ungated job
-          # that reached the registry would need two independent mistakes rather than one.
+          # arm is the only arm it can take. Combined with the absent `id-token: write` on this job,
+          # an ungated job that reached the registry would need two independent mistakes rather
+          # than one.
           createGithubReleases: false
         env:
           # The other half of the version-PR fix: this is the token the action opens the PR with. It
@@ -276,8 +327,8 @@ jobs:
           # need `Workflows: write`: `pnpm run version` changes `packages/*/package.json`,
           # `packages/*/CHANGELOG.md` and `.changeset/`, none of which is under `.github/workflows/`.
           #
-          # NOTE THE ABSENCE OF NPM_TOKEN / NODE_AUTH_TOKEN HERE. That absence is a control, not an
-          # oversight: see the `publish:` comment above.
+          # NOTE THE ABSENCE OF ANY npm CREDENTIAL HERE, AND OF `id-token: write` ON THIS JOB. That
+          # absence is a control, not an oversight: see the `publish:` comment above.
           GITHUB_TOKEN: ${{ secrets.RELEASE_PR_TOKEN || secrets.GITHUB_TOKEN }}
 
       # THE GATE 1 SAFETY NET, RESTORED ON THIS ARM. Do not delete it as a duplicate of the step in
@@ -324,18 +375,21 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # PUBLISH ARM. GATED on the protected `release` environment, which is the human acknowledgment and
-  # stays exactly where it was. This is the only job in this file that can reach npm.
+  # stays exactly where it was. This is the only job in this file that can reach npm. It starts only
+  # when there is something to release: the header's table of paths is the whole rule.
   # ---------------------------------------------------------------------------
   publish:
     needs: preflight
-    if: ${{ needs.preflight.outputs.has-changesets != 'true' }}
+    if: ${{ needs.preflight.outputs.has-changesets != 'true' && (needs.preflight.outputs.is-release == 'true' || needs.preflight.outputs.has-unpublished != 'false') }}
+    # GitHub-hosted, and it must stay so: npm trusted publishing does not accept self-hosted runners.
     runs-on: ubuntu-latest
     permissions:
       contents: write # create tags / GitHub releases
-      id-token: write # npm provenance
+      id-token: write # npm trusted publishing (the only npm credential) and provenance
     # Release approval gate: the `release` environment carries a required reviewer (`NSchatz`) and a
-    # `main`-only deployment-branch policy, so the publish waits for an explicit approval. This is
-    # also the OIDC subject an npm Trusted Publisher would bind to.
+    # `main`-only deployment-branch policy, so the publish waits for an explicit approval. It is also
+    # the environment each package's npm trusted publisher is registered with (RELEASING.md), so npm
+    # mints a publish token for these packages only to a job that went through this gate.
     environment: release
     steps:
       - uses: actions/checkout@v7
@@ -343,23 +397,54 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - uses: pnpm/action-setup@v6
+      # NO `registry-url`, DELIBERATELY. With it, `actions/setup-node` generates a user npmrc carrying
+      # `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}` and, in v6, exports a placeholder value
+      # for that variable when none is given. Under trusted publishing there is no token to put
+      # there, so the slot would hold the placeholder: sent to the registry whenever the OIDC
+      # exchange fails, and an unresolvable reference (which Gate 3 refuses) on a later setup-node
+      # that stops exporting it. Without the input npm uses its own default registry, which Gate 3's
+      # `require` rule still pins, and a failed exchange reads as "not logged in".
       - uses: actions/setup-node@v6
         with:
           node-version: "22.14"
-          registry-url: https://registry.npmjs.org
           cache: pnpm
+
+      # TRUSTED PUBLISHING NEEDS npm 11.5.1 OR LATER (https://docs.npmjs.com/trusted-publishers, read
+      # 2026-10-19), AND NODE 22.14 SHIPS npm 10. pnpm hands the upload to whichever `npm` is first on
+      # PATH (see the header), so this is the npm that publishes.
+      #
+      # PINNED EXACTLY, AND CHECKED. 11.21.0 was published to npm on 2026-09-30. npm 12 is not an
+      # option on this Node: it requires `^22.22.2 || ^24.15.0 || >=26.0.0`. A different npm on PATH
+      # after the install reds here, before the configuration check and the build.
+      #
+      # BEFORE GATE 3, on purpose: Gate 3 asks `npm config ls` for the effective configuration, and
+      # the answer has to come from the same npm that publishes, or it is evidence about the wrong
+      # process.
+      - name: Install the npm that publishes
+        shell: bash
+        run: |
+          set -euo pipefail
+          want=11.21.0
+          npm install --global --no-audit --no-fund "npm@$want"
+          found=$(npm --version)
+          if [ "$found" != "$want" ]; then
+            echo "::error title=Wrong npm on the publish path::npm $found is first on PATH after" \
+                 "installing npm $want. Trusted publishing needs npm 11.5.1 or later, and this job" \
+                 "publishes with whatever npm is first on PATH."
+            exit 1
+          fi
+          echo "npm $found is first on PATH; it is the npm that uploads every tarball."
 
       # GATE 3: THE EFFECTIVE CONFIGURATION OF THIS PUBLISH MUST BE ONE SOMEBODY APPROVED.
       #
       # THE HOLE THIS CLOSES (S0055 finding F9). Everything that decides WHERE these tarballs go,
       # WHAT goes inside them and WHAT METADATA rides along is npm/pnpm configuration, and that
       # configuration is assembled at publish time out of sources nothing in this repository used to
-      # inspect: a global npmrc, the user npmrc `actions/setup-node` GENERATES two steps above and
-      # points NPM_CONFIG_USERCONFIG at, a repository or per-package `.npmrc`, `pnpm-workspace.yaml`,
-      # the root manifest's `pnpm` block, each package's `publishConfig`, `.changeset/config.json`,
-      # and this job's environment. A redirected `registry`, a disabled `provenance`, a widened
-      # `access` or an injected lifecycle-script setting changes what reaches the public registry
-      # WITHOUT changing a tracked file in a way review would see.
+      # inspect: a global npmrc, a user npmrc, a repository or per-package `.npmrc`,
+      # `pnpm-workspace.yaml`, the root manifest's `pnpm` block, each package's `publishConfig`,
+      # `.changeset/config.json`, and this job's environment. A redirected `registry`, a disabled
+      # `provenance`, a widened `access` or an injected lifecycle-script setting changes what reaches
+      # the public registry WITHOUT changing a tracked file in a way review would see.
       #
       # WHY IT RUNS HERE AND NOT IN `preflight`, and this is the part not to "simplify". Effective
       # configuration is a property of a SPECIFIC PROCESS: its environment, its working directory,
@@ -369,36 +454,30 @@ jobs:
       # than no answer, because the conclusion is the only thing anyone reads. The accepted cost is
       # that a refusal here happens after an approver has already approved the run.
       #
-      # THE `env:` BLOCK BELOW IS THE PUBLISH STEP'S, MINUS EXACTLY ONE VARIABLE, AND BOTH HALVES OF
-      # THAT ARE DELIBERATE. It is DECLARED in .github/credential-surface.json (S0080), which is what
-      # made this decision a reviewed one rather than a default.
+      # THE `env:` BLOCK BELOW IS THE PUBLISH STEP'S npm CONFIGURATION, AND NOTHING ELSE. It is
+      # DECLARED in .github/credential-surface.json (S0080), which is what made this decision a
+      # reviewed one rather than a default.
       #
       #   * NPM_CONFIG_PROVENANCE is npm CONFIGURATION supplied at STEP level, so a check that ran
       #     without it would be reporting on a configuration the publish does not have. That is the
       #     same class of error as running this check in `preflight`.
-      #   * NODE_AUTH_TOKEN is here because the user npmrc `actions/setup-node` generates two steps
-      #     above contains `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}`, and npm expands
-      #     that reference when it resolves configuration. Without the variable this step would be
-      #     reading a DIFFERENT state of that file than the publish reads: an unresolvable
-      #     reference, which this gate is fail-closed about. It would refuse every release, or worse
-      #     depend on the npm version's tolerance for it.
-      #   * NPM_TOKEN is NOT here, and that omission is the point of naming this block at all.
-      #     Nothing on the configuration path reads it: npm reads only `npm_config_*` variables, and
-      #     the registry credential reaches npm through the generated npmrc above. It is in the
-      #     publish step because `changesets/action` wants it. Copying it here would widen this
-      #     repository's declared credential surface by one step and buy this check nothing, and a
-      #     surface that grows for nothing is exactly what credential-surface.mjs exists to refuse.
+      #   * No credential is here, because there is none to resolve: the publish authenticates
+      #     through the OIDC exchange npm performs inside `npm publish`, which no configuration
+      #     source carries, and setup-node above generates no npmrc. The publish step's
+      #     GITHUB_TOKEN is not npm configuration and is not copied either: a surface that grows
+      #     for nothing is exactly what credential-surface.mjs exists to refuse.
       #
       # If the publish step's npm CONFIGURATION env changes, change this with it, and update
       # .github/credential-surface.json in the same commit. The check never prints a credential
       # value; see its redaction rule and the suite that proves it (test/npm-config-allow.test.ts).
       #
-      # IT RUNS BEFORE `pnpm install`, so nothing has been fetched or built under a configuration
-      # nobody approved, and it is zero-dependency for that reason. It ADDS a refusal after the
-      # existing environment gate; it removes, loosens and relocates nothing.
+      # IT RUNS BEFORE `pnpm install`, so none of this repository's dependencies has been fetched or
+      # built under a configuration nobody approved, and it is zero-dependency for that reason. The
+      # one fetch before it is the exact npm pin in the step above, which has to come first for the
+      # reason given there. It ADDS a refusal after the existing environment gate; it removes,
+      # loosens and relocates nothing.
       - name: The publish configuration must be one the allow-set permits
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_CONFIG_PROVENANCE: ${{ github.event.repository.visibility == 'public' }}
         run: node scripts/npm-config-allow.mjs
 
@@ -439,8 +518,12 @@ jobs:
           createGithubReleases: false
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PR_TOKEN || secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          # NO npm TOKEN, DELIBERATELY. The job's `id-token: write` is the publish credential: the
+          # runner gives every step the OIDC token request variables, changesets/action sees no
+          # token and leaves npm's configuration alone, and npm exchanges the ID token per package.
+          # The publish preflight (`pnpm run release`) refuses before the build when those variables
+          # are missing, which is what removing the grant would cause.
+          #
           # npm provenance requires a PUBLIC source repo; auto-enables when this repo is public.
           NPM_CONFIG_PROVENANCE: ${{ github.event.repository.visibility == 'public' }}
 

@@ -18,6 +18,13 @@
 // declared to hand them to, and refuses when one of them is absent or empty. Nothing is contacted,
 // nothing is written, and no credential VALUE is ever read into a message.
 //
+// UNDER npm TRUSTED PUBLISHING THE VARIABLES ARE THE RUNNER'S. The required credential is the OIDC
+// token request GitHub sets up for a job that grants `id-token: write` (`ACTIONS_ID_TOKEN_REQUEST_URL`
+// and `ACTIONS_ID_TOKEN_REQUEST_TOKEN`), declared as a `runner` exposure. Without the grant, npm skips
+// the exchange silently and the registry refuses the upload after the build, which is exactly the
+// late, unnamed failure this script exists to move forward. Present variables do not prove that the
+// package's trusted publisher is registered on npm; only the registry can answer that.
+//
 // WHY IT LIVES ON THE PUBLISH COMMAND PATH RATHER THAN IN THE WORKFLOW'S STEP LIST. Two reasons.
 // The workflow's step list is `release.yml`'s control flow, which this change deliberately does not
 // touch. And a step in the workflow would only guard the workflow: `pnpm run release` run by hand,
@@ -55,7 +62,8 @@ import { DEFAULT_DECLARATION, InvocationError, loadDeclaration } from "./credent
  * by `credential-surface.mjs` at merge time instead.
  *
  * @param declaration A validated declaration.
- * @returns A list of `{ credential, variable }`, one per variable that must be present.
+ * @returns A list of `{ credential, variable, grantedBy }`, one per variable that must be present.
+ *   `grantedBy` is set for a variable the runner supplies because of a permission grant.
  */
 export function requiredVariables(declaration) {
   const job = declaration.publishPath.job;
@@ -64,9 +72,13 @@ export function requiredVariables(declaration) {
     if (!credential.requiredForPublish) continue;
     for (const exposure of credential.exposures) {
       if (exposure.job !== job) continue;
-      if (exposure.as !== "env") continue;
+      if (exposure.as !== "env" && exposure.as !== "runner") continue;
       if (exposure.mode === "presence-test") continue;
-      required.push({ credential: credential.name, variable: exposure.name });
+      required.push({
+        credential: credential.name,
+        variable: exposure.name,
+        grantedBy: exposure.as === "runner" ? exposure.grantedBy : undefined,
+      });
     }
   }
   return required;
@@ -116,13 +128,19 @@ export function preflight({ repoRoot, declarationPath, env = process.env } = {})
       `publish-preflight: REFUSING TO PUBLISH. ${missing.length} required credential(s) are absent`,
       "or empty in this environment, and the registry has NOT been contacted.",
     ];
-    for (const { credential, variable } of missing) {
+    for (const { credential, variable, grantedBy } of missing) {
       const declared = declaration.credentials.find((entry) => entry.name === credential);
       report.push(
         `  ${variable} is empty. It carries ${credential}, whose single permitted storage`,
         `  location is: ${declared.storage}.`,
-        `  Required token class: ${declared.tokenClass}`,
       );
+      if (grantedBy !== undefined) {
+        report.push(
+          `  The runner sets it only in a job that grants \`${grantedBy}\`: check the`,
+          `  \`${declaration.publishPath.job}\` job's \`permissions:\` block, and that this runs in that job.`,
+        );
+      }
+      report.push(`  Required token class: ${declared.tokenClass}`);
     }
     report.push(
       `The declaration is ${DEFAULT_DECLARATION}; ${declaration.documentation.file}, section`,

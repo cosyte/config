@@ -26,7 +26,7 @@
     {
       "key": "registry",
       "value": "https://registry.npmjs.org/",
-      "why": "The public npm registry, which is where these eight packages belong. actions/setup-node writes this into the user config it generates for the publish job, so it arrives as a contributed value rather than as npm's default. Only this one URL is permitted, and the `require` rule below re-checks it against the resolvers' full maps so a permissive entry here could not widen it."
+      "why": "The public npm registry, which is where these eight packages belong. The publish job's actions/setup-node takes no `registry-url` (release.yml says why), so on the runner this is npm's own default; where a source does contribute it, as setup-node's generated user config does when given a `registry-url`, only this one URL is permitted, and the `require` rule below re-checks it against the resolvers' full maps so a permissive entry here could not widen it."
     },
     {
       "key": "provenance",
@@ -36,7 +36,7 @@
     {
       "key": "//registry.npmjs.org/:_authToken",
       "anyValue": true,
-      "why": "The registry credential actions/setup-node writes into the generated user config. Permitted by KEY and never by value: the token is a secret, this file is public, and the check refuses an allow-set that pins one. The registry it authenticates to is pinned by the `require` rule below, so this cannot become a credential offered to somewhere else."
+      "why": "The registry credential slot actions/setup-node writes into the user config it generates when given a `registry-url`. The publish job is given none and authenticates through npm trusted publishing, so on the runner no source contributes this key; it stays permitted for a maintainer's local run. Permitted by KEY and never by value: the token is a secret, this file is public, and the check refuses an allow-set that pins one. The registry it authenticates to is pinned by the `require` rule below, so this cannot become a credential offered to somewhere else."
     },
     {
       "key": "always-auth",
