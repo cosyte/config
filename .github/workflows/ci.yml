@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  schedule:
+    # The nightly run on main, 05:27 UTC. An odd minute: GitHub delays scheduled runs at the start of every hour.
+    - cron: "27 5 * * *"
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -153,7 +157,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      # THE REPORTER IS `github-pr-check` (the action's default) ONLY ON A PULL REQUEST. A `schedule`
+      # event's payload carries no `repository`, so reviewdog 0.21.2's check reporter creates its
+      # check run at `repos///check-runs`, gets a 404, and exits 1: its fallback to log annotations
+      # covers a 403 only (reviewdog/reviewdog#832). Every nightly run would be red. On every other
+      # event `github-annotations` writes the same annotations without the API call. A push already
+      # ended in that output, by the 403 fallback (this token has no `checks: write`), and sharing
+      # the reporter with `workflow_dispatch` lets a dispatched run prove the nightly path.
       - uses: reviewdog/action-actionlint@v1
+        with:
+          reporter: ${{ github.event_name == 'pull_request' && 'github-pr-check' || 'github-annotations' }}
 
   # Prove the publish pipeline on every push/PR WITHOUT burning a version (REL-PIPE). No registry
   # auth, no upload: `publish --dry-run` exercises the publish command path (the release itself
