@@ -25,3 +25,7 @@ updates:
       github-actions:
         patterns:
           - "*"
+    ignore:
+      # From v1.75.0 this action installs actionlint by piping a script from a fork to bash. The
+      # shared CI runs the official rhysd/actionlint release, checked by its SHA-256, instead.
+      - dependency-name: "reviewdog/action-actionlint"
