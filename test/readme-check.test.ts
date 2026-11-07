@@ -119,12 +119,12 @@ const ROOT_FLOOR = ">=22.14";
  * The link is not decoration and this fixture may not drop it. No package here ships its own
  * `LICENSE` file, so the house skeleton REQUIRES the absolute one, and that URL carries the owner's
  * name: `github.com/cosyte/config`. A fixture whose License section were the bare
- * `MIT, copyright Cosyte.` would be a shape this repository does not publish, and a negative test
+ * `MIT, copyright Cosyte LLC.` would be a shape this repository does not publish, and a negative test
  * mutating it would prove nothing about the eight files that actually reach npm. That is exactly how
  * the owner check shipped unfailable the first time.
  */
 const LICENSE_SECTION =
-  "MIT, copyright Cosyte. See [LICENSE](https://github.com/cosyte/config/blob/main/LICENSE).";
+  "MIT, copyright Cosyte LLC. See [LICENSE](https://github.com/cosyte/config/blob/main/LICENSE).";
 
 /**
  * The release line a version alone implies, which is what a spec that names no pending bump means.

@@ -241,7 +241,7 @@ in your `package.json` is graded.
 ### `cosyte-process sync-version`
 
 Writes the invoking package's `package.json` version into the exported `VERSION` constant in
-`src/index.ts`. The behaviour is five numbered conditions, and the numbers are part of the surface:
+`src/index.ts`. The behavior is five numbered conditions, and the numbers are part of the surface:
 every refusal names the condition it failed, and this is the text it names.
 
 1. The manifest's `version` is read. Missing, not a string, or empty is a refusal.
@@ -331,4 +331,4 @@ override schema needs a changeset saying what moved: it changes what runs in eve
 
 ## License
 
-MIT, copyright Cosyte. See [LICENSE](https://github.com/cosyte/config/blob/main/LICENSE).
+MIT, copyright Cosyte LLC. See [LICENSE](https://github.com/cosyte/config/blob/main/LICENSE).

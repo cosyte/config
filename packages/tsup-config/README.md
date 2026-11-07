@@ -110,4 +110,4 @@ saying what moved: it changes the artifact every consumer publishes.
 
 ## License
 
-MIT, copyright Cosyte. See [LICENSE](https://github.com/cosyte/config/blob/main/LICENSE).
+MIT, copyright Cosyte LLC. See [LICENSE](https://github.com/cosyte/config/blob/main/LICENSE).
