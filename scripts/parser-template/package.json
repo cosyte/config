@@ -70,7 +70,7 @@
     "attw": "node scripts/attw.mjs",
     "release": "changeset publish",
     "prepublishOnly": "pnpm clean && pnpm typecheck && pnpm lint && pnpm test && pnpm build",
-    "prepare": "command -v simple-git-hooks >/dev/null 2>&1 && simple-git-hooks || true"
+    "prepare": "command -v simple-git-hooks >/dev/null 2>&1 && simple-git-hooks 1>&2 || true"
   },
   "simple-git-hooks": {
     "pre-commit": "pnpm phi-scan --staged"
