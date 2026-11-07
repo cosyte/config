@@ -1,0 +1,27 @@
+{
+  "$comment": "HAND-KEPT (ST13, ST14). The tiers of the 14 libraries, in the order ST13 names them, and Pathways. Everything else in packages/script-utils/catalog.json is generated from each package's own package.json by scripts/catalog.mjs: edit this file only to move a package between tiers, rename a standard as readers see it, or change Pathways' status, then run `node scripts/catalog.mjs write`.",
+  "standards": [
+    { "package": "@cosyte/hl7", "standard": "HL7 v2" },
+    { "package": "@cosyte/mllp", "standard": "MLLP" },
+    { "package": "@cosyte/fhir", "standard": "FHIR" },
+    { "package": "@cosyte/ccda", "standard": "C-CDA" },
+    { "package": "@cosyte/x12", "standard": "X12" },
+    { "package": "@cosyte/ncpdp", "standard": "NCPDP" },
+    { "package": "@cosyte/astm", "standard": "ASTM" },
+    { "package": "@cosyte/dicom", "standard": "DICOM" }
+  ],
+  "builtOn": [
+    "@cosyte/terminology",
+    "@cosyte/transform",
+    "@cosyte/deid",
+    "@cosyte/synth",
+    "@cosyte/dates",
+    "@cosyte/cli"
+  ],
+  "engine": {
+    "package": "@cosyte/pathways",
+    "name": "Pathways",
+    "status": "in development",
+    "onNpm": false
+  }
+}

@@ -171,7 +171,23 @@ describe("the tarball a consumer installs", () => {
       "./attw": { types: "./attw.d.ts", default: "./attw.js" },
       "./readme": { types: "./readme.d.ts", default: "./readme.js" },
       "./claude-card": { types: "./claude-card.d.ts", default: "./claude-card.js" },
+      "./catalog": { types: "./catalog.d.ts", default: "./catalog.js" },
     });
+  });
+
+  it("ships the catalog, its data file and declarations, and reads the data from the tarball", () => {
+    for (const file of ["catalog.js", "catalog.d.ts", "catalog.json"]) {
+      expect(existsSync(join(installed, file)), `${file} is not in the tarball`).toBe(true);
+    }
+    const probe = inConsumer(
+      [
+        'import { CATALOG } from "@cosyte/script-utils/catalog";',
+        "console.log(CATALOG.libraries.length, CATALOG.engine.displayName);",
+        "",
+      ].join("\n"),
+    );
+    expect(probe.code, probe.out).toBe(0);
+    expect(probe.out.trim()).toBe("14 Pathways");
   });
 
   it("ships the CLAUDE.md card checker and its declarations, and runs it from the tarball", () => {

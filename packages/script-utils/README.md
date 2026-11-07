@@ -174,16 +174,30 @@ checkClaudeCard(card.replace("## Hazard", "## Notes")).length > 0; // => true
 CARD_MAX_LINES; // => 60
 ```
 
+The catalog is the seventh: one record per library, generated from its package.json, with its
+tier, and one for Pathways. A site reads the list from it, and a library checks its description
+against it:
+
+```ts runnable
+import { CATALOG, catalogEntry } from "@cosyte/script-utils/catalog";
+
+CATALOG.libraries.length; // => 14
+CATALOG.libraries.filter((library) => library.tier === "standard").length; // => 8
+catalogEntry("@cosyte/hl7")?.docs; // => "https://docs.cosyte.com/hl7"
+CATALOG.engine.displayName; // => "Pathways"
+```
+
 ## Entry points
 
-| entry point                          | what it is                                                                           |
-| ------------------------------------ | ------------------------------------------------------------------------------------ |
-| `@cosyte/script-utils`               | `isCliEntrypoint(moduleUrl)`, the entry-point guard                                  |
-| `@cosyte/script-utils/phi-scan`      | `runPhiScan(config)` and `exemptsMarkdown(relPath)`, the shared PHI gate             |
-| `@cosyte/script-utils/internal-refs` | `runInternalRefsScan(config)`, the shared internal-reference gate                    |
-| `@cosyte/script-utils/attw`          | `runAttwGate(options)`, the shared `attw` publish gate                               |
-| `@cosyte/script-utils/readme`        | `runReadmeGate(options)` and `checkReadme(text, manifest)`, the README gate          |
-| `@cosyte/script-utils/claude-card`   | `runClaudeCardGate(options)` and `checkClaudeCard(text)`, the CLAUDE.md card checker |
+| entry point                          | what it is                                                                                   |
+| ------------------------------------ | -------------------------------------------------------------------------------------------- |
+| `@cosyte/script-utils`               | `isCliEntrypoint(moduleUrl)`, the entry-point guard                                          |
+| `@cosyte/script-utils/phi-scan`      | `runPhiScan(config)` and `exemptsMarkdown(relPath)`, the shared PHI gate                     |
+| `@cosyte/script-utils/internal-refs` | `runInternalRefsScan(config)`, the shared internal-reference gate                            |
+| `@cosyte/script-utils/attw`          | `runAttwGate(options)`, the shared `attw` publish gate                                       |
+| `@cosyte/script-utils/readme`        | `runReadmeGate(options)` and `checkReadme(text, manifest)`, the README gate                  |
+| `@cosyte/script-utils/claude-card`   | `runClaudeCardGate(options)` and `checkClaudeCard(text)`, the CLAUDE.md card checker         |
+| `@cosyte/script-utils/catalog`       | `CATALOG`, `catalogEntry(name)` and `runCatalogCheck(options)`, the catalog of our libraries |
 
 They are separate subpaths because they are separately adoptable: a repo can take the entry-point
 guard without taking a position on PHI scanning, a repo can take the internal-reference gate without
@@ -265,6 +279,28 @@ The card opens with `# <name>` and a paragraph, then has exactly three level-2 s
 with code included, and at most 5,120 bytes. When an AGENTS.md sits beside it, the card imports it on
 a line of its own, `@AGENTS.md`. Exit 0 means the card follows the spec, 1 that it does not (each
 finding names its line and rule, from `CARD_RULES`), and 2 that CLAUDE.md could not be read.
+
+### The catalog
+
+`@cosyte/script-utils/catalog` is the one list of our libraries (ST13): the 8 standards (HL7 v2,
+MLLP, FHIR, C-CDA, X12, NCPDP, ASTM and DICOM), the 6 built on them (terminology, transform, deid,
+synth, dates and cli), and Pathways, our integration engine, in development and not on npm. Each
+record is generated from the package's own `package.json` (name, description, release line,
+engines, repository, docs and npm URLs) and carries its tier; the data ships as `catalog.json`
+beside the module, and `CATALOG` is that file, frozen.
+
+Each package.json description is that library's one canonical line (ST14), so every library runs
+the check that its description is the catalog's, with no file of its own:
+
+```sh
+node node_modules/@cosyte/script-utils/catalog.js              # the package in this directory
+node node_modules/@cosyte/script-utils/catalog.js --dir <path> # another package directory
+```
+
+Exit 0 means the description is the catalog's, 1 that it is not (both values are printed), and 2
+that the check could not run (no package.json, or a package the catalog does not list). A changed
+description therefore goes through the catalog: regenerate it in cosyte/config
+(`node scripts/catalog.mjs write`), release this package, then move the library to that release.
 
 ## Overrides
 

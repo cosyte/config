@@ -46,6 +46,10 @@
     "./claude-card": {
       "types": "./claude-card.d.ts",
       "default": "./claude-card.js"
+    },
+    "./catalog": {
+      "types": "./catalog.d.ts",
+      "default": "./catalog.js"
     }
   },
   "files": [
@@ -61,6 +65,9 @@
     "readme.d.ts",
     "claude-card.js",
     "claude-card.d.ts",
+    "catalog.js",
+    "catalog.d.ts",
+    "catalog.json",
     "check-no-emdash.sh",
     "README.md",
     "CHANGELOG.md"

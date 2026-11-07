@@ -16,6 +16,13 @@ pre-alpha rule. See
 
 ### Added
 
+- **`@cosyte/script-utils/catalog`, the one list of our libraries.** A record for each of the 14
+  libraries (the 8 standards and the 6 built on them, with their tier) and one for Pathways, our
+  integration engine, in development and not on npm. Each record is generated from the package's
+  package.json and ships as `catalog.json`; `CATALOG` is that file, frozen. Every library can run
+  `node node_modules/@cosyte/script-utils/catalog.js` to check that its description is the
+  catalog's: exit 0 agree, 1 disagree (both values printed), 2 unlisted or unreadable.
+
 - **`@cosyte/script-utils/claude-card`, the CLAUDE.md card checker.** A card opens with `# <name>`
   and a paragraph, then has exactly three level-2 sections in order, Gate, Hazard and Rules, none
   empty. It is at most 60 lines, every line at most 100 characters with code included, and at most
