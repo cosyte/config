@@ -322,6 +322,16 @@ describe("each rule goes red on its own", () => {
   });
 });
 
+describe("input the gate does not control", () => {
+  it("reads a heading line padded with a long run of tabs in linear time", () => {
+    // A heading pattern of the shape `[ \t]+(.*?)[ \t]*#*[ \t]*$` backtracks polynomially on
+    // this line; the reader that replaced it walks it once.
+    const started = Date.now();
+    checkReadme(`${good()}\n## ${"\t".repeat(200_000)}x\n`, MANIFEST);
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
+});
+
 describe("a manifest the skeleton cannot be derived from is refused, not graded", () => {
   it.each([
     ["no @cosyte name", { ...MANIFEST, name: "demo" }],

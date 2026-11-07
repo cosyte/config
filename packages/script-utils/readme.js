@@ -168,6 +168,34 @@ function licenseUrl(repo) {
   return `https://github.com/cosyte/${repo}/blob/main/LICENSE`;
 }
 
+/**
+ * An ATX heading's level and text, or `null` when the line is not one.
+ *
+ * Read with index arithmetic rather than one regular expression: a pattern of the shape
+ * `[ \t]+(.*?)[ \t]*#*[ \t]*$` backtracks polynomially on a long run of tabs or spaces, and a
+ * README is input this gate does not control.
+ */
+function parseHeading(line) {
+  let level = 0;
+  while (level < line.length && line[level] === "#") level += 1;
+  if (level === 0 || level > 6) return null;
+  if (line[level] !== " " && line[level] !== "\t") return null;
+  let text = line.slice(level).trim();
+  // An optional closing run of `#`, which counts only when a space or tab comes before it.
+  let end = text.length;
+  while (end > 0 && text[end - 1] === "#") end -= 1;
+  if (end === 0) text = "";
+  else if (end < text.length && (text[end - 1] === " " || text[end - 1] === "\t")) {
+    text = text.slice(0, end).trimEnd();
+  }
+  return { level, text };
+}
+
+/** Escape a string for use inside a regular expression. */
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 /** The headings of a Markdown document, skipping fenced code blocks. Lines are 0-based. */
 function headingsOf(lines) {
   const headings = [];
@@ -182,8 +210,8 @@ function headingsOf(lines) {
       fence = marker[1];
       return;
     }
-    const heading = /^(#{1,6})[ \t]+(.*?)[ \t]*#*[ \t]*$/.exec(line);
-    if (heading) headings.push({ level: heading[1].length, text: heading[2], line: index });
+    const heading = parseHeading(line);
+    if (heading !== null) headings.push({ ...heading, line: index });
   });
   return headings;
 }
@@ -364,7 +392,7 @@ export function checkReadme(text, manifest) {
   // ---- The docs link -----------------------------------------------------------------------------
   // A Markdown link `](url)` or `](url "title")`, or an autolink `<url>`, to the package's own
   // page or anything under it. Another package's docs page does not count.
-  const page = `https://docs\\.cosyte\\.com/${facts.slug.replace(/[.]/g, "\\.")}(?:[/#?][^)>\\s]*)?`;
+  const page = `https://docs\\.cosyte\\.com/${escapeRegExp(facts.slug)}(?:[/#?][^)>\\s]*)?`;
   const docs = new RegExp(`\\]\\(${page}(?:\\)|\\s)|<${page}>`);
   const usage = position.get("Usage");
   const support = position.get("Support");
