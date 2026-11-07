@@ -6,9 +6,10 @@
 //
 // THE DEFECT. `changesets/action` defaults `createGithubReleases` to TRUE. On a publish it then cuts
 // one GitHub release per package and builds each body by finding a `## <version>` heading in that
-// package's CHANGELOG.md. Every package here sets `"changelog": false` in `.changeset/config.json`
-// and hand-maintains its CHANGELOG in Keep-a-Changelog form, so `changeset version` writes no such
-// heading and the action finds none. Its fallback is to use the WHOLE FILE. That is what shipped on
+// package's CHANGELOG.md. Until 2026-11-07 every package here set `"changelog": false` in
+// `.changeset/config.json` and hand-maintained its CHANGELOG in Keep-a-Changelog form, so
+// `changeset version` wrote no such heading and the action found none. Its fallback is to use the
+// WHOLE FILE. That is what shipped on
 // 2026-07-31: all six release bodies were the raw CHANGELOG, `# Changelog` preamble, `## [Unreleased]`
 // and every historical version included. The bodies were corrected by hand afterwards. Correcting
 // bodies by hand is not a gate, so the next release would have done it again.
@@ -27,9 +28,8 @@
 // by construction, and is deleted by the version commit, which is precisely what makes "what did this
 // version consume" answerable from git.
 //
-// (Whether to switch the Changesets changelog generator back ON is a separate, founder-owned call
-// tracked as CHANGELOG-PREAMBLE-FUTURE-TENSE. This script does not depend on the answer: it reads
-// changesets, which exist either way. Nothing here should be taken as pre-empting it.)
+// (The operator switched the Changesets changelog generator back ON on 2026-11-07, ST35. This script
+// did not depend on the answer and still does not: it reads changesets, which exist either way.)
 //
 // ORDERING, and it is the part that matters most. Every refusal below can run BEFORE npm is touched,
 // because the changesets it reads are in the tree at the version commit's parent, which exists from

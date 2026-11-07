@@ -233,8 +233,8 @@ is actually there. Both choices exist to close the same hole:
 > With the step keyed on `published == 'true'`, a `gh release create` that failed on the third of
 > eight packages would red the run; the re-run would then find all eight already on npm, publish
 > nothing, **skip the step**, and go **green**, leaving five packages on npm with no tag and no GitHub
-> release, permanently. Losing the tag matters more than it looks here, because this repository's
-> changelog headings are dated from tags by hand.
+> release, permanently. Losing the tag matters more than it looks here, because the tag is the
+> only record of a release a reader can browse besides npm itself.
 
 **Terminal action.**
 
@@ -461,11 +461,12 @@ operator's call.
 ## Release bodies: why `createGithubReleases` is off
 
 `changesets/action` defaults `createGithubReleases` to **true**, and builds each body by finding a
-`## <version>` heading in that package's `CHANGELOG.md`. This repository sets `"changelog": false` and
-hand-maintains its changelogs, so `changeset version` writes no such heading, the action finds none,
-and **its fallback is to use the whole file**. On 2026-07-31 all six release bodies published as the
-raw `CHANGELOG.md`, `# Changelog` preamble and `## [Unreleased]` included. They were corrected by
-hand afterwards, which is not a gate.
+`## <version>` heading in that package's `CHANGELOG.md`. Until 2026-11-07 this repository set
+`"changelog": false` and hand-maintained its changelogs, so `changeset version` wrote no such
+heading, the action found none, and **its fallback was to use the whole file**. On 2026-07-31 all six
+release bodies published as the raw `CHANGELOG.md`, `# Changelog` preamble and `## [Unreleased]`
+included. They were corrected by hand afterwards, which is not a gate. Changesets now writes the
+changelogs (below), and the flag stays off anyway: the bodies below come from the changesets.
 
 So the flag is **false**, which removes the dumping behaviour outright, and `scripts/release-notes.mjs`
 supplies the replacement. Two consequences worth knowing:
@@ -479,12 +480,13 @@ supplies the replacement. Two consequences worth knowing:
   runner's local clone. `release.yml` therefore creates them itself with `gh release create --target`:
   one tag, one release, both created there. Tags are `<pkg>@<version>`.
 
-**`[Unreleased]` is promoted to a version heading BY HAND**, in the pull request that adds the
-changeset. Nothing does it automatically. Until 2026-08-04 nothing did it at all, so shipped content
-stayed under `[Unreleased]` in the file that shipped and each release republished the previous
-release's notes. Whether to turn the Changesets changelog generator back on is a separate
-founder-owned call (`CHANGELOG-PREAMBLE-FUTURE-TENSE`), and the release path does not depend on the
-answer, because it reads changesets either way.
+**Changesets writes each package's changelog** (`"changelog": "@changesets/cli/changelog"`, the
+operator's decision of 2026-11-07, ST35). The version commit adds a `## <version>` section to every
+package it bumps, built from the changesets it consumed, so a changeset summary is the changelog
+entry and nobody edits a package `CHANGELOG.md` by hand. Until then an `[Unreleased]` heading was
+promoted to a version heading by hand, and twice it was not; that history sits under each file's
+`## Released before this file was generated` heading. The release path does not depend on the
+changelog either way, because it reads changesets.
 
 ## Why this repository is not a thin caller of the shared workflow
 

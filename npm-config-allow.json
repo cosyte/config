@@ -131,8 +131,8 @@
     },
     {
       "key": "changesets:changelog",
-      "value": false,
-      "why": "Changesets does not generate changelogs in this repository; every package hand-maintains its CHANGELOG.md and release bodies come from scripts/release-notes.mjs. Turning this on would silently change what release automation writes."
+      "value": "@changesets/cli/changelog",
+      "why": "Changesets writes every package's CHANGELOG.md from the changesets a release consumed (the operator's decision of 2026-11-07, ST35 and EN7 in the umbrella's plans/standards.md). It replaced `false`, under which every package hand-maintained its changelog. Release bodies still come from scripts/release-notes.mjs, and createGithubReleases stays off, so this changes what the version commit writes into CHANGELOG.md and nothing else."
     },
     {
       "key": "changesets:commit",
