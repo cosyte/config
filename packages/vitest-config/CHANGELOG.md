@@ -1,26 +1,25 @@
 # Changelog
 
-All notable changes to `@cosyte/vitest-config` are documented here, following
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions are managed with Changesets;
-this file is hand-maintained (Changesets' own changelog generation is disabled). The package is on the
-**`0.1.x`** line: its surface is settled, and bump types follow ordinary semver rather than a
-pre-alpha rule. See
-[ADR 0002](../../documentation/decisions/0002-the-0-1-0-version-line.md).
+## Released before this file was generated
 
-> Because the generator is disabled, **`[Unreleased]` is promoted to a version heading BY HAND**, in
-> the pull request that adds the changeset. Nothing does it automatically. Until 2026-08-04 nothing
-> did it at all, so shipped content stayed under `[Unreleased]` and every release republished it.
+Every release section above this heading is written by
+[Changesets](https://github.com/changesets/changesets) from the changesets in `.changeset/`, newest
+release first. A release writes its own version heading, so nothing above this line is maintained by
+hand: a change is recorded by adding a changeset rather than by editing this file.
 
-## [Unreleased]
+The sections below were kept by hand, in the
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format, until 2026-11-07. A version heading
+that still read "Unreleased" after its version reached npm now carries that date; no entry was
+reworded.
 
-## [0.1.1] - Unreleased
+## [0.1.1] - 2026-11-07
 
 ### Changed
 
 - **Published through npm trusted publishing, with provenance.** The code and configuration are
   unchanged from 0.1.0. Only the README differs: it writes Cosyte with a capital C.
 
-## [0.1.0] - Unreleased
+## [0.1.0] - 2026-09-21
 
 ### Changed
 

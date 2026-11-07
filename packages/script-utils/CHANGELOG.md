@@ -1,69 +1,18 @@
 # Changelog
 
-All notable changes to `@cosyte/script-utils` are documented here, following
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions are managed with Changesets;
-this file is hand-maintained (Changesets' own changelog generation is disabled). The package is on the
-**`0.1.x`** line: its surface is settled, and bump types follow ordinary semver rather than a
-pre-alpha rule. See
-[ADR 0002](../../documentation/decisions/0002-the-0-1-0-version-line.md).
+## Released before this file was generated
 
-> Because the generator is disabled, **`[Unreleased]` is promoted to a version heading BY HAND**, in
-> the pull request that adds the changeset. Nothing does it automatically.
+Every release section above this heading is written by
+[Changesets](https://github.com/changesets/changesets) from the changesets in `.changeset/`, newest
+release first. A release writes its own version heading, so nothing above this line is maintained by
+hand: a change is recorded by adding a changeset rather than by editing this file.
 
-## [Unreleased]
+The sections below were kept by hand, in the
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format, until 2026-11-07. A version heading
+that still read "Unreleased" after its version reached npm now carries that date; no entry was
+reworded.
 
-## [0.1.3] - Unreleased
-
-### Added
-
-- **`@cosyte/script-utils/agent-notes`, the agent-notes checker**, replacing the eight per-library
-  checkers. The notes are one file, `documentation/agent-notes.md`, and CLAUDE.md points into it as
-  `documentation/agent-notes.md#<anchor>`. Every pointer in any tracked file must name a heading
-  (its GitHub slug) or an explicit `<a id>` or `<a name>`; a notes directory, a bare `#anchor` or a
-  basename pointer in CLAUDE.md, notes the card never points into, a blank notes file, an empty
-  section and a citation of the umbrella's deleted ADR 0023 are findings. Exit 0 clean, 1 a
-  finding, 2 the check could not run. Run it with
-  `node node_modules/@cosyte/script-utils/agent-notes.js`.
-
-- **`@cosyte/script-utils/catalog`, the one list of our libraries.** A record for each of the 14
-  libraries (the 8 standards and the 6 built on them, with their tier) and one for Pathways, our
-  integration engine, in development and not on npm. Each record is generated from the package's
-  package.json and ships as `catalog.json`; `CATALOG` is that file, frozen. Every library can run
-  `node node_modules/@cosyte/script-utils/catalog.js` to check that its description is the
-  catalog's: exit 0 agree, 1 disagree (both values printed), 2 unlisted or unreadable.
-
-- **`@cosyte/script-utils/claude-card`, the CLAUDE.md card checker.** A card opens with `# <name>`
-  and a paragraph, then has exactly three level-2 sections in order, Gate, Hazard and Rules, none
-  empty. It is at most 60 lines, every line at most 100 characters with code included, and at most
-  5,120 bytes, and when an AGENTS.md sits beside it the card imports it (`@AGENTS.md`). Exit 0
-  clean, 1 a finding, 2 an unreadable card. Run it with
-  `node node_modules/@cosyte/script-utils/claude-card.js`. The spec is
-  `documentation/claude-card.md` in cosyte/config.
-
-- **`@cosyte/script-utils/readme`, the README gate for every `@cosyte/*` library.** It checks the
-  house skeleton: the shared lockup tile with the alt text assets declares for it, `# <package name>`,
-  a one-line tagline of at most 120 characters, the badge row (npm version, CI, license and Node,
-  derived from `package.json`), the sections Why this exists, Status, Install, Usage, Support,
-  Security, Contributing and License in that order and none empty, a link to the package's page on
-  docs.cosyte.com between Usage and Support, and License last with an absolute link to the
-  repository's LICENSE. It refuses a README over 60,000 characters, because npm keeps only the first
-  65,536. Exit 0 clean, 1 a finding (each names its line and rule), 2 an unreadable package. Run it
-  with `node node_modules/@cosyte/script-utils/readme.js`.
-
-### Fixed
-
-- **`attw`: the tarball net reads npm 12's pack report.** npm 10 and 11 print
-  `npm pack --dry-run --json` as an array of entries, and npm 12 prints an object keyed by package
-  name. The object read as no tarball at all, so on npm 12 the gate refused every package with
-  "npm described 0 tarball(s)". It now reads both shapes, still requires exactly one entry whose
-  `name` is the package's own, and in the object shape requires the key to match as well. Any other
-  document is refused as before.
-- **`attw`: a false claim in the docblock is corrected.** It said every repo's `prepare` is the same
-  `simple-git-hooks` one-liner, so nothing reds. The parser template's `prepare` printed on stdout,
-  inside the JSON the tarball net parses, until cosyte/config#131, and twelve sibling repos still
-  carry that line.
-
-## [0.1.2] - Unreleased
+## [0.1.2] - 2026-11-07
 
 ### Changed
 
@@ -76,7 +25,7 @@ pre-alpha rule. See
   now refuses where 0.1.1 printed OK**: write a range with "to", and rewrite a pause with a period,
   a colon, a comma or parentheses.
 
-## [0.1.1] - Unreleased
+## [0.1.1] - 2026-09-24
 
 ### Fixed
 
@@ -90,7 +39,7 @@ pre-alpha rule. See
   still read from the bytes git carries and a hit in them is printed before the refusal; the
   completeness rule still counts every read, and a root the walk reads is not refused.
 
-## [0.1.0] - Unreleased
+## [0.1.0] - 2026-09-21
 
 ### Changed
 

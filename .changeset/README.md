@@ -16,8 +16,10 @@ A change that reaches no published tarball gets **no changeset at all**: put it 
 `CHANGELOG.md` instead. `scripts/changeset-guard.mjs` refuses a changeset that bumps nothing, and
 `changeset add --empty` writes exactly that file, so it is banned here by name.
 
-Changesets' own changelog generation is disabled (`"changelog": false`); each package's
-`CHANGELOG.md` is hand-maintained in Keep a Changelog format, and its `[Unreleased]` heading is
-promoted to a version heading BY HAND in the pull request that adds the changeset. Only the
+Changesets writes each package's `CHANGELOG.md` (`"changelog": "@changesets/cli/changelog"`,
+since 2026-11-07, ST35): the version commit adds a section for every release from the changesets it
+consumed, so the changeset summary is the changelog entry. Write it for a reader of the package, and
+do not hand-edit a package `CHANGELOG.md`; the history kept by hand before then sits under its
+`## Released before this file was generated` heading. Only the
 `packages/*` workspaces are released; the private root package (`cosyte-config`) is not part of the
 release set.

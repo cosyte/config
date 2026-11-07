@@ -690,7 +690,7 @@ describe("a release body is derivable for every package in the line", () => {
   });
 });
 
-describe("the hand promotion of the changelog heading", () => {
+describe("the changelog headings", () => {
   it("gives every package in the line a 0.1.0 section carrying something", () => {
     for (const row of AUDIT_PLAN) {
       const body = sectionBody(changelogOf(row.name), /^## \[0\.1\.0\]/);
@@ -744,11 +744,20 @@ describe("the hand promotion of the changelog heading", () => {
     }
   });
 
-  it("leaves an Unreleased heading present and carrying nothing already shipped", () => {
+  it("carries no Unreleased heading, because Changesets writes each release's section", () => {
+    // Since 2026-11-07 (ST35) the version commit writes a `## <version>` section from the
+    // changesets it consumed, so an `[Unreleased]` heading would be a second, hand-kept copy of
+    // what the pending changesets already say. The hand-kept history sits under one heading.
     for (const pkg of PACKAGES) {
-      const body = sectionBody(changelogOf(pkg.name), /^## \[Unreleased\]\s*$/);
-      expect(body, `${pkg.name} has no ## [Unreleased] heading`).not.toBeNull();
-      expect(body, `${pkg.name} still carries content under [Unreleased]`).toBe("");
+      const changelog = changelogOf(pkg.name);
+      expect(
+        sectionBody(changelog, /^## \[Unreleased\]\s*$/),
+        `${pkg.name} still has an [Unreleased] heading`,
+      ).toBeNull();
+      expect(changelog, `${pkg.name} lost its hand-kept history`).toMatch(
+        /^## Released before this file was generated$/m,
+      );
+      expect(changelog.split("\n")[0], `${pkg.name}'s first line`).toBe("# Changelog");
     }
   });
 

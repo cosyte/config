@@ -7,7 +7,7 @@ scaffold, release plumbing, and supply-chain / governance hygiene. Follows
 **Per-package changes live in each package's own `packages/*/CHANGELOG.md`**:
 `@cosyte/tsconfig`, `@cosyte/eslint-config`, `@cosyte/prettier-config`, `@cosyte/tsup-config`,
 `@cosyte/vitest-config`, `@cosyte/test-utils`, `@cosyte/script-utils`, `@cosyte/process`, each
-hand-maintained on the **`0.1.x`** line (Changesets' own changelog generation is disabled). This file
+on the **`0.1.x`** line and written by Changesets from the changesets a release consumed. This file
 tracks only what those don't own: the workspace root, the drift manifest/check, the scaffold
 generator, CI/release, and dependency/governance hygiene. The root workspace is `private` and ships
 no package, so entries here are **dated** rather than versioned.
@@ -307,6 +307,17 @@ no package, so entries here are **dated** rather than versioned.
     dependencies and no build step.
 
 ### Changed
+
+- **Changesets writes the package changelogs** (2026-11-07, ST35 and EN7 in plans/standards.md).
+  `.changeset/config.json` sets `"changelog": "@changesets/cli/changelog"`, so the version commit
+  adds each release's section to every package `CHANGELOG.md` it bumps, from the changesets it
+  consumed, and the hand promotion of an `[Unreleased]` heading ends. Each package changelog keeps
+  its hand-kept history under a `## Released before this file was generated` heading. The preamble
+  describing the hand-kept workflow, the empty `## [Unreleased]` heading and script-utils' unreleased
+  `0.1.3` section (whose entries are the five pending changesets) were dropped, and the 0.1 versions
+  still headed "Unreleased" carry the date each reached npm. No entry was reworded. RELEASING.md,
+  `.changeset/README.md` and `scripts/release-notes.mjs` say so; the release bodies still come from
+  the changesets, and `createGithubReleases` stays off.
 
 - **`drift-manifest.json` is re-derived, extended, and no longer inherits its authority from a
   document that does not exist** (`S0226-config-drift-manifest`, 2026-08-29). No package code
