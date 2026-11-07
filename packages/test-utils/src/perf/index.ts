@@ -23,7 +23,7 @@
  * ## What it will not tell you: read this before quoting it
  *
  * 1. **It does not detect constant-factor regressions.** A 10% slowdown passes, and always will.
- *    From a single cloud instance only 17–22% of configurations reliably detect a ≤10% slowdown, so
+ *    From a single cloud instance only 17 to 22% of configurations reliably detect a ≤10% slowdown, so
  *    this is a property of same-machine paired measurement, not a gap to be closed by tuning. Never
  *    claim 10% sensitivity for a package that adopts this.
  * 2. **"Catches complexity-shaped regressions" is conditional, not absolute.** It holds *only when
@@ -35,7 +35,7 @@
  *    package that skips it has a gate with no established sensitivity.
  * 3. **The ceiling is calibrated to a runner class, and yours may not be in it.** Measured by
  *    PERF-P2's own false-alarm sweeps: on a CPU-quota-throttled container the gate fired on a
- *    workload that is linear by construction **4 times in 600 clean runs**, at ratios of 8.94–11.01
+ *    workload that is linear by construction **4 times in 600 clean runs**, at ratios of 8.94 to 11.01
  *, which sit **above** the weakest real O(n²) signal at `hl7`'s own fixture size (8.84). On that
  *    box no ceiling separates noise from signal at all. The
  *    mechanism is not modelled by the contract: a same-process ratio cancels JIT state, but the two

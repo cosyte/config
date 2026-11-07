@@ -37,7 +37,7 @@ by construction. All 1,600 rows per leg:
 | `mean`        | 3.031 … 4.820         | 1.805 … 8.252     |
 
 On the GitHub runner every estimator is equivalent. On the noisier container they separate sharply:
-`min` caps the tail at **6.649** while the three central estimators reach **8.25–8.58**. Since §2
+`min` caps the tail at **6.649** while the three central estimators reach **8.25 to 8.58**. Since §2
 shows the weakest real signal at `hl7`'s fixture size is **8.84**, a central estimator leaves a
 window of 8.58…8.84: **3% wide, which is no window at all.** With `min` the window is 6.65…8.84.
 
@@ -74,7 +74,7 @@ Weakest signal observed, against the worst false alarm from §1, per leg:
 Three things follow, and they matter more than the constants themselves.
 
 **The signal climbs with fixture size.** A quadratic parser only scores near 16 once the quadratic
-term dominates the linear per-line work. Near the crossover it scores 5–9. So **the fixture size is
+term dominates the linear per-line work. Near the crossover it scores 5 to 9. So **the fixture size is
 part of the gate's calibration, not a free choice.** At 125→500 on the noisier leg a real O(n²)
 regression is _indistinguishable from noise_: the gate would read green while broken, which is
 roadmap §5's second-worst outcome, and the roadmap does not currently warn about it.
@@ -148,9 +148,9 @@ effectful counter increment into the measured function body in every tier, at a 
 executed-block count and density, which differ between the compared phases, so it need not cancel.
 Measured:
 
-- **Coverage costs 1.17×–1.43×.** Real, and far smaller than the "several-fold" inflation `hl7`'s
+- **Coverage costs 1.17× to 1.43×.** Real, and far smaller than the "several-fold" inflation `hl7`'s
   gate comment assumes.
-- Higher on the size axis (1.32–1.43×) than the count axis (1.17–1.35×), consistent with block
+- Higher on the size axis (1.32 to 1.43×) than the count axis (1.17 to 1.35×), consistent with block
   density differing between workloads.
 - **Non-cancellation is measurable and small**: comparing how much coverage inflates the base phase
   vs the quad phase gives ≤ 4.5% on GitHub, up to 14.4% on the container's noisiest cell. On the
@@ -175,10 +175,10 @@ is structural.
 **Warmup.** W1 said a fixed-count warmup cannot reach steady state. It does not. Ratio of the first
 rep to the last within a phase, after `hl7`'s exact ~2,100-invocation warmup:
 
-| leg           | cold trials | warm trials |
-| ------------- | ----------- | ----------- |
-| GitHub-hosted | 1.01×–1.23× | 0.96×–1.05× |
-| container     | 1.04×–1.15× | 0.97×–1.02× |
+| leg           | cold trials    | warm trials    |
+| ------------- | -------------- | -------------- |
+| GitHub-hosted | 1.01× to 1.23× | 0.96× to 1.05× |
+| container     | 1.04× to 1.15× | 0.97× to 1.02× |
 
 Worst case, the first measured rep is **23% slower than the fifth**; three of eight GitHub cells are
 already within 5%, so the effect is real but uneven. By the second trial in the same process

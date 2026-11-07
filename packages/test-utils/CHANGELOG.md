@@ -13,6 +13,14 @@ pre-alpha rule. See
 
 ## [Unreleased]
 
+## [0.1.1] - Unreleased
+
+### Changed
+
+- **The doc comments on the `./perf` subpath write their numeric ranges with "to"** instead of an en
+  dash (U+2013), which the brand gate now refuses with the em dash. They ship in `dist/perf/*.d.ts`
+  and its source maps. No runner, API, type or constant changes.
+
 ## [0.1.0] - Unreleased
 
 ### Changed
@@ -90,7 +98,7 @@ pre-alpha rule. See
   _measured_ or _judgement_. They are not tuning knobs; the ADR's review triggers are the process for
   moving one.
 - **What this does not catch, stated because it will be quoted:** constant-factor regressions (a 10%
-  slowdown passes, and always will: from a single cloud instance only 17–22% of configurations
+  slowdown passes, and always will: from a single cloud instance only 17 to 22% of configurations
   reliably detect one, so it is a property of the technique); complexity regressions whose fixture is
   too small; and anything that only manifests under real I/O, network or concurrency.
 
