@@ -372,4 +372,4 @@ proving something. Never open an issue containing real patient data; describe th
 
 ## License
 
-MIT, copyright Cosyte. See [LICENSE](https://github.com/cosyte/config/blob/main/LICENSE).
+MIT, copyright Cosyte LLC. See [LICENSE](https://github.com/cosyte/config/blob/main/LICENSE).

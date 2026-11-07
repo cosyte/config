@@ -117,4 +117,4 @@ saying what moved: a compiler option added here reds every consumer that was pas
 
 ## License
 
-MIT, copyright Cosyte. See [LICENSE](https://github.com/cosyte/config/blob/main/LICENSE).
+MIT, copyright Cosyte LLC. See [LICENSE](https://github.com/cosyte/config/blob/main/LICENSE).

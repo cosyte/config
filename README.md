@@ -192,4 +192,4 @@ what changed; `pnpm run changeset:guard` refuses one that cannot.
 
 ## License
 
-MIT, copyright Cosyte. See [LICENSE](LICENSE).
+MIT, copyright Cosyte LLC. See [LICENSE](LICENSE).

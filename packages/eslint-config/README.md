@@ -74,7 +74,7 @@ and `no-console` gates for an application. The [API](#api) below states each one
 
 Every type-safety rule (no `any`, no unjustified casts, exhaustiveness, strict imports) stays on
 either way. An application has no published API surface to document and legitimately logs; it has no
-licence to be less type-safe, so that half is not reachable through `opts` at all. Appending your
+license to be less type-safe, so that half is not reachable through `opts` at all. Appending your
 own config object after the factory's array is ESLint's own escape hatch and nothing here can stop
 it, but a rule switched off that way is switched off in one repo while every sibling still enforces
 it. Change it here and take a version bump instead.
@@ -125,4 +125,4 @@ refuses: adding one reds every consumer that was passing without it.
 
 ## License
 
-MIT, copyright Cosyte. See [LICENSE](https://github.com/cosyte/config/blob/main/LICENSE).
+MIT, copyright Cosyte LLC. See [LICENSE](https://github.com/cosyte/config/blob/main/LICENSE).

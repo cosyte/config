@@ -125,7 +125,7 @@ const SCRIPT_LANGS = new Set(["ts", "typescript", "tsx", "js", "javascript", "js
  * closing line is THE SAME in every published README, and this is that line.
  */
 const FOOTER =
-  "MIT, copyright Cosyte. See [LICENSE](https://github.com/cosyte/config/blob/main/LICENSE).";
+  "MIT, copyright Cosyte LLC. See [LICENSE](https://github.com/cosyte/config/blob/main/LICENSE).";
 
 // ---------------------------------------------------------------------------
 // Workspace discovery

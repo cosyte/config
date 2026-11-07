@@ -49,7 +49,7 @@ that a broken or hostile install cannot decide whether a release gate runs.
 
 ### If your gate runs before `pnpm install`, do not use the bare specifier
 
-Read this before adopting the package, because it is the one thing that does not generalise.
+Read this before adopting the package, because it is the one thing that does not generalize.
 
 A bare `import ... from "@cosyte/script-utils"` resolves through `node_modules`, so it only works
 once the install has happened. `config`'s own gates run before their install and therefore import
@@ -220,7 +220,7 @@ bash node_modules/@cosyte/script-utils/check-no-emdash.sh --self-id
 
 Exit 0 means the mode completed and found nothing banned. Exit 1 means anything else: a banned form
 was found, an input could not be read, an input was not scanned, a declaration was unusable, or an
-argument was not recognised. There is no third code. Hits and diagnostics go to stderr in every mode.
+argument was not recognized. There is no third code. Hits and diagnostics go to stderr in every mode.
 
 `--self-id` prints the sha256 of the copy that is executing, so a repository can prove it is running
 these bytes rather than a fork of them. `--list-scanned` prints the NUL-separated, repo-root-relative
@@ -322,7 +322,7 @@ four required, six defaulted, and every per-repository difference supplied by th
 will not accept is a configuration that SUBTRACTS. The canonical rule set, the self-test floor and
 every completeness refusal are not caller inputs, and an option that reaches for one of them is
 refused by name rather than ignored. So is an option the gate has never heard of: an ignored setting
-reads, from the caller's side, exactly like an honoured one.
+reads, from the caller's side, exactly like an honored one.
 
 `runAttwGate` takes the narrowest bargain of the four, and deliberately. A caller supplies where it
 lives (`callerUrl`, required, no default) and may supply the arguments to forward; everything else
@@ -606,4 +606,4 @@ something. Never open an issue containing a real PHI value; describe the shape i
 
 ## License
 
-MIT, copyright Cosyte. See [LICENSE](https://github.com/cosyte/config/blob/main/LICENSE).
+MIT, copyright Cosyte LLC. See [LICENSE](https://github.com/cosyte/config/blob/main/LICENSE).
