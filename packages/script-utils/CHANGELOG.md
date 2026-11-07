@@ -16,6 +16,14 @@ pre-alpha rule. See
 
 ### Added
 
+- **`@cosyte/script-utils/claude-card`, the CLAUDE.md card checker.** A card opens with `# <name>`
+  and a paragraph, then has exactly three level-2 sections in order, Gate, Hazard and Rules, none
+  empty. It is at most 60 lines, every line at most 100 characters with code included, and at most
+  5,120 bytes, and when an AGENTS.md sits beside it the card imports it (`@AGENTS.md`). Exit 0
+  clean, 1 a finding, 2 an unreadable card. Run it with
+  `node node_modules/@cosyte/script-utils/claude-card.js`. The spec is
+  `documentation/claude-card.md` in cosyte/config.
+
 - **`@cosyte/script-utils/readme`, the README gate for every `@cosyte/*` library.** It checks the
   house skeleton: the shared lockup tile with the alt text assets declares for it, `# <package name>`,
   a one-line tagline of at most 120 characters, the badge row (npm version, CI, license and Node,

@@ -15,6 +15,7 @@ node scripts/release-notes.mjs prepare --repo . --out "$RUNNER_TEMP/release-note
 node scripts/credential-surface.mjs
 node scripts/install-hardening.mjs
 node scripts/readme-check.mjs
+node packages/script-utils/claude-card.js
 node scripts/drift-check.js
 pnpm install --frozen-lockfile
 pnpm check:no-emdash

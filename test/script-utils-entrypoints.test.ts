@@ -170,7 +170,23 @@ describe("the tarball a consumer installs", () => {
       "./internal-refs": { types: "./internal-refs.d.ts", default: "./internal-refs.js" },
       "./attw": { types: "./attw.d.ts", default: "./attw.js" },
       "./readme": { types: "./readme.d.ts", default: "./readme.js" },
+      "./claude-card": { types: "./claude-card.d.ts", default: "./claude-card.js" },
     });
+  });
+
+  it("ships the CLAUDE.md card checker and its declarations, and runs it from the tarball", () => {
+    for (const file of ["claude-card.js", "claude-card.d.ts"]) {
+      expect(existsSync(join(installed, file)), `${file} is not in the tarball`).toBe(true);
+    }
+    const probe = inConsumer(
+      [
+        'import { checkClaudeCard, CARD_MAX_BYTES } from "@cosyte/script-utils/claude-card";',
+        "console.log(typeof checkClaudeCard, CARD_MAX_BYTES);",
+        "",
+      ].join("\n"),
+    );
+    expect(probe.code, probe.out).toBe(0);
+    expect(probe.out.trim()).toBe("function 5120");
   });
 
   it("ships the README gate and its declarations, and runs it from the tarball", () => {

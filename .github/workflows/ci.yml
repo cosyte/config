@@ -105,6 +105,11 @@ jobs:
       #
       # Zero-dependency node, like the four gates above, so it runs before install.
       - run: node scripts/readme-check.mjs
+      # THE CLAUDE.md CARD CHECK (RD2). This repository's own card is graded by the checker every
+      # repository runs (`@cosyte/script-utils/claude-card`, documentation/claude-card.md), and the
+      # parser template's card by test/scaffold-claude-card.test.ts. Zero-dependency node, so it runs
+      # before install like the gates above.
+      - run: node packages/script-utils/claude-card.js
       # THE ESTATE BASELINE GATE (S0230), AND THIS LINE IS WHAT MAKES drift-manifest.json A STANDARD
       # THAT CAN REFUSE A MERGE. The checker has always exited non-zero on drift; nothing consumed
       # that exit code, so no merge had ever been refused by it and the baseline was a report a

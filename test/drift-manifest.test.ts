@@ -440,7 +440,6 @@ describe("AC8: a repo with no agent-context doc is one drift line, not an abort"
     const agentDoc = result.findings.filter((f) => f.group === "agentDoc");
     expect(agentDoc.length).toBe(1);
     expect(agentDoc[0]?.line).toContain("CLAUDE.md: missing");
-    expect(agentDoc[0]?.line).toContain("AGENTS.md");
     // The rest of the baseline was still graded, which is what "continue" means here.
     expect(result.findings.some((f) => f.group === "ciWorkflows")).toBe(true);
   });
@@ -448,7 +447,7 @@ describe("AC8: a repo with no agent-context doc is one drift line, not an abort"
   it("does not throw, and grades the repos after it", () => {
     const root = tempDir();
     makeRepo(root, "hl7", { "package.json": "{}" });
-    makeRepo(root, "mllp", { "package.json": "{}", "CLAUDE.md": "## Project\n" });
+    makeRepo(root, "mllp", { "package.json": "{}", "CLAUDE.md": "## Gate\n" });
     const manifest = JSON.parse(RAW_MANIFEST) as Record<string, any>;
     manifest["baselines"].package.repos = ["hl7", "mllp"];
     manifest["baselines"].light.repos = [];
@@ -459,24 +458,27 @@ describe("AC8: a repo with no agent-context doc is one drift line, not an abort"
     // second still reds on its missing headings, which is the shape check doing its other half.
     expect(results[0].findings.some((f: any) => f.line.includes("(agent-context doc"))).toBe(true);
     expect(results[1].findings.some((f: any) => f.line.includes("(agent-context doc"))).toBe(false);
-    expect(results[1].findings.some((f: any) => f.line.includes('heading "## Status"'))).toBe(true);
+    expect(results[1].findings.some((f: any) => f.line.includes('heading "## Hazard"'))).toBe(true);
   });
 
-  it("accepts AGENTS.md as the alternative filename", () => {
-    const root = tempDir();
-    makeRepo(root, "hl7", {
-      "package.json": "{}",
-      "AGENTS.md":
-        "## Project\n## Status\n## Tech Stack\n## Engineering Guardrails\n## Standing disciplines\n",
-    });
-    const result = evaluateRepo({
-      name: "hl7",
-      baselineName: "package",
-      baseline: MANIFEST["baselines"].package,
-      root,
-      probe: NO_PROBE,
-    }) as { findings: { group: string }[] };
-    expect(result.findings.filter((f) => f.group === "agentDoc")).toEqual([]);
+  it("grades CLAUDE.md, the card, and does not take AGENTS.md in its place", () => {
+    // ST26: a public repo's AGENTS.md is what the card imports, not a substitute for the card.
+    const card =
+      "# hl7\n\nA parser.\n\n## Gate\n\npnpm test\n\n## Hazard\n\nPHI.\n\n## Rules\n\n- One.\n";
+    const grade = (files: Record<string, string>): { group: string }[] => {
+      const root = tempDir();
+      makeRepo(root, "hl7", { "package.json": "{}", ...files });
+      const result = evaluateRepo({
+        name: "hl7",
+        baselineName: "package",
+        baseline: MANIFEST["baselines"].package,
+        root,
+        probe: NO_PROBE,
+      }) as { findings: { group: string }[] };
+      return result.findings.filter((f) => f.group === "agentDoc");
+    };
+    expect(grade({ "CLAUDE.md": card, "AGENTS.md": "# hl7\n" })).toEqual([]);
+    expect(grade({ "AGENTS.md": card }).length).toBe(1);
   });
 });
 

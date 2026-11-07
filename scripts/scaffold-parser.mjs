@@ -5,11 +5,10 @@
 // `prettier` and `@cosyte/prettier-config`. See formatEmitted() for why the emitted tree cannot be
 // left unformatted for the new repo's author to notice.
 //
-// The emitted skeleton is born compliant with the canonical toolchain
-// (documentation/conventions.md) and the drift check (config/drift-manifest.json): it inherits the
-// shared @cosyte/* config packages, calls the reusable cosyte/.github workflows, ships Changesets on
-// the 0.0.x ladder, and carries the parser archetype stubs (parse<Name>, WARNING_CODES, FATAL_CODES)
-// plus the @cosyte/test-utils property harness.
+// The emitted skeleton is born compliant with the canonical toolchain and the drift check
+// (config/drift-manifest.json): it inherits the shared @cosyte/* config packages, calls the reusable
+// cosyte/.github workflows, ships Changesets on the 0.0.x ladder, and carries the parser archetype
+// stubs (parse<Name>, WARNING_CODES, FATAL_CODES) plus the @cosyte/test-utils property harness.
 //
 // Usage:
 //   node scripts/scaffold-parser.mjs <name> [--title "Human Title"] [--out <dir>]
@@ -476,8 +475,8 @@ function formatEmitted(formatter, destDir) {
     fail(`prettier --write failed on the emitted tree (exit ${written.code}):\n${written.output}`);
   }
 
-  // `prettier --write` is NOT idempotent in general (documentation/conventions.md records a markdown
-  // construct it rewrites on every pass), so "we ran the formatter" is a weaker claim than "the tree
+  // `prettier --write` is NOT idempotent in general (some markdown constructs are rewritten on
+  // every pass), so "we ran the formatter" is a weaker claim than "the tree
   // passes the check the new repo's CI runs". The second is the one that matters, so it is measured
   // here, with the emitted `format:check` script's OWN globs rather than the `format` ones: if those
   // two ever drift, the drift surfaces at scaffold time instead of in a new repo's first CI run.
