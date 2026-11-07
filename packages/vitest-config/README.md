@@ -42,9 +42,9 @@ the bump type it deserves rather than absorbed into a patch.
 pnpm add -D @cosyte/vitest-config vitest @vitest/coverage-v8 vite
 ```
 
-`vitest`, `@vitest/coverage-v8`, and `vite` are peer dependencies. Install `vite` explicitly:
-Vitest 4 requires major version 6 or later, and without a direct declaration the resolver will
-happily keep an incompatible vite 5. Node `>=22.14`. ESM only.
+`vitest` (4 or 5), `@vitest/coverage-v8` (the same major) and `vite` are peer dependencies.
+Install `vite` explicitly: Vitest 4 and 5 require major version 6 or later, and without a direct
+declaration the resolver will happily keep an incompatible vite 5. Node `>=22.14`. ESM only.
 
 ## Usage
 
