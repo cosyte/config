@@ -24,8 +24,16 @@
 // change what this gate looks for or what it concludes.
 
 import { execFileSync } from "node:child_process";
-import { closeSync, constants as fsConstants, fstatSync, openSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import {
+  closeSync,
+  constants as fsConstants,
+  fstatSync,
+  openSync,
+  readFileSync,
+  realpathSync,
+} from "node:fs";
+import { basename, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 /**
  * The exit codes this gate assigns, as a caller may redeclare them.
@@ -332,7 +340,7 @@ export function compileCanonicalRules(resolved) {
       name: "phase or wave language",
       patterns: [
         new RegExp(
-          `\\b(?:roadmap phase\\b[ ]?[A-Za-z0-9]*|${PHASE_NOT_CLINICAL}phase[ -]${PHASE_NOT_FIELD}` +
+          `\\b(?:roadmap phases?\\b[ ]?[A-Za-z0-9]*|${PHASE_NOT_CLINICAL}phases?[ -]${PHASE_NOT_FIELD}` +
             `[A-Za-z0-9]+[a-z]?\\b|wave \\d+\\b|the \\w+ and final phase\\b|` +
             `documentation residual\\b|${ORDINAL} (?:slice|wave)\\b)`,
           "gi",
@@ -340,6 +348,8 @@ export function compileCanonicalRules(resolved) {
       ],
       positives: [
         "Phase 5b closes it (Phase W, Phase-L and the thirteenth slice landed earlier, in wave 2)",
+        // The plural, which ten of the eleven per-repository copies matched (`phases?[ -]`).
+        "Phases 1 to 6 shipped together",
       ],
       negatives: [
         "CSP-1 Study Phase Identifier, CSP-2 Study Phase Start Date/Time, CSP-3 Study Phase End " +
@@ -351,8 +361,12 @@ export function compileCanonicalRules(resolved) {
     {
       id: "adr-reference",
       name: "ADR reference",
-      patterns: [new RegExp("\\bADR[ -]?\\d{3,4}\\b", "gi")],
-      positives: ["Decided in ADR 0015 and restated in ADR-0021"],
+      // `[ /-]`: ten of the eleven per-repository copies also matched an ADR path segment.
+      patterns: [new RegExp("\\bADR[ /-]?\\d{3,4}\\b", "gi")],
+      positives: [
+        "Decided in ADR 0015 and restated in ADR-0021",
+        "Recorded in docs/adr/0001-scope.md",
+      ],
       negatives: ["ADR is not a segment, and 0015 alone is a value"],
     },
     {
@@ -646,13 +660,26 @@ function compileExtraRule(rule, index) {
       }
       continue;
     }
+    // `{ source, flags }`: the form a JSON configuration can carry, so a rule read from
+    // `scripts/internal-refs.json` can be case-insensitive (`"flags": "i"`). `g` is always added.
+    if (isPlainObject(entry) && typeof entry.source === "string") {
+      const flags = typeof entry.flags === "string" ? entry.flags : "";
+      try {
+        patterns.push(new RegExp(entry.source, flags.includes("g") ? flags : `${flags}g`));
+      } catch (cause) {
+        problems.push(`${where} carries a pattern that does not compile: ${String(cause)}`);
+      }
+      continue;
+    }
     if (entry instanceof RegExp) {
       patterns.push(
         new RegExp(entry.source, entry.flags.includes("g") ? entry.flags : `${entry.flags}g`),
       );
       continue;
     }
-    problems.push(`${where} carries a pattern that is neither a string nor a RegExp`);
+    problems.push(
+      `${where} carries a pattern that is neither a string, a RegExp nor a { source, flags } object`,
+    );
   }
   if (patterns.length === 0) problems.push(`${where} declares no pattern`);
   if (!isStringList(rule.positives) || rule.positives.length === 0) {
@@ -1361,3 +1388,101 @@ function report(hits) {
 
 /** Re-exported for a caller that wants to state, in its own docs, what it cannot turn off. */
 export { DEFAULT_EXIT_CODES, REFUSED_OPTIONS };
+
+// ---- The command-line form (ST34) --------------------------------------------
+//
+// `node node_modules/@cosyte/script-utils/internal-refs.js` runs this gate over the repository in
+// the working directory with no caller script: the axes a caller would pass are read from
+// `scripts/internal-refs.json`, the one file a repository keeps for this gate. Keys starting with
+// `$` are notes and are ignored. The exit codes are the house contract, 0 clean, 1 hits, 2 the gate
+// could not run, and the file may not set them, the repository root or the output sinks: the
+// command-line form owns those, and a file that names one is refused rather than half-honoured.
+
+/** Where the command-line form reads the repository's axes. */
+export const INTERNAL_REFS_CONFIG_PATH = "scripts/internal-refs.json";
+
+/** The exit codes of the command-line form. */
+const CLI_EXIT_CODES = Object.freeze({ clean: 0, hits: 1, refuse: 2 });
+
+/** Keys a configuration file may not set, because the command-line form sets them. */
+const CLI_OWNED_KEYS = ["exitCodes", "repoRoot", "write"];
+
+/**
+ * Run the gate from the command line over the repository in the working directory.
+ *
+ * @param {string[]} argv Only `--config <path>` is accepted (default `scripts/internal-refs.json`).
+ * @returns {number} 0 clean, 1 hits, 2 the gate could not run.
+ */
+export function runInternalRefsCli(argv) {
+  let path = INTERNAL_REFS_CONFIG_PATH;
+  const args = argv.filter((arg) => arg !== "--");
+  for (let i = 0; i < args.length; i += 1) {
+    if (args[i] === "--config" && typeof args[i + 1] === "string") {
+      path = args[i + 1];
+      i += 1;
+    } else {
+      process.stderr.write(
+        `internal-refs: ${JSON.stringify(args[i])} is not an argument this gate accepts (only ` +
+          `--config <path>). Nothing was checked.\n`,
+      );
+      return CLI_EXIT_CODES.refuse;
+    }
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(readFileSync(join(process.cwd(), path), "utf8"));
+  } catch (err) {
+    process.stderr.write(
+      `internal-refs: could not read ${path}: ${err.message} Nothing was checked.\n`,
+    );
+    return CLI_EXIT_CODES.refuse;
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    process.stderr.write(`internal-refs: ${path} is not a JSON object. Nothing was checked.\n`);
+    return CLI_EXIT_CODES.refuse;
+  }
+  const owned = CLI_OWNED_KEYS.filter((key) => key in parsed);
+  if (owned.length > 0) {
+    process.stderr.write(
+      `internal-refs: ${path} sets ${owned.join(", ")}, which the command-line form sets ` +
+        `itself. Remove ${owned.length === 1 ? "it" : "them"}. Nothing was checked.\n`,
+    );
+    return CLI_EXIT_CODES.refuse;
+  }
+  const config = Object.fromEntries(Object.entries(parsed).filter(([key]) => !key.startsWith("$")));
+  return runInternalRefsScan({ ...config, exitCodes: CLI_EXIT_CODES, repoRoot: process.cwd() });
+}
+
+/**
+ * Whether node was pointed at this file, which is the command-line form.
+ *
+ * SELF-CONTAINED ON PURPOSE: this module is also vendored and copied as a single file, so it may not
+ * import a sibling at load. A file whose name differs from the one node was pointed at cannot be the
+ * entry point, and that is settled without loading anything; only a matching name asks `index.js`'s
+ * `isCliEntrypoint`, and a copy with no `index.js` beside it compares real paths instead. Unsure is
+ * yes, so a gate that cannot tell runs loudly rather than skipping.
+ *
+ * @param {string} moduleUrl This module's `import.meta.url`.
+ * @returns {Promise<boolean>}
+ */
+async function invokedAsCommand(moduleUrl) {
+  const entry = process.argv[1];
+  if (typeof entry !== "string" || entry === "") return false;
+  const own = fileURLToPath(moduleUrl);
+  const stem = (path) => basename(path).replace(/\.[cm]?[jt]s$/, "");
+  if (stem(entry) !== stem(own)) return false;
+  try {
+    const { isCliEntrypoint } = await import("./index.js");
+    return isCliEntrypoint(moduleUrl);
+  } catch {
+    try {
+      return realpathSync(entry) === realpathSync(own);
+    } catch {
+      return true;
+    }
+  }
+}
+
+void invokedAsCommand(import.meta.url).then((command) => {
+  if (command) process.exitCode = runInternalRefsCli(process.argv.slice(2));
+});

@@ -34,3 +34,21 @@ export interface AttwGateOptions {
  *   for every refusal the gate raises.
  */
 export declare function runAttwGate(options: AttwGateOptions): number;
+
+/** Where the command-line form reads what a package leaves out: `scripts/attw.exclude`. */
+export declare const ATTW_EXCLUDE_PATH: "scripts/attw.exclude";
+
+/**
+ * Read an attw exclusions file (one resolution per line: `node10`, `node16-cjs`; `#` comments)
+ * into the one profile it selects: `node10` alone selects `node16`, both select `esm-only`.
+ */
+export declare function readAttwExclusions(text: string): {
+  profile: "node16" | "esm-only" | null;
+  problems: string[];
+};
+
+/**
+ * The command-line form: run the gate for the package in the working directory, reading
+ * `scripts/attw.exclude`, with no caller file. `node node_modules/@cosyte/script-utils/attw.js`.
+ */
+export declare function runAttwCli(argv: string[]): number;

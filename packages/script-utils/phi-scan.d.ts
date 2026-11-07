@@ -274,3 +274,25 @@ export declare function runPhiScan(config: PhiScanConfig): number;
  * is read by NEITHER sweeping route, while a `.md` named explicitly on argv IS scanned.
  */
 export declare function exemptsMarkdown(relPath: string): boolean;
+
+/** Where the command-line form reads what a repository leaves out: `scripts/phi-scan.exclude`. */
+export declare const PHI_EXCLUDE_PATH: "scripts/phi-scan.exclude";
+
+/**
+ * Read an exclusions file (one literal tracked path per line, `#` lines are comments) against the
+ * repository's tracked paths. A directory, a pattern, a repeat or a path git does not track is a
+ * problem, never a silent skip.
+ */
+export declare function readPhiExclusions(
+  text: string,
+  tracked: ReadonlySet<string>,
+): { paths: Set<string>; problems: string[] };
+
+/**
+ * The command-line form: the engine over the repository in the working directory, with exit codes
+ * 0 clean, 1 hits, 2 refuse, the whole repository as the scan root, the `--staged` route reading
+ * everything but Markdown, and `scripts/phi-scan.exclude`. The cross-cutting floor only: a
+ * repository that needs field-level detectors keeps a caller passing `detect`.
+ * `node node_modules/@cosyte/script-utils/phi-scan.js [--staged | <path>...]`.
+ */
+export declare function runPhiScanCli(argv: string[]): number;

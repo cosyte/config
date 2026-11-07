@@ -741,15 +741,17 @@ import { spawnSync } from "node:child_process";
 import {
   accessSync,
   constants,
+  existsSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   statSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { basename, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { gunzipSync } from "node:zlib";
 
 /**
@@ -1715,3 +1717,143 @@ function gate({ callerUrl, argv = process.argv.slice(2) }) {
   );
   return 0;
 }
+
+// ---- The command-line form (ST34) --------------------------------------------
+//
+// `node node_modules/@cosyte/script-utils/attw.js` runs this gate for the
+// package in the working directory with no caller file of its own: it is what
+// the one-line `scripts/attw.mjs` caller does, resolving the package's own
+// `node_modules/.bin/attw`. What the package leaves out of attw's analysis is
+// declared in `scripts/attw.exclude`, one resolution per line, `#` for comments:
+//
+//   node10       left out by attw's `node16` profile
+//   node16-cjs   left out, with node10, by its `esm-only` profile
+//
+// The file SELECTS A PROFILE and nothing else, so it reaches only what the
+// argument allow-list already forwards. A name it does not know, a repeat,
+// node16-cjs without node10 (no profile leaves out that one alone) and a
+// `--profile` on the command line beside the file are each refused: one source
+// for the profile, and nothing an exclusion could use to blind net 2.
+
+/** The resolutions an exclusions file may name. */
+const EXCLUDABLE_RESOLUTIONS = new Set(["node10", "node16-cjs"]);
+
+/** Where the command-line form reads what a package leaves out. */
+export const ATTW_EXCLUDE_PATH = "scripts/attw.exclude";
+
+/**
+ * Read an attw exclusions file into the one profile it selects.
+ *
+ * @param {string} text The file's contents.
+ * @returns {{ profile: "node16" | "esm-only" | null, problems: string[] }}
+ */
+export function readAttwExclusions(text) {
+  const problems = [];
+  const seen = new Set();
+  text.split("\n").forEach((raw, index) => {
+    const hash = raw.indexOf("#");
+    const entry = (hash < 0 ? raw : raw.slice(0, hash)).trim();
+    if (entry === "") return;
+    if (!EXCLUDABLE_RESOLUTIONS.has(entry)) {
+      problems.push(
+        `line ${index + 1}: ${JSON.stringify(entry)} is not a resolution this gate can ` +
+          `leave out (node10, node16-cjs).`,
+      );
+    } else if (seen.has(entry)) {
+      problems.push(`line ${index + 1}: ${entry} is listed twice.`);
+    } else {
+      seen.add(entry);
+    }
+  });
+  let profile = null;
+  if (seen.has("node16-cjs") && !seen.has("node10")) {
+    problems.push(
+      "node16-cjs can be left out only with node10: attw's esm-only profile leaves out both " +
+        "CommonJS resolutions, and no profile leaves out node16-cjs alone.",
+    );
+  } else if (seen.has("node16-cjs")) {
+    profile = "esm-only";
+  } else if (seen.has("node10")) {
+    profile = "node16";
+  }
+  return { profile, problems };
+}
+
+/**
+ * Run the gate from the command line for the package in the working directory.
+ *
+ * @param {string[]} argv The command-line arguments, graded by the same allow-list.
+ * @returns {number} The gate's exit code: 0 pass, attw's own status, or 1 for a refusal.
+ */
+export function runAttwCli(argv) {
+  const args = argv.filter((arg) => arg !== "--");
+  const file = join(process.cwd(), ...ATTW_EXCLUDE_PATH.split("/"));
+  const profile = [];
+  if (existsSync(file)) {
+    let text;
+    try {
+      text = readFileSync(file, "utf8");
+    } catch (err) {
+      process.stderr.write(`\n✗ attw gate: could not read ${ATTW_EXCLUDE_PATH}: ${err.message}\n`);
+      return 1;
+    }
+    const read = readAttwExclusions(text);
+    if (read.problems.length > 0) {
+      process.stderr.write(
+        `\n✗ attw gate: ${ATTW_EXCLUDE_PATH} is not usable, so nothing was checked:\n` +
+          read.problems.map((problem) => `  ${problem}\n`).join(""),
+      );
+      return 1;
+    }
+    if (read.profile !== null) {
+      if (args.some((arg) => arg.split("=")[0] === "--profile")) {
+        process.stderr.write(
+          `\n✗ attw gate: --profile was given and ${ATTW_EXCLUDE_PATH} selects a profile ` +
+            `too. Declare it in the file alone.\n`,
+        );
+        return 1;
+      }
+      profile.push("--profile", read.profile);
+    }
+  }
+  // The caller this form stands in for lives at `scripts/attw.mjs`, so the gate
+  // resolves `../node_modules/.bin/attw` from there: this package's own binary.
+  return runAttwGate({
+    callerUrl: pathToFileURL(join(process.cwd(), "scripts", "attw.mjs")).href,
+    argv: [...args, ...profile],
+  });
+}
+
+/**
+ * Whether node was pointed at this file, which is the command-line form.
+ *
+ * SELF-CONTAINED ON PURPOSE: this module is also vendored and copied as a single file, so it may not
+ * import a sibling at load. A file whose name differs from the one node was pointed at cannot be the
+ * entry point, and that is settled without loading anything; only a matching name asks `index.js`'s
+ * `isCliEntrypoint`, and a copy with no `index.js` beside it compares real paths instead. Unsure is
+ * yes, so a gate that cannot tell runs loudly rather than skipping.
+ *
+ * @param {string} moduleUrl This module's `import.meta.url`.
+ * @returns {Promise<boolean>}
+ */
+async function invokedAsCommand(moduleUrl) {
+  const entry = process.argv[1];
+  if (typeof entry !== "string" || entry === "") return false;
+  const own = fileURLToPath(moduleUrl);
+  const stem = (path) => basename(path).replace(/\.[cm]?[jt]s$/, "");
+  if (stem(entry) !== stem(own)) return false;
+  try {
+    const { isCliEntrypoint } = await import("./index.js");
+    return isCliEntrypoint(moduleUrl);
+  } catch {
+    try {
+      return realpathSync(entry) === realpathSync(own);
+    } catch {
+      return true;
+    }
+  }
+}
+
+void invokedAsCommand(import.meta.url).then((command) => {
+  if (command) process.exitCode = runAttwCli(process.argv.slice(2));
+});

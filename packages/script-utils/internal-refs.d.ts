@@ -46,9 +46,9 @@ export interface ExtraRule {
   /** What a hit report calls it. */
   name: string;
   /** One pattern, as a source string or a `RegExp`. */
-  pattern?: string | RegExp;
+  pattern?: string | RegExp | { source: string; flags?: string };
   /** Several patterns, when one rule needs two case policies. */
-  patterns?: (string | RegExp)[];
+  patterns?: (string | RegExp | { source: string; flags?: string })[];
   /** Text this rule MUST match. At least one is required. */
   positives: string[];
   /** Text this rule must NOT match. At least one is required: it is what stops a widening. */
@@ -221,3 +221,13 @@ export declare const DEFAULT_EXIT_CODES: InternalRefsExitCodes;
 
 /** Option names refused by name, with the reason each one is not something a caller may supply. */
 export declare const REFUSED_OPTIONS: ReadonlyMap<string, string>;
+
+/** Where the command-line form reads the repository's axes: `scripts/internal-refs.json`. */
+export declare const INTERNAL_REFS_CONFIG_PATH: "scripts/internal-refs.json";
+
+/**
+ * The command-line form: run the gate over the repository in the working directory, with the
+ * axes read from `scripts/internal-refs.json` (or `--config <path>`). Exit 0 clean, 1 hits, 2 the
+ * gate could not run. `node node_modules/@cosyte/script-utils/internal-refs.js`.
+ */
+export declare function runInternalRefsCli(argv: string[]): number;
