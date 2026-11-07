@@ -114,6 +114,13 @@ describe("slugs, as GitHub writes them", () => {
     expect(slugify("- 001 leading hyphen")).toBe("--001-leading-hyphen");
   });
 
+  it("reads a heading of unclosed link brackets in linear time", () => {
+    const started = Date.now();
+    slugify("[](".repeat(100_000));
+    slugify("[\\".repeat(100_000));
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
+
   it("suffixes a repeated heading", () => {
     const slug = makeSlugger();
     expect([slug("Setup"), slug("Setup"), slug("Setup")]).toEqual(["setup", "setup-1", "setup-2"]);

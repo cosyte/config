@@ -61,9 +61,30 @@ export const AGENT_NOTES_RULES = Object.freeze({
 /** Exit 2: the check could not run. */
 export class AgentNotesRefusal extends Error {}
 
-/** Link text in place of a link, as GitHub does before it slugs a heading. */
+/**
+ * Link text in place of a link, as GitHub does before it slugs a heading: `[text](url)` becomes
+ * `text`. Read with `indexOf` rather than one global pattern, which backtracks polynomially on a run
+ * of unclosed `[](` and is run on text this check does not control.
+ */
 function stripInline(text) {
-  return text.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1");
+  let out = "";
+  let at = 0;
+  for (;;) {
+    const open = text.indexOf("[", at);
+    if (open < 0) break;
+    const close = text.indexOf("]", open + 1);
+    if (close < 0) break;
+    if (text[close + 1] !== "(") {
+      out += text.slice(at, close + 1);
+      at = close + 1;
+      continue;
+    }
+    const end = text.indexOf(")", close + 2);
+    if (end < 0) break;
+    out += text.slice(at, open) + text.slice(open + 1, close);
+    at = end + 1;
+  }
+  return out + text.slice(at);
 }
 
 /**
