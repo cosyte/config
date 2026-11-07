@@ -142,14 +142,33 @@ import { runAttwGate } from "@cosyte/script-utils/attw";
 typeof runAttwGate; // => "function"
 ```
 
+The README gate is the fifth. It checks a library README against the house skeleton and npm's
+size limit, and it reads everything package-specific from `package.json`:
+
+```ts runnable
+import { checkReadme, README_CHARACTER_LIMIT } from "@cosyte/script-utils/readme";
+
+const manifest = {
+  name: "@cosyte/demo",
+  repository: "https://github.com/cosyte/demo",
+  engines: { node: ">=22.14" },
+};
+
+// A README that is only a title: each finding names the rule it breaks and the line.
+const findings = checkReadme("# @cosyte/demo\n", manifest);
+findings.some((finding) => finding.rule === "tile"); // => true
+README_CHARACTER_LIMIT; // => 60000
+```
+
 ## Entry points
 
-| entry point                          | what it is                                                               |
-| ------------------------------------ | ------------------------------------------------------------------------ |
-| `@cosyte/script-utils`               | `isCliEntrypoint(moduleUrl)`, the entry-point guard                      |
-| `@cosyte/script-utils/phi-scan`      | `runPhiScan(config)` and `exemptsMarkdown(relPath)`, the shared PHI gate |
-| `@cosyte/script-utils/internal-refs` | `runInternalRefsScan(config)`, the shared internal-reference gate        |
-| `@cosyte/script-utils/attw`          | `runAttwGate(options)`, the shared `attw` publish gate                   |
+| entry point                          | what it is                                                                  |
+| ------------------------------------ | --------------------------------------------------------------------------- |
+| `@cosyte/script-utils`               | `isCliEntrypoint(moduleUrl)`, the entry-point guard                         |
+| `@cosyte/script-utils/phi-scan`      | `runPhiScan(config)` and `exemptsMarkdown(relPath)`, the shared PHI gate    |
+| `@cosyte/script-utils/internal-refs` | `runInternalRefsScan(config)`, the shared internal-reference gate           |
+| `@cosyte/script-utils/attw`          | `runAttwGate(options)`, the shared `attw` publish gate                      |
+| `@cosyte/script-utils/readme`        | `runReadmeGate(options)` and `checkReadme(text, manifest)`, the README gate |
 
 They are separate subpaths because they are separately adoptable: a repo can take the entry-point
 guard without taking a position on PHI scanning, a repo can take the internal-reference gate without
@@ -186,6 +205,32 @@ root. An entry that matches no tracked path is refused rather than ignored, beca
 has outlived its subject is a hole nobody is looking at. Nothing narrows WHAT IS MATCHED: the twelve
 banned forms are fixed in the gate. They are the em dash (U+2014) and the en dash (U+2013), each as
 the literal character, its URL encoding, its JS escape and three HTML entity spellings.
+
+### The README gate
+
+`@cosyte/script-utils/readme` checks a library's README against the house skeleton, and against a
+size limit under npm's: the registry keeps only the first 65,536 characters of a README, and the
+gate refuses one over 60,000. A library runs it from its package script, with no file of its own:
+
+```sh
+# "readme:check": "node node_modules/@cosyte/script-utils/readme.js"
+node node_modules/@cosyte/script-utils/readme.js              # the package in this directory
+node node_modules/@cosyte/script-utils/readme.js --dir <path> # another package directory
+```
+
+The skeleton, in order: the shared lockup tile in a `<picture>` element with the alt text assets
+declares for it; `# <package name>`; a one-line `>` tagline of at most 120 characters; the badge row
+(npm version, CI, license and Node, one per line, derived from `package.json`); then the sections
+`Why this exists`, `Status`, `Install`, `Usage`, `Support`, `Security`, `Contributing` and
+`License`, in that order, none empty, with `License` last and linking the repository's `LICENSE` by
+its absolute URL. A link to the package's page on docs.cosyte.com sits after `## Usage` begins and
+before `## Support`. Other sections may sit between the required ones.
+
+Exit 0 means the README follows the skeleton, 1 that it does not (each finding names its line and
+its rule, from `README_RULES`), and 2 that the gate could not read the package: no README, no
+`package.json`, or a manifest without the `@cosyte/*` name, the github.com/cosyte repository URL or
+the `engines.node` the skeleton is derived from. Nothing is configurable, so no setting switches a
+rule off.
 
 ## Overrides
 

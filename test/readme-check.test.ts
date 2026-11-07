@@ -1374,7 +1374,7 @@ describe("readme-check: claims a published README may not make (AC8, AC12)", () 
     expect(code).toBe(0);
   });
 
-  it("REFUSES a README over the 500 KiB ceiling", () => {
+  it("REFUSES a README over the 60,000-character limit", () => {
     const { code, output } = runCheck(
       workspaceWith([
         { dir: "alpha", mutate: (r) => `${r}\n${"padding padding padding\n".repeat(30_000)}` },
@@ -1382,7 +1382,7 @@ describe("readme-check: claims a published README may not make (AC8, AC12)", () 
     );
 
     expect(code).toBe(1);
-    expect(output).toContain("GitHub truncates it");
+    expect(output).toContain("60000-character limit");
   });
 
   it("REFUSES a release cadence, a release frequency or a support window", () => {
