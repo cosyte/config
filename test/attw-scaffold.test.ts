@@ -37,6 +37,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import {
   chmodSync,
   cpSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -77,7 +78,11 @@ const BARE_INVOCATION = /^attw\b/;
 
 interface RunResult {
   code: number;
+  /** stdout then stderr, for the cases that only read what was said. */
   out: string;
+  /** Kept apart for the cases where WHICH stream carried a line is the assertion. */
+  stdout: string;
+  stderr: string;
 }
 
 /**
@@ -111,7 +116,9 @@ function run(bin: string, args: string[], cwd: string): RunResult {
     Object.entries(process.env).filter(([key]) => !PACK_PLACEMENT_CONFIG.test(key)),
   );
   const r = spawnSync(bin, args, { cwd, encoding: "utf8", timeout: 100_000, env });
-  return { code: r.status ?? -1, out: `${r.stdout ?? ""}${r.stderr ?? ""}` };
+  const stdout = r.stdout ?? "";
+  const stderr = r.stderr ?? "";
+  return { code: r.status ?? -1, out: `${stdout}${stderr}`, stdout, stderr };
 }
 
 let root: string;
@@ -499,6 +506,109 @@ describe("a freshly scaffolded parser inherits the fixed gate", () => {
       // The preflight must name the artifact rather than leave the reader to infer
       // it from attw's silence.
       expect(gated.out).toContain("attw gate");
+    },
+    SPAWN_TIMEOUT,
+  );
+});
+
+describe("a freshly scaffolded parser's `prepare` keeps the hook's output off stdout", () => {
+  // THE DEFECT, found 2026-11-07 while setting up cosyte/pathways from this scaffolder. npm runs
+  // `prepare` during `npm pack`, and that includes the `npm pack --dry-run --json` whose stdout
+  // the shared gate's tarball net JSON.parses. A lifecycle script's stdout lands in npm's stdout,
+  // ahead of the document. simple-git-hooks 2.13.0 reports on stdout (`console.log` and
+  // `console.info` in its `cli.js` and `simple-git-hooks.js`), so once `pnpm install` had put it
+  // in `node_modules/.bin`, the template's old `prepare` left every scaffolded repo with a
+  // `pnpm attw` that refused, "did not print JSON". cosyte/hl7 and cosyte/pathways send the hook's
+  // output to stderr with `1>&2`, and the template now does too.
+  //
+  // DIVERTED, NOT DISCARDED. simple-git-hooks reports a FAILED install on stdout as well, and
+  // exits 0 anyway, so a `prepare` that dropped its stdout would hide a repo whose PHI pre-commit
+  // scan was never installed. The case below asserts the line reaches stderr, not only that stdout
+  // is clean.
+  //
+  // THE HOOK IS A STAND-IN, because nothing here installs simple-git-hooks. It sits where
+  // `pnpm install` puts the real one, which is on the PATH npm gives a lifecycle script, and it
+  // prints on stdout as the real one does. It also leaves a marker, so a `prepare` that never
+  // reached it (deleted, or skipped) reds on liveness rather than passing on an empty stdout.
+  //
+  // WHAT THE npm CHILD INHERITS (#47): the environment minus the two pack-placement keys, as for
+  // every other spawn in this file. `--dry-run`, `--json` and `--ignore-scripts=false` are on
+  // argv, where they outrank an ambient `npm_config_*` of the same name, so the run is the gate's
+  // own call with `prepare` firing.
+  const OLD_PREPARE = "command -v simple-git-hooks >/dev/null 2>&1 && simple-git-hooks || true";
+  const HOOK_LINE = "[INFO] Successfully set all git hooks";
+
+  /** The emitted repo, as the scaffolder wrote it. */
+  let emitted: string;
+  /** The same repo with the template's old `prepare` put back: the counterfactual. */
+  let unfixed: string;
+
+  /** Plant the stand-in hook in `dir`; it touches `marker` and prints on stdout when it runs. */
+  function plantHook(dir: string, marker: string): void {
+    const binDir = join(dir, "node_modules", ".bin");
+    mkdirSync(binDir, { recursive: true });
+    const hook = join(binDir, "simple-git-hooks");
+    writeFileSync(hook, `#!/bin/sh\n: > "${marker}"\necho "${HOOK_LINE}"\n`);
+    chmodSync(hook, 0o755);
+  }
+
+  /** The package names an `npm pack --json` document lists. Throws when stdout is not one. */
+  function packedNames(stdout: string): unknown[] {
+    // npm 10 and 11 print an array of tarballs and npm 12 an object keyed by package name, all
+    // three measured. This asks only that stdout is one JSON document and that it names this
+    // package.
+    const doc: unknown = JSON.parse(stdout);
+    const entries: unknown[] = Array.isArray(doc) ? doc : Object.values(doc as object);
+    return entries.map((entry) => (entry as { name?: unknown }).name);
+  }
+
+  function packDryRun(dir: string): RunResult {
+    return run("npm", ["pack", "--dry-run", "--json", "--ignore-scripts=false"], dir);
+  }
+
+  beforeAll(() => {
+    const out = join(root, "hooks");
+    const scaffolded = run(process.execPath, [SCAFFOLDER, "demo", "--out", out], REPO_ROOT);
+    expect(scaffolded.code, scaffolded.out).toBe(0);
+    emitted = join(out, "demo");
+
+    unfixed = join(root, "hooks-unfixed");
+    cpSync(emitted, unfixed, { recursive: true });
+    const manifestPath = join(unfixed, "package.json");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+      scripts: Record<string, string>;
+    };
+    manifest.scripts.prepare = OLD_PREPARE;
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  });
+
+  it(
+    "COUNTERFACTUAL: under the old `prepare` the hook's line is in npm's stdout, which is not JSON",
+    () => {
+      // Without this, the case below would pass just as well on an npm that stopped passing a
+      // lifecycle script's stdout through, and it would pin nothing about the `prepare` line.
+      const marker = join(root, "hook-ran-unfixed");
+      plantHook(unfixed, marker);
+      const r = packDryRun(unfixed);
+      expect(r.code, r.out).toBe(0);
+      expect(existsSync(marker), "the old prepare never reached the hook").toBe(true);
+      expect(r.stdout).toContain(HOOK_LINE);
+      expect(() => packedNames(r.stdout)).toThrow();
+    },
+    SPAWN_TIMEOUT,
+  );
+
+  it(
+    "the emitted `prepare` sends the hook's line to stderr, so npm's stdout stays JSON",
+    () => {
+      const marker = join(root, "hook-ran-emitted");
+      plantHook(emitted, marker);
+      const r = packDryRun(emitted);
+      expect(r.code, r.out).toBe(0);
+      expect(existsSync(marker), "the emitted prepare never reached the hook").toBe(true);
+      expect(r.stdout).not.toContain(HOOK_LINE);
+      expect(packedNames(r.stdout)).toEqual(["@cosyte/demo"]);
+      expect(r.stderr).toContain(HOOK_LINE);
     },
     SPAWN_TIMEOUT,
   );

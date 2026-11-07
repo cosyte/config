@@ -558,8 +558,9 @@ function main() {
       "  pnpm typecheck && pnpm lint --max-warnings=0 && pnpm test && pnpm build && pnpm attw",
       "",
       "Then follow the crew skill `scaffold-a-new-parser` for the post-scaffold steps:",
-      "  create the GitHub repo, set NPM_TOKEN + DOCS_REPO_DISPATCH_TOKEN secrets, add as an umbrella",
-      "  submodule, register in docs/config/packages.ts, and run the drift check.",
+      "  create the GitHub repo, add the package's npm trusted-publisher entry (no npm token),",
+      "  give the repo the RELEASE_PR_TOKEN + DOCS_REPO_DISPATCH_TOKEN secrets, add it as an",
+      "  umbrella submodule, register in docs/config/packages.ts, and run the drift check.",
       "",
     ].join("\n"),
   );
