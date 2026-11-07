@@ -58,6 +58,17 @@ describe("@cosyte/tsup-config", () => {
 });
 
 describe("@cosyte/vitest-config", () => {
+  it("accepts Vitest 4 and 5, with the coverage provider on the same major", async () => {
+    const { readFileSync } = await import("node:fs");
+    const manifest = JSON.parse(
+      readFileSync(new URL("../packages/vitest-config/package.json", import.meta.url), "utf8"),
+    ) as { peerDependencies: Record<string, string> };
+    expect(manifest.peerDependencies["vitest"]).toBe("^4.0.0 || ^5.0.0");
+    expect(manifest.peerDependencies["@vitest/coverage-v8"]).toBe(
+      manifest.peerDependencies["vitest"],
+    );
+  });
+
   it("sets enabled, gating per-directory >=90 thresholds", () => {
     const cfg = cosyteVitest({ coverageDirs: ["parser"] });
     const thresholds = cfg.test?.coverage?.thresholds as Record<string, unknown>;
