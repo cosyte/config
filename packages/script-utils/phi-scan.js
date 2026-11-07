@@ -39,10 +39,11 @@
 // repository reads its own `node_modules` copy of this file only if it is not gitignored, and a
 // diagnostic ABOUT a PHI leak is itself a PHI surface. Describe the shape; never write one down.
 
-import { readFileSync, statSync, lstatSync, existsSync, readdirSync } from "node:fs";
+import { readFileSync, statSync, lstatSync, existsSync, readdirSync, realpathSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { join, resolve, relative, sep, isAbsolute } from "node:path";
+import { basename, join, resolve, relative, sep, isAbsolute } from "node:path";
+import { fileURLToPath } from "node:url";
 
 /**
  * Every state in which the scan cannot account for something. Raised throughout, caught in `run`,
@@ -1135,10 +1136,15 @@ class PhiScan {
   buildTargetsForStaged() {
     let listBuf;
     try {
-      // SECURITY: array-form execFileSync, no shell.
+      // SECURITY: array-form execFileSync, no shell. `--ignore-submodules=none` because
+      // `diff.ignoreSubmodules` in a user's own git config would otherwise hide a staged gitlink
+      // from this list, and the route would never refuse it (x12, terminology and astm pass it;
+      // measured in x12's own suite).
       listBuf = execFileSync(
         "git",
-        ["diff", "--cached", "--raw", "-z", "--no-renames", "--diff-filter=d"],
+        ["diff", "--cached", "--raw", "-z", "--no-renames", "--diff-filter=d"].concat(
+          "--ignore-submodules=none",
+        ),
         {
           cwd: this.cfg.repoRoot,
           encoding: "buffer",
@@ -1942,3 +1948,145 @@ function gitModeKind(mode) {
   if (mode === "160000") return "a gitlink (a nested repository)";
   return `a git mode-${mode} entry`;
 }
+
+// ---- The command-line form (ST34) ---------------------------------------------------------------
+//
+// `node node_modules/@cosyte/script-utils/phi-scan.js [--staged | <path>...]` runs this engine over
+// the repository in the working directory with the house settings and no caller script: exit codes
+// 0 clean, 1 hits, 2 refuse; the whole repository as the one scan root; the `--staged` route reading
+// everything but Markdown (`exemptsMarkdown`); the allow-list at `scripts/phi-allow-list.txt` and the
+// override log at `phi-scan-overrides.md`, the engine's defaults; and what the repository leaves
+// out, in `scripts/phi-scan.exclude`.
+//
+// AN EXCLUSION IS ONE LITERAL TRACKED PATH, as `excludedPaths` requires: no pattern, no directory,
+// because a class quietly grows new members. One per line; a line whose first character is `#` is a
+// comment. An entry that names no tracked path is refused rather than ignored: an exclusion that has
+// outlived its file is a hole nobody is looking at.
+//
+// IT CARRIES THE CROSS-CUTTING FLOOR ONLY. A repository whose standard needs field-level detectors
+// keeps a caller passing `detect` until the per-standard detectors ship in this package.
+
+/** Where the command-line form reads what a repository leaves out. */
+export const PHI_EXCLUDE_PATH = "scripts/phi-scan.exclude";
+
+/** The exit codes of the command-line form. */
+const CLI_EXIT_CODES = Object.freeze({ clean: 0, hits: 1, refuse: 2 });
+
+/**
+ * Read an exclusions file against the repository's tracked paths.
+ *
+ * @param {string} text The file's contents.
+ * @param {ReadonlySet<string>} tracked Every tracked path, repo-relative and forward-slashed.
+ * @returns {{ paths: Set<string>, problems: string[] }}
+ */
+export function readPhiExclusions(text, tracked) {
+  const paths = new Set();
+  const problems = [];
+  text.split("\n").forEach((raw, index) => {
+    const entry = raw.trim();
+    if (entry === "" || entry.startsWith("#")) return;
+    const where = `line ${index + 1}: ${JSON.stringify(entry)}`;
+    if (entry.endsWith("/") || /[*?[\]]/.test(entry)) {
+      problems.push(`${where} is a directory or a pattern; an exclusion is one literal path.`);
+    } else if (paths.has(entry)) {
+      problems.push(`${where} is listed twice.`);
+    } else if (!tracked.has(entry)) {
+      problems.push(`${where} is not a tracked path, so it excludes nothing.`);
+    } else {
+      paths.add(entry);
+    }
+  });
+  return { paths, problems };
+}
+
+/**
+ * Run the engine from the command line over the repository in the working directory.
+ *
+ * @param {string[]} argv The engine's own arguments: `--staged`, paths, `--allow-fixture <path>`.
+ * @returns {number} 0 clean, 1 hits, 2 the scan could not account for something.
+ */
+export function runPhiScanCli(argv) {
+  const repoRoot = process.cwd();
+  let excludedPaths = new Set();
+  const file = join(repoRoot, ...PHI_EXCLUDE_PATH.split("/"));
+  if (existsSync(file)) {
+    let read;
+    try {
+      const tracked = new Set(
+        execFileSync("git", ["ls-files", "-z"], {
+          cwd: repoRoot,
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"],
+          maxBuffer: 256 * 1024 * 1024,
+        })
+          .split("\0")
+          .filter((path) => path !== ""),
+      );
+      read = readPhiExclusions(readFileSync(file, "utf8"), tracked);
+    } catch (err) {
+      process.stderr.write(
+        `[phi-scan] could not read ${PHI_EXCLUDE_PATH}: ${err instanceof Error ? err.message : String(err)}\n`,
+      );
+      return CLI_EXIT_CODES.refuse;
+    }
+    if (read.problems.length > 0) {
+      process.stderr.write(
+        `[phi-scan] ${PHI_EXCLUDE_PATH} is not usable, so nothing was scanned:\n` +
+          read.problems.map((problem) => `  ${problem}\n`).join(""),
+      );
+      return CLI_EXIT_CODES.refuse;
+    }
+    excludedPaths = read.paths;
+  }
+  try {
+    return runPhiScan({
+      exitCodes: CLI_EXIT_CODES,
+      scanRoots: ["."],
+      isStagedReadable: exemptsMarkdown,
+      excludedPaths,
+      repoRoot,
+      argv,
+    });
+  } catch (err) {
+    // The backstop: an error the engine did not raise as a refusal must still not take node's own
+    // exit 1, which this contract reserves for hits.
+    process.stderr.write(
+      `[phi-scan] the scan failed and did not complete: ${err instanceof Error ? err.message : String(err)}\n`,
+    );
+    return CLI_EXIT_CODES.refuse;
+  }
+}
+
+/**
+ * Whether node was pointed at this file, which is the command-line form.
+ *
+ * SELF-CONTAINED ON PURPOSE: this module is also vendored and copied as a single file, so it may not
+ * import a sibling at load. A file whose name differs from the one node was pointed at cannot be the
+ * entry point, and that is settled without loading anything; only a matching name asks `index.js`'s
+ * `isCliEntrypoint`, and a copy with no `index.js` beside it compares real paths instead. Unsure is
+ * yes, so a gate that cannot tell runs loudly rather than skipping.
+ *
+ * @param {string} moduleUrl This module's `import.meta.url`.
+ * @returns {Promise<boolean>}
+ */
+async function invokedAsCommand(moduleUrl) {
+  const entry = process.argv[1];
+  if (typeof entry !== "string" || entry === "") return false;
+  const own = fileURLToPath(moduleUrl);
+  const stem = (path) => basename(path).replace(/\.[cm]?[jt]s$/, "");
+  if (stem(entry) !== stem(own)) return false;
+  try {
+    const { isCliEntrypoint } = await import("./index.js");
+    return isCliEntrypoint(moduleUrl);
+  } catch {
+    try {
+      return realpathSync(entry) === realpathSync(own);
+    } catch {
+      return true;
+    }
+  }
+}
+
+void invokedAsCommand(import.meta.url).then((command) => {
+  if (command) process.exitCode = runPhiScanCli(process.argv.slice(2));
+});

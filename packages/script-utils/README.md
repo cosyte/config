@@ -65,8 +65,9 @@ So check when your gate runs, and pick accordingly:
 Installing the package does not, on its own, give a pre-install gate the property described above.
 
 Every entry point is published as source with no build step, so the relative-path route works for
-all three: the files are `index.js`, `phi-scan.js` and `internal-refs.js`, each beside its own
-hand-written `.d.ts`. A vendored copy is one of those files and nothing else.
+each: the files are `index.js` and one `<entry>.js` per subpath, each beside its own hand-written
+`.d.ts`. A vendored copy of a gate is that one file: its command-line form loads nothing beside it
+unless node was pointed at a file of the same name.
 
 ## Usage
 
@@ -217,6 +218,34 @@ checkAgentNotes({ claude, notes: notes.replace("Setup", "Install"), files: [] })
 They are separate subpaths because they are separately adoptable: a repo can take the entry-point
 guard without taking a position on PHI scanning, a repo can take the internal-reference gate without
 taking either, and importing one never loads another.
+
+### The four gates from the command line
+
+Each shared gate runs from a repository's package script with no file of its own but one input
+(ST34). The dash gate already did; the other three now do too:
+
+| gate           | command                                                     | the one per-repository file       |
+| -------------- | ----------------------------------------------------------- | --------------------------------- |
+| em and en dash | `bash node_modules/@cosyte/script-utils/check-no-emdash.sh` | `scripts/check-no-emdash.exclude` |
+| attw           | `node node_modules/@cosyte/script-utils/attw.js`            | `scripts/attw.exclude`            |
+| PHI scan       | `node node_modules/@cosyte/script-utils/phi-scan.js`        | `scripts/phi-scan.exclude`        |
+| internal refs  | `node node_modules/@cosyte/script-utils/internal-refs.js`   | `scripts/internal-refs.json`      |
+
+- **attw** runs for the package in the working directory, as the one-line `scripts/attw.mjs`
+  caller does. `scripts/attw.exclude` names the resolutions the package leaves out, one per line:
+  `node10` alone selects attw's `node16` profile, and `node10` with `node16-cjs` selects `esm-only`.
+  It selects a profile and nothing else; any other entry, a repeat, `node16-cjs` alone, or a
+  `--profile` argument beside the file is refused at exit 1.
+- **PHI scan** runs the engine with the house settings: exit codes 0 clean, 1 hits, 2 refuse; the
+  whole repository as the scan root; `--staged` reading everything but Markdown; the allow-list at
+  `scripts/phi-allow-list.txt` and the override log at `phi-scan-overrides.md`. Each line of
+  `scripts/phi-scan.exclude` is one literal tracked path (`#` lines are comments); a directory, a
+  pattern, a repeat or a path git does not track is refused at exit 2. It carries the
+  cross-cutting floor only, so a repository whose standard needs field-level detectors keeps a
+  caller passing `detect` until the per-standard detectors ship here.
+- **Internal refs** reads its axes from `scripts/internal-refs.json` (keys starting with `$` are
+  notes), with exit codes 0 clean, 1 hits, 2 the gate could not run. The file may not set
+  `exitCodes`, `repoRoot` or `write`, which the command-line form owns.
 
 ### The em-dash gate, which is a file rather than a subpath
 

@@ -685,3 +685,89 @@ describe("npm's pack report is read in both of npm's shapes", () => {
     expect(readFileSync(npm.marker, "utf8")).toBe("object-under-another-key");
   });
 });
+
+// ---------------------------------------------------------------------------
+// The command-line form: no caller file, and an exclusions file that selects a profile.
+// ---------------------------------------------------------------------------
+
+/** Replace the consumer's attw with a shim that logs its arguments and prints a passing report. */
+function loggingShim(consumer: Consumer): string {
+  const log = join(consumer.dir, "attw-args.log");
+  const report = JSON.stringify({
+    analysis: {
+      packageName: "attw-shared-fixture-wellformed",
+      packageVersion: "1.0.0",
+      types: { kind: "included" },
+    },
+  });
+  const bin = join(consumer.dir, "node_modules", ".bin", "attw");
+  writeFileSync(
+    bin,
+    `#!/bin/sh\nprintf '%s\\n' "$*" >> ${JSON.stringify(log)}\ncat <<'ATTWJSON'\n${report}\nATTWJSON\n`,
+  );
+  chmodSync(bin, 0o755);
+  return log;
+}
+
+function runCli(consumer: Consumer, args: string[] = OFFLINE): RunResult {
+  return run(
+    process.execPath,
+    [join(consumer.dir, "node_modules", "@cosyte", "script-utils", "attw.js"), ...args],
+    consumer.dir,
+  );
+}
+
+describe("the command-line form", () => {
+  it("runs the gate for the package in the working directory, with no caller file", () => {
+    const consumer = makeConsumer("cli-no-caller", WELL_FORMED.manifest, WELL_FORMED.files);
+    rmSync(join(consumer.dir, "scripts", "attw.mjs"));
+    const log = loggingShim(consumer);
+    const r = runCli(consumer);
+    expect(r.code, r.out).toBe(0);
+    expect(readFileSync(log, "utf8")).toBe("--pack . --no-definitely-typed --format json\n");
+  });
+
+  it.each([
+    ["node10\n", "node16"],
+    ["# both CommonJS resolutions\nnode10\nnode16-cjs # and this one\n", "esm-only"],
+  ])("selects attw's profile from scripts/attw.exclude (%j)", (file, profile) => {
+    const consumer = makeConsumer(
+      `cli-profile-${profile}`,
+      WELL_FORMED.manifest,
+      WELL_FORMED.files,
+    );
+    writeFileSync(join(consumer.dir, "scripts", "attw.exclude"), file);
+    const log = loggingShim(consumer);
+    const r = runCli(consumer);
+    expect(r.code, r.out).toBe(0);
+    expect(readFileSync(log, "utf8")).toBe(
+      `--pack . --no-definitely-typed --profile ${profile} --format json\n`,
+    );
+  });
+
+  it.each([
+    ["node16-cjs\n", "only with node10"],
+    ["node10\nnode10\n", "listed twice"],
+    ["entrypoint ./index.js\n", "is not a resolution this gate can leave out"],
+  ])("refuses an exclusions file it cannot use (%j), before attw runs", (file, message) => {
+    const consumer = makeConsumer(
+      `cli-refuse-${message.replace(/\W+/g, "-")}`,
+      WELL_FORMED.manifest,
+      WELL_FORMED.files,
+    );
+    writeFileSync(join(consumer.dir, "scripts", "attw.exclude"), file);
+    const r = runCli(consumer);
+    expect(r.code).toBe(1);
+    expect(r.out).toContain(message);
+    expect(existsSync(consumer.marker), "attw ran over an unusable exclusions file").toBe(false);
+  });
+
+  it("refuses a --profile beside an exclusions file that selects one", () => {
+    const consumer = makeConsumer("cli-two-profiles", WELL_FORMED.manifest, WELL_FORMED.files);
+    writeFileSync(join(consumer.dir, "scripts", "attw.exclude"), "node10\n");
+    const r = runCli(consumer, [...OFFLINE, "--profile", "strict"]);
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("Declare it in the file alone");
+    expect(existsSync(consumer.marker)).toBe(false);
+  });
+});
