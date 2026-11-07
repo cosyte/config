@@ -569,3 +569,119 @@ describe("the config route, which no argument guard can reach", () => {
     expect(r.out).toContain("printed nothing to stdout");
   });
 });
+
+// ---------------------------------------------------------------------------
+// npm's pack report, in both of the shapes npm prints.
+// ---------------------------------------------------------------------------
+
+/** The first executable `npm` on PATH: the real one, which the stand-in below delegates to. */
+function realNpm(): string {
+  for (const dir of (process.env["PATH"] ?? "").split(":")) {
+    if (dir === "") continue;
+    const candidate = join(dir, "npm");
+    const probe = spawnSync(candidate, ["--version"], { encoding: "utf8" });
+    if (probe.status === 0) return candidate;
+  }
+  throw new Error("no runnable npm on PATH, so the pack-report cases cannot run");
+}
+
+/**
+ * A stand-in `npm` that delegates every call to the real one and rewrites only the report of
+ * `npm pack ... --json` into the shape a case asks for. It records the shape it printed, so a case
+ * can tell that the gate's own pack call went through it rather than around it.
+ *
+ * WHY A STAND-IN AND NOT THE NPM ON THIS BOX. npm 10 and 11 print an array and npm 12 prints an
+ * object keyed by package name, and CI runs Node 22 and 24, both npm 10 or 11. Without the
+ * rewrite the object shape would be tested only on a box that happens to carry npm 12.
+ */
+function npmStandIn(shape: "array" | "object" | "object-under-another-key"): {
+  path: string;
+  marker: string;
+} {
+  const dir = join(root, `npm-${shape}`);
+  mkdirSync(dir, { recursive: true });
+  const marker = join(dir, "reshaped");
+  const script = join(dir, "npm-stand-in.mjs");
+  writeFileSync(
+    script,
+    [
+      'import { spawnSync } from "node:child_process";',
+      'import { writeFileSync } from "node:fs";',
+      "const args = process.argv.slice(2);",
+      'const packJson = args[0] === "pack" && args.includes("--json");',
+      `const r = spawnSync(${JSON.stringify(realNpm())}, args, {`,
+      '  stdio: ["inherit", packJson ? "pipe" : "inherit", "inherit"],',
+      '  encoding: "utf8",',
+      "});",
+      "if (packJson && r.status === 0) {",
+      "  const doc = JSON.parse(r.stdout);",
+      "  const entries = Array.isArray(doc) ? doc : Object.values(doc);",
+      `  const shape = ${JSON.stringify(shape)};`,
+      "  const out =",
+      '    shape === "array"',
+      "      ? entries",
+      '      : shape === "object"',
+      "        ? Object.fromEntries(entries.map((e) => [e.name, e]))",
+      '        : Object.fromEntries(entries.map((e) => [e.name + "-elsewhere", e]));',
+      `  writeFileSync(${JSON.stringify(marker)}, shape);`,
+      "  process.stdout.write(JSON.stringify(out, null, 2));",
+      "} else if (packJson) {",
+      '  process.stdout.write(r.stdout ?? "");',
+      "}",
+      "process.exitCode = r.status ?? 1;",
+      "",
+    ].join("\n"),
+  );
+  const bin = join(dir, "npm");
+  writeFileSync(
+    bin,
+    `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(script)} "$@"\n`,
+  );
+  chmodSync(bin, 0o755);
+  return { path: dir, marker };
+}
+
+function runGateWithNpm(consumer: Consumer, npmDir: string): RunResult {
+  const r = spawnSync(process.execPath, [join(consumer.dir, "scripts", "attw.mjs"), ...OFFLINE], {
+    cwd: consumer.dir,
+    encoding: "utf8",
+    timeout: 100_000,
+    env: { ...process.env, PATH: `${npmDir}:${process.env["PATH"] ?? ""}` },
+  });
+  return { code: r.status ?? -1, out: `${r.stdout ?? ""}${r.stderr ?? ""}` };
+}
+
+describe("npm's pack report is read in both of npm's shapes", () => {
+  it("reads the ARRAY npm 10 and 11 print", () => {
+    const consumer = makeConsumer("pack-report-array", WELL_FORMED.manifest, WELL_FORMED.files);
+    const npm = npmStandIn("array");
+    const r = runGateWithNpm(consumer, npm.path);
+    expect(r.code, r.out).toBe(0);
+    expect(readFileSync(npm.marker, "utf8"), "the gate's pack call bypassed the stand-in").toBe(
+      "array",
+    );
+  });
+
+  it("reads the OBJECT keyed by package name that npm 12 prints", () => {
+    // Red before the fix: the object fell through to an empty list, and the gate refused with
+    // "npm described 0 tarball(s) named attw-shared-fixture-wellformed".
+    const consumer = makeConsumer("pack-report-object", WELL_FORMED.manifest, WELL_FORMED.files);
+    const npm = npmStandIn("object");
+    const r = runGateWithNpm(consumer, npm.path);
+    expect(r.code, r.out).toBe(0);
+    expect(r.out).not.toContain("tarball(s) named");
+    expect(readFileSync(npm.marker, "utf8"), "the gate's pack call bypassed the stand-in").toBe(
+      "object",
+    );
+  });
+
+  it("refuses an object whose key is not the package's name, even when the entry's name is", () => {
+    // Without this the case above is satisfied by a gate that reads any object at all.
+    const consumer = makeConsumer("pack-report-other-key", WELL_FORMED.manifest, WELL_FORMED.files);
+    const npm = npmStandIn("object-under-another-key");
+    const r = runGateWithNpm(consumer, npm.path);
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain("npm described 0 tarball(s) named attw-shared-fixture-wellformed");
+    expect(readFileSync(npm.marker, "utf8")).toBe("object-under-another-key");
+  });
+});

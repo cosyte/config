@@ -505,6 +505,27 @@
       ]
     },
     {
+      "id": "net3-pack-report-either-shape",
+      "net": "3",
+      "class": "detection",
+      "detects": "npm 12's pack report, an object keyed by package name, read as no tarball at all, which refused every package; and an object under a key that is not the package's name, which must still refuse",
+      "carriedBy": [],
+      "canonical": "added",
+      "note": "NOT A MODE EITHER BODY HAD: both were written against npm 10 and 11, which print an array. npm 12 prints an object keyed by package name, measured on npm 12.2.0.",
+      "assertions": [
+        {
+          "corpus": "shared",
+          "case": "reads the OBJECT keyed by package name that npm 12 prints",
+          "asserts": ["not.toContain(\"tarball(s) named\")"]
+        },
+        {
+          "corpus": "shared",
+          "case": "refuses an object whose key is not the package's name",
+          "asserts": ["npm described 0 tarball(s) named attw-shared-fixture-wellformed"]
+        }
+      ]
+    },
+    {
       "id": "net4-publishconfig-override-absent-path",
       "net": "4",
       "class": "detection",

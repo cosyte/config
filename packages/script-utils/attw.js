@@ -160,9 +160,16 @@
  *      one, and `prepare` and `postpack` double the same way. `prepublishOnly` does
  *      not run under `npm pack` AT ALL (measured: 0 through either gate), which is
  *      why this cannot recurse into the gate that runs it. Of the three that do
- *      double, every repo here defines only `prepare`, and defines it as the same
- *      `command -v simple-git-hooks … || true` one-liner, so
- *      nothing reds today. IT IS NOT FIXED WITH `--ignore-scripts`, AND THAT IS
+ *      double, the repos here define only `prepare`. AN EARLIER VERSION OF THIS
+ *      PARAGRAPH SAID EVERY ONE DEFINES IT AS THE SAME ONE-LINER, SO NOTHING REDS,
+ *      AND THAT WAS FALSE. The `prepare` lines differ, and the one the parser
+ *      template shipped printed simple-git-hooks' `[INFO]` lines on STDOUT, inside
+ *      the JSON this net parses: every repo scaffolded from it was born with a gate
+ *      that refused ("did not print JSON"). The template now sends that output to
+ *      stderr (`simple-git-hooks 1>&2`, cosyte/config#131), and twelve sibling
+ *      repos still carry the older line, so a `prepare` that writes to stdout is
+ *      a refusal here rather than a pass, by design: what it printed is in the
+ *      message. IT IS NOT FIXED WITH `--ignore-scripts`, AND THAT IS
  *      DELIBERATE: a `prepack` may GENERATE files that belong in the tarball, so
  *      suppressing it would make this net read a listing the real publish would not
  *      produce, which is a correctness bug wearing a performance fix.
@@ -991,6 +998,27 @@ function summarizeProblems(out) {
 }
 
 /**
+ * The entries of an `npm pack --json` report that describe the package `name`.
+ *
+ * npm 10 and 11 print an ARRAY of entries; npm 12 prints an OBJECT keyed by
+ * package name. An entry counts only when its own `name` is `name`, and in the
+ * object shape only under the key `name` as well, so a key and an entry that
+ * disagree count for nothing. Any other document (a string, a number, `null`)
+ * yields no entries, which the caller refuses rather than grades.
+ *
+ * @param {unknown} doc The parsed report.
+ * @param {string | undefined} name The package name from package.json.
+ * @returns {Array<{ name?: unknown, files?: unknown }>}
+ */
+function packReportEntries(doc, name) {
+  if (Array.isArray(doc)) return doc.filter((entry) => entry?.name === name);
+  if (doc === null || typeof doc !== "object") return [];
+  return Object.entries(doc)
+    .filter(([key, entry]) => key === name && entry?.name === name)
+    .map(([, entry]) => entry);
+}
+
+/**
  * The paths a published tarball of this directory would carry, read from npm
  * rather than recomputed from `files`/`.npmignore` here.
  *
@@ -1005,6 +1033,15 @@ function summarizeProblems(out) {
  * Every shape this cannot read comes back as an error rather than as a short
  * file list, because a partial answer graded as a whole one is the false green
  * this whole file exists to refuse.
+ *
+ * TWO SHAPES OF REPORT ARE READ, AND ONLY TWO. npm 10 and 11 print an ARRAY of
+ * tarball entries; npm 12 prints an OBJECT keyed by package name whose values
+ * are the same entries. Measured on npm 12.2.0: `npm pack --dry-run --json` on a
+ * package named `@scope/probe` printed `{"@scope/probe": {"name": "@scope/probe",
+ * "files": [...], ...}}`. Before this read both, the object fell through to an
+ * empty list and the net refused every package ("npm described 0 tarball(s)"),
+ * which is a red for the right reason (it read nothing) and the wrong outcome
+ * (CI moving to npm 12 would have refused every publish). See `packReportEntries`.
  *
  * @param {{ name?: string }} pkg The parsed manifest.
  * @param {NodeJS.ProcessEnv} childEnv The environment to hand npm.
@@ -1032,11 +1069,12 @@ function packedFiles(pkg, childEnv) {
       error: `\`npm pack --dry-run --json\` did not print JSON. What it printed:\n\n${res.stdout ?? ""}`,
     };
   }
-  // npm reports an ARRAY of tarballs, because the same command run at a workspace
-  // root describes several. Only this package's own entry is gradeable here, and
+  // npm describes one entry per tarball, because the same command run at a
+  // workspace root describes several, in one of the two shapes read by
+  // `packReportEntries`. Only this package's own entry is gradeable here, and
   // anything other than exactly one of them means npm was asked a different
   // question than this net thinks it asked.
-  const mine = (Array.isArray(doc) ? doc : []).filter((entry) => entry?.name === pkg.name);
+  const mine = packReportEntries(doc, pkg.name);
   if (mine.length !== 1) {
     return {
       error:

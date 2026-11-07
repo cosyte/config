@@ -14,6 +14,15 @@ on:
 
 jobs:
   release:
+    # Required. A repository's default GITHUB_TOKEN is `contents: read`, and a called workflow can
+    # only narrow the caller's token, never widen it. Without this block the shared pipeline's
+    # write grants are an escalation, and GitHub rejects the whole run at startup with no jobs and
+    # no logs. These are the grants hl7, ccda and mllp give the same call.
+    permissions:
+      actions: read # the shared workflow reads this caller's environment protection with it
+      contents: write # create tags and the GitHub release
+      id-token: write # npm trusted publishing and provenance
+      pull-requests: write # open the "Version Packages" PR
     uses: cosyte/.github/.github/workflows/release.yml@main
     with:
       package-name: "{{PKG}}"

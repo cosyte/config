@@ -1839,10 +1839,16 @@ describe("the field set nets 1, 3 and 4 share: `exports` is not the only field t
       expect(packed.code, packed.out).toBe(0);
       // stdout ALONE: npm writes config warnings to stderr on this box, and folding
       // them into the document would make this parse fail for the wrong reason.
-      const report = (JSON.parse(packed.stdout) as { files: { path: string }[] }[])[0];
-      // npm reports an ARRAY of tarballs. One fixture, one entry: anything else and
-      // the assertions below would be graded against a document this test did not
-      // ask for, so it reds here instead.
+      const doc: unknown = JSON.parse(packed.stdout);
+      // npm 10 and 11 report an ARRAY of tarballs, and npm 12 an OBJECT keyed by
+      // package name. One fixture, one entry either way: anything else and the
+      // assertions below would be graded against a document this test did not ask
+      // for, so it reds here instead.
+      const entries = (Array.isArray(doc) ? doc : Object.values(doc as object)) as {
+        files: { path: string }[];
+      }[];
+      expect(entries.length, packed.stdout).toBe(1);
+      const report = entries[0];
       expect(report, packed.stdout).toBeDefined();
       const listed: string[] = (report?.files ?? []).map((f) => f.path);
 

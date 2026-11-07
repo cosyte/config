@@ -12,6 +12,21 @@ pre-alpha rule. See
 
 ## [Unreleased]
 
+## [0.1.3] - Unreleased
+
+### Fixed
+
+- **`attw`: the tarball net reads npm 12's pack report.** npm 10 and 11 print
+  `npm pack --dry-run --json` as an array of entries, and npm 12 prints an object keyed by package
+  name. The object read as no tarball at all, so on npm 12 the gate refused every package with
+  "npm described 0 tarball(s)". It now reads both shapes, still requires exactly one entry whose
+  `name` is the package's own, and in the object shape requires the key to match as well. Any other
+  document is refused as before.
+- **`attw`: a false claim in the docblock is corrected.** It said every repo's `prepare` is the same
+  `simple-git-hooks` one-liner, so nothing reds. The parser template's `prepare` printed on stdout,
+  inside the JSON the tarball net parses, until cosyte/config#131, and twelve sibling repos still
+  carry that line.
+
 ## [0.1.2] - Unreleased
 
 ### Changed
