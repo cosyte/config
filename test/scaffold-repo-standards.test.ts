@@ -135,6 +135,11 @@ describe("Dependabot", () => {
       expect(block).toMatch(/cooldown:\n\s+default-days: 1/);
       expect(block).toMatch(/\n {4}groups:\n/);
     }
+    // reviewdog/action-actionlint installs actionlint through a script from a fork, piped to
+    // bash, from v1.75.0; Dependabot must not propose it.
+    expect(blocks[1]).toMatch(
+      /ignore:\n(?:\s+#.*\n)*\s+- dependency-name: "reviewdog\/action-actionlint"/,
+    );
   });
 });
 
@@ -221,6 +226,14 @@ describe("workflows", () => {
         if (/\n {4}runs-on:/.test(job)) expect(job, file).toMatch(/\n {4}timeout-minutes: \d+/);
       }
     }
+  });
+
+  it("does not run CodeQL on a private repository, where it needs paid Code Security", () => {
+    // The operator's rule: nothing paid is turned on. CodeQL is free on a public repository and
+    // needs GitHub Code Security on a private one; Actions minutes are covered by the plan.
+    expect(read(".github/workflows/codeql.yml")).toContain(
+      "if: ${{ github.event.repository.private != true }}",
+    );
   });
 
   it("runs the em and en dash gate on every pull request, title and body included", () => {

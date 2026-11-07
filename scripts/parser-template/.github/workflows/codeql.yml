@@ -17,6 +17,11 @@ permissions:
 
 jobs:
   codeql:
+    # Public repositories only: CodeQL is free on a public repository and needs paid GitHub Code
+    # Security on a private one, which we do not turn on. A push or pull request on a private
+    # repository skips this job. (A scheduled run's event carries no repository, so it still starts
+    # there, and fails at the upload rather than enabling anything.)
+    if: ${{ github.event.repository.private != true }}
     permissions:
       security-events: write # upload the SARIF to the Security tab
       contents: read
