@@ -1,6 +1,7 @@
 ---
 id: installation
 title: Installation
+description: "Install {{PKG}} from npm and import it from ESM or CommonJS."
 sidebar_position: 1
 ---
 

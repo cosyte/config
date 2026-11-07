@@ -1,6 +1,7 @@
 ---
 id: intro
 title: Getting started
+description: "What {{PKG}} is, the parser archetype it follows, and where to start."
 sidebar_position: 1
 ---
 

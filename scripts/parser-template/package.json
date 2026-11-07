@@ -22,7 +22,7 @@
   "author": "Cosyte <hello@cosyte.com> (https://cosyte.com)",
   "type": "module",
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22"
   },
   "packageManager": "pnpm@10.34.5",
   "main": "./dist/index.cjs",
@@ -68,6 +68,7 @@
     "clean": "rm -rf dist coverage",
     "pack:docs": "bash scripts/build-docs-artifacts.sh",
     "attw": "node scripts/attw.mjs",
+    "check:no-emdash": "bash node_modules/@cosyte/script-utils/check-no-emdash.sh",
     "release": "changeset publish",
     "prepublishOnly": "pnpm clean && pnpm typecheck && pnpm lint && pnpm test && pnpm build",
     "prepare": "command -v simple-git-hooks >/dev/null 2>&1 && simple-git-hooks 1>&2 || true"
@@ -78,13 +79,13 @@
   "devDependencies": {
     "@arethetypeswrong/cli": "0.18.4",
     "@changesets/cli": "2.31.0",
-    "@cosyte/eslint-config": "^0.0.4",
-    "@cosyte/prettier-config": "^0.0.2",
-    "@cosyte/script-utils": "^0.1.0",
-    "@cosyte/test-utils": "^0.0.1",
-    "@cosyte/tsconfig": "^0.0.2",
-    "@cosyte/tsup-config": "^0.0.1",
-    "@cosyte/vitest-config": "^0.0.2",
+    "@cosyte/eslint-config": "^0.1.1",
+    "@cosyte/prettier-config": "^0.1.1",
+    "@cosyte/script-utils": "^0.1.2",
+    "@cosyte/test-utils": "^0.1.1",
+    "@cosyte/tsconfig": "^0.1.1",
+    "@cosyte/tsup-config": "^0.1.1",
+    "@cosyte/vitest-config": "^0.1.1",
     "@types/node": "^22.0.0",
     "@vitest/coverage-v8": "4.1.4",
     "eslint": "10.5.0",

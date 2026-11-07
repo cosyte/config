@@ -25,6 +25,7 @@ pnpm format:check
 pnpm phi-scan
 pnpm test:coverage
 pnpm attw
+pnpm check:no-emdash
 ```
 
 ## Data

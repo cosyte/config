@@ -1,10 +1,11 @@
 ---
 id: concepts-archetype
 title: The parser archetype
+description: "The Cosyte parser archetype that {{PKG}} follows: lenient parsing with stable warnings, an immutable model, and spec-clean output."
 sidebar_position: 1
 ---
 
-# Core Concepts
+# Core concepts
 
 `{{PKG}}` follows the shared **Cosyte parser archetype**: the same mental model every `@cosyte/*`
 parser implements, so what you learn here transfers across the suite. `@cosyte/hl7` is the reference

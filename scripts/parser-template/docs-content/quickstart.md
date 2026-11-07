@@ -1,6 +1,7 @@
 ---
 id: quickstart
 title: Quickstart
+description: "Parse a {{TITLE}} message with {{PKG}} and read its fields and warnings."
 sidebar_position: 1
 ---
 
@@ -44,5 +45,5 @@ for (const w of warnings) {
 
 ## Next
 
-- [Core Concepts](./concepts-archetype): the parser archetype and the tolerance model.
+- [Core concepts](./concepts-archetype): the parser archetype and the tolerance model.
 - **API Reference**: every export, generated from source.

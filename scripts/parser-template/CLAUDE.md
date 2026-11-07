@@ -8,8 +8,8 @@ of structural corruption) and writes spec-clean output, with zero runtime depend
 
 ## Gate
 
-Required checks: the shared CI ladder (`ci`) on Node 22, 24 and 26, and `codeql / analyze`. From
-the repo root, with the pnpm version `packageManager` pins, in the order CI runs them:
+Required checks: the shared CI ladder (`ci`) on Node 22, 24 and 26, `no-emdash`, and
+`codeql / analyze`. From the repo root, with the pnpm version `packageManager` pins:
 
 ```sh
 pnpm install --frozen-lockfile
@@ -20,6 +20,7 @@ pnpm phi-scan
 pnpm test:coverage
 pnpm build
 pnpm attw
+pnpm check:no-emdash
 ```
 
 ## Hazard

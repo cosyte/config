@@ -133,7 +133,9 @@ describe("parser-template docs-content spine", () => {
       "Overview",
       "Installation",
       "Quickstart",
-      "Core Concepts",
+      // Sentence case (ST9, RD5). docs.cosyte.com's IA lint still lists "Core Concepts" and moves
+      // with the libraries in wave 2.
+      "Core concepts",
       "Guides",
       "API Reference",
       "Troubleshooting",
