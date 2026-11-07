@@ -1,8 +1,8 @@
 /**
  * Public entry point for the `{{PKG}}` package.
  *
- * This is the **archetype scaffold** for a Cosyte standard parser (see the meta-repo's
- * `documentation/conventions.md` → "The standard parser archetype"). The real parser, model,
+ * This is the **archetype scaffold** for a Cosyte standard parser: the public shape `@cosyte/hl7`
+ * set and every sibling parser mirrors (docs-content/concepts-archetype.md). The real parser, model,
  * serializer, helpers, and profile system are populated in subsequent phases; these stubs keep the
  * module resolvable and typed so the build/typecheck/lint/test pipeline verifies end-to-end, and
  * they pin the public shape every sibling `@cosyte/*` parser shares.

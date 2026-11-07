@@ -160,15 +160,30 @@ findings.some((finding) => finding.rule === "tile"); // => true
 README_CHARACTER_LIMIT; // => 60000
 ```
 
+The card checker is the sixth. It checks a repository's CLAUDE.md against the card spec: a title,
+a paragraph, then `## Gate`, `## Hazard` and `## Rules`, in at most 60 lines of at most 100
+characters and 5,120 bytes:
+
+```ts runnable
+import { checkClaudeCard, CARD_MAX_LINES } from "@cosyte/script-utils/claude-card";
+
+const card =
+  "# cosyte/demo\n\nOur demo.\n\n## Gate\n\npnpm test\n\n## Hazard\n\nNone.\n\n## Rules\n\n- One.\n";
+checkClaudeCard(card); // => []
+checkClaudeCard(card.replace("## Hazard", "## Notes")).length > 0; // => true
+CARD_MAX_LINES; // => 60
+```
+
 ## Entry points
 
-| entry point                          | what it is                                                                  |
-| ------------------------------------ | --------------------------------------------------------------------------- |
-| `@cosyte/script-utils`               | `isCliEntrypoint(moduleUrl)`, the entry-point guard                         |
-| `@cosyte/script-utils/phi-scan`      | `runPhiScan(config)` and `exemptsMarkdown(relPath)`, the shared PHI gate    |
-| `@cosyte/script-utils/internal-refs` | `runInternalRefsScan(config)`, the shared internal-reference gate           |
-| `@cosyte/script-utils/attw`          | `runAttwGate(options)`, the shared `attw` publish gate                      |
-| `@cosyte/script-utils/readme`        | `runReadmeGate(options)` and `checkReadme(text, manifest)`, the README gate |
+| entry point                          | what it is                                                                           |
+| ------------------------------------ | ------------------------------------------------------------------------------------ |
+| `@cosyte/script-utils`               | `isCliEntrypoint(moduleUrl)`, the entry-point guard                                  |
+| `@cosyte/script-utils/phi-scan`      | `runPhiScan(config)` and `exemptsMarkdown(relPath)`, the shared PHI gate             |
+| `@cosyte/script-utils/internal-refs` | `runInternalRefsScan(config)`, the shared internal-reference gate                    |
+| `@cosyte/script-utils/attw`          | `runAttwGate(options)`, the shared `attw` publish gate                               |
+| `@cosyte/script-utils/readme`        | `runReadmeGate(options)` and `checkReadme(text, manifest)`, the README gate          |
+| `@cosyte/script-utils/claude-card`   | `runClaudeCardGate(options)` and `checkClaudeCard(text)`, the CLAUDE.md card checker |
 
 They are separate subpaths because they are separately adoptable: a repo can take the entry-point
 guard without taking a position on PHI scanning, a repo can take the internal-reference gate without
@@ -231,6 +246,25 @@ its rule, from `README_RULES`), and 2 that the gate could not read the package: 
 `package.json`, or a manifest without the `@cosyte/*` name, the github.com/cosyte repository URL or
 the `engines.node` the skeleton is derived from. Nothing is configurable, so no setting switches a
 rule off.
+
+### The CLAUDE.md card checker
+
+`@cosyte/script-utils/claude-card` checks the CLAUDE.md card every Cosyte repository keeps: what
+must pass before a push, what a change can break that a gate would not show, and the rules that bind
+there. The spec is `documentation/claude-card.md` in cosyte/config. A repository runs it with no file
+of its own:
+
+```sh
+node node_modules/@cosyte/script-utils/claude-card.js              # CLAUDE.md in this directory
+node node_modules/@cosyte/script-utils/claude-card.js --dir <path> # another repository
+```
+
+The card opens with `# <name>` and a paragraph, then has exactly three level-2 sections in order,
+`## Gate`, `## Hazard` and `## Rules` (a heading may go on after its word, as in
+`## Rules that bind here`), none empty. It is at most 60 lines, every line at most 100 characters
+with code included, and at most 5,120 bytes. When an AGENTS.md sits beside it, the card imports it on
+a line of its own, `@AGENTS.md`. Exit 0 means the card follows the spec, 1 that it does not (each
+finding names its line and rule, from `CARD_RULES`), and 2 that CLAUDE.md could not be read.
 
 ## Overrides
 

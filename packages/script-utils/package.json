@@ -42,6 +42,10 @@
     "./readme": {
       "types": "./readme.d.ts",
       "default": "./readme.js"
+    },
+    "./claude-card": {
+      "types": "./claude-card.d.ts",
+      "default": "./claude-card.js"
     }
   },
   "files": [
@@ -55,6 +59,8 @@
     "attw.d.ts",
     "readme.js",
     "readme.d.ts",
+    "claude-card.js",
+    "claude-card.d.ts",
     "check-no-emdash.sh",
     "README.md",
     "CHANGELOG.md"

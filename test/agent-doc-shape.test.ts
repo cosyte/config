@@ -2,22 +2,22 @@
  * Grades the two agent-doc artifacts THIS repo ships against the shape requirement the checker
  * applies to a target repo.
  *
- * WHY THIS SUITE EXISTS. `drift-manifest.json` declares an agent-doc SHAPE (accepted filenames,
- * five required headings, a line ceiling) and `scripts/drift-check.js` grades the other repos
- * against it. Two things behind that requirement were ungraded until this file:
+ * WHY THIS SUITE EXISTS. `drift-manifest.json` declares an agent-doc SHAPE (the accepted
+ * filename, the card's three required headings, a line ceiling) and `scripts/drift-check.js`
+ * grades the other repos against it. Two things behind that requirement were ungraded until this file:
  *
- *   1. NOTHING WAS ADOPTABLE. A repo told it is missing `## Standing disciplines` had no
+ *   1. NOTHING WAS ADOPTABLE. A repo told it is missing `## Rules` had no
  *      content-free artifact to copy. The only shaped agent doc in this checkout is
  *      `scripts/parser-template/CLAUDE.md`, a parser-specific document; copying it would mirror
  *      CONTENT, which the operator decision of 2026-08-29 keeps forbidden (it overturned decision
  *      15 for SHAPE alone). `templates/agent-doc-shape.md` is the content-free counterpart, and
  *      the census below is what makes "content-free" a fact rather than an intention.
- *   2. THE SCAFFOLD THAT SEEDED THE SHAPE WAS ITSELF UNGRADED. The five headings and the 300-line
- *      ceiling were read off `scripts/parser-template/CLAUDE.md` by hand, and its own provenance
- *      note says the ceiling is DECLARED rather than measured. Rename a heading there, or let the
- *      file grow past the ceiling, and every repo generated from the scaffold is born shape-red -
- *      13 worklists away from the edit that caused it. Grading the scaffold here moves that
- *      failure into config's own CI.
+ *   2. THE SCAFFOLD WAS UNGRADED. Every parser repo's CLAUDE.md starts as
+ *      `scripts/parser-template/CLAUDE.md`. Rename a heading there, or let the file grow past the
+ *      ceiling, and every repo generated from the scaffold is born shape-red, many worklists away
+ *      from the edit that caused it. Grading the scaffold here moves that failure into config's
+ *      own CI. (Since 2026-11-07 the shape is the CLAUDE.md card, documentation/claude-card.md,
+ *      and `@cosyte/script-utils/claude-card` checks the rest of that spec.)
  *
  * THE REQUIREMENT IS READ AT RUN TIME, NEVER COPIED. Every grading below is `gradeAgentDoc()`, the
  * function the checker itself calls, applied to the object at
@@ -191,7 +191,7 @@ describe("AC1: the skeleton exists and carries no content", () => {
   it("names the offending line when a document carries one, rather than counting it", () => {
     // The negative control for the census itself. Without it, a census that silently returned []
     // for every input would clear the skeleton by never looking at it.
-    expect(contentLines("## Project\n\nthis line states a fact about some repo\n")).toEqual([
+    expect(contentLines("## Gate\n\nthis line states a fact about some repo\n")).toEqual([
       "line 3: this line states a fact about some repo",
     ]);
   });
@@ -364,32 +364,24 @@ describe("AC5: the shape is adoptable without adopting anyone's content", () => 
     // Equality on two greens is satisfiable by returning [] for everything. The pair below reds,
     // so the identical verdicts are identical VIOLATIONS, and neither quotes a body line.
     const stripped = linesOf(readGraded(SKELETON))
-      .filter((line) => !line.startsWith("## Standing disciplines"))
+      .filter((line) => !line.startsWith("## Rules"))
       .join("\n");
     const a = adopt(stripped, () => "alpha alpha alpha");
     const b = adopt(stripped, () => "SHAPE-CANARY-7714 and nothing like alpha");
     const verdict = gradeAgentDoc(a, REQUIREMENT, "CLAUDE.md");
-    expect(verdict).toEqual([
-      'CLAUDE.md: missing the required section heading "## Standing disciplines"',
-    ]);
+    expect(verdict).toEqual(['CLAUDE.md: missing the required section heading "## Rules"']);
     expect(gradeAgentDoc(b, REQUIREMENT, "CLAUDE.md")).toEqual(verdict);
   });
 });
 
 describe("AC6: no requirement widens", () => {
-  it("pins the agentDoc requirement to exactly the values S0226 landed", () => {
+  it("pins the agentDoc requirement to the CLAUDE.md card the operator decided (RD2)", () => {
     // The one place the values are written down. Editing the manifest is allowed; editing it
     // WITHOUT noticing that 13 repos are graded against the result is not, and this line is the
     // notice. Widening the shape is a new operator decision, not a manifest tweak.
-    expect(REQUIREMENT.files).toEqual(["CLAUDE.md", "AGENTS.md"]);
-    expect(REQUIREMENT.requiredHeadings).toEqual([
-      "## Project",
-      "## Status",
-      "## Tech Stack",
-      "## Engineering Guardrails",
-      "## Standing disciplines",
-    ]);
-    expect(REQUIREMENT.maxLines).toBe(300);
+    expect(REQUIREMENT.files).toEqual(["CLAUDE.md"]);
+    expect(REQUIREMENT.requiredHeadings).toEqual(["## Gate", "## Hazard", "## Rules"]);
+    expect(REQUIREMENT.maxLines).toBe(60);
   });
 
   it("keeps every group of baselines.light free of an agent-doc requirement", () => {
