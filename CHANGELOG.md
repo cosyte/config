@@ -381,7 +381,7 @@ no package, so entries here are **dated** rather than versioned.
   for** (2026-11-07). The caller had no `permissions:` block, and a called workflow can only narrow
   the caller's token, so a newly scaffolded repo's Release run would be rejected at startup with no
   jobs and no logs. It now grants `actions: read`, `contents: write`, `id-token: write` and
-  `pull-requests: write`, as hl7, ccda and mllp do, and `test/scaffold-release-permissions.test.ts`
+  `pull-requests: write`, as hl7, ccda and mllp do, and `test/scaffold-repo-standards.test.ts`
   checks the scaffolded file. No package ships the template, so this part carries no changeset.
 - **The `@cosyte/script-utils` attw gate reads npm 12's pack report** (2026-11-07). npm 10 and 11
   print `npm pack --json` as an array and npm 12 prints an object keyed by package name, which the

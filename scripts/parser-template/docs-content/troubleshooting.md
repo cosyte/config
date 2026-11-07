@@ -1,6 +1,7 @@
 ---
 id: troubleshooting
 title: Troubleshooting
+description: "Common symptoms when integrating {{PKG}}, and how to read what the parser reports."
 sidebar_position: 1
 ---
 

@@ -7,8 +7,9 @@
 //
 // The emitted skeleton is born compliant with the canonical toolchain and the drift check
 // (config/drift-manifest.json): it inherits the shared @cosyte/* config packages, calls the reusable
-// cosyte/.github workflows, ships Changesets on the 0.0.x ladder, and carries the parser archetype
-// stubs (parse<Name>, WARNING_CODES, FATAL_CODES) plus the @cosyte/test-utils property harness.
+// cosyte/.github workflows, ships Changesets with generated changelogs, and carries the parser
+// archetype stubs (parse<Name>, WARNING_CODES, FATAL_CODES) plus the @cosyte/test-utils property
+// harness.
 //
 // Usage:
 //   node scripts/scaffold-parser.mjs <name> [--title "Human Title"] [--out <dir>]

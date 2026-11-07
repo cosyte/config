@@ -1,0 +1,27 @@
+version: 2
+updates:
+  # The parsers ship zero runtime dependencies, so this is the toolchain: one weekly PR per group.
+  # A release becomes eligible a day after it is published (`cooldown`), which keeps a release that
+  # is pulled within hours out of this repository; security updates are not delayed.
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 1
+    open-pull-requests-limit: 5
+    groups:
+      dev-dependencies:
+        dependency-type: development
+      dependencies:
+        dependency-type: production
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 1
+    groups:
+      github-actions:
+        patterns:
+          - "*"

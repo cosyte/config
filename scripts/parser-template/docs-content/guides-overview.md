@@ -1,6 +1,7 @@
 ---
 id: guides-overview
 title: Guides
+description: "Task-oriented guides for {{PKG}}: short answers to real integration questions."
 sidebar_position: 1
 ---
 

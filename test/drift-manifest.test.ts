@@ -1133,10 +1133,10 @@ describe("S0228: the two provenance corrections", () => {
     ).toContain("no-internal-refs.yml");
   });
 
-  it("records the scaffold's four-of-six gap in the CI-workflows group's provenance", () => {
+  it("records the scaffold's five-of-six gap in the CI-workflows group's provenance", () => {
     const provenance = MANIFEST["baselines"].package.groups.ciWorkflows.provenance as string;
     expect(provenance).toMatch(/scripts\/parser-template/);
-    expect(provenance).toMatch(/NO no-emdash\.yml and NO no-internal-refs\.yml/);
+    expect(provenance).toMatch(/ships NO no-internal-refs\.yml/);
     expect(provenance).toMatch(/SEPARATE WORK/);
   });
 
@@ -1146,9 +1146,14 @@ describe("S0228: the two provenance corrections", () => {
     ).sort();
     const required = MANIFEST["baselines"].package.groups.ciWorkflows.requirements
       .requiredWorkflows as string[];
-    expect(shipped).toEqual(["ci.yml", "codeql.yml", "release.yml", "scorecard.yml"]);
-    expect(required.filter((workflow) => !shipped.includes(workflow))).toEqual([
+    expect(shipped).toEqual([
+      "ci.yml",
+      "codeql.yml",
       "no-emdash.yml",
+      "release.yml",
+      "scorecard.yml",
+    ]);
+    expect(required.filter((workflow) => !shipped.includes(workflow))).toEqual([
       "no-internal-refs.yml",
     ]);
   });

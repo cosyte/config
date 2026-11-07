@@ -1,15 +1,30 @@
+<a href="https://cosyte.com">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://cosyte.com/tile/cosyte-lockup-tile-on-dark-1200x300.png">
+    <img alt="The Cosyte logo on its own white ground: the icon beside the word Cosyte." src="https://cosyte.com/tile/cosyte-lockup-tile-on-light-1200x300.png">
+  </picture>
+</a>
+
 # {{PKG}}
 
-> {{TITLE}} parser, serializer, and builder for Node.js and TypeScript: **lenient on parse,
-> spec-clean on emit**.
+> {{TITLE}} for Node.js and TypeScript: lenient on parse, spec-clean on emit.
 
-`{{PKG}}` is a zero-dependency TypeScript toolkit that follows the Cosyte parser archetype: a lenient
-parser that turns real-world, vendor-quirky input into **warnings** rather than failures, paired with
-a serializer that always emits spec-clean output (Postel's Law). It mirrors the API shape of the
-reference parser, [`@cosyte/hl7`](https://github.com/cosyte/hl7).
+[![npm version](https://img.shields.io/npm/v/{{PKG}}.svg)](https://www.npmjs.com/package/{{PKG}})
+[![CI](https://img.shields.io/github/actions/workflow/status/cosyte/{{NAME}}/ci.yml?branch=main&label=CI)](https://github.com/cosyte/{{NAME}}/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/cosyte/{{NAME}}/blob/main/LICENSE)
+[![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)](https://nodejs.org)
 
-> **Status:** pre-alpha (`0.0.x`), not yet published to npm. The public API below is the scaffold;
-> the real parser lands in subsequent phases.
+## Why this exists
+
+Real-world {{TITLE}} messages depart from the specification in vendor-specific ways. `{{PKG}}`
+reads them leniently, turning each quirk into a warning with a stable code instead of a failure,
+and writes spec-clean output, so a quirk does not travel downstream on a round trip. It follows
+the Cosyte parser archetype and mirrors the API of [`@cosyte/hl7`](https://github.com/cosyte/hl7).
+
+## Status
+
+Pre-alpha, on the 0.0.x line, and not yet published to npm. The API below is the scaffold; the
+parser lands in later releases.
 
 ## Install
 
@@ -17,33 +32,41 @@ reference parser, [`@cosyte/hl7`](https://github.com/cosyte/hl7).
 npm install {{PKG}}
 ```
 
-## Parse
+Node 22 or later. No runtime dependencies.
+
+## Usage
 
 ```ts
 import { parse{{Pascal}} } from "{{PKG}}";
 
 const result = parse{{Pascal}}(raw);
 
-result.warnings; // stable, positional tolerance warnings (never throws on quirks)
+result.warnings; // stable, positional tolerance warnings: a quirk never throws
 ```
 
-The parser is **lenient by default**: vendor quirks become warnings, not failures. A
-`{ strict: true }` mode (to be added) escalates every tolerated deviation to a thrown error.
+The parser is lenient by default: vendor quirks become warnings, not failures.
 
-## The Cosyte parser archetype
+## Documentation
 
-- **Postel's Law**: liberal parser (lenient default + warnings), conservative serializer (always
-  spec-clean), so quirks don't propagate downstream on round-trip.
-- **Tiered tolerance**: Tier 0/1 silent, Tier 2 warning + recovery (escalates in strict mode),
-  Tier 3 fatal always.
-- **Stable warning codes**: warnings carry stable string codes + positional context; consumers
-  branch on `w.code`, so renaming a code is a breaking change.
-- **Zero runtime dependencies**: Node stdlib only (healthcare integrations vet every dependency).
-- **Dual ESM + CJS**: built with `tsup`, validated with `attw`.
-- **Immutability**: parsed models are immutable; mutation is via explicit methods.
-- **Profile system**: a `defineProfile()` API for vendor quirks (to be added), with built-in
-  profiles authored through the same public API.
+The guides and the API reference are at
+[docs.cosyte.com/{{NAME}}](https://docs.cosyte.com/{{NAME}}).
+
+## Support
+
+Ask a question or report a bug in [GitHub issues](https://github.com/cosyte/{{NAME}}/issues). Use
+synthetic data only: never paste a real message.
+
+## Security
+
+Report a vulnerability privately, as our
+[security policy](https://github.com/cosyte/.github/blob/main/SECURITY.md) describes, never in a
+public issue.
+
+## Contributing
+
+See [CONTRIBUTING](https://github.com/cosyte/.github/blob/main/CONTRIBUTING.md). Fixtures are
+synthetic only.
 
 ## License
 
-MIT © Cosyte
+MIT, Cosyte LLC. See [LICENSE](https://github.com/cosyte/{{NAME}}/blob/main/LICENSE).

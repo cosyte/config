@@ -109,11 +109,9 @@ const LADDER_ASSERTION =
  * neither is the repository stating a live policy about its own eight published packages.
  */
 const LADDER_EXEMPT = [
-  // Scaffolded parser repositories. This repository does not publish them, the template calls them
-  // "not yet published to npm", and ADR 0002's scope excludes them by name. A repository with no
-  // published version has nothing to settle.
-  "scripts/parser-template/",
-  "scripts/scaffold-parser.mjs",
+  // The parser template and the scaffolder were exempt until 2026-11-07, when the template stopped
+  // stating the ladder (its changelog is generated, and its Status says "the 0.0.x line"). An
+  // exemption that covers nothing protects nothing, so they left this list.
   // The decision record. A record of what was retired has to name what was retired.
   "documentation/decisions/0002-the-0-1-0-version-line.md",
   // The gate that REFUSES the assertion in every published README, and the suite that proves the
