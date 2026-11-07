@@ -172,7 +172,23 @@ describe("the tarball a consumer installs", () => {
       "./readme": { types: "./readme.d.ts", default: "./readme.js" },
       "./claude-card": { types: "./claude-card.d.ts", default: "./claude-card.js" },
       "./catalog": { types: "./catalog.d.ts", default: "./catalog.js" },
+      "./agent-notes": { types: "./agent-notes.d.ts", default: "./agent-notes.js" },
     });
+  });
+
+  it("ships the agent-notes checker and its declarations, and runs it from the tarball", () => {
+    for (const file of ["agent-notes.js", "agent-notes.d.ts"]) {
+      expect(existsSync(join(installed, file)), `${file} is not in the tarball`).toBe(true);
+    }
+    const probe = inConsumer(
+      [
+        'import { NOTES_PATH, slugify } from "@cosyte/script-utils/agent-notes";',
+        'console.log(NOTES_PATH, slugify("A B"));',
+        "",
+      ].join("\n"),
+    );
+    expect(probe.code, probe.out).toBe(0);
+    expect(probe.out.trim()).toBe("documentation/agent-notes.md a-b");
   });
 
   it("ships the catalog, its data file and declarations, and reads the data from the tarball", () => {

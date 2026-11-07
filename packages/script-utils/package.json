@@ -50,6 +50,10 @@
     "./catalog": {
       "types": "./catalog.d.ts",
       "default": "./catalog.js"
+    },
+    "./agent-notes": {
+      "types": "./agent-notes.d.ts",
+      "default": "./agent-notes.js"
     }
   },
   "files": [
@@ -68,6 +72,8 @@
     "catalog.js",
     "catalog.d.ts",
     "catalog.json",
+    "agent-notes.js",
+    "agent-notes.d.ts",
     "check-no-emdash.sh",
     "README.md",
     "CHANGELOG.md"

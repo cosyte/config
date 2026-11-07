@@ -187,6 +187,20 @@ catalogEntry("@cosyte/hl7")?.docs; // => "https://docs.cosyte.com/hl7"
 CATALOG.engine.displayName; // => "Pathways"
 ```
 
+The agent-notes checker is the eighth. It resolves every pointer into a repository's one notes
+file against that file's headings, slugged the way GitHub slugs them:
+
+```ts runnable
+import { checkAgentNotes, slugify } from "@cosyte/script-utils/agent-notes";
+
+slugify("Why `attw` exits 0"); // => "why-attw-exits-0"
+
+const claude = "# demo\n\nSee documentation/agent-notes.md#setup.\n";
+const notes = "# Notes\n\n## Setup\n\nRun it.\n";
+checkAgentNotes({ claude, notes, files: [] }); // => []
+checkAgentNotes({ claude, notes: notes.replace("Setup", "Install"), files: [] })[0]?.rule; // => "dangling"
+```
+
 ## Entry points
 
 | entry point                          | what it is                                                                                   |
@@ -198,6 +212,7 @@ CATALOG.engine.displayName; // => "Pathways"
 | `@cosyte/script-utils/readme`        | `runReadmeGate(options)` and `checkReadme(text, manifest)`, the README gate                  |
 | `@cosyte/script-utils/claude-card`   | `runClaudeCardGate(options)` and `checkClaudeCard(text)`, the CLAUDE.md card checker         |
 | `@cosyte/script-utils/catalog`       | `CATALOG`, `catalogEntry(name)` and `runCatalogCheck(options)`, the catalog of our libraries |
+| `@cosyte/script-utils/agent-notes`   | `runAgentNotesCheck(options)` and `checkAgentNotes(input)`, the agent-notes checker          |
 
 They are separate subpaths because they are separately adoptable: a repo can take the entry-point
 guard without taking a position on PHI scanning, a repo can take the internal-reference gate without
@@ -301,6 +316,27 @@ Exit 0 means the description is the catalog's, 1 that it is not (both values are
 that the check could not run (no package.json, or a package the catalog does not list). A changed
 description therefore goes through the catalog: regenerate it in cosyte/config
 (`node scripts/catalog.mjs write`), release this package, then move the library to that release.
+
+### The agent-notes checker
+
+`@cosyte/script-utils/agent-notes` checks a repository's agent notes (RD4): what does not fit on the
+CLAUDE.md card lives in one file, `documentation/agent-notes.md`, and the card points into it in one
+form, `documentation/agent-notes.md#<anchor>`. A repository runs it with no file of its own:
+
+```sh
+node node_modules/@cosyte/script-utils/agent-notes.js              # this repository
+node node_modules/@cosyte/script-utils/agent-notes.js --dir <path> # another repository
+```
+
+It reads every file `git ls-files` lists, skipping and counting a binary file or anything that is not
+a regular file. Every pointer in any of them must name a heading of the notes (its GitHub slug) or an
+explicit `<a id>` or `<a name>` target. In CLAUDE.md the pointer must take the one form, not a bare
+backticked `#anchor` or `agent-notes.md#` without its directory. A `documentation/agent-notes/`
+directory is a finding, and so is a notes file CLAUDE.md never points into, a blank one, an empty
+section (a heading followed by a deeper one is a container, not empty), and a citation of the
+umbrella's deleted ADR 0023 or its doc-budget hook. A repository with no notes and no pointers
+passes. Exit 0 means clean, 1 a finding (file, line and rule from `AGENT_NOTES_RULES`), and 2 that
+the check could not run.
 
 ## Overrides
 
