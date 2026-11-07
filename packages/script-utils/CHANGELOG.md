@@ -16,6 +16,15 @@ pre-alpha rule. See
 
 ### Added
 
+- **`@cosyte/script-utils/agent-notes`, the agent-notes checker**, replacing the eight per-library
+  checkers. The notes are one file, `documentation/agent-notes.md`, and CLAUDE.md points into it as
+  `documentation/agent-notes.md#<anchor>`. Every pointer in any tracked file must name a heading
+  (its GitHub slug) or an explicit `<a id>` or `<a name>`; a notes directory, a bare `#anchor` or a
+  basename pointer in CLAUDE.md, notes the card never points into, a blank notes file, an empty
+  section and a citation of the umbrella's deleted ADR 0023 are findings. Exit 0 clean, 1 a
+  finding, 2 the check could not run. Run it with
+  `node node_modules/@cosyte/script-utils/agent-notes.js`.
+
 - **`@cosyte/script-utils/catalog`, the one list of our libraries.** A record for each of the 14
   libraries (the 8 standards and the 6 built on them, with their tier) and one for Pathways, our
   integration engine, in development and not on npm. Each record is generated from the package's
