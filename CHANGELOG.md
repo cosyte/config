@@ -377,6 +377,17 @@ no package, so entries here are **dated** rather than versioned.
 
 ### Fixed
 
+- **The parser template's Release caller grants the permissions the shared release workflow asks
+  for** (2026-11-07). The caller had no `permissions:` block, and a called workflow can only narrow
+  the caller's token, so a newly scaffolded repo's Release run would be rejected at startup with no
+  jobs and no logs. It now grants `actions: read`, `contents: write`, `id-token: write` and
+  `pull-requests: write`, as hl7, ccda and mllp do, and `test/scaffold-release-permissions.test.ts`
+  checks the scaffolded file. No package ships the template, so this part carries no changeset.
+- **The `@cosyte/script-utils` attw gate reads npm 12's pack report** (2026-11-07). npm 10 and 11
+  print `npm pack --json` as an array and npm 12 prints an object keyed by package name, which the
+  gate read as no tarball at all and refused. It now reads both shapes and still requires exactly
+  one entry named for the package. The false claim that every repo's `prepare` is the same
+  one-liner, in `attw.js` and in the entry below that introduced net 3, is corrected in both.
 - **The release workflow reded a release that had in fact completed, because its registry-presence
   check was shorter than npm's propagation delay** (publish run `35512528046`). The check gave a
   just-published version three probes and two five second waits, so about ten seconds. On that run
@@ -1125,9 +1136,12 @@ no package, so entries here are **dated** rather than versioned.
     than suppressed. `npm pack --dry-run` still runs them; only the tarball write goes away. Measured
     with `ignore-scripts` off: `prepare`, `prepack` and `postpack` each fired ONCE through the base
     gate and TWICE through this one, while `prepublishOnly` fired **zero** times through either, so
-    this cannot recurse into the gate that runs it. Nothing reds today: of the three that double,
-    all 13 siblings and the template define only `prepare`, as the same
-    `command -v simple-git-hooks … || true` one-liner. It is deliberately **not** fixed with
+    this cannot recurse into the gate that runs it. Of the three that double, the siblings and the
+    template define only `prepare`. (Corrected on 2026-11-07: this entry said they all define it as
+    the same `command -v simple-git-hooks … || true` one-liner, so nothing reds. That was false. The
+    template's line printed simple-git-hooks' output on stdout, inside the JSON this net parses, so
+    every repo scaffolded from it was born with a refusing gate until cosyte/config#131, and twelve
+    siblings still carry that line.) It is deliberately **not** fixed with
     `--ignore-scripts`, because a `prepack` may generate files that belong in the tarball and
     suppressing it would make this net read a listing the real publish would not produce.
   - **🩺 A TEST FIXTURE THAT SYMLINKS A pnpm `.bin` ENTRY INTO A TEMP TREE IS A BOX-DEPENDENT TEST,
