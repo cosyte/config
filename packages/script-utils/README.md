@@ -183,8 +183,9 @@ A repository narrows WHAT IS SCANNED, and only that, through a tracked file at i
 `scripts/check-no-emdash.exclude`: one entry per line, `#` comments and blank lines ignored, an entry
 ending in `/` covering every tracked path beneath it, and every entry anchored at the repository
 root. An entry that matches no tracked path is refused rather than ignored, because an exclusion that
-has outlived its subject is a hole nobody is looking at. Nothing narrows WHAT IS MATCHED: the six
-banned forms are fixed in the gate.
+has outlived its subject is a hole nobody is looking at. Nothing narrows WHAT IS MATCHED: the twelve
+banned forms are fixed in the gate. They are the em dash (U+2014) and the en dash (U+2013), each as
+the literal character, its URL encoding, its JS escape and three HTML entity spellings.
 
 ## Overrides
 

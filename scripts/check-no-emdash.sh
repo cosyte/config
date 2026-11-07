@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # scripts/check-no-emdash.sh
-# Brand rule (founder directive, 2026-07-24): Cosyte never uses the em dash.
+# Brand rule (founder directive, 2026-07-24): we never use the em dash.
 # The em dash (U+2014) reads as an AI tell, so it is banned outright across every
-# Cosyte surface. Source of truth: `knowledgebase/06-brand/voice-and-tone.md`
-# ("No em dashes. Ever."), which names COMMIT MESSAGES explicitly.
+# Cosyte surface. The en dash (U+2013) is banned with it (operator decision,
+# 2026-11-07), and this gate refuses both. Source of truth:
+# `knowledgebase/06-brand/voice-and-tone.md`, which names COMMIT MESSAGES explicitly.
 #
 # THIS FILE IS THE ONE IMPLEMENTATION OF THE EM-DASH GATE FOR THIS ESTATE, and config
 # owns it. Every other repo EXECUTES THESE EXACT BYTES and tracks no implementation of
@@ -57,8 +58,8 @@
 # over a tree that was cleared rather than green over a tree nobody looked at. A gate
 # without the sweep reds CI on arrival; a sweep without the gate lets it grow back.
 #
-# The fix is never to re-encode the character: rewrite the sentence with a period, a
-# colon, a comma, or parentheses.
+# The fix is never to re-encode the character: write a range with "to", and rewrite a
+# pause with a period, a colon, a comma, or parentheses.
 #
 # ---------------------------------------------------------------------------
 # THE SURFACE. Four modes, and the exit vocabulary is CLOSED AT TWO CODES.
@@ -146,7 +147,7 @@
 # hardcoded name would have excluded a consuming repo's `scripts/check-no-emdash.sh`
 # whether or not one existed, which is an exclusion granted to a file nobody reviewed.
 #
-# Nothing checks the checker, so keep this file free of the literal character: it
+# Nothing checks the checker, so keep this file free of either literal character: it
 # matches by codepoint and by encoding and never spells one out.
 # ---------------------------------------------------------------------------
 # BINARY POSTURE. This repo scans EVERY tracked file with NO binary partition and
@@ -230,12 +231,16 @@ export LC_ALL=C.UTF-8
 # Matches U+2014 as the literal character and as its encodings: %E2%80%94 (URL), the
 # JS backslash-u escape, and the &mdash; / &#8212; / &#x2014; HTML entities. The
 # escape is not theoretical in this repo: it is what the parser-template manifest
-# carried, and a literal-only sweep passed straight over it.
+# carried, and a literal-only sweep passed straight over it. Matches U+2013 the same
+# way: %E2%80%93, the backslash-u escape, and the &ndash; / &#8211; / &#x2013; HTML
+# entities.
 #
-# THE MATCH VOCABULARY IS FROZEN at these six forms. A consumer may narrow WHAT IS
-# SCANNED through the declaration above; nothing may narrow WHAT IS MATCHED, and
-# widening it is a change every consuming repo inherits at once and is specced as one.
+# THE MATCH VOCABULARY IS FROZEN at these twelve forms, six for each dash. A consumer
+# may narrow WHAT IS SCANNED through the declaration above; nothing may narrow WHAT IS
+# MATCHED, and widening it is a change every consuming repo inherits at once and is
+# specced as one. The en dash's six were that change (operator decision, 2026-11-07).
 PATTERN='\x{2014}|%E2%80%94|\\u2014|&mdash;|&#8212;|&#x2014;'
+PATTERN+='|\x{2013}|%E2%80%93|\\u2013|&ndash;|&#8211;|&#x2013;'
 
 # The declaration's path, relative to the top level of the repo under scan. Deliberately
 # NOT relative to this file: in a consuming repo this file lives under `node_modules/`
@@ -671,16 +676,33 @@ fi
 
 if [ "$MODE" = files ] || [ "$MODE" = stdin ]; then
   # SELF-TEST: prove the scanner can still MATCH what it is meant to catch before any
-  # clean result is believed. `printf` emits U+2014 as its UTF-8 bytes, so this file
-  # still never contains the literal character. Scope the claim honestly: this proves
-  # the PATTERN compiles and matches, not that the scan reached every tracked file. The
-  # probe below and the refusals further down cover the second half.
+  # clean result is believed, and that it leaves alone what the rule allows. `printf`
+  # emits U+2014, U+2013 and U+2212 as their UTF-8 bytes, so this file still never
+  # contains any of those characters. Scope the claim honestly: this proves the PATTERN
+  # compiles and matches, not that the scan reached every tracked file. The probe below
+  # and the refusals further down cover the second half.
   if ! printf 'a\xe2\x80\x94b\n' | grep -qP "$PATTERN"; then
     echo "ERROR: check-no-emdash - the scanner cannot match a known em dash." >&2
     echo "       grep -P is unavailable, not in UTF-8 mode (LC_ALL=${LC_ALL}), or has" >&2
     echo "       been forced to basic regular expressions, under which the alternations" >&2
     echo "       in PATTERN are literals and match nothing." >&2
     echo "       Refusing to report a clean tree on a scanner that cannot see." >&2
+    exit 1
+  fi
+  if ! printf 'a\xe2\x80\x93b\n' | grep -qP "$PATTERN"; then
+    echo "ERROR: check-no-emdash - the scanner cannot match a known en dash." >&2
+    echo "       grep -P is unavailable, not in UTF-8 mode (LC_ALL=${LC_ALL}), or has" >&2
+    echo "       been forced to basic regular expressions, under which the alternations" >&2
+    echo "       in PATTERN are literals and match nothing." >&2
+    echo "       Refusing to report a clean tree on a scanner that cannot see." >&2
+    exit 1
+  fi
+  # The clean fixture: hyphens, a range written with "to", and the minus sign (U+2212),
+  # none of which the rule bans. A scanner that matched it would fail every tree, so its
+  # findings could not be told from noise.
+  if printf 'a-b, 2 to 3 tiers, \xe2\x88\x921\n' | grep -qP "$PATTERN"; then
+    echo "ERROR: check-no-emdash - the scanner matched clean text (hyphens and a minus sign)." >&2
+    echo "       Refusing to report findings from a scanner that flags what the rule allows." >&2
     exit 1
   fi
 
@@ -719,9 +741,10 @@ fail_with_hits() {
   local what="$1" hits="$2"
   echo "$hits" >&2
   echo "" >&2
-  echo "ERROR: check-no-emdash - em dash (U+2014, or an encoded form) found in ${what}." >&2
-  echo "       Cosyte never uses em dashes (founder directive; 06-brand/voice-and-tone.md)." >&2
-  echo "       Rewrite with a period, colon, comma, or parentheses. Never re-encode it." >&2
+  echo "ERROR: check-no-emdash - em or en dash (U+2014 or U+2013, or an encoded form) found in ${what}." >&2
+  echo "       We never use em or en dashes (founder directive; 06-brand/voice-and-tone.md)." >&2
+  echo "       Write a range with \"to\"; rewrite a pause with a period, colon, comma, or" >&2
+  echo "       parentheses. Never re-encode it." >&2
   exit 1
 }
 
@@ -738,7 +761,7 @@ refuse_if_incomplete() {
   if grep -qi 'binary file' "$ERRLOG"; then
     echo "ERROR: check-no-emdash - the input named above MATCHED the banned pattern, but" >&2
     echo "       grep classifies it as binary, so the hit is reported without a line" >&2
-    echo "       number. Treat it as a real em dash." >&2
+    echo "       number. Treat it as a real em or en dash." >&2
     if [ "$SCAN_MODE" = stdin ]; then
       echo "       The text piped in is not valid UTF-8. Fix the encoding of whatever" >&2
       echo "       produced it, then rewrite the sentence." >&2
@@ -749,7 +772,7 @@ refuse_if_incomplete() {
       echo "       has ever tracked. If it is the latter, read the BINARY POSTURE note in" >&2
       echo "       this script's header before changing anything." >&2
     fi
-    echo "       Cosyte never uses em dashes (founder directive; 06-brand/voice-and-tone.md)." >&2
+    echo "       We never use em or en dashes (founder directive; 06-brand/voice-and-tone.md)." >&2
   fi
   if grep -qiv 'binary file' "$ERRLOG"; then
     echo "ERROR: check-no-emdash - the scan reported errors, so it did not read all of" >&2
@@ -776,7 +799,7 @@ if [ "$MODE" = stdin ]; then
   HITS=$(grep -nP -e "$PATTERN" -- "$STDINBUF" 2>> "$ERRLOG" || true)
   refuse_if_incomplete
   [ -n "$HITS" ] && fail_with_hits "$LABEL" "$HITS"
-  echo "check-no-emdash: OK (no em dashes in ${LABEL})"
+  echo "check-no-emdash: OK (no em or en dashes in ${LABEL})"
   exit 0
 fi
 
@@ -869,6 +892,6 @@ refuse_if_incomplete
 
 [ -n "$HITS" ] && fail_with_hits "the tracked files listed above" "$HITS"
 
-echo "check-no-emdash: OK (no em dashes in ${scanned} of ${#TRACKED[@]} tracked file(s);" \
+echo "check-no-emdash: OK (no em or en dashes in ${scanned} of ${#TRACKED[@]} tracked file(s);" \
   "${gitlinks} gitlink(s) skipped, ${self_excluded} excluded as the implementation under" \
   "scan, ${declared_excluded} excluded by ${DECLARATION})"

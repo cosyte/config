@@ -49,14 +49,14 @@ export interface PerfContractShape {
   readonly MIN_PHASE_MS: number;
   /**
    * Minimum total warmup time before the stability rule may fire, in milliseconds. **500**: one
-   * further P0 trial (136–294 ms of the same workload) brought rep-to-rep drift from as much as
-   * 1.23× inside ±5%; 500 ms is 1.7–3.7× that. Measured.
+   * further P0 trial (136 to 294 ms of the same workload) brought rep-to-rep drift from as much as
+   * 1.23× inside ±5%; 500 ms is 1.7 to 3.7× that. Measured.
    */
   readonly WARMUP_MIN_MS: number;
   /**
    * Minimum timed duration of one warmup batch, in milliseconds. **50**: judgement forced by
-   * measurement: a single ~4–9 ms pass is not stable enough to satisfy ±5% three times running
-   * (1–92% of warm phases do, by axis), and a 50 ms batch aggregates 5–12 passes. Aggregation is
+   * measurement: a single ~4 to 9 ms pass is not stable enough to satisfy ±5% three times running
+   * (1 to 92% of warm phases do, by axis), and a 50 ms batch aggregates 5 to 12 passes. Aggregation is
    * what shrinks that jitter, so the batch length is load-bearing rather than a free choice.
    */
   readonly WARMUP_BATCH_MS: number;
@@ -68,7 +68,7 @@ export interface PerfContractShape {
   readonly WARMUP_MAX_MS: number;
   /**
    * Relative tolerance for the warmup stability rule, as a fraction. **0.05** (±5%): judgement
-   * anchored on P0's rep1/rep5 ratio inside a warm 5-rep phase (0.96–1.05× GitHub, 0.97–1.02×
+   * anchored on P0's rep1/rep5 ratio inside a warm 5-rep phase (0.96 to 1.05× GitHub, 0.97 to 1.02×
    * container), which is a different statistic at a different granularity.
    */
   readonly WARMUP_STABLE_TOL: number;

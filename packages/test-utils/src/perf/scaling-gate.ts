@@ -15,7 +15,7 @@
  * ## What this does not catch
  *
  * - **Constant-factor regressions.** A 10% slowdown passes, and will keep passing. This is not a
- *   tuning gap: from a single cloud instance only 17–22% of configurations reliably detect a ≤10%
+ *   tuning gap: from a single cloud instance only 17 to 22% of configurations reliably detect a ≤10%
  *   slowdown, so the sensitivity is a property of the technique. Do not claim 10% sensitivity
  *   anywhere in a package's docs.
  * - **Complexity regressions whose fixture is too small.** "Catches complexity-shaped regressions"
@@ -440,7 +440,7 @@ export function buildAxisCorpora<TInput, TResult>(
  *
  * Per axis: build both corpora outside every timed region, warm up on the base corpus with the
  * time-budgeted stability rule, time the base phase then the scaled phase (**fixed** order: C5 is
- * a reproducible ~4.7–5.1% bias, not noise, and randomizing would fold it into the variance of a
+ * a reproducible ~4.7 to 5.1% bias, not noise, and randomizing would fold it into the variance of a
  * window only 1.33× wide), sum every result into the sink, then assert
  * `RATIO_FLOOR <= min(scaled)/min(base) <= RATIO_CEILING`.
  *

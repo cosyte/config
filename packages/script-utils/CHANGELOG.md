@@ -12,6 +12,19 @@ pre-alpha rule. See
 
 ## [Unreleased]
 
+## [0.1.2] - Unreleased
+
+### Changed
+
+- **`check-no-emdash.sh` refuses the en dash (U+2013) as well as the em dash** (operator decision,
+  2026-11-07). It matches the en dash in the same six forms it already matched for the em dash: the
+  literal character, its URL encoding, its JS escape and three HTML entity spellings. Its self-test
+  now also proves it matches a known en dash and passes a clean line (hyphens, a range written with
+  "to", the minus sign U+2212). Exit codes, modes and the exclusion declaration are unchanged; the
+  messages name both dashes. **A tracked file or a PR text carrying an en dash in any of those forms
+  now refuses where 0.1.1 printed OK**: write a range with "to", and rewrite a pause with a period,
+  a colon, a comma or parentheses.
+
 ## [0.1.1] - Unreleased
 
 ### Fixed

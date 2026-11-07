@@ -17,11 +17,12 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
  * empty file list, a tracked symlink or a stale declaration would leave the suite's own checkout in
  * a state the next case reads, and two of these states red the repository's own gate.
  *
- * THIS FILE CARRIES NO BANNED FORM AS SOURCE BYTES, AND NEEDS NONE. It is tracked, so a banned form
- * spelled here would make config track a second file carrying the vocabulary, which reds the gate's
- * own run over its own tree. None of the criteria below needs a HIT to be observable: they are
- * refusals and reporting modes. The one place the estate proves the scanner still SEES a violation
- * is the gate's own self-test, which builds the bytes with `printf`.
+ * THIS FILE CARRIES NO BANNED FORM AS SOURCE BYTES. It is tracked, so a banned form spelled here
+ * would make config track a second file carrying the vocabulary, which reds the gate's own run over
+ * its own tree. Most criteria below need no HIT to be observable: they are refusals and reporting
+ * modes. The ones that do, the twelve banned forms (six for the em dash, six for the en dash the
+ * gate refuses since 2026-11-07), build each form at runtime from pieces that are not themselves a
+ * banned form, the way the gate's own self-test builds its bytes with `printf`.
  */
 
 const REPO_ROOT = join(import.meta.dirname, "..");
@@ -137,6 +138,68 @@ function scannedPaths(stdout: Buffer): string[] {
     .filter((entry) => entry !== "")
     .sort();
 }
+
+/**
+ * The twelve banned forms, each assembled at runtime so this file never carries one as source bytes:
+ * per dash, the literal character, its URL encoding, its JS backslash-u escape, and its named,
+ * decimal and hexadecimal HTML entities.
+ */
+const BANNED_FORMS: { name: string; text: string }[] = [
+  { dash: "em", code: 0x2014, url: "94", named: "mdash", decimal: "8212", hex: "2014" },
+  { dash: "en", code: 0x2013, url: "93", named: "ndash", decimal: "8211", hex: "2013" },
+].flatMap(({ dash, code, url, named, decimal, hex }) => [
+  { name: `${dash} dash, literal`, text: String.fromCharCode(code) },
+  { name: `${dash} dash, URL encoded`, text: `%E2%80%${url}` },
+  { name: `${dash} dash, backslash-u escape`, text: `\\${"u"}${hex}` },
+  { name: `${dash} dash, named entity`, text: `&${named};` },
+  { name: `${dash} dash, decimal entity`, text: `&#${decimal};` },
+  { name: `${dash} dash, hexadecimal entity`, text: `&#x${hex};` },
+]);
+
+describe("[brand] every banned form is refused, the en dash's six with the em dash's six", () => {
+  it("[brand] the twelve forms are twelve distinct strings, none of them empty", () => {
+    // A form that came out empty or duplicated would let a case below pass without testing anything.
+    expect(new Set(BANNED_FORMS.map((form) => form.text)).size).toBe(12);
+    for (const form of BANNED_FORMS) expect(form.text.length, form.name).toBeGreaterThan(0);
+  });
+
+  it("[brand] refuses each form in a tracked file, at exit 1, naming the file", () => {
+    for (const form of BANNED_FORMS) {
+      const repo = makeRepo({ "clean.txt": "hello\n", "docs/page.md": `a ${form.text} b\n` });
+      const run = runGate(repo);
+      expect(run.code, `${form.name} passed the file scan`).toBe(1);
+      expect(run.stderr, form.name).toContain("docs/page.md:1:");
+      expect(run.stderr, form.name).toContain("em or en dash");
+      expect(run.stdout.length, form.name).toBe(0);
+    }
+  });
+
+  it("[brand] refuses each form on stdin, at exit 1, naming the label", () => {
+    for (const form of BANNED_FORMS) {
+      const repo = makeRepo({ "a.txt": "hello\n" });
+      const run = runGate(repo, ["--stdin", "the PR text"], GATE, `title ${form.text} here\n`);
+      expect(run.code, `${form.name} passed the stdin scan`).toBe(1);
+      expect(run.stderr, form.name).toContain("found in the PR text");
+      expect(run.stdout.length, form.name).toBe(0);
+    }
+  });
+
+  it("[brand] passes what the rule allows: hyphens, a range written with to, the minus sign", () => {
+    // The negative control. U+2212 is assembled the same way, and a gate that refused it, or a
+    // hyphen, would red every tree it ran over.
+    const clean = `a-b, pages 2 to 3, ${String.fromCharCode(0x2212)}1\n`;
+    const repo = makeRepo({ "a.txt": clean });
+    const files = runGate(repo);
+    expect(files.code, files.stderr).toBe(0);
+    expect(files.stdout.toString("utf8")).toContain(
+      "check-no-emdash: OK (no em or en dashes in 1 of",
+    );
+
+    const stdin = runGate(repo, ["--stdin", "clean text"], GATE, clean);
+    expect(stdin.code, stdin.stderr).toBe(0);
+    expect(stdin.stdout.toString("utf8")).toContain("OK (no em or en dashes in clean text)");
+  });
+});
 
 describe("[AC-2] an argument the gate does not recognise", () => {
   it("[AC-2] refuses at exit 1, names the argument, and names the four modes", () => {

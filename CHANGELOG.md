@@ -1744,7 +1744,7 @@ no package, so entries here are **dated** rather than versioned.
     `hl7`'s own fixture size: turning a gate that occasionally cries wolf into one guaranteed to
     sleep through a real regression. The mechanism is evidenced rather than guessed, from a preserved
     firing diagnostic: the warmup rule declared steady state on a batch series oscillating **5×**
-    (7.25–36.80 ms/pass), because three consecutive batches coincided within ±5%, so
+    (7.25 to 36.80 ms/pass), because three consecutive batches coincided within ±5%, so
     `WARMUP_STABLE_BATCHES = 3`, a judgement constant, is the leading suspect. Underneath it, this
     container runs a 2-CPU `cpu.max` while `os.cpus().length` reports 56, so V8 sizes its GC/compiler
     pools from the host and the cgroup throttles in bursts; a same-process ratio cancels JIT state
@@ -1776,8 +1776,8 @@ no package, so entries here are **dated** rather than versioned.
     divergence reaches 25.6% at the tail. W2's criticism of min-of-N as a reported statistic stands.
   - **Warmup is time-budgeted, never fixed-count** (W1): ≥500 ms, stop on 3 consecutive 50 ms batches
     within ±5%, cap 5 s, and **skip loudly** if it never stabilises. The batch length is itself a
-    constant with a measured motivation: at the granularity of a single ~4–9 ms pass the ±5% rule is
-    unsatisfiable in 8–99% of _already warm_ phases, worst on the size axis, so the fix is coarser batches, not a looser
+    constant with a measured motivation: at the granularity of a single ~4 to 9 ms pass the ±5% rule is
+    unsatisfiable in 8 to 99% of _already warm_ phases, worst on the size axis, so the fix is coarser batches, not a looser
     tolerance. And the interaction that has to be remembered: changing the warmup rule moves the
     operating point the ceiling was set from, on both the signal and the false-alarm side.
   - **Ratio ceiling 8, floor 1.5**, both hard failures, plus a `MIN_PHASE_MS` of 4 ms below which the
@@ -1816,8 +1816,8 @@ no package, so entries here are **dated** rather than versioned.
     size scored 8.84, so the shipped gate would have passed it. P4 must lower it, not just re-comment
     it.
   - **The estimator is load-bearing**: `min` caps the false-alarm tail at 6.649 where the central
-    estimators reach 8.25–8.58, which would leave no window at all.
-  - **V1 measured**: coverage costs 1.17–1.43× and _mostly_ cancels in the ratio, residual a few
+    estimators reach 8.25 to 8.58, which would leave no window at all.
+  - **V1 measured**: coverage costs 1.17 to 1.43× and _mostly_ cancels in the ratio, residual a few
     percent, so `hl7`'s "coverage cancels" comment is wrong as written.
   - **W1 confirmed**: after `hl7`'s fixed-count warmup the first measured rep is still up to 23%
     slower than the fifth.
