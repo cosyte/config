@@ -7,6 +7,7 @@
     "entrypoint",
     "import-meta",
     "phi",
+    "readme",
     "scripts",
     "cosyte"
   ],
@@ -37,6 +38,10 @@
     "./attw": {
       "types": "./attw.d.ts",
       "default": "./attw.js"
+    },
+    "./readme": {
+      "types": "./readme.d.ts",
+      "default": "./readme.js"
     }
   },
   "files": [
@@ -48,6 +53,8 @@
     "internal-refs.d.ts",
     "attw.js",
     "attw.d.ts",
+    "readme.js",
+    "readme.d.ts",
     "check-no-emdash.sh",
     "README.md",
     "CHANGELOG.md"

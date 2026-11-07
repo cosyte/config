@@ -14,6 +14,18 @@ pre-alpha rule. See
 
 ## [0.1.3] - Unreleased
 
+### Added
+
+- **`@cosyte/script-utils/readme`, the README gate for every `@cosyte/*` library.** It checks the
+  house skeleton: the shared lockup tile with the alt text assets declares for it, `# <package name>`,
+  a one-line tagline of at most 120 characters, the badge row (npm version, CI, license and Node,
+  derived from `package.json`), the sections Why this exists, Status, Install, Usage, Support,
+  Security, Contributing and License in that order and none empty, a link to the package's page on
+  docs.cosyte.com between Usage and Support, and License last with an absolute link to the
+  repository's LICENSE. It refuses a README over 60,000 characters, because npm keeps only the first
+  65,536. Exit 0 clean, 1 a finding (each names its line and rule), 2 an unreadable package. Run it
+  with `node node_modules/@cosyte/script-utils/readme.js`.
+
 ### Fixed
 
 - **`attw`: the tarball net reads npm 12's pack report.** npm 10 and 11 print

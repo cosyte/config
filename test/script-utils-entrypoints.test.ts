@@ -169,7 +169,23 @@ describe("the tarball a consumer installs", () => {
       "./phi-scan": { types: "./phi-scan.d.ts", default: "./phi-scan.js" },
       "./internal-refs": { types: "./internal-refs.d.ts", default: "./internal-refs.js" },
       "./attw": { types: "./attw.d.ts", default: "./attw.js" },
+      "./readme": { types: "./readme.d.ts", default: "./readme.js" },
     });
+  });
+
+  it("ships the README gate and its declarations, and runs it from the tarball", () => {
+    for (const file of ["readme.js", "readme.d.ts"]) {
+      expect(existsSync(join(installed, file)), `${file} is not in the tarball`).toBe(true);
+    }
+    const probe = inConsumer(
+      [
+        'import { checkReadme, README_CHARACTER_LIMIT } from "@cosyte/script-utils/readme";',
+        "console.log(typeof checkReadme, README_CHARACTER_LIMIT);",
+        "",
+      ].join("\n"),
+    );
+    expect(probe.code, probe.out).toBe(0);
+    expect(probe.out.trim()).toBe("function 60000");
   });
 
   it("resolves the attw gate by the specifier a consuming repo's wrapper writes", () => {
