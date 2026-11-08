@@ -166,6 +166,17 @@ describe("Dependabot", () => {
       /ignore:\n(?:\s+#.*\n)*\s+- dependency-name: "reviewdog\/action-actionlint"/,
     );
   });
+
+  it("leaves the commit-pinned cosyte/.github workflows to move by hand", () => {
+    // Every shared-workflow caller is pinned to the commit of a published `workflows-*` reference
+    // (ST37). Without this ignore, Dependabot offers such a pin the newest commit on cosyte/.github's
+    // main, which is not a published reference.
+    const actions = config().split(/\n(?= {2}- package-ecosystem:)/)[2] ?? "";
+    expect(actions).toMatch(/package-ecosystem: github-actions/);
+    expect(actions).toMatch(
+      /\n {4}ignore:\n(?:(?: {6}#.*| {6}- dependency-name: .*)\n)*? {6}- dependency-name: "cosyte\/\.github\*"(?:\n|$)/,
+    );
+  });
 });
 
 describe("releases", () => {
