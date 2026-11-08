@@ -7,10 +7,12 @@ adds a changeset describing the bump:
 pnpm changeset
 ```
 
-Pick the bump type by ordinary semver on the **`0.1.x`** line: **`patch`** for a fix, **`minor`** for
-an addition or a deliberate widening, **`major`** for a removal or a rename. `major` is available on
-a `0.x` version and is not reserved. The blanket pre-alpha rule that every bump was `patch` was
-retired by [ADR 0002](../documentation/decisions/0002-the-0-1-0-version-line.md).
+Pick **`patch`**, for a fix and for an addition alike. The operator's rule since 2026-11-07, in
+their words: "do not move anything to a minor. do patch versions unless I say otherwise". The
+packages stay on the **`0.1.x`** line together; a removal or a rename is raised with the operator
+rather than written as a changeset. The rule is recorded as an amendment to
+[ADR 0002](../documentation/decisions/0002-the-0-1-0-version-line.md), which had made `minor` the bump
+for an addition.
 
 A change that reaches no published tarball gets **no changeset at all**: put it in the root
 `CHANGELOG.md` instead. `scripts/changeset-guard.mjs` refuses a changeset that bumps nothing, and
