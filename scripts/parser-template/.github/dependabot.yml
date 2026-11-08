@@ -2,7 +2,9 @@ version: 2
 updates:
   # The parsers ship zero runtime dependencies, so this is the toolchain: one weekly PR per group.
   # A release becomes eligible a day after it is published (`cooldown`), which keeps a release that
-  # is pulled within hours out of this repository; security updates are not delayed.
+  # is pulled within hours out of this repository; security updates are not delayed. Each group
+  # takes minor and patch updates only, so a major update arrives alone, in a pull request of its
+  # own, rather than riding in with the safe bumps.
   - package-ecosystem: npm
     directory: "/"
     schedule:
@@ -13,8 +15,14 @@ updates:
     groups:
       dev-dependencies:
         dependency-type: development
+        update-types:
+          - minor
+          - patch
       dependencies:
         dependency-type: production
+        update-types:
+          - minor
+          - patch
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
@@ -25,6 +33,9 @@ updates:
       github-actions:
         patterns:
           - "*"
+        update-types:
+          - minor
+          - patch
     ignore:
       # From v1.75.0 this action installs actionlint by piping a script from a fork to bash. The
       # shared CI runs the official rhysd/actionlint release, checked by its SHA-256, instead.
