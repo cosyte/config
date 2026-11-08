@@ -68,6 +68,16 @@ export interface SourceDocCommentsAxis {
   extraRules?: ExtraRule[];
 }
 
+/** Whether the source string-literal pass runs, over what, and with which extra rules. */
+export interface SourceStringLiteralsAxis {
+  /** @default false */
+  enabled: boolean;
+  /** Tracked pathspecs holding the source whose string literals reach a consumer as messages. */
+  paths?: string[];
+  /** Detection that applies to string literals only. */
+  extraRules?: ExtraRule[];
+}
+
 export interface InternalRefsConfig {
   /**
    * AXIS 1, REQUIRED. The project and programme prefixes an identifier is keyed on, and an empty
@@ -112,6 +122,15 @@ export interface InternalRefsConfig {
    * @default { enabled: false }
    */
   sourceDocComments?: SourceDocCommentsAxis;
+
+  /**
+   * DEFAULTED OFF. The source string-literal pass: double-quoted, single-quoted and template
+   * literals, decoded, with every comment skipped, because a string literal reaches a consumer as
+   * error and warning text and a comment does not. A NUL byte in source reads as a space.
+   *
+   * @default { enabled: false }
+   */
+  sourceStringLiterals?: SourceStringLiteralsAxis;
 
   /**
    * AXIS 6, DEFAULTED. `clean` must be 0 and the other two must not be, which is checked: a mapping
@@ -206,6 +225,18 @@ export declare function runSelfTests(rules: CompiledRule[]): string[];
 
 /** Join a document the way markdown renders it, so a violation that straddles a wrap is visible. */
 export declare function reflowParagraphs(text: string): string[];
+
+/**
+ * Extract the string literals of one JavaScript or TypeScript source file, decoded, with every
+ * comment skipped: one entry per literal, and one per source line holding two or more of them.
+ */
+export declare function extractStringLiterals(
+  text: string,
+  file: string,
+): {
+  literals: { text: string; where: string }[];
+  lines: { text: string; where: string }[];
+};
 
 /** Extract doc-comment text from one source file, with each line's location beside it. */
 export declare function extractDocComments(
