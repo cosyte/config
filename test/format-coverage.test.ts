@@ -2,6 +2,14 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import {
+  applyModifier,
+  applyOverride,
+  BASELINE,
+  expectedScriptBody,
+  loadOverrides,
+  toArgv,
+} from "@cosyte/process";
 import prettier from "prettier";
 import { describe, expect, it } from "vitest";
 
@@ -37,27 +45,43 @@ import { describe, expect, it } from "vitest";
  * and is not valid TS/JSON until generated), and no glob here can reach a tree that does not exist
  * until the generator runs. That half is closed separately, by the generator formatting what it
  * emits; `test/scaffold-format.test.ts` is the guard for it.
+ *
+ * WHERE THE GLOBS LIVE. The root's `format` and `format:check` delegate to `cosyte-process`, so the
+ * glob is the `format.globs` override in `cosyte-process.config.json`, and what prettier is handed
+ * is the effective invocation @cosyte/process derives from it. This file asks that package for the
+ * invocation (the same `loadOverrides`, `applyOverride` and `applyModifier` the bin runs) rather
+ * than parsing the override file itself, so a guard and the tool cannot disagree about the argv.
  */
 
 const REPO_ROOT = join(import.meta.dirname, "..");
 
+/** The argv `cosyte-process format` runs from the repo root, with or without `--check`. */
+function formatArgv(flag: "--check" | "--write"): string[] {
+  const effective = applyOverride(BASELINE.format, loadOverrides(REPO_ROOT).format);
+  return toArgv(flag === "--check" ? applyModifier("--check", effective) : effective);
+}
+
 /** Extensions the root globs name, as `prettier` itself would expand the brace list. */
-function coveredExtensions(script: string, flag: "--check" | "--write"): Set<string> {
+function coveredExtensions(argv: readonly string[], flag: "--check" | "--write"): Set<string> {
   // The shape is asserted rather than pattern-matched loosely, so a restructure into path-scoped
   // globs (the shape the parser repos use) fails LOUDLY here instead of silently reducing this
   // test to a tautology. Widening the shape is a deliberate edit to this function.
-  const shape = new RegExp(`^prettier ${flag} "(\\*\\*/\\*\\.\\{[a-z0-9,]+\\})"$`);
-  const m = shape.exec(script.trim());
-  if (!m) {
+  const glob = /^\*\*\/\*\.\{[a-z0-9,]+\}$/;
+  if (
+    argv.length !== 3 ||
+    argv[0] !== "prettier" ||
+    argv[1] !== flag ||
+    !glob.test(argv[2] ?? "")
+  ) {
     throw new Error(
       `Root "${flag === "--check" ? "format:check" : "format"}" is no longer a single ` +
         `\`**/*.{ext,...}\` glob, so this guard can no longer derive what it covers.\n` +
-        `  got: ${script}\n` +
-        `Teach coveredExtensions() the new shape before changing the script. Do not delete ` +
-        `this assertion to get green.`,
+        `  got: ${argv.join(" ")}\n` +
+        `Teach coveredExtensions() the new shape before changing the format globs in ` +
+        `cosyte-process.config.json. Do not delete this assertion to get green.`,
     );
   }
-  const braces = /\{([a-z0-9,]+)\}/.exec(m[1] as string) as RegExpExecArray;
+  const braces = /\{([a-z0-9,]+)\}/.exec(argv[2] as string) as RegExpExecArray;
   return new Set((braces[1] as string).split(","));
 }
 
@@ -91,8 +115,15 @@ const pkg = JSON.parse(readFileSync(join(REPO_ROOT, "package.json"), "utf8")) as
 };
 
 describe("root format globs", () => {
+  it("are reached through the cosyte-process delegation, not a hand-written prettier line", () => {
+    // Pinned so the derivation below grades what `pnpm format:check` actually runs: a script body
+    // that stopped delegating would leave this file reading an override nothing consults.
+    expect(pkg.scripts["format"]).toBe(expectedScriptBody("format"));
+    expect(pkg.scripts["format:check"]).toBe(`${expectedScriptBody("format")} --check`);
+  });
+
   it("point prettier at every tracked file it can parse", async () => {
-    const covered = coveredExtensions(pkg.scripts["format:check"] as string, "--check");
+    const covered = coveredExtensions(formatArgv("--check"), "--check");
     const present = await trackedFormattableByExtension();
 
     // The census must not be empty, or this test clears a corpus it never read, which is the
@@ -107,22 +138,22 @@ describe("root format globs", () => {
       unreached,
       `format:check never reads these tracked, non-ignored, prettier-parseable files.\n` +
         `They pass by never being looked at.\n${unreached.join("\n")}\n` +
-        `Add the extension to BOTH "format" and "format:check" in package.json.`,
+        `Add the extension to the format globs in cosyte-process.config.json.`,
     ).toEqual([]);
   });
 
   it("keep format and format:check on exactly the same extensions", () => {
     // If they drift, `pnpm format` fixes a set `pnpm format:check` does not check (a violation
     // ships green) or checks a set it cannot fix (CI red with no local remedy).
-    const check = coveredExtensions(pkg.scripts["format:check"] as string, "--check");
-    const write = coveredExtensions(pkg.scripts["format"] as string, "--write");
+    const check = coveredExtensions(formatArgv("--check"), "--check");
+    const write = coveredExtensions(formatArgv("--write"), "--write");
     expect([...write].sort()).toEqual([...check].sort());
   });
 
   it("covers .mjs, the extension whose absence let a violation ship green", async () => {
     // Pinned by name as well as by the derived census: the census would also go green if every
     // .mjs file were deleted, and this repo's gates are .mjs scripts.
-    const covered = coveredExtensions(pkg.scripts["format:check"] as string, "--check");
+    const covered = coveredExtensions(formatArgv("--check"), "--check");
     expect(covered.has("mjs")).toBe(true);
     const present = await trackedFormattableByExtension();
     expect(present.get("mjs")?.length ?? 0).toBeGreaterThan(0);
@@ -132,10 +163,7 @@ describe("root format globs", () => {
     // The negative control: pointed at the parser repos' path-scoped shape, the deriver must
     // throw. Without this, a restructure would silently reduce the census above to `{}` ⊇ `{}`.
     expect(() =>
-      coveredExtensions(
-        'prettier --check "src/**/*.{ts,md}" "test/**/*.ts" "scripts/**/*.{ts,mjs}"',
-        "--check",
-      ),
+      coveredExtensions(toArgv(applyModifier("--check", BASELINE.format)), "--check"),
     ).toThrow(/no longer a single/);
   });
 });

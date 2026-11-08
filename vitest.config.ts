@@ -1,9 +1,12 @@
-import { defineConfig } from "vitest/config";
+import { cosyteVitest } from "@cosyte/vitest-config";
 
-// Plain config: this repo ships configs, not library source, so there is nothing to gate coverage on.
-// The smoke tests in test/ assert each exported config is valid and encodes the Cosyte standard.
-export default defineConfig({
+// The shared config, from this workspace's own packages/vitest-config. Its coverage block (v8, the
+// >= 90 gates) is inert here: the root never runs `--coverage`, because this repo ships configs and
+// gates, not library source under `src/`, so there is nothing to gate coverage on. Each package
+// runs its own suite, and its own coverage, from its own directory.
+export default cosyteVitest({
   test: {
+    // Root-specific: the suites live in test/, and `test/fixtures/` holds data, not suites.
     include: ["test/**/*.test.ts"],
     // `test/no-network.setup.ts` is NOT a `*.test.ts` and so is not collected as a suite; it runs
     // before each file and makes "this suite reaches no network" a refusal rather than a habit.
