@@ -63,7 +63,7 @@
     "@cosyte/vitest-config": "workspace:*",
     "@vitest/coverage-v8": "4.1.12",
     "prettier": "3.9.10",
-    "tsup": "8.5.1",
+    "tsup": "9.0.0",
     "typescript": "5.9.3",
     "vitest": "4.1.12"
   }
