@@ -135,6 +135,14 @@ describe("Dependabot", () => {
       expect(block).toMatch(/cooldown:\n\s+default-days: 1/);
       expect(block).toMatch(/\n {4}groups:\n/);
     }
+    // Every group takes minor and patch updates only, so a major arrives in a pull request of its
+    // own rather than bundled with safe bumps.
+    const groups = text.split(/\n {6}(?=[a-z-]+:\n)/).slice(1);
+    expect(groups.length).toBe(3);
+    for (const group of groups) {
+      expect(group, group).toMatch(/update-types:\n\s+- minor\n\s+- patch(?:\n|$)/);
+      expect(group, group).not.toMatch(/- major/);
+    }
     // reviewdog/action-actionlint installs actionlint through a script from a fork, piped to
     // bash, from v1.75.0; Dependabot must not propose it.
     expect(blocks[1]).toMatch(
