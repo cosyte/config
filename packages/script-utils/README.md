@@ -308,6 +308,16 @@ its backslash-u escape (plain, braced and eight-digit), its braced backslash-x e
 HTML entities, with or without the semicolon and with leading zeros. The default scan also reads
 every tracked file's NAME, because a name is copy too.
 
+A changelog whose dated archive predates the generated part names that archive with a boundary line
+in the same file, `CHANGELOG.md em-only below ## Released before this file was generated` or
+`CHANGELOG.md unread below ## Released before this file was generated`. The text after `below` is a
+whole line of that file, matched exactly; from it to the end of the file is the archive. `em-only`
+reads the archive for the em dash alone, in every form, so an en dash in an old range passes and an em
+dash still fails; `unread` does not read the archive. Above the line the file is read for both dashes
+like any other, and its name is scanned as always. A boundary line the file no longer carries is
+refused, so a lost heading fails closed, and a file cannot be both left out whole and given a
+boundary.
+
 ### The README gate
 
 `@cosyte/script-utils/readme` checks a library's README against the house skeleton, and against a

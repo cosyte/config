@@ -144,7 +144,10 @@ function scannedPaths(stdout: Buffer): string[] {
  * dash: the literal character; its URL encoding in either case; the backslash-u escape, braced and
  * eight-digit; the backslash-x escape; the CSS escape, short and zero-padded; the Unicode name; and
  * the named, decimal and hexadecimal HTML entities, with and without the semicolon, with leading
- * zeros and in upper case (D56: the forms the marketing and consulting scanner caught).
+ * zeros and in upper case (D56: the forms the marketing and consulting scanner caught). The braced
+ * escape, lower-case URL encoding, the entities with no semicolon or with leading zeros and the
+ * upper-case X are also the forms terminology's own scanner carries (ST34), each spelled out here
+ * so the shared gate is held to them by name.
  */
 const BANNED_FORMS: { name: string; text: string }[] = [
   { dash: "em", code: 0x2014, url: "94", named: "mdash", decimal: "8212", hex: "2014", word: "EM" },
@@ -166,9 +169,15 @@ const BANNED_FORMS: { name: string; text: string }[] = [
     { name: `${dash} dash, named entity with no semicolon`, text: `&${named} ` },
     { name: `${dash} dash, named entity in upper case`, text: `&${named.toUpperCase()};` },
     { name: `${dash} dash, decimal entity`, text: `&#${decimal};` },
+    { name: `${dash} dash, decimal entity, no semicolon`, text: `&#${decimal} ` },
+    { name: `${dash} dash, decimal entity, zero-padded`, text: `&#00${decimal};` },
     { name: `${dash} dash, decimal entity, zero-padded, no semicolon`, text: `&#0${decimal} ` },
     { name: `${dash} dash, hexadecimal entity`, text: `&#x${hex};` },
+    { name: `${dash} dash, hexadecimal entity, no semicolon`, text: `&#x${hex} ` },
+    { name: `${dash} dash, hexadecimal entity, zero-padded`, text: `&#x00${hex};` },
     { name: `${dash} dash, hexadecimal entity in upper case`, text: `&#X${hex};` },
+    { name: `${dash} dash, upper-case hexadecimal entity, no semicolon`, text: `&#X${hex} ` },
+    { name: `${dash} dash, braced backslash-u escape, zero-padded`, text: `${bs}${"u"}{00${hex}}` },
   ];
 });
 
@@ -179,7 +188,7 @@ describe("[brand] every banned form is refused, for the em dash and the en dash 
   it("[brand] the forms are distinct strings, none of them empty", () => {
     // A form that came out empty or duplicated would let a case below pass without testing anything.
     expect(new Set(BANNED_FORMS.map((form) => form.text)).size).toBe(BANNED_FORMS.length);
-    expect(BANNED_FORMS.length).toBe(34);
+    expect(BANNED_FORMS.length).toBe(46);
     for (const form of BANNED_FORMS) expect(form.text.length, form.name).toBeGreaterThan(0);
   });
 
@@ -507,5 +516,162 @@ describe("[Contract: THE SURFACE] the exit vocabulary is closed at two codes", (
       expect(run.stderr, mode.name).toContain("git ls-files -s -z failed");
       expect(run.stdout.length, mode.name).toBe(0);
     }
+  });
+});
+
+/**
+ * A DECLARED BOUNDARY: a changelog whose dated archive predates the generated part. ccda, mllp and
+ * hl7 read that archive for the em dash alone, so an en dash in an old range passes; terminology
+ * does not read it at all. Both are declared, never assumed, and a lost boundary line fails closed.
+ */
+describe("[brand] a declared CHANGELOG boundary", () => {
+  const BOUNDARY = "## Released before this file was generated";
+  const EM_FORMS = BANNED_FORMS.filter((form) => form.name.startsWith("em dash"));
+  const EN_FORMS = BANNED_FORMS.filter((form) => form.name.startsWith("en dash"));
+
+  /** A changelog with `above` in its generated part and `below` in its archive. */
+  function changelog(above: string, below: string): string {
+    return `# Changelog\n\n## 0.1.1\n\n- ${above}\n\n${BOUNDARY}\n\n## 0.0.9\n\n- ${below}\n`;
+  }
+
+  /** A repository carrying that changelog and one declaration line. */
+  function repoWith(above: string, below: string, declaration: string): string {
+    return makeRepo({
+      "CHANGELOG.md": changelog(above, below),
+      [DECLARATION]: `${declaration}\n`,
+      "README.md": "clean\n",
+    });
+  }
+
+  it("em-only: lets every en dash form through below the boundary, and names it on OK", () => {
+    for (const form of EN_FORMS) {
+      const run = runGate(
+        repoWith("clean", `a range ${form.text} here`, `CHANGELOG.md em-only below ${BOUNDARY}`),
+      );
+      expect(run.code, `${form.name} below an em-only boundary`).toBe(0);
+      expect(run.stdout.toString("utf8"), form.name).toContain(
+        "CHANGELOG.md from line 7 read for the em dash only",
+      );
+    }
+  }, 120_000);
+
+  it("em-only: still refuses every em dash form below the boundary, naming the line", () => {
+    for (const form of EM_FORMS) {
+      const run = runGate(
+        repoWith("clean", `a pause ${form.text} here`, `CHANGELOG.md em-only below ${BOUNDARY}`),
+      );
+      expect(run.code, `${form.name} below an em-only boundary`).toBe(1);
+      expect(run.stderr, form.name).toContain("CHANGELOG.md:11:");
+    }
+  }, 120_000);
+
+  it("em-only and unread: refuse both dashes above the boundary", () => {
+    for (const mode of ["em-only", "unread"]) {
+      for (const form of [EM_FORMS[0]!, EN_FORMS[0]!]) {
+        const run = runGate(
+          repoWith(`new ${form.text} entry`, "old", `CHANGELOG.md ${mode} below ${BOUNDARY}`),
+        );
+        expect(run.code, `${form.name} above a ${mode} boundary`).toBe(1);
+        expect(run.stderr, form.name).toContain("CHANGELOG.md:5:");
+      }
+    }
+  }, 120_000);
+
+  it("unread: does not read the archive, and says so on OK", () => {
+    const run = runGate(
+      repoWith(
+        "clean",
+        `${EM_FORMS[0]!.text} and ${EN_FORMS[0]!.text}`,
+        `CHANGELOG.md unread below ${BOUNDARY}`,
+      ),
+    );
+    expect(run.code, run.stderr).toBe(0);
+    expect(run.stdout.toString("utf8")).toContain("CHANGELOG.md from line 7 not read");
+  });
+
+  it("without a declaration, the archive is read for both dashes like any other file", () => {
+    const run = runGate(
+      makeRepo({ "CHANGELOG.md": changelog("clean", `range ${EN_FORMS[0]!.text}`) }),
+    );
+    expect(run.code).toBe(1);
+    expect(run.stderr).toContain("CHANGELOG.md:11:");
+  });
+
+  it("refuses a boundary line the file does not carry, so a lost heading fails closed", () => {
+    const run = runGate(
+      makeRepo({
+        "CHANGELOG.md": "# Changelog\n\n- clean\n",
+        [DECLARATION]: `CHANGELOG.md em-only below ${BOUNDARY}\n`,
+      }),
+    );
+    expect(run.code).toBe(1);
+    expect(run.stderr).toContain(`CHANGELOG.md has no line that is exactly: ${BOUNDARY}`);
+  });
+
+  it("refuses a boundary that matches only part of a line", () => {
+    const run = runGate(
+      makeRepo({
+        "CHANGELOG.md": `# Changelog\n\n${BOUNDARY} (archived)\n`,
+        [DECLARATION]: `CHANGELOG.md em-only below ${BOUNDARY}\n`,
+      }),
+    );
+    expect(run.code).toBe(1);
+    expect(run.stderr).toContain("has no line that is exactly");
+  });
+
+  it("refuses a boundary on an untracked file, a directory, or a file that already has one", () => {
+    const cases: { declaration: string; says: string }[] = [
+      { declaration: `NOTES.md em-only below ${BOUNDARY}`, says: "No tracked file is spelled" },
+      { declaration: `docs/ unread below ${BOUNDARY}`, says: "names ONE tracked file" },
+      {
+        declaration:
+          `CHANGELOG.md em-only below ${BOUNDARY}\n` + `CHANGELOG.md unread below ${BOUNDARY}`,
+        says: "already carries a boundary",
+      },
+    ];
+    for (const { declaration, says } of cases) {
+      const run = runGate(
+        makeRepo({
+          "CHANGELOG.md": changelog("clean", "old"),
+          "docs/page.md": "clean\n",
+          [DECLARATION]: `${declaration}\n`,
+        }),
+      );
+      expect(run.code, declaration).toBe(1);
+      expect(run.stderr, declaration).toContain(says);
+    }
+  });
+
+  it("refuses a file that is both left out whole and given a boundary", () => {
+    const run = runGate(
+      makeRepo({
+        "CHANGELOG.md": changelog("clean", "old"),
+        [DECLARATION]: `CHANGELOG.md\nCHANGELOG.md unread below ${BOUNDARY}\n`,
+      }),
+    );
+    expect(run.code).toBe(1);
+    expect(run.stderr).toContain("both leaves out CHANGELOG.md and");
+  });
+
+  it("still scans the bounded file's name, and lists the file as scanned", () => {
+    const named = `CHANGE${EM_FORMS[0]!.text}LOG.md`;
+    const run = runGate(
+      makeRepo({
+        [named]: changelog("clean", "old"),
+        [DECLARATION]: `${named} unread below ${BOUNDARY}\n`,
+      }),
+    );
+    expect(run.code).toBe(1);
+    expect(run.stderr).toContain("tracked file names");
+
+    const listed = runGate(
+      makeRepo({
+        "CHANGELOG.md": changelog("clean", "old"),
+        [DECLARATION]: `CHANGELOG.md unread below ${BOUNDARY}\n`,
+      }),
+      ["--list-scanned"],
+    );
+    expect(listed.code).toBe(0);
+    expect(scannedPaths(listed.stdout)).toContain("CHANGELOG.md");
   });
 });

@@ -118,6 +118,22 @@
 #   * A repo with no such file declares no exclusions.
 #   * The declaration file is itself tracked and is SCANNED LIKE ANY OTHER TRACKED
 #     FILE. It is not self-excluding.
+#   * A BOUNDARY is the one entry that names part of a file rather than a whole one:
+#
+#       CHANGELOG.md em-only below ## Released before this file was generated
+#       CHANGELOG.md unread below ## Released before this file was generated
+#
+#     It is for a changelog whose dated archive predates the generated part and is kept
+#     verbatim. The path is ONE EXACT TRACKED PATH (no `/` prefix entry, no spaces), and
+#     the text after `below ` is a WHOLE LINE of that file, matched exactly. From the
+#     first line equal to it to the end of the file is the archive: `em-only` reads the
+#     archive for the em dash alone, in every form, so an en dash in an old range passes
+#     and an em dash still reds; `unread` does not read the archive at all. Everything
+#     above the boundary line is read for both dashes like any other file, and the file's
+#     NAME is scanned as always. A boundary line the file does not contain is a stale
+#     entry and the run exits 1, so a lost heading fails closed instead of widening what
+#     is left out. A path may carry one boundary, and a path the declaration also leaves
+#     out whole is refused, since it cannot be both.
 #
 # AN ENTRY IS THE LINE VERBATIM: nothing is trimmed off either end, because a path is
 # bytes and trimming would invent a second spelling for one entry. A line carrying
@@ -255,6 +271,14 @@ PATTERN='(?i)\x{2014}|\x{2013}|&[mn]dash(?![a-z])|&#0*821[12](?![0-9])|&#x0*201[
 PATTERN+='|%E2%80%9[34]|\\u(?:0000)?201[34]|\\u\{0*201[34]\}|\\x\{0*201[34]\}'
 PATTERN+='|\\0{0,2}201[34](?![0-9a-f])|\\N\{E[MN] DASH\}'
 
+# The em dash's half of PATTERN, form for form, for the archive a declared `em-only`
+# boundary reads. The self-test below holds it to matching the em dash and NOT the en
+# dash, and test/check-no-emdash.test.ts holds every em form to it, so it cannot drift
+# from PATTERN without a red.
+EM_PATTERN='(?i)\x{2014}|&mdash(?![a-z])|&#0*8212(?![0-9])|&#x0*2014(?![0-9a-f])'
+EM_PATTERN+='|%E2%80%94|\\u(?:0000)?2014|\\u\{0*2014\}|\\x\{0*2014\}'
+EM_PATTERN+='|\\0{0,2}2014(?![0-9a-f])|\\N\{EM DASH\}'
+
 # The declaration's path, relative to the top level of the repo under scan. Deliberately
 # NOT relative to this file: in a consuming repo this file lives under `node_modules/`
 # and the declaration is the consumer's own tracked file.
@@ -349,8 +373,10 @@ in every encoded form, in the tracked files of the repository it runs in and in 
   check-no-emdash.sh --self-id       write the sha256 of the implementation that is executing
 
 A repository leaves paths out in scripts/check-no-emdash.exclude: one per line, an entry ending
-in / covers everything beneath it, # starts a comment. Exit 0 means the mode completed and found
-nothing banned; exit 1 means anything else.
+in / covers everything beneath it, # starts a comment. A changelog archive is named by a boundary,
+`PATH em-only below LINE` or `PATH unread below LINE`: from the first line of PATH equal to LINE to
+the end, em-only reads for the em dash alone and unread reads nothing; above it, both dashes as
+usual. Exit 0 means the mode completed and found nothing banned; exit 1 means anything else.
 USAGE
     exit 0
     ;;
@@ -557,6 +583,13 @@ entry_matches_a_tracked_path() {
 
 # ---- the exclusion declaration ---------------------------------------------------
 EXCLUDES=()
+# A declared boundary, one index per entry: the path, `em-only` or `unread`, the boundary
+# line as written, and the number of the first line of the file equal to it.
+BOUND_PATH=()
+BOUND_MODE=()
+BOUND_TEXT=()
+BOUND_LINE=()
+BOUNDARY_SHAPE='^([^ ]+) (em-only|unread) below (.+)$'
 refuse_declaration() {
   local line="$1" entry="$2" what="$3"
   echo "ERROR: check-no-emdash - unusable entry in ${DECLARATION}, line ${line}: ${entry}" >&2
@@ -589,6 +622,45 @@ if is_tracked "$DECLARATION"; then
     # The entry is the line VERBATIM. See the header: nothing is trimmed, because a path
     # is bytes. The anchor rules are the whole of what makes an entry usable on its face.
     entry=$line
+
+    # A BOUNDARY names part of one file. It is recognised by its shape and validated on its
+    # own terms, so nothing below it can mistake it for a path with spaces in it.
+    if [[ $entry =~ $BOUNDARY_SHAPE ]]; then
+      b_path=${BASH_REMATCH[1]}
+      b_mode=${BASH_REMATCH[2]}
+      b_text=${BASH_REMATCH[3]}
+      case $b_path in
+        /* | ./* | *..* | */)
+          refuse_declaration "$lineno" "$entry" \
+            "A boundary names ONE tracked file, anchored at the repository root: not absolute, not ./, no .., and not a directory."
+          ;;
+      esac
+      if ! is_tracked "$b_path"; then
+        refuse_declaration "$lineno" "$entry" \
+          "No tracked file is spelled ${b_path}. A boundary that has outlived its file is a hole nobody is looking at."
+      fi
+      for i in "${!BOUND_PATH[@]}"; do
+        if [ "${BOUND_PATH[$i]}" = "$b_path" ]; then
+          refuse_declaration "$lineno" "$entry" \
+            "${b_path} already carries a boundary. A file has one archive, so it has one boundary."
+        fi
+      done
+      if [ ! -f "$b_path" ] || [ ! -r "$b_path" ]; then
+        refuse_declaration "$lineno" "$entry" \
+          "${b_path} is not a readable regular file, so its boundary line cannot be looked for."
+      fi
+      b_line=$(grep -n -m1 -xF -e "$b_text" -- "$b_path" 2> /dev/null || true)
+      b_line=${b_line%%:*}
+      if [ -z "$b_line" ]; then
+        refuse_declaration "$lineno" "$entry" \
+          "${b_path} has no line that is exactly: ${b_text}. A lost boundary fails closed rather than leaving out more than was declared: restore the line, or correct or delete the entry."
+      fi
+      BOUND_PATH+=("$b_path")
+      BOUND_MODE+=("$b_mode")
+      BOUND_TEXT+=("$b_text")
+      BOUND_LINE+=("$b_line")
+      continue
+    fi
     case $entry in
       /*)
         refuse_declaration "$lineno" "$entry" \
@@ -644,6 +716,30 @@ is_excluded() {
         if [ "$p" = "$e" ]; then return 0; fi
         ;;
     esac
+  done
+  return 1
+}
+
+# A path is either left out whole or read up to its boundary. Both at once would leave the
+# reader unable to say which one the gate honoured, so it is refused, whichever line came
+# first.
+for i in "${!BOUND_PATH[@]}"; do
+  if is_excluded "${BOUND_PATH[$i]}"; then
+    echo "ERROR: check-no-emdash - ${DECLARATION} both leaves out ${BOUND_PATH[$i]} and" >&2
+    echo "       declares a boundary in it. A file is either left out whole or read up to its" >&2
+    echo "       boundary; delete one of the two entries." >&2
+    exit 1
+  fi
+done
+
+# The index of the boundary declared for a path, or nothing.
+boundary_index() {
+  local p="$1" i
+  for i in "${!BOUND_PATH[@]}"; do
+    if [ "${BOUND_PATH[$i]}" = "$p" ]; then
+      printf '%s' "$i"
+      return 0
+    fi
   done
   return 1
 }
@@ -735,6 +831,20 @@ if [ "$MODE" = files ] || [ "$MODE" = stdin ]; then
     echo "ERROR: check-no-emdash - the scanner matched clean text (hyphens and a minus sign)." >&2
     echo "       Refusing to report findings from a scanner that flags what the rule allows." >&2
     exit 1
+  fi
+  # The archive reading a declared `em-only` boundary uses: it must still see the em dash,
+  # and it must NOT see the en dash, or `em-only` would mean something other than it says.
+  if [ "${#BOUND_PATH[@]}" -gt 0 ]; then
+    if ! printf 'a\xe2\x80\x94b\n' | grep -qP "$EM_PATTERN"; then
+      echo "ERROR: check-no-emdash - the archive scanner cannot match a known em dash." >&2
+      echo "       Refusing to read a declared boundary's archive with a scanner that cannot see." >&2
+      exit 1
+    fi
+    if printf 'a\xe2\x80\x93b\n' | grep -qP "$EM_PATTERN"; then
+      echo "ERROR: check-no-emdash - the archive scanner matched an en dash, so it is not reading" >&2
+      echo "       for the em dash alone. Refusing to report what an em-only boundary allows." >&2
+      exit 1
+    fi
   fi
 
   # SCANNER VISIBILITY PROBE: prove the scanner can still READ a file before believing a
@@ -901,12 +1011,20 @@ for i in "${!TRACKED[@]}"; do
     exit 1
   fi
 
+  # A file with a declared boundary is read on its own below, in two halves. It is still
+  # READ, so it is listed for --list-scanned and counted as scanned.
+  if boundary_index "$f" > /dev/null; then
+    printf '%s\0' "$f" >> "$PLAINLIST"
+    scanned=$((scanned + 1))
+    continue
+  fi
+
   printf './%s\0' "$f" >> "$SCANLIST"
   printf '%s\0' "$f" >> "$PLAINLIST"
   scanned=$((scanned + 1))
 done
 
-if [ ! -s "$SCANLIST" ]; then
+if [ ! -s "$SCANLIST" ] && [ "${#BOUND_PATH[@]}" -eq 0 ]; then
   echo "ERROR: check-no-emdash - no tracked files left to scan. Refusing to report" >&2
   echo "       green from a scan that read nothing." >&2
   exit 1
@@ -932,6 +1050,38 @@ HITS=$(xargs -0 -r grep -H -nP -e "$PATTERN" -- < "$SCANLIST" 2>> "$ERRLOG" || t
 
 refuse_if_incomplete
 
+# The files with a declared boundary. Every hit is found with the full pattern first, so
+# the line numbers are the file's own; a hit above the boundary line stands, and a hit at
+# or below it stands only for `em-only` and only when the line holds an em dash.
+bounded_note=''
+for i in "${!BOUND_PATH[@]}"; do
+  b_path=${BOUND_PATH[$i]}
+  b_line=${BOUND_LINE[$i]}
+  b_mode=${BOUND_MODE[$i]}
+  b_hits=$(grep -H -nP -e "$PATTERN" -- "./${b_path}" 2>> "$ERRLOG" || true)
+  refuse_if_incomplete
+  while IFS= read -r hit; do
+    [ -n "$hit" ] || continue
+    n=${hit#"./${b_path}:"}
+    n=${n%%:*}
+    keep=0
+    if [ "$n" -lt "$b_line" ]; then
+      keep=1
+    elif [ "$b_mode" = em-only ] && printf '%s\n' "${hit#"./${b_path}:${n}:"}" | grep -qP -e "$EM_PATTERN"; then
+      keep=1
+    fi
+    if [ "$keep" -eq 1 ]; then
+      HITS="${HITS:+${HITS}
+}${hit}"
+    fi
+  done <<< "$b_hits"
+  if [ "$b_mode" = em-only ]; then
+    bounded_note="${bounded_note}, ${b_path} from line ${b_line} read for the em dash only"
+  else
+    bounded_note="${bounded_note}, ${b_path} from line ${b_line} not read"
+  fi
+done
+
 if [ -n "$NAME_HITS" ] && [ -n "$HITS" ]; then
   fail_with_hits "the tracked file names and the tracked files listed above" \
     "$NAME_HITS"$'\n'"$HITS"
@@ -941,4 +1091,4 @@ fi
 
 echo "check-no-emdash: OK (no em or en dashes in ${scanned} of ${#TRACKED[@]} tracked file(s)" \
   "or their names; ${gitlinks} gitlink(s) skipped, ${self_excluded} excluded as the" \
-  "implementation under scan, ${declared_excluded} excluded by ${DECLARATION})"
+  "implementation under scan, ${declared_excluded} excluded by ${DECLARATION}${bounded_note})"

@@ -402,18 +402,35 @@ export function compileCanonicalRules(resolved) {
       id: "internal-jargon",
       name: 'internal jargon ("slice")',
       patterns: [
+        // `the` and `each` are NOT determiners here. A fixed-width code file's FIELD SLICE is a
+        // byte range and a public API parameter (terminology's `FixedWidthFieldSlice`), and with
+        // `the` in the class the rule flagged every `the field slice` and `the slice holding the
+        // concept code` in that documentation, which a remediator cannot rewrite. What the
+        // narrowing costs: a bare `the slice`, `the last slice` and `each slice` are no longer
+        // hits. `this`, `that`, `another`, `previous`, `next`, `final` and `current` still are,
+        // so `the final slice` and `the next slice` still red, and the ordinal forms
+        // (`the thirteenth slice`) are the phase rule's.
         new RegExp(
-          "\\b(?:this|that|the|each|another|previous|next|final|current)\\s+" +
+          "\\b(?:this|that|another|previous|next|final|current)\\s+" +
             "(?:(?!(?:of|in|on|between|per|for|to|with|at)\\s)[\\w-]+\\s+){0,2}slices?\\b" +
             `(?!\\s+(?:${IMAGING_NOUNS}))`,
           "gi",
         ),
       ],
-      positives: ["This slice adds the helper and the final slice removes it"],
+      positives: [
+        "This slice adds the helper and the final slice removes it",
+        // What the narrowing must still catch: the determiners it kept, after `the`.
+        "The next slice moves the parser, and that slice and another slice follow it",
+      ],
       negatives: [
         "The slice thickness and the number of slices are DICOM attributes, each slice location " +
           "is too, and the phase of the clinical study, the phase of illness and each phase of " +
           "the trial are the reader words this rule must not touch",
+        // A fixed-width field slice is reference material: the byte range a reader passes in.
+        "The consumer supplies the field slices, the reader takes the slices as a parameter, a " +
+          "line too short to contain the code slice is skipped, the field is empty when the slice " +
+          "is entirely past the line's end, and each slice is a start and an end. The slice " +
+          "holding the concept code. The field slice.",
       ],
     },
     {

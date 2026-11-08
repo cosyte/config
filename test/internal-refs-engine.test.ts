@@ -261,6 +261,48 @@ describe("the phase rule's compound-word and sentence guards", () => {
   });
 });
 
+/**
+ * The slice rule's determiners, with the passages the narrowing lets through and the ones it must
+ * still catch. The let-through passages are terminology's public documentation of its fixed-width
+ * reader, where a field slice is a byte range the caller passes in; with `the` and `each` in the
+ * determiner class every one of them was a hit.
+ */
+describe("the slice rule leaves `the` and `each` to the reader", () => {
+  const { resolved } = resolveConfig({
+    projectPrefixes: ["TERM"],
+    standardsDesignations: [],
+    surfacePaths: ["README.md"],
+    accountedTarballFiles: [],
+  });
+  if (resolved === undefined) throw new Error("the base configuration did not resolve");
+  const jargon = compileCanonicalRules(resolved).find((rule) => rule.id === "internal-jargon");
+  if (jargon === undefined) throw new Error("the slice rule is missing from the canonical set");
+
+  /** Every hit the slice rule reports in one passage, in order. */
+  function hits(text: string): string[] {
+    return jargon!.patterns.flatMap((pattern) => [...text.matchAll(pattern)].map((m) => m[0]));
+  }
+
+  it("lets a fixed-width field slice through after `the` and `each`", () => {
+    expect(hits("The consumer supplies the field slices, so the engine is generic.")).toEqual([]);
+    expect(hits("The reader takes the slices as a parameter.")).toEqual([]);
+    expect(hits("A line too short to contain the code slice is skipped.")).toEqual([]);
+    expect(hits("Empty when the slice is entirely past the line's end.")).toEqual([]);
+    expect(hits("The slice holding the concept code. The field slice.")).toEqual([]);
+    expect(hits("Each slice is a start column and an end column.")).toEqual([]);
+  });
+
+  it("still catches the determiners it kept, including after `the`", () => {
+    expect(hits("This slice births the invariants.")).toEqual(["This slice"]);
+    expect(hits("The next slice moves the parser.")).toEqual(["next slice"]);
+    expect(hits("It lands in the final slice.")).toEqual(["final slice"]);
+    expect(hits("That slice and another misfiling-prevention slice follow.")).toEqual([
+      "That slice",
+      "another misfiling-prevention slice",
+    ]);
+  });
+});
+
 describe("a missing, empty or unusable axis is refused, naming the axis", () => {
   const required = CONFIG_AXES.filter((axis) => axis.required).map((axis) => axis.name);
 
