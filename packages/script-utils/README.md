@@ -247,6 +247,31 @@ Each shared gate runs from a repository's package script with no file of its own
   notes), with exit codes 0 clean, 1 hits, 2 the gate could not run. The file may not set
   `exitCodes`, `repoRoot` or `write`, which the command-line form owns.
 
+### The bins, for a repository with no package.json
+
+Every gate is also a bin (D56), so a repository with no `package.json`, or none that depends on this
+package, runs it through npx. `script-utils` is named after the package, so npx runs it by the
+package's name and it dispatches to the gate named first:
+
+```sh
+npx -y @cosyte/script-utils@0.1 no-emdash          # the dispatcher: script-utils <command>
+npx -y -p @cosyte/script-utils@0.1 cosyte-readme   # or one gate's own bin
+```
+
+| bin                    | `script-utils` command | the gate                                      |
+| ---------------------- | ---------------------- | --------------------------------------------- |
+| `cosyte-no-emdash`     | `no-emdash`            | the em and en dash gate, over files and names |
+| `cosyte-attw`          | `attw`                 | the attw publish gate, for the package here   |
+| `cosyte-phi-scan`      | `phi-scan`             | the PHI commit-gate                           |
+| `cosyte-internal-refs` | `internal-refs`        | the internal-reference gate                   |
+| `cosyte-readme`        | `readme`               | the README gate                               |
+| `cosyte-claude-card`   | `claude-card`          | the CLAUDE.md card checker                    |
+| `cosyte-agent-notes`   | `agent-notes`          | the agent-notes checker                       |
+| `cosyte-catalog`       | `catalog`              | the catalog check                             |
+
+Each runs over the working directory, takes the arguments its gate takes, exits with the gate's own
+code, and prints what it does with `--help`. `script-utils` with no command prints the list and exits 2.
+
 ### The em-dash gate, which is a file rather than a subpath
 
 This package also ships `check-no-emdash.sh`, the one implementation of the em-dash gate for every
@@ -275,9 +300,13 @@ A repository narrows WHAT IS SCANNED, and only that, through a tracked file at i
 `scripts/check-no-emdash.exclude`: one entry per line, `#` comments and blank lines ignored, an entry
 ending in `/` covering every tracked path beneath it, and every entry anchored at the repository
 root. An entry that matches no tracked path is refused rather than ignored, because an exclusion that
-has outlived its subject is a hole nobody is looking at. Nothing narrows WHAT IS MATCHED: the twelve
-banned forms are fixed in the gate. They are the em dash (U+2014) and the en dash (U+2013), each as
-the literal character, its URL encoding, its JS escape and three HTML entity spellings.
+has outlived its subject is a hole nobody is looking at; an excluded path's name is left out with its
+content. Nothing narrows WHAT IS MATCHED: the banned forms are fixed in the gate. They are the em
+dash (U+2014) and the en dash (U+2013), in any case, each as the literal character, its URL encoding,
+its backslash-u escape (plain, braced and eight-digit), its braced backslash-x escape, its CSS escape
+(plain and zero-padded), its Unicode name escape (a backslash, `N` and the character's name in braces), and its named, decimal and hexadecimal
+HTML entities, with or without the semicolon and with leading zeros. The default scan also reads
+every tracked file's NAME, because a name is copy too.
 
 ### The README gate
 

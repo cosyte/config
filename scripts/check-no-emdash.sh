@@ -228,19 +228,32 @@ unset -f grep xargs sed awk 2>/dev/null || true
 # refuse_if_incomplete reads. That branch only refines wording, never the red.
 export LC_ALL=C.UTF-8
 
-# Matches U+2014 as the literal character and as its encodings: %E2%80%94 (URL), the
-# JS backslash-u escape, and the &mdash; / &#8212; / &#x2014; HTML entities. The
-# escape is not theoretical in this repo: it is what the parser-template manifest
-# carried, and a literal-only sweep passed straight over it. Matches U+2013 the same
-# way: %E2%80%93, the backslash-u escape, and the &ndash; / &#8211; / &#x2013; HTML
-# entities.
+# What counts as a dash, for U+2014 and U+2013 alike. Case never matters, so `&MDASH;`
+# and `%e2%80%94` count too (D56: the forms the marketing and consulting scanner caught,
+# which this gate now matches so those repos lose nothing by moving to it):
 #
-# THE MATCH VOCABULARY IS FROZEN at these twelve forms, six for each dash. A consumer
-# may narrow WHAT IS SCANNED through the declaration above; nothing may narrow WHAT IS
-# MATCHED, and widening it is a change every consuming repo inherits at once and is
-# specced as one. The en dash's six were that change (operator decision, 2026-11-07).
-PATTERN='\x{2014}|%E2%80%94|\\u2014|&mdash;|&#8212;|&#x2014;'
-PATTERN+='|\x{2013}|%E2%80%93|\\u2013|&ndash;|&#8211;|&#x2013;'
+#   the characters                       U+2014 U+2013
+#   HTML named entities, ; optional      &mdash; &ndash;
+#   HTML decimal references              &#8212; &#8211;    leading zeros and a missing ; too
+#   HTML hex references                  &#x2014; &#x2013;  leading zeros and a missing ; too
+#   URL encoding of the UTF-8 bytes      %E2%80%94 %E2%80%93
+#   backslash-u escapes (JS, JSON, Java, \u2014 \u{2014} \U00002014
+#     C#, Python, Rust, Swift)
+#   backslash-x escapes (PCRE, Perl)     \x{2014}
+#   CSS escapes                          \2014 \002014
+#   Unicode names (Python, Perl)         \N{EM DASH} \N{EN DASH}
+#
+# The lookaheads keep the near misses out: &#82120; and the CSS escape \20140 name other
+# characters, and &mdashboard is not an entity. The escape forms are not theoretical: the
+# parser-template manifest once carried a backslash-u em dash, and a literal-only sweep
+# passed straight over it.
+#
+# A consumer may narrow WHAT IS SCANNED through the declaration above; nothing may narrow
+# WHAT IS MATCHED, and widening it is a change every consuming repo inherits at once. The
+# en dash's forms (operator decision, 2026-11-07) and these (D56) were such changes.
+PATTERN='(?i)\x{2014}|\x{2013}|&[mn]dash(?![a-z])|&#0*821[12](?![0-9])|&#x0*201[34](?![0-9a-f])'
+PATTERN+='|%E2%80%9[34]|\\u(?:0000)?201[34]|\\u\{0*201[34]\}|\\x\{0*201[34]\}'
+PATTERN+='|\\0{0,2}201[34](?![0-9a-f])|\\N\{E[MN] DASH\}'
 
 # The declaration's path, relative to the top level of the repo under scan. Deliberately
 # NOT relative to this file: in a consuming repo this file lives under `node_modules/`
@@ -281,10 +294,11 @@ SCAN_MODE=files
 
 refuse_arguments() {
   echo "ERROR: check-no-emdash - $1" >&2
-  echo "       The modes are: (no argument) to scan every tracked file; --stdin LABEL" >&2
-  echo "       to scan the text arriving on stdin; --list-scanned to write the paths the" >&2
-  echo "       default scan reads; --self-id to write the sha256 of the implementation" >&2
-  echo "       that is executing. Refusing to run rather than guess which was meant." >&2
+  echo "       The modes are: (no argument) to scan every tracked file and its name;" >&2
+  echo "       --stdin LABEL to scan the text arriving on stdin; --list-scanned to write the" >&2
+  echo "       paths the default scan reads; --self-id to write the sha256 of the" >&2
+  echo "       implementation that is executing; --help for this. Refusing to run rather" >&2
+  echo "       than guess which was meant." >&2
   exit 1
 }
 
@@ -324,6 +338,22 @@ case "${1:-}" in
       refuse_arguments "--self-id takes no further argument, and this was given: ${2}"
     fi
     ;;
+  --help | -h)
+    cat << 'USAGE'
+check-no-emdash: refuse the em dash (U+2014) and the en dash (U+2013), as the characters and
+in every encoded form, in the tracked files of the repository it runs in and in their names.
+
+  check-no-emdash.sh                 scan every tracked file and every tracked file name
+  check-no-emdash.sh --stdin LABEL   scan the text on stdin (a PR title, body, commit message)
+  check-no-emdash.sh --list-scanned  write the NUL-separated paths the default scan reads
+  check-no-emdash.sh --self-id       write the sha256 of the implementation that is executing
+
+A repository leaves paths out in scripts/check-no-emdash.exclude: one per line, an entry ending
+in / covers everything beneath it, # starts a comment. Exit 0 means the mode completed and found
+nothing banned; exit 1 means anything else.
+USAGE
+    exit 0
+    ;;
   *)
     refuse_arguments "unrecognised argument: ${1}"
     ;;
@@ -341,6 +371,7 @@ GITERR=$(mktemp)
 FILELIST=$(mktemp)
 SCANLIST=$(mktemp)
 PLAINLIST=$(mktemp)
+NAMELIST=$(mktemp)
 STDINBUF=$(mktemp)
 BINPROBE=$(mktemp)
 PROBEERR=$(mktemp)
@@ -353,8 +384,8 @@ PROBEERR=$(mktemp)
 # not lost with it.
 close_exit_vocabulary() {
   local code=$?
-  rm -f "$ERRLOG" "$GITERR" "$FILELIST" "$SCANLIST" "$PLAINLIST" "$STDINBUF" "$BINPROBE" \
-    "$PROBEERR"
+  rm -f "$ERRLOG" "$GITERR" "$FILELIST" "$SCANLIST" "$PLAINLIST" "$NAMELIST" "$STDINBUF" \
+    "$BINPROBE" "$PROBEERR"
   if [ "$code" -ne 0 ] && [ "$code" -ne 1 ]; then
     echo "ERROR: check-no-emdash - the run ended with status ${code}. This gate reports 0" >&2
     echo "       for a mode that completed clean and 1 for everything else, so it is" >&2
@@ -816,6 +847,7 @@ esac
 
 : > "$SCANLIST"
 : > "$PLAINLIST"
+: > "$NAMELIST"
 gitlinks=0
 scanned=0
 self_excluded=0
@@ -831,10 +863,15 @@ for i in "${!TRACKED[@]}"; do
 
   # What the repo declared it leaves out. Checked before the entry is opened, because an
   # excluded path is not read and its type on disk is therefore not this gate's business.
+  # It is not scanned at all, so its NAME is left out with its content.
   if is_excluded "$f"; then
     declared_excluded=$((declared_excluded + 1))
     continue
   fi
+
+  # A NAME IS COPY TOO (D56): every tracked path the declaration does not leave out has its
+  # name scanned, a gitlink's included, before any test of what is on disk.
+  printf '%s\0' "$f" >> "$NAMELIST"
 
   # `git ls-files` lists a submodule as a gitlink, which on disk is a REAL directory.
   # config has none today (checked: `git ls-files -s` lists no mode 160000 entry). The
@@ -886,12 +923,22 @@ if [ "$MODE" = list ]; then
   exit 0
 fi
 
+# File names first: NUL-separated in, one per line out. `-a` because a name is text whatever
+# bytes it holds, and the stderr capture refuses a name scan that could not complete.
+NAME_HITS=$(grep -z -a -P -e "$PATTERN" < "$NAMELIST" 2>> "$ERRLOG" | tr '\0' '\n' || true)
+refuse_if_incomplete
+
 HITS=$(xargs -0 -r grep -H -nP -e "$PATTERN" -- < "$SCANLIST" 2>> "$ERRLOG" || true)
 
 refuse_if_incomplete
 
+if [ -n "$NAME_HITS" ] && [ -n "$HITS" ]; then
+  fail_with_hits "the tracked file names and the tracked files listed above" \
+    "$NAME_HITS"$'\n'"$HITS"
+fi
+[ -n "$NAME_HITS" ] && fail_with_hits "the tracked file names listed above" "$NAME_HITS"
 [ -n "$HITS" ] && fail_with_hits "the tracked files listed above" "$HITS"
 
-echo "check-no-emdash: OK (no em or en dashes in ${scanned} of ${#TRACKED[@]} tracked file(s);" \
-  "${gitlinks} gitlink(s) skipped, ${self_excluded} excluded as the implementation under" \
-  "scan, ${declared_excluded} excluded by ${DECLARATION})"
+echo "check-no-emdash: OK (no em or en dashes in ${scanned} of ${#TRACKED[@]} tracked file(s)" \
+  "or their names; ${gitlinks} gitlink(s) skipped, ${self_excluded} excluded as the" \
+  "implementation under scan, ${declared_excluded} excluded by ${DECLARATION})"
