@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.6
+
+### Patch Changes
+
+- a46871d: The tools behind the verbs move up: vitest and `@vitest/coverage-v8` from 4.1.12 to 5.1.0, tsup from 8.5.1 to 9.0.0 and eslint from 10.5.0 to 10.14.0. prettier stays 3.9.10 and typescript stays 5.9.3, because tsup's declaration build, typescript-eslint and the api-surface scripts need a compiler API that TypeScript 7 does not have. Every tool is still pinned exactly. `engines.node` rises from `>=22.0.0` to `>=22.22.2`: tsup 9 needs Node 22.18, and the eslint-plugin-jsdoc 65 that `@cosyte/eslint-config` brings needs 22.22.2. A consumer that still declares vitest, `@vitest/coverage-v8` or tsup itself, for test types or a script, moves those to the same versions, so that its `vitest.config.ts` and the runner agree on a major. Two things a consumer can meet on the move: vitest 5 clears mocks before each test by default and fails a test whose asynchronous assertion is not awaited, and tsup 9 can renumber internal symbol names such as `__@iterator@497` in emitted declarations, which a committed public-surface inventory that records them reports as drift until it is regenerated.
+
 ## 0.1.5
 
 ### Patch Changes
