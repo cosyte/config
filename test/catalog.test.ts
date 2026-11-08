@@ -27,7 +27,7 @@ import {
   generate,
   generateFromNpm,
   main,
-  npmLatestUrl,
+  npmViewArgs,
   serialize,
   tieredPackages,
 } from "../scripts/catalog.mjs";
@@ -189,8 +189,14 @@ describe("check --npm, against each library's latest release", () => {
     }
   }
 
-  it("reads the registry's latest manifest for a scoped name", () => {
-    expect(npmLatestUrl("@cosyte/hl7")).toBe("https://registry.npmjs.org/@cosyte%2Fhl7/latest");
+  it("asks npm for the latest manifest of a @cosyte package, and refuses any other name", () => {
+    expect(npmViewArgs("@cosyte/hl7").slice(0, 3)).toEqual([
+      "view",
+      "@cosyte/hl7@latest",
+      "--json",
+    ]);
+    expect(() => npmViewArgs("@cosyte/../evil")).toThrow(/not a @cosyte/);
+    expect(() => npmViewArgs("left-pad")).toThrow(/not a @cosyte/);
   });
 
   it("exits 0 when every release matches, and never asks npm for Pathways", async () => {

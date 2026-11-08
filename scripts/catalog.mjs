@@ -25,7 +25,8 @@
 // readers through a release; the catalog is fresh when it says what each library's latest release on
 // npm says. `--npm` reads each library's `latest` manifest from the public registry instead of a
 // checkout, so it runs anywhere config does: nightly (.github/workflows/catalog-freshness.yml) and in
-// the release workflow before anything is published. Pathways is not on npm, so its record is carried
+// the release workflow before anything is published (through `npm view`, as the registry probe
+// does). Pathways is not on npm, so its record is carried
 // from the committed catalog and graded by `check --self` and `check --root`. npm keeps only the
 // first 255 characters of a description; a description longer than that is fresh when npm holds its
 // first 255 characters, and the run prints a note naming the package, because readers on npm see it
@@ -35,6 +36,7 @@
 // be; 2 the script could not run (an unreadable tiers file, catalog or package.json, or a bad
 // argument).
 
+import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -94,34 +96,59 @@ export function generate(root, tiers, buildCatalog) {
 /** How many characters of a description npm keeps; the rest is cut from what it serves. */
 export const NPM_DESCRIPTION_LIMIT = 255;
 
-/** The public registry URL for a package's `latest` manifest. */
-export function npmLatestUrl(name) {
-  return `https://registry.npmjs.org/${String(name).replace("/", "%2F")}/latest`;
+/** A `@cosyte/<name>` package name, the only shape the catalog holds. */
+const PACKAGE_NAME = /^@cosyte\/[a-z0-9][a-z0-9.-]*$/;
+
+/**
+ * The `npm view` arguments that print a package's `latest` manifest as JSON. npm is asked rather
+ * than the registry fetched directly, as scripts/registry-presence.mjs does: one client, one set of
+ * registry settings, and no URL built here.
+ *
+ * @param {string} name A `@cosyte/<name>` package name.
+ * @returns {string[]}
+ */
+export function npmViewArgs(name) {
+  if (!PACKAGE_NAME.test(String(name))) {
+    throw new InvocationError(`${JSON.stringify(name)} is not a @cosyte/<name> package name.`);
+  }
+  return [
+    "view",
+    `${name}@latest`,
+    "--json",
+    "--no-update-notifier",
+    "--prefer-online",
+    "--fetch-retries=0",
+  ];
 }
 
 /**
- * Read a package's `latest` manifest from the public registry.
+ * Read a package's `latest` manifest from the public registry, through `npm view`. npm 10 prints
+ * one object for one version and npm 12 a one-element array; both are read.
  *
  * @param {string} name A package name.
  * @returns {Promise<Record<string, any>>} The manifest npm serves for `latest`.
  */
 export async function fetchNpmManifest(name) {
-  let response;
+  const run = spawnSync("npm", npmViewArgs(name), {
+    encoding: "utf8",
+    timeout: 60_000,
+    maxBuffer: 16 * 1024 * 1024,
+  });
+  if (run.error !== undefined || run.status !== 0) {
+    const why = run.error?.message ?? `npm view exited ${run.status}: ${String(run.stderr).trim()}`;
+    throw new InvocationError(`could not read ${name}'s latest release from npm: ${why}`);
+  }
+  let parsed;
   try {
-    response = await fetch(npmLatestUrl(name), { signal: AbortSignal.timeout(30_000) });
+    parsed = JSON.parse(run.stdout);
   } catch (err) {
-    throw new InvocationError(`could not reach the npm registry for ${name}: ${err.message}`);
+    throw new InvocationError(`npm view's answer for ${name} is not JSON: ${err.message}`);
   }
-  if (!response.ok) {
-    throw new InvocationError(
-      `the npm registry answered ${response.status} for ${name}'s latest release.`,
-    );
+  const manifest = Array.isArray(parsed) ? parsed.at(-1) : parsed;
+  if (manifest === null || typeof manifest !== "object") {
+    throw new InvocationError(`npm view printed no manifest for ${name}.`);
   }
-  try {
-    return await response.json();
-  } catch (err) {
-    throw new InvocationError(`the npm registry's answer for ${name} is not JSON: ${err.message}`);
-  }
+  return manifest;
 }
 
 /**
