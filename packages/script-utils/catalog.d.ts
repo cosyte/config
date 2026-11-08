@@ -99,12 +99,19 @@ export declare function compareWithCatalog(
 export interface CatalogCheckOptions {
   /** The package directory holding package.json. Default: the working directory. */
   dir?: string;
-  /** CLI arguments; only `--dir <path>` is accepted. */
+  /** CLI arguments; `--dir <path>` and `--strict` are accepted. */
   argv?: string[];
+  /**
+   * Fail on a disagreement (1) or an unlisted package (2) instead of printing a note and exiting
+   * 0. Default: false, because keeping the catalog fresh is cosyte/config's job.
+   */
+  strict?: boolean;
 }
 
 /**
- * Run the check over one package directory and return the exit code: 0 the description is the
- * catalog's, 1 it is not, 2 the check could not run. It never exits the process.
+ * Run the check over one package directory and return the exit code. Advisory by default: 0 when
+ * the description is the catalog's, and 0 with a note when it is not or the package is unlisted.
+ * With `strict`, 1 for a disagreement and 2 for an unlisted package. 2 whenever the check could not
+ * run. It never exits the process.
  */
 export declare function runCatalogCheck(options?: CatalogCheckOptions): 0 | 1 | 2;

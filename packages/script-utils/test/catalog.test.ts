@@ -21,6 +21,7 @@ import {
   catalogEntry,
   compareWithCatalog,
   releaseLine,
+  runCatalogCheck,
 } from "../catalog.js";
 
 const GATE = join(import.meta.dirname, "..", "catalog.js");
@@ -218,11 +219,22 @@ describe("the CLI", () => {
     expect(r.code, r.out).toBe(0);
   });
 
-  it("exits 1 and prints both values when it is not", () => {
+  it("is advisory: prints both values as a note and exits 0 when they disagree", () => {
+    // Freshness is cosyte/config's job (scripts/catalog.mjs check --npm), so a library that changes
+    // its description is not held red until the next script-utils release.
     const r = cli([], pkg("disagrees", { name: "@cosyte/dicom", description: "A DICOM toolkit." }));
-    expect(r.code).toBe(1);
+    expect(r.code, r.out).toBe(0);
+    expect(r.out).toContain("note:");
     expect(r.out).toContain('package.json: "A DICOM toolkit."');
     expect(r.out).toContain(JSON.stringify(description));
+  });
+
+  it("exits 1 with --strict when they disagree", () => {
+    const dir = pkg("disagrees-strict", { name: "@cosyte/dicom", description: "A DICOM toolkit." });
+    const r = cli(["--strict"], dir);
+    expect(r.code).toBe(1);
+    expect(r.out).toContain('package.json: "A DICOM toolkit."');
+    expect(runCatalogCheck({ dir, strict: true })).toBe(1);
   });
 
   it("reads --dir", () => {
@@ -230,9 +242,17 @@ describe("the CLI", () => {
     expect(cli(["--dir", dir], root).code).toBe(0);
   });
 
-  it("exits 2 for a package the catalog does not list, no package.json, or a bad argument", () => {
-    expect(cli([], pkg("unlisted", { name: "@cosyte/nothing", description: "x" })).code).toBe(2);
+  it("notes an unlisted package and exits 0, or 2 with --strict", () => {
+    const dir = pkg("unlisted", { name: "@cosyte/nothing", description: "x" });
+    const advisory = cli([], dir);
+    expect(advisory.code).toBe(0);
+    expect(advisory.out).toContain("does not list");
+    expect(cli(["--strict"], dir).code).toBe(2);
+  });
+
+  it("exits 2 when it cannot run: no package.json, or a bad argument", () => {
     expect(cli([], pkg("no-manifest", null)).code).toBe(2);
+    expect(cli(["--strict"], pkg("no-manifest-strict", null)).code).toBe(2);
     expect(cli(["--fix"], pkg("bad-arg", { name: "@cosyte/dicom", description })).code).toBe(2);
   });
 });
