@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.8
+
+### Patch Changes
+
+- 7dee328: The catalog carries `@cosyte/cli`'s description from its latest npm release, which no longer ends
+  with the sentence on value-free diagnostics and the exit-code contract.
+
 ## 0.1.7
 
 ### Patch Changes
