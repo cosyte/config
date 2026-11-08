@@ -9,14 +9,11 @@ import { answerHelp } from "./help.js";
 
 const HELP = `cosyte-agent-notes: check a repository's agent notes and every pointer into them.
 
-  cosyte-agent-notes [--dir <repository root>] [--also title,orphan,card-path]
+  cosyte-agent-notes [--dir <repository root>]
 
 The notes are one file, documentation/agent-notes.md, and CLAUDE.md points into it as
 documentation/agent-notes.md#<anchor>. Every pointer in a tracked file must name a heading or an
-explicit anchor, and a <file>.md#<anchor> pointer into another tracked Markdown file must too.
---also turns on opt-in rules: title (both titles name the package), orphan (the card points at every
-## section) and card-path (paths the card names here are tracked). Exit 0 clean, 1 a finding, 2 the
-check could not run.
+explicit anchor. Exit 0 clean, 1 a finding, 2 the check could not run.
 `;
 
 const args = process.argv.slice(2);
