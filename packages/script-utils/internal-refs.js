@@ -353,14 +353,21 @@ export function compileCanonicalRules(resolved) {
     {
       id: "internal-identifier",
       name: "internal project identifier",
-      patterns: [new RegExp(identifier, "g")],
-      positives: identifierPositives,
+      patterns: [
+        new RegExp(identifier, "g"),
+        // An umbrella spec or work-item id: `S` and four digits, then a lower-case slug
+        // (`S0228-github-profile-ci-drift`). The slug is what keeps a HCPCS code such as `S9083`
+        // out; dicom's gate carried the rule.
+        new RegExp("\\bS\\d{4}-[a-z][a-z0-9]*(?:-[a-z0-9]+)*\\b", "g"),
+      ],
+      positives: [...identifierPositives, "Tracked as S0228-github-profile-ci-drift"],
       // The WORD-N trap turned into an assertion. Every token here is a segment-field reference or
       // a diagnosis-code range, and a prefix set that starts matching one of them reds HERE rather
       // than deleting it from a parser's documentation on the next sweep.
       negatives: [
         "MSH-2 encoding characters, PID-3 identifier list, OBX-5 value, SCH-11 timing, " +
           "TQ1-7 start, NM1-03 name, ICD-10-CM P00-P96, 835 remittance",
+        "HCPCS S9083 and S0630 are billing codes, and S0228 alone is one too",
       ],
     },
     {
@@ -374,6 +381,15 @@ export function compileCanonicalRules(resolved) {
             `documentation residual\\b|${ORDINAL} (?:slice|wave)\\b)`,
           "gi",
         ),
+        // Taken from dicom's gate: the adjective forms (`in subsequent phases`, `a later wave`), a
+        // plural wave count, and a citation of the roadmap. `of` after the noun is the clinical
+        // sense (`a later phase of the disease`, `the next wave of infections`), so it is let through.
+        new RegExp(
+          "\\b(?:subsequent|later|earlier|future|upcoming|next|previous|remaining)\\s+" +
+            "(?:phases?|waves?)\\b(?!\\s+of\\b)|\\bwaves\\s+\\d+\\b|" +
+            "\\b(?:the|this|its|our)\\s+(?:\\w+\\s+)?roadmaps?\\b",
+          "gi",
+        ),
       ],
       positives: [
         "Phase 5b closes it (Phase W, Phase-L and the thirteenth slice landed earlier, in wave 2)",
@@ -383,6 +399,9 @@ export function compileCanonicalRules(resolved) {
         // phase named before the words that make a bare `phase` a noun.
         "The connect-phase socket shipped in phase 2",
         "Phase 3 was where the error occurred",
+        "The helpers are populated in subsequent phases",
+        "It arrives in a later wave, after waves 2 and 3",
+        "Obsolete codes are tracked by the roadmap",
       ],
       negatives: [
         "CSP-1 Study Phase Identifier, CSP-2 Study Phase Start Date/Time, CSP-3 Study Phase End " +
@@ -395,15 +414,20 @@ export function compileCanonicalRules(resolved) {
         "All 5 phases are defined; Connection lifecycle phase where the error occurred; the " +
           "phase was open, the phases were closed, and a phase during which and a phase at which " +
           "the socket failed",
+        // The clinical senses of the adjective forms.
+        "A later phase of the disease, the next wave of infections, and the previous phase of " +
+          "the trial",
       ],
     },
     {
       id: "adr-reference",
       name: "ADR reference",
       // `[ /-]`: ten of the eleven per-repository copies also matched an ADR path segment.
-      patterns: [new RegExp("\\bADR[ /-]?\\d{3,4}\\b", "gi")],
+      // The plural, `#` and two-digit forms are dicom's: `ADRs 0015 and 0016`, `ADR #0018`, `ADR 23`.
+      patterns: [new RegExp("\\bADRs?[ /#-]?\\d{2,4}\\b", "gi")],
       positives: [
         "Decided in ADR 0015 and restated in ADR-0021",
+        "Superseded by ADRs 0015 and ADR #0018, after ADR 23",
         "Recorded in docs/adr/0001-scope.md",
       ],
       negatives: ["ADR is not a segment, and 0015 alone is a value"],
@@ -423,7 +447,19 @@ export function compileCanonicalRules(resolved) {
         new RegExp(
           "\\b(?:this|that|another|previous|next|final|current)\\s+" +
             "(?:(?!(?:of|in|on|between|per|for|to|with|at)\\s)[\\w-]+\\s+){0,2}slices?\\b" +
-            `(?!\\s+(?:${IMAGING_NOUNS}))`,
+            `(?!\\s+(?:${IMAGING_NOUNS}))` +
+            // An image slice in its volume is DICOM's word (dicom's own reference sentences).
+            "(?!\\s+in\\s+(?:the|this|a|an|each)\\s+(?:volume|series|stack|study|image|frame)\\b)",
+          "gi",
+        ),
+        // Process commentary, taken from dicom's gate: a pull request, changeset or work item named
+        // as ours, and work deferred out of scope. `this spec`, `this session` and `this port` are
+        // left out: a parser's specification, a TLS session and a TCP port are reader words here.
+        new RegExp(
+          "\\bthis\\s+(?:work item|changeset|change set|pull request|PR)\\b|" +
+            "\\b(?:a|the|another|one)\\s+(?:later|future|separate|follow-up|subsequent)\\s+" +
+            "(?:PR|pull request|work item|changeset)\\b|" +
+            "\\bout\\s+of\\s+scope\\s+for\\s+(?:this|the)\\s+(?:slice|item|change|pass)\\b",
           "gi",
         ),
       ],
@@ -431,6 +467,7 @@ export function compileCanonicalRules(resolved) {
         "This slice adds the helper and the final slice removes it",
         // What the narrowing must still catch: the determiners it kept, after `the`.
         "The next slice moves the parser, and that slice and another slice follow it",
+        "Landed by a later PR, and out of scope for this change",
       ],
       negatives: [
         "The slice thickness and the number of slices are DICOM attributes, each slice location " +
@@ -441,6 +478,8 @@ export function compileCanonicalRules(resolved) {
           "line too short to contain the code slice is skipped, the field is empty when the slice " +
           "is entirely past the line's end, and each slice is a start and an end. The slice " +
           "holding the concept code. The field slice.",
+        "Slice Thickness and Slice Location describe the next slice in the volume, and this " +
+          "specification, this session and this port are the reader's",
       ],
     },
     {
@@ -453,10 +492,24 @@ export function compileCanonicalRules(resolved) {
             "|\\bBACKLOG\\.md\\b",
           "g",
         ),
+        // Taken from dicom's gate: the planning files a session writes, the umbrella named as a
+        // place, and its work and card directories.
+        new RegExp(
+          "\\b(?:\\d{2}-)?CONTEXT\\.md\\b|\\bREQUIREMENTS\\.md\\b|\\bPITFALLS\\.md\\b|" +
+            "\\b[Mm]eta[- ]repo\\b|\\b[Uu]mbrella repo\\b|" +
+            "\\bwork/(?:specs|backlog|inbox|archive)/|\\bcards/[a-z-]+\\.md\\b|" +
+            "\\bdecisions?/\\d{4}-[a-z0-9-]+",
+          "g",
+        ),
       ],
-      positives: ["Roadmap operations/roadmaps/hl7.md and documentation/decisions/0015-x.md"],
+      positives: [
+        "Roadmap operations/roadmaps/hl7.md and documentation/decisions/0015-x.md",
+        "Locked by CONTEXT.md in the meta-repo, per work/specs/ and cards/hl7.md",
+        "Recorded in decisions/0015-scope.md",
+      ],
       negatives: [
         "Parser operations are documented in the README, and documentation for the API is generated",
+        "The context and the requirements are in docs-content, and a repo's work is its own",
       ],
     },
     {
