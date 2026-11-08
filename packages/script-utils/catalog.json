@@ -116,7 +116,7 @@
     {
       "name": "@cosyte/terminology",
       "slug": "terminology",
-      "description": "Terminology engine for US healthcare code systems in Node.js and TypeScript: FHIR $translate, $lookup, $validate-code and $expand over code systems, value sets and maps you supply.",
+      "description": "Terminology engine for US healthcare code systems in Node.js and TypeScript: FHIR $translate, $lookup, $validate-code, and $expand over code systems, value sets, and maps you supply.",
       "line": "0.1",
       "engines": {
         "node": ">=22.0.0"
@@ -142,7 +142,7 @@
     {
       "name": "@cosyte/deid",
       "slug": "deid",
-      "description": "Healthcare de-identification for Node.js and TypeScript: applies a HIPAA Safe Harbor policy to HL7 v2, C-CDA, FHIR R4, X12, NCPDP Telecom and DICOM, fails closed, and emits a value-free manifest.",
+      "description": "Healthcare de-identification for Node.js and TypeScript: applies a HIPAA Safe Harbor policy to HL7 v2, C-CDA, FHIR R4, X12, NCPDP Telecom, and DICOM, fails closed, and emits a value-free manifest.",
       "line": "0.1",
       "engines": {
         "node": ">=22.0.0"
@@ -155,7 +155,7 @@
     {
       "name": "@cosyte/synth",
       "slug": "synth",
-      "description": "Deterministic, seedable synthetic healthcare test fixtures for Node.js and TypeScript: HL7 v2, FHIR R4 and US Core, C-CDA, X12, NCPDP and ASTM, spec-clean by construction and never real PHI.",
+      "description": "Deterministic, seedable synthetic healthcare test fixtures for Node.js and TypeScript: HL7 v2, FHIR R4 and US Core, C-CDA, X12, NCPDP, and ASTM, spec-clean by construction and never real PHI.",
       "line": "0.1",
       "engines": {
         "node": ">=22.0.0"
@@ -181,10 +181,10 @@
     {
       "name": "@cosyte/cli",
       "slug": "cli",
-      "description": "The cosyte CLI: a PHI-safe developer front door over the @cosyte/* healthcare parsers. Parse HL7 v2 / FHIR from a file or stdin to typed JSON, with a documented exit-code contract.",
+      "description": "The Cosyte command line for Node.js and TypeScript: one command over HL7 v2, FHIR R4, X12, ASTM, NCPDP, C-CDA, DICOM, and MLLP, with HL7 v2 to FHIR conversion from transform, code mapping from terminology, and the cosyte-mcp MCP server for agents. Value-free diagnostics and a documented exit-code contract.",
       "line": "0.1",
       "engines": {
-        "node": ">=22.0.0 <26.0.0"
+        "node": ">=22.0.0"
       },
       "repository": "https://github.com/cosyte/cli",
       "docs": "https://docs.cosyte.com/cli",

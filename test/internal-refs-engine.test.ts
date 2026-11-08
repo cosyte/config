@@ -9,6 +9,8 @@ import {
   REFUSED_OPTIONS,
   canonicalRuleNames,
   classifyTrackedMode,
+  compileCanonicalRules,
+  resolveConfig,
   runInternalRefsScan,
 } from "@cosyte/script-utils/internal-refs";
 
@@ -192,6 +194,70 @@ describe("a hit names the file, the line and the rule, and exits non-zero", () =
       sourceDocComments: { enabled: true, paths: ["src/*.ts", "src/**/*.ts"] },
     });
     expect(result.code, result.all).toBe(0);
+  });
+});
+
+/**
+ * The phase rule's two guards, each with the passage it lets through and one it must still catch.
+ *
+ * The let-through passages are mllp's: its public source says `connect-phase socket`, `two-phase
+ * state`, `All 5 phases are defined` and, in the `ConnectionError.phase` doc comment, `Connection
+ * lifecycle phase where the error occurred`. Without the guards each of them is a hit, which is what
+ * kept mllp on its own copy of the gate. The still-caught passages put a real phase name beside the
+ * same words, so a guard widened past its shape reds here too.
+ */
+describe("the phase rule's compound-word and sentence guards", () => {
+  const { resolved } = resolveConfig({
+    projectPrefixes: ["MLLP"],
+    standardsDesignations: [],
+    surfacePaths: ["README.md"],
+    accountedTarballFiles: [],
+  });
+  if (resolved === undefined) throw new Error("the base configuration did not resolve");
+  const phase = compileCanonicalRules(resolved).find((rule) => rule.id === "phase-or-wave");
+  if (phase === undefined) throw new Error("the phase rule is missing from the canonical set");
+
+  /** Every hit the phase rule reports in one passage, in order. */
+  function hits(text: string): string[] {
+    return phase!.patterns.flatMap((pattern) => [...text.matchAll(pattern)].map((m) => m[0]));
+  }
+
+  it("lets `phase` through as the second half of a compound word", () => {
+    expect(hits("Wrap a connect-phase socket error as an MllpConnectionError.")).toEqual([]);
+    expect(hits("An enhanced-mode client gets its two-phase state.")).toEqual([]);
+    expect(hits("The read-phase timeout fires once.")).toEqual([]);
+  });
+
+  it("still catches a phase named beside a compound word, and a hyphen after the word", () => {
+    expect(hits("The connect-phase socket shipped in phase 2.")).toEqual(["phase 2"]);
+    expect(hits("The two-phase state lands in Phase-L.")).toEqual(["Phase-L"]);
+    // Only a LETTER and a hyphen make a compound, so a digit in front is still a phase name.
+    expect(hits("Compare v2-phase 3 with the rest.")).toEqual(["phase 3"]);
+  });
+
+  it("lets `phase` through as a noun followed by what it is rather than by its name", () => {
+    expect(hits("Connection lifecycle phase where the error occurred.")).toEqual([]);
+    expect(hits("All 5 phases are defined even though only two are reachable.")).toEqual([]);
+    expect(
+      hits(
+        "The phase was open and the phases were closed: a phase during which the socket " +
+          "failed, and the phase at which it closed.",
+      ),
+    ).toEqual([]);
+  });
+
+  it("still catches a phase named before those words, and a word that only starts like one", () => {
+    expect(hits("Phase 3 was where the error occurred.")).toEqual(["Phase 3"]);
+    expect(hits("Phases 2 and 3 are defined.")).toEqual(["Phases 2"]);
+    // The lookahead ends at a word boundary, so `Phase Atlas` and `Phase Arena` are names.
+    expect(hits("Phase Atlas and Phase Arena shipped.")).toEqual(["Phase Atlas", "Phase Arena"]);
+  });
+
+  it("carries both guards' passages in the self-test floor, so a caller's run proves them too", () => {
+    expect(phase!.negatives.join(" ")).toContain("connect-phase socket");
+    expect(phase!.negatives.join(" ")).toContain("phase where the error occurred");
+    expect(phase!.positives).toContain("The connect-phase socket shipped in phase 2");
+    expect(phase!.positives).toContain("Phase 3 was where the error occurred");
   });
 });
 
