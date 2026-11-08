@@ -105,7 +105,7 @@
           }
         },
         "dependencies": {
-          "provenance": "devDepVersions and caretAllowed carried unchanged from manifest version 1; scripts/parser-template/package.json carries the override block, which is where a new repo inherits it. caretAllowedScopes states what the checker used to hardcode: a workspace-internal @cosyte/* dependency may stay on a caret range. THE OVERRIDES ARE DEPENDABOT DEV/BUILD-TIME ADVISORY REMEDIATION, AND EACH ONE NOW CITES ITS ADVISORY IN pnpmOverrideAdvisories RATHER THAN IN PROSE. Version 1 argued from a sentence in `pnpmOverridesComment` that named advisories in English beside hand-transcribed ranges, and the transcription decayed: the pin sat at a version the advisory it argued from had already superseded, config's own manifest disagreed with this one, and nothing compared them. What survives here is the reachability argument, which no advisory record can supply. esbuild: a dev-server path traversal, not reachable, since these repos build via tsup/vitest and never run `esbuild serve`. js-yaml: a quadratic merge-key DoS and a prototype-pollution issue, reached at BUILD and RELEASE time only, over YAML this estate wrote itself. THE 3.x REACH IS NO LONGER A RESIDUAL: js-yaml 3.14.2 arrives through read-yaml-file@1.1.0 (@manypkg/get-packages, @changesets/cli) and calls yaml.safeLoad, which js-yaml 4 removed, so version 1 recorded the branch as not pinnable and left it un-remediated. That reasoning applied to the 4.x MAJOR, never to the 3.x branch: 3.x still ships safeLoad, so the branch is pinned on its own line and the release tooling keeps the API it calls. Which version each advisory first patches is NOT written here; the checker reads it from the advisory at check time and fails an override pinned below it.",
+          "provenance": "devDepVersions and caretAllowed carried unchanged from manifest version 1; scripts/parser-template/package.json carries the override block, which is where a new repo inherits it. caretAllowedScopes states what the checker used to hardcode: a workspace-internal @cosyte/* dependency may stay on a caret range. THE OVERRIDES ARE DEPENDABOT DEV/BUILD-TIME ADVISORY REMEDIATION, AND EACH ONE NOW CITES ITS ADVISORY IN pnpmOverrideAdvisories RATHER THAN IN PROSE. Version 1 argued from a sentence in `pnpmOverridesComment` that named advisories in English beside hand-transcribed ranges, and the transcription decayed: the pin sat at a version the advisory it argued from had already superseded, config's own manifest disagreed with this one, and nothing compared them. What survives here is the reachability argument, which no advisory record can supply. esbuild: a dev-server path traversal, not reachable, since these repos build via tsup/vitest and never run `esbuild serve`. js-yaml: a quadratic merge-key DoS and a prototype-pollution issue, reached at BUILD and RELEASE time only, over YAML this estate wrote itself. THE 3.x REACH IS NO LONGER A RESIDUAL: js-yaml 3.14.2 arrives through read-yaml-file@1.1.0 (@manypkg/get-packages, @changesets/cli) and calls yaml.safeLoad, which js-yaml 4 removed, so version 1 recorded the branch as not pinnable and left it un-remediated. That reasoning applied to the 4.x MAJOR, never to the 3.x branch: 3.x still ships safeLoad, so the branch is pinned on its own line and the release tooling keeps the API it calls. MOVED 2026-11-07 (SEC10): both js-yaml lines now pin 4.3.2 and 3.15.2 and cite GHSA-2883-xcg3-v3hh beside the two earlier advisories, because that advisory's first patched versions are one patch above the earlier pins; 3.15.2 still exports safeLoad. Every repo in this baseline reports the two js-yaml keys as drift until its own override block moves with it, which also closes that advisory's Dependabot alert there. Which version each advisory first patches is NOT written here; the checker reads it from the advisory at check time and fails an override pinned below it.",
           "requirements": {
             "devDepVersions": {
               "typescript": "5.9",
@@ -122,8 +122,8 @@
             "caretAllowedScopes": ["@cosyte/"],
             "pnpmOverrides": {
               "esbuild@>=0.27.3 <0.28.1": "0.28.1",
-              "js-yaml@>=4.0.0 <4.3.1": "4.3.1",
-              "js-yaml@>=3.0.0 <3.15.1": "3.15.1"
+              "js-yaml@>=4.0.0 <4.3.2": "4.3.2",
+              "js-yaml@>=3.0.0 <3.15.2": "3.15.2"
             },
             "pnpmOverrideAdvisories": {
               "esbuild@>=0.27.3 <0.28.1": {
@@ -131,15 +131,15 @@
                 "package": "esbuild",
                 "advisories": ["GHSA-g7r4-m6w7-qqqr"]
               },
-              "js-yaml@>=4.0.0 <4.3.1": {
+              "js-yaml@>=4.0.0 <4.3.2": {
                 "ecosystem": "npm",
                 "package": "js-yaml",
-                "advisories": ["GHSA-5p4m-2wfm-xmqj", "GHSA-h67p-54hq-rp68"]
+                "advisories": ["GHSA-5p4m-2wfm-xmqj", "GHSA-h67p-54hq-rp68", "GHSA-2883-xcg3-v3hh"]
               },
-              "js-yaml@>=3.0.0 <3.15.1": {
+              "js-yaml@>=3.0.0 <3.15.2": {
                 "ecosystem": "npm",
                 "package": "js-yaml",
-                "advisories": ["GHSA-5p4m-2wfm-xmqj", "GHSA-h67p-54hq-rp68"]
+                "advisories": ["GHSA-5p4m-2wfm-xmqj", "GHSA-h67p-54hq-rp68", "GHSA-2883-xcg3-v3hh"]
               }
             }
           }
