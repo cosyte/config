@@ -1227,6 +1227,43 @@ describe("readme-check: what each section owes (AC7)", () => {
     expect(output).toContain("issue tracker");
   });
 
+  it.each([
+    ["a longer path", "https://github.com/cosyte/config/issues-archive"],
+    ["another host", "https://github.com/cosyte/config/issues.example.com"],
+    ["another repository", "https://github.com/cosyte/config/issues/../../other/issues"],
+  ])("REFUSES a Contributing section that only contains the tracker's address in %s", (_, url) => {
+    // A substring search passed every one of these (js/incomplete-url-substring-sanitization).
+    const { code, output } = runCheck(
+      workspaceWith([
+        {
+          dir: "alpha",
+          mutate: (r) =>
+            r.replace("Ask at https://github.com/cosyte/config/issues.", `Ask at ${url}.`),
+        },
+      ]),
+    );
+
+    expect(code).toBe(1);
+    expect(output).toContain("issue tracker");
+  });
+
+  it("ACCEPTS the tracker as a markdown link target followed by a full stop", () => {
+    const { code } = runCheck(
+      workspaceWith([
+        {
+          dir: "alpha",
+          mutate: (r) =>
+            r.replace(
+              "Ask at https://github.com/cosyte/config/issues.",
+              "Ask at [the issue tracker](https://github.com/cosyte/config/issues).",
+            ),
+        },
+      ]),
+    );
+
+    expect(code).toBe(0);
+  });
+
   // THE LICENSE SECTION IS GRADED ON THE SHAPE THAT SHIPS, WHICH CARRIES THE ABSOLUTE LINK.
   //
   // Every mutation below keeps that link, because the house skeleton requires it and because the URL

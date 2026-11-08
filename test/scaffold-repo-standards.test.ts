@@ -120,6 +120,23 @@ describe("community, agent and editor files", () => {
   });
 });
 
+describe("template file names", () => {
+  it("emits each `.tmpl` template file under its own name, without the suffix", () => {
+    // scripts/parser-template names a file `.tmpl` when it does not parse until generated, so
+    // CodeQL does not read it (scripts/scaffold-parser.mjs, TEMPLATE_SUFFIX).
+    const emitted = (dir: string): string[] =>
+      readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
+        entry.isDirectory()
+          ? emitted(join(dir, entry.name))
+          : [join(dir, entry.name).slice(repo.length + 1)],
+      );
+    const files = emitted(repo).filter((f) => !f.startsWith("node_modules"));
+    expect(files.filter((f) => f.endsWith(".tmpl"))).toEqual([]);
+    expect(files).toContain(join("src", "index.ts"));
+    expect(files).toContain(join("test", "property", "round-trip.property.test.ts"));
+  });
+});
+
 describe("Dependabot", () => {
   const config = (): string => read(".github/dependabot.yml");
 

@@ -117,6 +117,25 @@ export const BANNER = TILE;
 /** Where a reader is told to ask. Required in every `## Contributing` section. */
 export const ISSUES_URL = "https://github.com/cosyte/config/issues";
 
+/**
+ * Every http(s) address in a stretch of markdown, each without the sentence mark that may follow
+ * it, so `[the issue tracker](<url>).` and a bare `<url>.` both yield `<url>`.
+ *
+ * The Contributing check compares whole addresses rather than searching for the issue tracker's as
+ * a substring, which also passed `.../issues-old` or `.../issues.example.com` (CodeQL
+ * js/incomplete-url-substring-sanitization).
+ *
+ * @param {string} text Markdown.
+ * @returns {string[]} The addresses, in order.
+ */
+export function addressesIn(text) {
+  return (text.match(/https?:\/\/[^\s<>()[\]"'`]+/g) ?? []).map((url) => {
+    let end = url.length;
+    while (end > 0 && ".,;:!?".includes(url[end - 1])) end -= 1;
+    return url.slice(0, end);
+  });
+}
+
 /** The CI badge, identical in all nine files. */
 const CI_BADGE =
   "[![CI](https://img.shields.io/github/actions/workflow/status/cosyte/config/ci.yml?branch=main&label=CI)](https://github.com/cosyte/config/actions/workflows/ci.yml)";
@@ -998,7 +1017,7 @@ export function gradeReadme({ label, text, manifest, floor, line }) {
   }
 
   const contributing = bodyOf("Contributing");
-  if (contributing !== null && !contributing.includes(ISSUES_URL)) {
+  if (contributing !== null && !addressesIn(contributing).some((url) => url === ISSUES_URL)) {
     say("contributing", `it does not carry the issue tracker ${ISSUES_URL}`);
   }
 

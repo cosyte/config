@@ -63,7 +63,7 @@
 // guard that cannot read its input must not report the same code as a guard that read it and found
 // a violation, or "broken" and "caught something" become one signal.
 
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join, resolve, basename } from "node:path";
 
 // Imported by RELATIVE PATH, not as `@cosyte/script-utils`, and that is deliberate. This gate runs
@@ -181,8 +181,10 @@ export function workspacePackages(workspaceRoot) {
   for (const entry of entries) {
     const manifestPath = join(packagesDir, entry, "package.json");
     let manifest;
+    // One read and no stat first: a missing manifest, or a `package.json` that is a directory,
+    // fails the read itself, so nothing can change between a check and the use of it (CodeQL
+    // js/file-system-race).
     try {
-      if (!statSync(manifestPath).isFile()) continue;
       manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
     } catch {
       continue;

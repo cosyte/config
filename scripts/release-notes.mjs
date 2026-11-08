@@ -100,7 +100,7 @@ const EM_DASH = String.fromCharCode(0x2014);
  * merely confirms the renderer ran also passes when the renderer returns something wrong. If a future
  * change ever routes a body through the CHANGELOG again, one of these fires.
  */
-const CHANGELOG_DUMP_MARKERS = [
+export const CHANGELOG_DUMP_MARKERS = [
   { pattern: /^#\s+Changelog\s*$/m, what: "the `# Changelog` file preamble" },
   { pattern: /^##\s*\[Unreleased\]/m, what: "an `## [Unreleased]` heading" },
   { pattern: /keepachangelog\.com/i, what: "the Keep a Changelog boilerplate link" },
@@ -112,21 +112,6 @@ const STUB_PATTERNS = [
   /^release\s+v?\d+\.\d+\.\d+\.?$/i,
   /^bump(?:ed)? versions?\.?$/i,
 ];
-
-/**
- * Run git in a repo, returning stdout.
- *
- * @param {string} repo Repository root.
- * @param {string[]} args Arguments to git.
- * @returns {string} Trimmed stdout.
- */
-function git(repo, args) {
-  try {
-    return execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" }).trim();
-  } catch (cause) {
-    throw new InvocationError(`git ${args.join(" ")} failed in ${repo}: ${String(cause)}`);
-  }
-}
 
 /**
  * Run git, returning `null` instead of throwing when it fails.

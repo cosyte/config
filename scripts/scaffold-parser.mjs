@@ -48,6 +48,19 @@ const VERBATIM_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".ico", ".
 /** File extensions that should be made executable on emit. */
 const EXECUTABLE_EXTENSIONS = new Set([".sh"]);
 
+/**
+ * The suffix a template file carries when it is not valid TypeScript or JavaScript until its
+ * placeholders are substituted; the copy drops it, so `src/index.ts.tmpl` is emitted as
+ * `src/index.ts`.
+ *
+ * WHY: CodeQL reads every `.ts` and `.js` file in this repository, and `{{Pascal}}` in an identifier
+ * position does not parse, so the two template files that carry one were 83 open js/syntax-error
+ * alerts. The shared CodeQL workflow takes no configuration file, so the paths cannot be skipped
+ * there. A file that parses with its placeholders in (a token inside a string or a comment) keeps
+ * its own name; test/scaffold-template-parses.test.ts holds every one of them to that.
+ */
+const TEMPLATE_SUFFIX = ".tmpl";
+
 function fail(message) {
   process.stderr.write(`scaffold-parser: ${message}\n`);
   process.exit(1);
@@ -280,13 +293,16 @@ function copyTree(srcDir, destDir, tokens) {
   mkdirSync(destDir, { recursive: true });
   for (const entry of readdirSync(srcDir, { withFileTypes: true })) {
     const srcPath = join(srcDir, entry.name);
-    const destPath = join(destDir, entry.name);
     if (entry.isDirectory()) {
-      copyTree(srcPath, destPath, tokens);
+      copyTree(srcPath, join(destDir, entry.name), tokens);
       continue;
     }
     if (!entry.isFile()) continue;
-    const ext = entry.name.includes(".") ? entry.name.slice(entry.name.lastIndexOf(".")) : "";
+    const name = entry.name.endsWith(TEMPLATE_SUFFIX)
+      ? entry.name.slice(0, -TEMPLATE_SUFFIX.length)
+      : entry.name;
+    const destPath = join(destDir, name);
+    const ext = name.includes(".") ? name.slice(name.lastIndexOf(".")) : "";
     if (VERBATIM_EXTENSIONS.has(ext)) {
       cpSync(srcPath, destPath);
     } else {

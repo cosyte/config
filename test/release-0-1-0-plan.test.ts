@@ -53,12 +53,17 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { assertNotes, parseChangeset, renderNotes } from "../scripts/release-notes.mjs";
+import {
+  assertNotes,
+  CHANGELOG_DUMP_MARKERS,
+  parseChangeset,
+  renderNotes,
+} from "../scripts/release-notes.mjs";
 
 const REPO_ROOT = join(import.meta.dirname, "..");
 const CHANGESET_DIR = join(REPO_ROOT, ".changeset");
@@ -72,19 +77,6 @@ const EM_DASH = String.fromCharCode(0x2014);
 
 /** `.changeset/` entries that are configuration or prose, per `scripts/changeset-guard.mjs`. */
 const NOT_A_CHANGESET = new Set(["README.md", "config.json"]);
-
-/**
- * The raw-changelog dump fingerprints `scripts/release-notes.mjs` refuses in a release body.
- *
- * Copied rather than imported because that module does not export them. `assertNotes` is called on
- * the finished body further down, which is the load-bearing check; these are used to grade the
- * AUDIT's per-package summaries, which never pass through that function.
- */
-const CHANGELOG_DUMP_MARKERS = [
-  { pattern: /^#\s+Changelog\s*$/m, what: "the `# Changelog` file preamble" },
-  { pattern: /^##\s*\[Unreleased\]/m, what: "an `## [Unreleased]` heading" },
-  { pattern: /keepachangelog\.com/i, what: "the Keep a Changelog boilerplate link" },
-];
 
 /**
  * A line asserting that a package stays on the retired pre-alpha ladder.
@@ -181,9 +173,15 @@ interface WorkspacePackage {
 function publishablePackages(): WorkspacePackage[] {
   const found: WorkspacePackage[] = [];
   for (const entry of readdirSync(join(REPO_ROOT, "packages"))) {
-    const manifestPath = join(REPO_ROOT, "packages", entry, "package.json");
-    if (!statSync(manifestPath).isFile()) continue;
-    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    // Read, not stat-then-read: a directory with no manifest, or a `package.json` that is not a
+    // file, fails the read, and nothing can change between a check and the use of it.
+    let text: string;
+    try {
+      text = readFileSync(join(REPO_ROOT, "packages", entry, "package.json"), "utf8");
+    } catch {
+      continue;
+    }
+    const manifest = JSON.parse(text);
     if (manifest.private === true) continue;
     found.push({
       dir: entry,
@@ -364,6 +362,17 @@ function auditPlan(): PlanRow[] {
 }
 
 /**
+ * `text` with every regular-expression metacharacter escaped, backslash included, so it matches
+ * only itself inside a `new RegExp(...)`.
+ *
+ * @param {string} text Literal text.
+ * @returns {string} The same text, safe to embed in a pattern.
+ */
+function escapeRegExp(text: string): string {
+  return text.replace(/[\\^$.*+?()[\]{}|/-]/g, "\\$&");
+}
+
+/**
  * The `#### <pkg>@<version>` release-summary heading in the audit.
  *
  * @param {string} name A package name.
@@ -371,8 +380,7 @@ function auditPlan(): PlanRow[] {
  * @returns {RegExp} A pattern anchored on that heading line.
  */
 function summaryHeading(name: string, version: string): RegExp {
-  const pkg = name.replace(/[/@-]/g, "\\$&");
-  return new RegExp(`^#### \`${pkg}@${version.replace(/\./g, "\\.")}\`\\s*$`);
+  return new RegExp(`^#### \`${escapeRegExp(`${name}@${version}`)}\`\\s*$`);
 }
 
 const PACKAGES = publishablePackages();
@@ -706,7 +714,7 @@ describe("the changelog headings", () => {
     // one of the two would red exactly one of those, on a repository whose required checks nobody
     // can bypass. Demanding NEITHER form is what let the promotion be skipped twice in a row.
     const heading = new RegExp(
-      `^## \\[${TARGET_VERSION.replace(/\./g, "\\.")}\\] - (?:Unreleased|\\d{4}-\\d{2}-\\d{2})\\s*$`,
+      `^## \\[${escapeRegExp(TARGET_VERSION)}\\] - (?:Unreleased|\\d{4}-\\d{2}-\\d{2})\\s*$`,
       "m",
     );
     for (const row of AUDIT_PLAN) {
@@ -733,7 +741,7 @@ describe("the changelog headings", () => {
       ).toBeGreaterThan(0);
       for (const version of shipped) {
         const heading = new RegExp(
-          `^## \\[${version.replace(/\./g, "\\.")}\\] - \\d{4}-\\d{2}-\\d{2}\\s*$`,
+          `^## \\[${escapeRegExp(version)}\\] - \\d{4}-\\d{2}-\\d{2}\\s*$`,
           "m",
         );
         expect(
@@ -924,5 +932,17 @@ describe("the repository states one version policy", () => {
     // decisions here are re-openable.
     expect(AUDIT).toContain("S0161-release-frequency-policy");
     expect(AUDIT).toMatch(/had not landed/i);
+  });
+});
+
+describe("escapeRegExp, which builds the heading patterns above", () => {
+  it("matches only its own text, backslash included (js/incomplete-sanitization)", () => {
+    // The patterns used to escape only `.` (or `/`, `@`, `-`), so any other metacharacter in a name
+    // or version, a backslash first among them, changed what the heading pattern matched.
+    const text = String.raw`@cosyte/a-b@0.1.0+x\d*(y)[z]{1}|^$?`;
+    const pattern = new RegExp(`^${escapeRegExp(text)}$`);
+    expect(pattern.test(text)).toBe(true);
+    expect(pattern.test(text.replace("0.1.0", "0x1y0"))).toBe(false);
+    expect(pattern.test(text.replace(String.raw`\d*`, "7"))).toBe(false);
   });
 });
