@@ -409,6 +409,77 @@ describe("the source string-literal pass", () => {
   });
 });
 
+/**
+ * The rules taken from dicom's own gate, where they generalize to every repository. Measured on the
+ * pinned libraries before they joined the canonical set: they add 12 hits (6 citations of a
+ * planning file and one "subsequent phases" in hl7's source, five citations of the roadmap in x12
+ * and ncpdp) and remove none. Each arm has a passage it must catch and one it must let through.
+ */
+describe("the rules taken from dicom's gate", () => {
+  const { resolved } = resolveConfig({
+    projectPrefixes: ["DICOM"],
+    standardsDesignations: [],
+    surfacePaths: ["README.md"],
+    accountedTarballFiles: [],
+  });
+  if (resolved === undefined) throw new Error("the base configuration did not resolve");
+  const rules = compileCanonicalRules(resolved);
+
+  /** The ids of the rules that fire on a passage. */
+  function fired(text: string): string[] {
+    return rules
+      .filter((rule) =>
+        rule.patterns.some((pattern) => {
+          pattern.lastIndex = 0;
+          return pattern.test(text);
+        }),
+      )
+      .map((rule) => rule.id);
+  }
+
+  it("an umbrella spec id, and not a HCPCS code", () => {
+    expect(fired("Tracked as S0228-github-profile-ci-drift.")).toEqual(["internal-identifier"]);
+    expect(fired("HCPCS S9083 is a billing code.")).toEqual([]);
+  });
+
+  it("the adjective forms of phase and wave, and not their clinical senses", () => {
+    expect(fired("The helpers are populated in subsequent phases.")).toEqual(["phase-or-wave"]);
+    expect(fired("It arrives in a later wave, after waves 2 and 3.")).toEqual(["phase-or-wave"]);
+    expect(fired("A later phase of the disease and the next wave of infections.")).toEqual([]);
+  });
+
+  it("a citation of the roadmap, and not the word road", () => {
+    expect(fired("Obsolete codes are tracked by the roadmap.")).toEqual(["phase-or-wave"]);
+    expect(fired("The road map of the segment grammar.")).toEqual([]);
+  });
+
+  it("the plural, # and two-digit forms of an ADR number", () => {
+    expect(fired("Superseded by ADRs 0015 and ADR #0018.")).toEqual(["adr-reference"]);
+    expect(fired("Decided in ADR 23.")).toEqual(["adr-reference"]);
+    expect(fired("ADR here is an adverse drug reaction, and 0015 is a value.")).toEqual([]);
+  });
+
+  it("process commentary, and not a specification, a session or a port", () => {
+    expect(fired("Landed by a later PR.")).toEqual(["internal-jargon"]);
+    expect(fired("This is out of scope for this change.")).toEqual(["internal-jargon"]);
+    expect(fired("This specification, this session and this port are the reader's.")).toEqual([]);
+  });
+
+  it("a planning file, the umbrella as a place, and its work and card directories", () => {
+    expect(fired("Locked by CONTEXT.md.")).toEqual(["internal-repo-path"]);
+    expect(fired("Per the meta-repo's work/specs/ entry and cards/hl7.md.")).toEqual([
+      "internal-repo-path",
+    ]);
+    expect(fired("Recorded in decisions/0015-scope.md.")).toEqual(["internal-repo-path"]);
+    expect(fired("The context and the requirements are in docs-content.")).toEqual([]);
+  });
+
+  it("an image slice in its volume is DICOM's word, and our next slice is not", () => {
+    expect(fired("Slice Location describes the next slice in the volume.")).toEqual([]);
+    expect(fired("The next slice moves the parser.")).toEqual(["internal-jargon"]);
+  });
+});
+
 describe("a missing, empty or unusable axis is refused, naming the axis", () => {
   const required = CONFIG_AXES.filter((axis) => axis.required).map((axis) => axis.name);
 
