@@ -296,3 +296,14 @@ export declare function readPhiExclusions(
  * `node node_modules/@cosyte/script-utils/phi-scan.js [--staged | <path>...]`.
  */
 export declare function runPhiScanCli(argv: string[]): number;
+
+/** Whether a repo-relative path is a JavaScript or TypeScript source, a container of literals. */
+export declare function isSourceLiteralContainer(relPath: string): boolean;
+
+/**
+ * Decode JavaScript and TypeScript string-literal escapes over a whole source (`\u002D`, `\u{2D}`,
+ * `\x2D`, `\n` and the rest), an escaped backslash first, so the document a literal spells can be
+ * scanned. A view, not a parser: it also decodes a `String.raw` template and a comment quoting an
+ * escape.
+ */
+export declare function decodeSourceLiterals(text: string): string;

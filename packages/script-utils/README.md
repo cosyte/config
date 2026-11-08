@@ -551,6 +551,13 @@ every `scanRoots` entry yielded a file the WALK read, naming the starved roots);
 cross-cutting detection floor that finds a dashed SSN shape and an email at an undeclared domain over
 every file, always.
 
+**A JavaScript or TypeScript source is read twice**: as its bytes, and as the document its string
+literals spell, with `\uXXXX`, `\u{...}`, `\xHH` and the single-character escapes decoded (an
+escaped backslash first, so a doubled backslash before `u002D` stays text). The floor and your
+`detect` run over both views, and the decoded view adds only what the raw view did not report, with
+`, escape-encoded in a source literal` on its reason. It is a view, not a parser, so it also decodes a
+`String.raw` template or a comment quoting an escape; an `ID <value>` declaration clears such a hit.
+
 **The RULES, local to your repo, never moved and never shipped in this package.**
 `scripts/phi-allow-list.txt` (the positive declaration that a token is synthetic, tagged `NAME`,
 `DOB`, `ADDR`, `ID`, `EMAILDOMAIN`); `phi-scan-overrides.md` (the `--allow-fixture` audit log, and
