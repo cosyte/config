@@ -339,6 +339,91 @@ export function runPhiScan(config) {
   return new PhiScan(normalizeConfig(config)).run();
 }
 
+/** What a reason says when the hit came from the escape-decoded view of a source literal. */
+const ESCAPED = ", escape-encoded in a source literal";
+
+/** A JavaScript or TypeScript source: a container of string literals, whatever its extension. */
+export function isSourceLiteralContainer(relPath) {
+  return /\.(?:[cm]?ts|[cm]?js|tsx|jsx)$/i.test(relPath);
+}
+
+/**
+ * Decode JavaScript and TypeScript string-literal escapes over a whole source, so the DOCUMENT a
+ * literal spells is scanned and not only the bytes that spell it.
+ *
+ * IT IS A VIEW, NOT A PARSER, AND THAT IS DELIBERATE: it needs no TypeScript dependency in a
+ * zero-dependency engine, and no literal's quoting can defeat it. So it also decodes text that
+ * JavaScript would not: a `String.raw` template, and a comment quoting an escape. Both are real
+ * false-positive classes, and the remedy is the allow-list's `ID <value>`, a whole-value match that
+ * cannot widen. It misses two spellings that evaluate to a dashed identifier, concatenation
+ * (`"123-45-" + "6789"`) and a line continuation, and that is recorded rather than guarded.
+ *
+ * AN ESCAPED BACKSLASH IS CONSUMED FIRST, ON PURPOSE. A doubled backslash is ONE literal backslash,
+ * so a doubled backslash followed by `u002D` decodes to a backslash and that text, not to a dash.
+ * The loop scans left to right, emits the single backslash, and never rescans its own output.
+ *
+ * Ported from terminology's scanner, which carried it before this engine did.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+export function decodeSourceLiterals(text) {
+  let out = "";
+  let i = 0;
+  while (i < text.length) {
+    const ch = text[i];
+    if (ch !== "\\") {
+      out += ch;
+      i += 1;
+      continue;
+    }
+    const next = text[i + 1];
+    if (next === undefined) {
+      out += ch;
+      i += 1;
+      continue;
+    }
+    if (next === "u" && text[i + 2] === "{") {
+      const end = text.indexOf("}", i + 3);
+      const body = end < 0 ? "" : text.slice(i + 3, end);
+      if (end > 0 && /^[0-9a-fA-F]{1,6}$/.test(body)) {
+        const cp = Number.parseInt(body, 16);
+        if (cp <= 0x10ffff) {
+          out += String.fromCodePoint(cp);
+          i = end + 1;
+          continue;
+        }
+      }
+    }
+    if (next === "u" && /^[0-9a-fA-F]{4}$/.test(text.slice(i + 2, i + 6))) {
+      out += String.fromCharCode(Number.parseInt(text.slice(i + 2, i + 6), 16));
+      i += 6;
+      continue;
+    }
+    if (next === "x" && /^[0-9a-fA-F]{2}$/.test(text.slice(i + 2, i + 4))) {
+      out += String.fromCharCode(Number.parseInt(text.slice(i + 2, i + 4), 16));
+      i += 4;
+      continue;
+    }
+    // Single-character escapes. A doubled backslash lands here and emits ONE backslash, which is
+    // never rescanned, so the sequence it introduces stays literal text.
+    out += SIMPLE_ESCAPES[next] ?? next;
+    i += 2;
+  }
+  return out;
+}
+
+/** The single-character escapes, decoded to what they spell. */
+const SIMPLE_ESCAPES = Object.freeze({
+  n: "\n",
+  r: "\r",
+  t: "\t",
+  b: "\b",
+  f: "\f",
+  v: "\v",
+  0: "\0",
+});
+
 class PhiScan {
   /** @param {ReturnType<typeof normalizeConfig>} cfg */
   constructor(cfg) {
@@ -1417,18 +1502,36 @@ class PhiScan {
    * @param {import("./phi-scan.js").Hit[]} hits
    */
   scanCommonShapes(path, content, allow, hits) {
+    for (const m of this.commonShapeMatches(content, allow)) {
+      hits.push({ path, segment: m.segment, reason: m.reason });
+    }
+  }
+
+  /**
+   * The floor's matches WITH the matched token, for one comparison and nothing else: the
+   * escape-decoded view below adds only what the raw pass did not itself find, and "did not find"
+   * is a question about tokens. The token never leaves `scanTarget`; every hit pushed carries a
+   * position and a rule, exactly as `scanCommonShapes` does.
+   *
+   * @param {string} content
+   * @param {import("./phi-scan.js").AllowList} allow
+   * @returns {{ segment: string, reason: string, value: string }[]}
+   */
+  commonShapeMatches(content, allow) {
+    const found = [];
     for (const m of content.matchAll(/\b\d{3}-\d{2}-\d{4}\b/g)) {
       const value = m[0];
       if (allow.ids.has(value.toUpperCase())) continue;
       if (allow.ids.has(value.replace(/\D/g, ""))) continue;
-      hits.push({ path, segment: "(ssn)", reason: "dashed SSN pattern" });
+      found.push({ segment: "(ssn)", reason: "dashed SSN pattern", value });
     }
     for (const m of content.matchAll(/\b[A-Za-z0-9._%+-]+@([A-Za-z0-9.-]+\.[A-Za-z]{2,})\b/g)) {
       const domain = (m[1] ?? "").toLowerCase();
       if (!allow.emailDomains.has(domain)) {
-        hits.push({ path, segment: "(email)", reason: "email with non-test domain" });
+        found.push({ segment: "(email)", reason: "email with non-test domain", value: m[0] });
       }
     }
+    return found;
   }
 
   /**
@@ -1476,33 +1579,81 @@ class PhiScan {
     // carries, and reading that back off the text of a path is a parse of the engine's own prose.
     if (target.origin !== undefined) this.indexLoci.add(locus);
 
-    this.scanCommonShapes(locus, text, allow, hits);
+    const rawMatches = this.commonShapeMatches(text, allow);
+    for (const m of rawMatches) hits.push({ path: locus, segment: m.segment, reason: m.reason });
+    const rawDetected = this.runDetector(locus, text, buf, allow, hits, "");
 
-    const detect = this.cfg.detect;
-    if (detect !== undefined) {
-      try {
-        detect({
-          path: locus,
-          text,
-          bytes: buf,
+    // THE SAME FLOOR, AND THE CALLER'S DETECTOR, OVER THE ESCAPE-DECODED DOCUMENT, IN ADDITION AND
+    // NEVER INSTEAD. A JavaScript or TypeScript source is a container of literals, so its bytes are
+    // the SPELLING of a fixture and not the fixture: a literal can spell a dashed identifier's
+    // separators as `\u002D`, and the raw floor reads past it. Only what the raw pass did not itself
+    // report is added, compared hit to hit (token to token for the floor, rule to rule for a
+    // detector), never by asking whether the bytes appear somewhere, because a `\b`-anchored match
+    // can be present as a substring the raw pass rightly declined.
+    if (isSourceLiteralContainer(target.path)) {
+      const decoded = decodeSourceLiterals(text);
+      if (decoded !== text) {
+        const reported = new Set(rawMatches.map((m) => `${m.segment}\0${m.value}`));
+        for (const m of this.commonShapeMatches(decoded, allow)) {
+          if (reported.has(`${m.segment}\0${m.value}`)) continue;
+          reported.add(`${m.segment}\0${m.value}`);
+          hits.push({ path: locus, segment: m.segment, reason: `${m.reason}${ESCAPED}` });
+        }
+        this.runDetector(
+          locus,
+          decoded,
+          Buffer.from(decoded, "utf8"),
           allow,
-          hit: (h) => {
-            // THE LOCUS AND THE RULE ARE TAKEN; ANY `value` A DETECTOR PASSES IS DROPPED HERE. A
-            // per-standard detector holds the record it parsed, so it is the caller most likely to
-            // hand over a token that is real PHI, and the engine is the side that can refuse to
-            // carry it. Dropping it at the boundary is what makes "no matched value reaches a
-            // report" a property of this engine rather than of every detector's discipline.
-            hits.push({ path: locus, segment: h.segment, reason: h.reason });
-          },
-        });
-      } catch (err) {
-        throw new InvocationError(
-          `the field detector threw on ${locus}: ${err instanceof Error ? err.message : String(err)}`,
+          hits,
+          ESCAPED,
+          rawDetected,
         );
       }
     }
 
     return buf;
+  }
+
+  /**
+   * Run the caller's detector over one view of a target, and return the rules it raised.
+   *
+   * @param {string} locus
+   * @param {string} text
+   * @param {Buffer} bytes
+   * @param {import("./phi-scan.js").AllowList} allow
+   * @param {import("./phi-scan.js").Hit[]} hits
+   * @param {string} suffix Appended to each reason: empty for the raw bytes, a note for the decoded view.
+   * @param {Set<string>} [already] Rules the raw view raised; the decoded view adds only others.
+   * @returns {Set<string>}
+   */
+  runDetector(locus, text, bytes, allow, hits, suffix, already = new Set()) {
+    const raised = new Set();
+    const detect = this.cfg.detect;
+    if (detect === undefined) return raised;
+    try {
+      detect({
+        path: locus,
+        text,
+        bytes,
+        allow,
+        hit: (h) => {
+          // THE LOCUS AND THE RULE ARE TAKEN; ANY `value` A DETECTOR PASSES IS DROPPED HERE. A
+          // per-standard detector holds the record it parsed, so it is the caller most likely to
+          // hand over a token that is real PHI, and the engine is the side that can refuse to
+          // carry it. Dropping it at the boundary is what makes "no matched value reaches a
+          // report" a property of this engine rather than of every detector's discipline.
+          const rule = `${h.segment}\0${h.reason}`;
+          raised.add(rule);
+          if (already.has(rule)) return;
+          hits.push({ path: locus, segment: h.segment, reason: `${h.reason}${suffix}` });
+        },
+      });
+    } catch (err) {
+      throw new InvocationError(
+        `the field detector threw on ${locus}${suffix === "" ? "" : " (its escape-decoded source literals)"}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    return raised;
   }
 
   // -------------------------------------------------------------------------

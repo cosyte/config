@@ -215,6 +215,76 @@ describe("the cross-cutting floor answers to the allow-list on BOTH branches", (
   });
 });
 
+/**
+ * A JAVASCRIPT OR TYPESCRIPT SOURCE IS A CONTAINER OF LITERALS, so its bytes are the spelling of a
+ * fixture and not the fixture. terminology's own scanner decoded string-literal escapes before
+ * matching and this engine did not: a literal spelling a dashed identifier's separators as escapes
+ * passed the raw floor. The decoded view is IN ADDITION to the raw one, never instead.
+ */
+describe("a source literal is read as the document it spells, as well as its bytes", () => {
+  /** The synthetic identifier with each dash spelled by `escape`. */
+  const spelled = (escape: string) => SSN.split("-").join(escape);
+
+  it("finds a dashed identifier whose separators are unicode, braced or hex escapes", () => {
+    for (const escape of ["\\u002D", "\\u{2D}", "\\x2D"]) {
+      write("src/fixture.ts", `export const id = "${spelled(escape)}";\n`);
+      commitAll();
+      const r = run();
+      expect(r.code, `${escape}: ${r.out}`).toBe(1);
+      expect(r.out).toContain("escape-encoded in a source literal");
+      expect(r.out).not.toContain(SSN);
+    }
+  });
+
+  it("does not decode an escaped backslash into a dash", () => {
+    write("src/fixture.ts", `export const id = "${spelled("\\\\u002D")}";\n`);
+    commitAll();
+    expect(run().code).toBe(0);
+  });
+
+  it("does not report a value twice when the raw bytes already carry it", () => {
+    write("src/fixture.ts", `export const id = "${SSN}"; // and a newline escape: \\n\n`);
+    commitAll();
+    const r = run();
+    expect(r.code).toBe(1);
+    expect(r.out.match(/segment=\(ssn\)/g) ?? []).toHaveLength(1);
+    expect(r.out).not.toContain("escape-encoded");
+  });
+
+  it("reads only JavaScript and TypeScript sources this way, not Markdown or text", () => {
+    write("test/fixtures/notes.txt", `id ${spelled("\\u002D")}\n`);
+    commitAll();
+    expect(run().code).toBe(0);
+  });
+
+  it("is cleared by an ID declaration, the allow-list's whole-value match", () => {
+    write("src/fixture.ts", `export const id = "${spelled("\\u002D")}";\n`);
+    commitAll();
+    expect(run().code).toBe(1);
+    write("scripts/phi-allow-list.txt", `EMAILDOMAIN example.com\nID ${SSN}\n`);
+    expect(run().code).toBe(0);
+  });
+
+  it("hands the caller's detector the decoded view too, so an escaped record is parsed", () => {
+    // An HL7 v2 message in a TypeScript fixture spells its segment separator as an escape; only the
+    // decoded view holds the carriage return a field-level detector splits on.
+    write("src/fixture.ts", 'export const msg = "MSH|^~\\\\&|A\\rPID|1||X";\n');
+    commitAll();
+    const views: boolean[] = [];
+    const r = run({
+      detect: (ctx) => {
+        if (ctx.path !== "src/fixture.ts") return;
+        const split = ctx.text.includes("\r");
+        views.push(split);
+        if (split) ctx.hit({ segment: "PID", value: "X", reason: "a PID segment" });
+      },
+    });
+    expect(views).toEqual([false, true]);
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("a PID segment, escape-encoded in a source literal");
+  });
+});
+
 describe("a per-standard detector is handed the locus, and cannot take down the exit contract", () => {
   it("receives the ORIGIN-LABELLED locus for a hit the union found", () => {
     // The rule that used to be a sentence in a comment ("report against `locus`, not `target.path`")
