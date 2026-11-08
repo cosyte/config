@@ -668,7 +668,8 @@ down to protect against a state this repository is already able to be in.
 stored value, no expiry to diary, and no revocation request to make. What can drift is its **scope**,
 and that is what the declaration pins: a per-job `permissions:` block for every job, checked grant by
 grant, plus a refusal when a job declares no block at all and would silently inherit the
-workflow-level grants, `id-token: write` included.
+workflow-level grants. The workflow-level block is read-only, `contents: read`; the writes are on the
+jobs that need them.
 
 - **Issue.** Not applicable, and deliberately so: no human issues this credential. The equivalent act
   is granting it a permission, which is an edit to a `permissions:` block in `release.yml` **and** to
@@ -676,8 +677,8 @@ workflow-level grants, `id-token: write` included.
   merge. `id-token: write` is a grant of this kind with a second meaning: it is the source of
   `GITHUB_OIDC_ID_TOKEN`, the npm credential, so it belongs on `publish` and on nothing else.
 - **Install.** Not applicable. The token is never stored. What is installed is the grant: keep every
-  job's `permissions:` block explicit and minimal, and keep the workflow-level block as the ceiling
-  rather than as a default anyone inherits by accident.
+  job's `permissions:` block explicit and minimal, and keep the workflow-level block read-only, so
+  nothing inherits a write by accident.
 - **Verify.** `pnpm credentials:check` reports every grant that differs from the declaration, in both
   directions, and names any job without a block of its own. In a run, the deployment's log shows the
   token's permissions in the "Set up job" group; `id-token: write` must appear on `publish` and on

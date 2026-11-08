@@ -254,12 +254,14 @@ describe("AC11: the drift check runs in the required job with its exit status bi
   it("REFUSES the step moved out of verify into a job nothing requires", () => {
     // The likeliest quiet regression: the gate still runs and is still green in the UI, and no
     // merge is refused by it, because that job is not the required check.
+    // The step goes first under the actionlint job's `steps:`, whatever job keys precede it.
     const moved = CI.split(`      - run: node ${GATE_SCRIPT}\n`)
       .join("")
-      .split("  actionlint:\n    runs-on: ubuntu-latest\n    steps:\n")
-      .join(
-        `  actionlint:\n    runs-on: ubuntu-latest\n    steps:\n      - run: node ${GATE_SCRIPT}\n`,
+      .replace(
+        /^( {2}actionlint:\n(?: {4}.*\n| {6}.*\n)*? {4}steps:\n)/m,
+        `$1      - run: node ${GATE_SCRIPT}\n`,
       );
+    expect(moved).not.toBe(CI);
     expect(gradeWorkflow(moved).join("\n")).toContain(`no step in ${REQUIRED_JOB} runs`);
     expect(stepsOf(moved, "actionlint").map((s) => s.keys["run"])).toContain(`node ${GATE_SCRIPT}`);
   });

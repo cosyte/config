@@ -1197,11 +1197,18 @@ describe("S0228: config's own two security-workflow callers", () => {
   });
 
   it.each(SECURITY)(
-    "%s calls the org profile repo's reusable of the same name, at @main",
+    "%s calls the org profile repo's reusable of the same name, at the scaffold's published reference",
     (name) => {
-      expect(wiring(readFileSync(join(WORKFLOWS, name), "utf8"))).toContain(
-        `uses: cosyte/.github/.github/workflows/${name}@main`,
-      );
+      // ST37: one published `workflows-*` reference, pinned by its commit, the same one the scaffold
+      // callers name. Never `@main`, which moves on cosyte/.github's clock.
+      const usesLine = (text: string): string | undefined =>
+        wiring(text)
+          .split("\n")
+          .map((line) => line.trim())
+          .find((line) => line.startsWith(`uses: cosyte/.github/.github/workflows/${name}@`));
+      const scaffold = usesLine(readFileSync(join(SCAFFOLD, name), "utf8"));
+      expect(scaffold).toMatch(/@[0-9a-f]{40} # workflows-\d{4}-\d{2}-\d{2}-[0-9a-f]{12}$/);
+      expect(usesLine(readFileSync(join(WORKFLOWS, name), "utf8"))).toBe(scaffold);
     },
   );
 

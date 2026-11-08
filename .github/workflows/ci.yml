@@ -26,11 +26,13 @@ permissions:
 # here is `cosyte-config` `private: true` pinned at 0.0.0 and never versioned by Changesets, so
 # adopting it would withhold every publish on a green run; and the shared workflow tags `v<version>`,
 # which collides when eight packages publish in one run. See RELEASING.md, "Why this repository is not
-# a thin caller of the shared workflow". Pinning every action to a commit SHA is still owed and is
-# unrelated to the caller question.
+# a thin caller of the shared workflow". Every action is pinned to a full commit SHA with its version
+# (ST37 in the umbrella's plans/standards.md), and every job carries a timeout (ST38).
 jobs:
   verify:
     runs-on: ubuntu-latest
+    # About four minutes on a hosted runner (2026-11-08); the margin covers a cold pnpm cache.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -39,14 +41,14 @@ jobs:
         # in engines.node and pinned explicitly on the publish path (release.yml + release-dry-run).
         node: ["22", "24"]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Needed by the release-notes gate below, which classifies HEAD against HEAD^ and reads the
           # changesets a version commit consumed out of the parent tree. A shallow clone has no
           # HEAD^, and the gate would report "no release pending" on every run: green, and blind.
           fetch-depth: 0
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: ${{ matrix.node }}
           cache: pnpm
@@ -158,20 +160,59 @@ jobs:
       - run: pnpm build
       - run: pnpm attw
 
+  # Lints every workflow here with the official actionlint, installed the way the shared cosyte/.github
+  # CI installs it (EN6 in the umbrella's plans/standards.md): rhysd/actionlint's release binary at the
+  # version below, checked against the SHA-256 below before it is unpacked, so a changed asset fails
+  # the job. The pair is the one the shared `actionlint` job pins (cosyte/.github#93); moving to a new
+  # version means changing both values together, here and there. Dependabot cannot see this pin.
+  #
+  # NOT reviewdog/action-actionlint: from v1.75.0 that action installs actionlint by piping a fork's
+  # script to bash, so the org does not use it, and dependabot.yml ignores it. NOT the shared workflow
+  # either: its `actionlint` job is one job of the shared `ci.yml`, which this repository does not call
+  # (see the note above), so the same steps run here, inline, as in marketing#82.
+  #
+  # The job fails on actionlint's own exit status, over every tracked workflow file. shellcheck is
+  # preinstalled on the hosted runner, and actionlint silently skips its shell checks without it, so
+  # the install step refuses to continue when it is missing.
+  #
+  # A REQUIRED CHECK: `config-ci-required-checks` names `actionlint`. The job id is the context, so
+  # renaming it strands every pull request until the ruleset is changed to match. No path filter, so
+  # it cannot be skipped into a pending context.
   actionlint:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      ACTIONLINT_VERSION: "1.7.12"
+      ACTIONLINT_SHA256: "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
     steps:
-      - uses: actions/checkout@v7
-      # THE REPORTER IS `github-pr-check` (the action's default) ONLY ON A PULL REQUEST. A `schedule`
-      # event's payload carries no `repository`, so reviewdog 0.21.2's check reporter creates its
-      # check run at `repos///check-runs`, gets a 404, and exits 1: its fallback to log annotations
-      # covers a 403 only (reviewdog/reviewdog#832). Every nightly run would be red. On every other
-      # event `github-annotations` writes the same annotations without the API call. A push already
-      # ended in that output, by the 403 fallback (this token has no `checks: write`), and sharing
-      # the reporter with `workflow_dispatch` lets a dispatched run prove the nightly path.
-      - uses: reviewdog/action-actionlint@v1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          reporter: ${{ github.event_name == 'pull_request' && 'github-pr-check' || 'github-annotations' }}
+          persist-credentials: false
+
+      - name: Install actionlint at the pinned version and checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          tarball="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          curl -fsSL --retry 3 -o "${RUNNER_TEMP}/${tarball}" \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${tarball}"
+          echo "${ACTIONLINT_SHA256}  ${RUNNER_TEMP}/${tarball}" | sha256sum -c -
+          tar -xzf "${RUNNER_TEMP}/${tarball}" -C "${RUNNER_TEMP}" actionlint
+          "${RUNNER_TEMP}/actionlint" --version
+          shellcheck --version
+
+      - name: actionlint over .github/workflows/
+        shell: bash
+        run: |
+          set -euo pipefail
+          listed="$(git ls-files -- '.github/workflows/*.yml' '.github/workflows/*.yaml')"
+          if [ -z "${listed}" ]; then
+            echo "::error::no workflow file found under .github/workflows/"
+            exit 1
+          fi
+          mapfile -t files <<< "${listed}"
+          "${RUNNER_TEMP}/actionlint" -color "${files[@]}"
+          echo "actionlint clean over ${#files[@]} workflow file(s)."
 
   # Prove the publish pipeline on every push/PR WITHOUT burning a version (REL-PIPE). No registry
   # auth, no upload: `publish --dry-run` exercises the publish command path (the release itself
@@ -183,10 +224,11 @@ jobs:
   # release would fail. Real provenance publish stays gated on the public flip (PUB-FLIP).
   release-dry-run:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: "22.14"
           cache: pnpm
