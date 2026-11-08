@@ -184,11 +184,15 @@ describe("the tarball a consumer installs", () => {
     for (const target of Object.values(manifest.bin)) {
       expect(existsSync(join(installed, target)), `${target} is not in the tarball`).toBe(true);
     }
+    // `CI` is removed because under CI every `--help` is refused: it checks nothing.
+    const env = { ...process.env };
+    delete env["CI"];
     const help = execFileSync(
       process.execPath,
       [join(installed, "bin", "script-utils.js"), "--help"],
       {
         cwd: consumer,
+        env,
         encoding: "utf8",
       },
     );

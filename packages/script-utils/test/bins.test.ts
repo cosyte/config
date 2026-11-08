@@ -1,7 +1,8 @@
 /**
  * The command-line bins of @cosyte/script-utils (D56): one per gate, and `script-utils`, the
  * dispatcher npx runs by the package's own name. Every bin is run here: its `--help`, and one real
- * verdict, so a bin that loads nothing, or loads the gate and never calls it, reds.
+ * verdict, so a bin that loads nothing, or loads the gate and never calls it, reds. Under CI every
+ * `--help` is refused, so a CI step that only asks for help cannot pass.
  *
  * Fixtures are throwaway directories and git repositories in a temp directory; every value is
  * synthetic.
@@ -56,13 +57,28 @@ afterAll(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-function run(bin: string, args: string[], cwd: string): { code: number; out: string } {
+/** The environment of this run with `CI` removed, the way a terminal session sees it. */
+function withoutCi(): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  delete env["CI"];
+  return env;
+}
+
+function run(
+  bin: string,
+  args: string[],
+  cwd: string,
+  env: NodeJS.ProcessEnv = withoutCi(),
+): { code: number; out: string; stdout: string; stderr: string } {
   const r = spawnSync(process.execPath, [join(BIN_DIR, `${bin}.js`), ...args], {
     cwd,
+    env,
     encoding: "utf8",
     timeout: 120_000,
   });
-  return { code: r.status ?? -1, out: `${r.stdout ?? ""}${r.stderr ?? ""}` };
+  const stdout = r.stdout ?? "";
+  const stderr = r.stderr ?? "";
+  return { code: r.status ?? -1, out: `${stdout}${stderr}`, stdout, stderr };
 }
 
 /** A directory with these files, as a git repository with every file tracked when `git` is set. */
@@ -100,10 +116,28 @@ describe("the bin map", () => {
 });
 
 describe.each(GATE_BINS)("%s", (bin) => {
-  it("prints its help and exits 0", () => {
-    const r = run(bin, ["--help"], root);
-    expect(r.code, r.out).toBe(0);
-    expect(r.out.length).toBeGreaterThan(40);
+  it("prints its help and exits 0 at a terminal", () => {
+    for (const flag of ["--help", "-h"]) {
+      const r = run(bin, [flag], root);
+      expect(r.code, r.out).toBe(0);
+      expect(r.stdout.length, flag).toBeGreaterThan(40);
+    }
+  });
+
+  it("refuses --help under CI, so a CI step that only asks for help cannot pass", () => {
+    // A package script `"attw": "cosyte-attw --help"` passed CI having checked nothing.
+    for (const ci of ["true", "1"]) {
+      for (const flag of ["--help", "-h"]) {
+        const r = run(bin, [flag], root, { ...withoutCi(), CI: ci });
+        expect(r.code, `${flag} with CI=${ci}: ${r.out}`).not.toBe(0);
+        expect(r.stdout, `${flag} with CI=${ci}`).toBe("");
+        expect(r.stderr, `${flag} with CI=${ci}`).toContain("refusing --help under CI");
+      }
+    }
+    // `CI=false` and `CI=0` are the runners' own way of saying "not CI".
+    for (const ci of ["false", "0", ""]) {
+      expect(run(bin, ["--help"], root, { ...withoutCi(), CI: ci }).code, `CI=${ci}`).toBe(0);
+    }
   });
 });
 
@@ -207,6 +241,16 @@ describe("script-utils, the dispatcher npx runs by the package's name", () => {
     }
     expect(run("script-utils", [], root).code).toBe(2);
     expect(run("script-utils", ["no-such-gate"], root).code).toBe(2);
+  });
+
+  it("refuses --help under CI, its own and a gate's", () => {
+    const ci = { ...withoutCi(), CI: "true" };
+    const own = run("script-utils", ["--help"], root, ci);
+    expect(own.code).toBe(2);
+    expect(own.stderr).toContain("refusing --help under CI");
+    const gate = run("script-utils", ["readme", "--help"], root, ci);
+    expect(gate.code).toBe(2);
+    expect(gate.stderr).toContain("cosyte-readme: refusing --help under CI");
   });
 
   it("runs a gate and returns its verdict, its help included", () => {

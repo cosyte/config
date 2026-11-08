@@ -2,9 +2,10 @@
 // cosyte-readme: the README gate for the library in the working directory.
 // A bin of @cosyte/script-utils (D56), so a repository with no package.json can run it with
 // `npx -y -p @cosyte/script-utils cosyte-readme`. It forwards every argument to the gate and exits with
-// the gate's own code; `--help` prints what it does and exits 0.
+// the gate's own code; `--help` prints what it does and exits 0, or 2 under CI.
 
 import { runReadmeGate } from "../readme.js";
+import { answerHelp } from "./help.js";
 
 const HELP = `cosyte-readme: check a library README against the house skeleton and npm's size limit.
 
@@ -16,7 +17,7 @@ names its line and rule), 2 the package could not be read.
 
 const args = process.argv.slice(2);
 if (args.includes("--help") || args.includes("-h")) {
-  process.stdout.write(HELP);
+  process.exitCode = answerHelp("cosyte-readme", HELP);
 } else {
   process.exitCode = runReadmeGate({ argv: args });
 }

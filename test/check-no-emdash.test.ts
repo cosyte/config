@@ -675,3 +675,38 @@ describe("[brand] a declared CHANGELOG boundary", () => {
     expect(scannedPaths(listed.stdout)).toContain("CHANGELOG.md");
   });
 });
+
+describe("--help", () => {
+  /** This run's environment with `CI` set as given, or removed. */
+  function env(ci: string | undefined): NodeJS.ProcessEnv {
+    const next = { ...process.env };
+    delete next["CI"];
+    if (ci !== undefined) next["CI"] = ci;
+    return next;
+  }
+
+  function help(ci: string | undefined, flag = "--help") {
+    const result = spawnSync("bash", [GATE, flag], { env: env(ci), encoding: "utf8" });
+    return { code: result.status, stdout: result.stdout, stderr: result.stderr };
+  }
+
+  it("prints the usage and exits 0 at a terminal", () => {
+    for (const flag of ["--help", "-h"]) {
+      const run = help(undefined, flag);
+      expect(run.code, flag).toBe(0);
+      expect(run.stdout, flag).toContain("check-no-emdash.sh --stdin LABEL");
+    }
+    for (const ci of ["false", "0", ""]) expect(help(ci).code, `CI=${ci}`).toBe(0);
+  });
+
+  it("refuses under CI, so a CI step that only asks for help cannot pass", () => {
+    for (const ci of ["true", "1"]) {
+      for (const flag of ["--help", "-h"]) {
+        const run = help(ci, flag);
+        expect(run.code, `${flag} with CI=${ci}`).toBe(1);
+        expect(run.stdout, `${flag} with CI=${ci}`).toBe("");
+        expect(run.stderr).toContain("refusing --help under CI");
+      }
+    }
+  });
+});
