@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.4
+
+### Patch Changes
+
+- c872af7: vitest and `@vitest/coverage-v8` move from 4.1.4 to 4.1.12, which brings `@vitest/mocker` 4.1.12 with them and closes GHSA-82fw-gwwq-j7x9 and GHSA-qxg6-89mg-rqv8 for every repository that installs this package. A consumer that worked around those alerts with an override such as `"@cosyte/process>vitest"` can drop it on this version. Both stay pinned exactly, as every tool here is: the toolchain a consumer runs is the one this package's version names, and `@vitest/coverage-v8` 4.1.12 names vitest 4.1.12 exactly as its peer, so two caret ranges could pair mismatched versions in a consumer's lockfile. One alert this version cannot close for a consumer: eslint, which this package pins at 10.5.0, asks for minimatch ^10, and every minimatch 10 release is inside GHSA-g3hv-75wg-m249. No eslint release accepts minimatch 11 yet, so a consumer that needs that alert closed overrides minimatch to 11.0.1 under `eslint`, `@eslint/config-array` and `@typescript-eslint/typescript-estree`, as config's own root manifest does; minimatch 11.0.1 in turn asks for brace-expansion ^5.0.12, which closes GHSA-6j4f-fj2g-mc7p, GHSA-qhr7-859c-m2p7 and GHSA-q2hr-2g5m-vwhr.
+
 ## 0.1.3
 
 ### Patch Changes
