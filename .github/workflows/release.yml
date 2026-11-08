@@ -230,6 +230,15 @@ jobs:
         if: ${{ steps.pending.outputs.has-changesets == 'false' }}
         run: node scripts/registry-presence.mjs pending --output "$GITHUB_OUTPUT"
 
+      # THE CATALOG MUST BE FRESH BEFORE IT SHIPS. @cosyte/script-utils carries the catalog of our
+      # libraries, and a library's own check of it is advisory, so this is where a stale one is
+      # refused: asked only when the publish arm has something to publish, against each library's
+      # latest release on npm (the public registry, no credential), before an approver is asked for
+      # anything. A red here: `node scripts/catalog.mjs write --npm`, a patch changeset, and release.
+      - name: The catalog must match every library's latest npm release
+        if: ${{ steps.pending.outputs.has-changesets == 'false' && steps.unpublished.outputs.has-unpublished == 'true' }}
+        run: node scripts/catalog.mjs check --npm
+
       - run: pnpm install --frozen-lockfile
       - name: Verify
         run: |

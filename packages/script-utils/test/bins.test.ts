@@ -215,11 +215,14 @@ describe("each bin reaches its gate and returns the gate's verdict", () => {
     expect(r.out).toContain("[dangling]");
   });
 
-  it("cosyte-catalog: refuses a package the catalog does not list, at exit 2", () => {
+  it("cosyte-catalog: notes a package the catalog does not list, and refuses it with --strict", () => {
     const dir = fixture("catalog", {
       "package.json": JSON.stringify({ name: "@cosyte/nothing", description: "x" }),
     });
-    expect(run("cosyte-catalog", [], dir).code).toBe(2);
+    const advisory = run("cosyte-catalog", [], dir);
+    expect(advisory.code, advisory.out).toBe(0);
+    expect(advisory.out).toContain("does not list");
+    expect(run("cosyte-catalog", ["--strict"], dir).code).toBe(2);
   });
 });
 

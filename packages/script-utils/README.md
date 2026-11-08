@@ -375,18 +375,28 @@ record is generated from the package's own `package.json` (name, description, re
 engines, repository, docs and npm URLs) and carries its tier; the data ships as `catalog.json`
 beside the module, and `CATALOG` is that file, frozen.
 
-Each package.json description is that library's one canonical line (ST14), so every library runs
-the check that its description is the catalog's, with no file of its own:
+Each package.json description is that library's one canonical line (ST14). Two sides check it, and
+each checks one thing:
+
+- **cosyte/config keeps the catalog fresh.** `node scripts/catalog.mjs check --npm` compares the
+  committed catalog with every library's latest release on npm. It runs nightly and before each
+  config release, and fails when a library has released a description, release line or engines
+  range the catalog does not carry; `write --npm` regenerates it. npm keeps 255 characters of a
+  description, so a longer one is fresh when npm holds its first 255, and the run notes it.
+- **A library can check its own line, advisory.** With no file of its own:
 
 ```sh
 node node_modules/@cosyte/script-utils/catalog.js              # the package in this directory
 node node_modules/@cosyte/script-utils/catalog.js --dir <path> # another package directory
+node node_modules/@cosyte/script-utils/catalog.js --strict     # a disagreement fails
 ```
 
-Exit 0 means the description is the catalog's, 1 that it is not (both values are printed), and 2
-that the check could not run (no package.json, or a package the catalog does not list). A changed
-description therefore goes through the catalog: regenerate it in cosyte/config
-(`node scripts/catalog.mjs write`), release this package, then move the library to that release.
+It compares the package.json description with the catalog this release of `@cosyte/script-utils`
+carries. A disagreement, or a package the catalog does not list, prints both values as a note and
+exits 0: a library that changes its description is not held red until the next script-utils
+release, because config's check against npm picks the change up once the library is released. Exit
+2 means the check could not run (no package.json, or an argument it does not accept). `--strict`
+restores the gate: 1 for a disagreement, 2 for an unlisted package.
 
 ### The agent-notes checker
 

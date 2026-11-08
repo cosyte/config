@@ -1,0 +1,37 @@
+name: Catalog freshness
+
+# FRESHNESS IS CONFIG'S JOB. The catalog that ships in @cosyte/script-utils
+# (packages/script-utils/catalog.json) is fresh when it says what each library's latest release on
+# npm says: its description, release line and engines range. This reads every library's `latest`
+# manifest from the public registry and compares, nightly and on demand; the release workflow asks
+# the same question before anything is published. A library's own catalog check is advisory, so
+# this run is where a stale catalog turns red.
+#
+# A RED RUN means a library has released a line the catalog does not carry. Run
+# `node scripts/catalog.mjs write --npm`, commit the result with a patch changeset for
+# @cosyte/script-utils, and release it. Pathways is not on npm; its record is graded by
+# `check --self` in CI.
+#
+# Read-only and credential-free: the registry is public, nothing is installed (the script and the
+# module it imports have no dependencies), and nothing is written.
+on:
+  schedule:
+    - cron: "23 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  npm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22.14"
+      - name: The catalog must match every library's latest npm release
+        run: node scripts/catalog.mjs check --npm

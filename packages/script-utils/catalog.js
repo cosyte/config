@@ -8,16 +8,20 @@
 // A site, the org profile, a deck or a knowledgebase page reads that one list instead of keeping
 // its own roster.
 //
-// IT ALSO CARRIES THE CHECK EVERY LIBRARY RUNS. Each package.json description is that library's one
-// canonical line (ST14), so the description in a library's package.json must be the catalog's.
-// When a library changes its description, its check fails until the catalog is regenerated and a
-// script-utils release carries it: the catalog and the package cannot quietly disagree.
+// IT ALSO CARRIES THE CHECK A LIBRARY CAN RUN, AND THAT CHECK IS ADVISORY. Each package.json
+// description is that library's one canonical line (ST14). Keeping the catalog fresh is cosyte/config's
+// job: `scripts/catalog.mjs check --npm` compares the catalog with every library's latest npm release,
+// nightly and before each config release. So a library that changes its description is not held red
+// until the next script-utils release: this check prints both values as a note and exits 0. `--strict`
+// makes a disagreement exit 1 and an unlisted package exit 2, for a caller that wants the old gate.
 //
 //   node node_modules/@cosyte/script-utils/catalog.js              # the package in this directory
 //   node node_modules/@cosyte/script-utils/catalog.js --dir <path> # another package directory
+//   node node_modules/@cosyte/script-utils/catalog.js --strict     # a disagreement fails
 //
-// EXIT CODES, the contract every gate here keeps: 0 the description agrees, 1 it does not, 2 the
-// check could not run (no package.json, or a package the catalog does not list).
+// EXIT CODES: 0 the description agrees, or (advisory) it does not and a note says so; 1 it does not,
+// with --strict; 2 the check could not run (no package.json, a bad argument, or, with --strict, a
+// package the catalog does not list).
 //
 // ZERO DEPENDENCIES AND NO BUILD STEP, like the rest of this package.
 
@@ -192,21 +196,29 @@ export function compareWithCatalog(manifest, catalog = CATALOG) {
 /**
  * Run the check over one package directory and return the exit code. It never exits the process.
  *
- * @param {{ dir?: string, argv?: string[] }} [options] `dir` is the package directory (default:
- *   the working directory). `argv` is the CLI arguments, read only for `--dir <path>`.
- * @returns {0 | 1 | 2} 0 agree, 1 disagree, 2 the check could not run.
+ * ADVISORY BY DEFAULT: a disagreement or an unlisted package is printed as a note and exits 0,
+ * because keeping the catalog fresh is cosyte/config's job (`scripts/catalog.mjs check --npm`).
+ * `strict` (or `--strict`) restores the gate: 1 for a disagreement, 2 for an unlisted package.
+ *
+ * @param {{ dir?: string, argv?: string[], strict?: boolean }} [options] `dir` is the package
+ *   directory (default: the working directory). `argv` is the CLI arguments, read for
+ *   `--dir <path>` and `--strict`.
+ * @returns {0 | 1 | 2} 0 agree (or advisory), 1 disagree under strict, 2 the check could not run.
  */
 export function runCatalogCheck(options = {}) {
   let dir = options.dir ?? process.cwd();
+  let strict = options.strict === true;
   const argv = options.argv ?? [];
   for (let i = 0; i < argv.length; i += 1) {
     if (argv[i] === "--dir" && typeof argv[i + 1] === "string") {
       dir = argv[i + 1];
       i += 1;
+    } else if (argv[i] === "--strict") {
+      strict = true;
     } else if (argv[i] !== "--") {
       process.stderr.write(
         `catalog check: ${JSON.stringify(argv[i])} is not an argument this check accepts (only ` +
-          `--dir <package directory>). Nothing was checked.\n`,
+          `--dir <package directory> and --strict). Nothing was checked.\n`,
       );
       return 2;
     }
@@ -223,8 +235,15 @@ export function runCatalogCheck(options = {}) {
   try {
     differences = compareWithCatalog(manifest);
   } catch (err) {
-    process.stderr.write(`catalog check: ${err.message} Nothing was checked.\n`);
-    return 2;
+    if (strict) {
+      process.stderr.write(`catalog check: ${err.message} Nothing was checked.\n`);
+      return 2;
+    }
+    process.stderr.write(
+      `catalog check: note: ${err.message} The catalog is cosyte/config's to keep fresh; this ` +
+        `check is advisory, so it exits 0.\n`,
+    );
+    return 0;
   }
   if (differences.length === 0) {
     process.stdout.write(`catalog check: ${manifest.name}'s description is the catalog's.\n`);
@@ -237,11 +256,21 @@ export function runCatalogCheck(options = {}) {
         `    catalog:      ${JSON.stringify(d.catalog)}`,
     )
     .join("\n");
+  if (!strict) {
+    process.stderr.write(
+      `catalog check: note: ${manifest.name}'s package.json and the catalog this release of ` +
+        `@cosyte/script-utils carries disagree.\n${report}\n` +
+        `This is advisory and exits 0. Once this package is released with the new description, ` +
+        `cosyte/config's nightly check against npm (scripts/catalog.mjs check --npm) flags the ` +
+        `catalog, and the next script-utils release carries it.\n`,
+    );
+    return 0;
+  }
   process.stderr.write(
     `catalog check: ${manifest.name}'s package.json and the catalog disagree.\n${report}\n` +
-      `The catalog is generated from package.json in cosyte/config (scripts/catalog.mjs) and ` +
-      `ships in @cosyte/script-utils. Change both together: regenerate the catalog, release ` +
-      `script-utils, then move this package to that release.\n`,
+      `The catalog is generated in cosyte/config (scripts/catalog.mjs) and ships in ` +
+      `@cosyte/script-utils. Regenerate it there, release script-utils, then move this package to ` +
+      `that release.\n`,
   );
   return 1;
 }

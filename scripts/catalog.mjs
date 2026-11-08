@@ -13,16 +13,30 @@
 //   node scripts/catalog.mjs write [--root <dir>]   regenerate catalog.json from each package.json
 //   node scripts/catalog.mjs check [--root <dir>]   regenerate in memory and compare with the file
 //   node scripts/catalog.mjs check --self           check the file against catalog/tiers.json alone
+//   node scripts/catalog.mjs check --npm            compare the file with what npm has released
+//   node scripts/catalog.mjs write --npm            regenerate catalog.json from npm's releases
 //
 // The libraries are read as sibling checkouts, `<root>/<slug>/package.json`, with `<root>` the
 // directory above this repository by default: the umbrella, where every repository is a submodule.
 // CI checks out config alone, so CI runs `check --self`, which needs no sibling; `write` and `check`
 // run where the umbrella is, and a sibling that cannot be read is a refusal, never a skip.
 //
+// FRESHNESS IS CONFIG'S JOB, AND `--npm` IS HOW. A library's description is its own, and it reaches
+// readers through a release; the catalog is fresh when it says what each library's latest release on
+// npm says. `--npm` reads each library's `latest` manifest from the public registry instead of a
+// checkout, so it runs anywhere config does: nightly (.github/workflows/catalog-freshness.yml) and in
+// the release workflow before anything is published (through `npm view`, as the registry probe
+// does). Pathways is not on npm, so its record is carried
+// from the committed catalog and graded by `check --self` and `check --root`. npm keeps only the
+// first 255 characters of a description; a description longer than that is fresh when npm holds its
+// first 255 characters, and the run prints a note naming the package, because readers on npm see it
+// cut.
+//
 // Exit codes: 0 written, or the catalog agrees; 1 the committed catalog differs from what it should
 // be; 2 the script could not run (an unreadable tiers file, catalog or package.json, or a bad
 // argument).
 
+import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -74,6 +88,123 @@ export function generate(root, tiers, buildCatalog) {
   }
   try {
     return { ...GENERATED, ...buildCatalog(tiers, manifests) };
+  } catch (err) {
+    throw new InvocationError(err.message);
+  }
+}
+
+/** How many characters of a description npm keeps; the rest is cut from what it serves. */
+export const NPM_DESCRIPTION_LIMIT = 255;
+
+/** A `@cosyte/<name>` package name, the only shape the catalog holds. */
+const PACKAGE_NAME = /^@cosyte\/[a-z0-9][a-z0-9.-]*$/;
+
+/**
+ * The `npm view` arguments that print a package's `latest` manifest as JSON. npm is asked rather
+ * than the registry fetched directly, as scripts/registry-presence.mjs does: one client, one set of
+ * registry settings, and no URL built here.
+ *
+ * @param {string} name A `@cosyte/<name>` package name.
+ * @returns {string[]}
+ */
+export function npmViewArgs(name) {
+  if (!PACKAGE_NAME.test(String(name))) {
+    throw new InvocationError(`${JSON.stringify(name)} is not a @cosyte/<name> package name.`);
+  }
+  return [
+    "view",
+    `${name}@latest`,
+    "--json",
+    "--no-update-notifier",
+    "--prefer-online",
+    "--fetch-retries=0",
+  ];
+}
+
+/**
+ * Read a package's `latest` manifest from the public registry, through `npm view`. npm 10 prints
+ * one object for one version and npm 12 a one-element array; both are read.
+ *
+ * @param {string} name A package name.
+ * @returns {Promise<Record<string, any>>} The manifest npm serves for `latest`.
+ */
+export async function fetchNpmManifest(name) {
+  const run = spawnSync("npm", npmViewArgs(name), {
+    encoding: "utf8",
+    timeout: 60_000,
+    maxBuffer: 16 * 1024 * 1024,
+  });
+  if (run.error !== undefined || run.status !== 0) {
+    const why = run.error?.message ?? `npm view exited ${run.status}: ${String(run.stderr).trim()}`;
+    throw new InvocationError(`could not read ${name}'s latest release from npm: ${why}`);
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(run.stdout);
+  } catch (err) {
+    throw new InvocationError(`npm view's answer for ${name} is not JSON: ${err.message}`);
+  }
+  const manifest = Array.isArray(parsed) ? parsed.at(-1) : parsed;
+  if (manifest === null || typeof manifest !== "object") {
+    throw new InvocationError(`npm view printed no manifest for ${name}.`);
+  }
+  return manifest;
+}
+
+/**
+ * Generate the catalog from each library's latest release on npm. Pathways is not on npm, so its
+ * record is rebuilt from the committed one. A library whose committed description is longer than
+ * npm keeps, and whose npm description is that description's first 255 characters, keeps the full
+ * committed description, and is named in the returned notes.
+ *
+ * @param {Record<string, any>} tiers The parsed tiers file.
+ * @param {{ libraries: object[], engine: object }} committed The committed catalog.
+ * @param {(name: string) => Promise<Record<string, any>>} fetchManifest Reads one `latest` manifest.
+ * @returns {Promise<{ catalog: object, notes: string[] }>} The catalog, with its generated header.
+ */
+export async function generateFromNpm(tiers, committed, fetchManifest = fetchNpmManifest) {
+  const manifests = new Map();
+  const notes = [];
+  const libraries = [...tiers.standards.map((entry) => entry.package), ...tiers.builtOn];
+  for (const name of libraries) {
+    let fetched;
+    try {
+      fetched = await fetchManifest(name);
+    } catch (err) {
+      if (err instanceof InvocationError) throw err;
+      throw new InvocationError(`could not read ${name}'s latest release from npm: ${err.message}`);
+    }
+    const manifest = { ...fetched };
+    const before = committed?.libraries?.find((entry) => entry.name === name)?.description;
+    if (
+      typeof before === "string" &&
+      before.length > NPM_DESCRIPTION_LIMIT &&
+      manifest.description === before.slice(0, NPM_DESCRIPTION_LIMIT)
+    ) {
+      manifest.description = before;
+      notes.push(
+        `${name}'s description is ${before.length} characters and npm keeps ` +
+          `${NPM_DESCRIPTION_LIMIT}, so readers on npm see it cut at ` +
+          `${JSON.stringify(before.slice(NPM_DESCRIPTION_LIMIT - 20, NPM_DESCRIPTION_LIMIT))}.`,
+      );
+    }
+    manifests.set(name, manifest);
+  }
+  const engine = committed?.engine;
+  if (engine === undefined || engine?.name !== tiers.engine.package) {
+    throw new InvocationError(
+      `the committed catalog has no record for ${tiers.engine.package}, and it is not on npm.`,
+    );
+  }
+  manifests.set(engine.name, {
+    name: engine.name,
+    description: engine.description,
+    version: engine.line.includes(".") ? `${engine.line}.0` : `${engine.line}.0.0`,
+    engines: engine.engines,
+    repository: engine.repository,
+  });
+  try {
+    return { catalog: { ...GENERATED, ...buildCatalog(tiers, manifests) }, notes };
   } catch (err) {
     throw new InvocationError(err.message);
   }
@@ -184,7 +315,7 @@ function shapeProblems(record, onNpm) {
 }
 
 /** Field-level differences between two catalogs, one line each. */
-export function diffCatalogs(committed, generated) {
+export function diffCatalogs(committed, generated, source = "package.json") {
   const lines = [];
   const walk = (a, b, path) => {
     if (JSON.stringify(a) === JSON.stringify(b)) return;
@@ -199,7 +330,7 @@ export function diffCatalogs(committed, generated) {
         walk(a[key], b[key], `${path}.${key}`);
       return;
     }
-    lines.push(`${path}: committed ${JSON.stringify(a)}, package.json says ${JSON.stringify(b)}`);
+    lines.push(`${path}: committed ${JSON.stringify(a)}, ${source} says ${JSON.stringify(b)}`);
   };
   walk(committed, generated, "catalog");
   return lines;
@@ -215,17 +346,27 @@ function parseArgs(argv) {
   }
   let root = join(REPO_ROOT, "..");
   let self = false;
+  let npm = false;
+  let rooted = false;
   for (let i = 0; i < rest.length; i += 1) {
     if (rest[i] === "--root" && typeof rest[i + 1] === "string") {
       root = resolve(rest[i + 1]);
+      rooted = true;
       i += 1;
     } else if (rest[i] === "--self" && mode === "check") {
       self = true;
+    } else if (rest[i] === "--npm") {
+      npm = true;
     } else {
       throw new InvocationError(`${JSON.stringify(rest[i])} is not an argument ${mode} accepts.`);
     }
   }
-  return { mode, root, self };
+  if (npm && (self || rooted)) {
+    throw new InvocationError(
+      "--npm reads npm's releases, so it takes neither --self nor --root: pick one source.",
+    );
+  }
+  return { mode, root, self, npm };
 }
 
 /**
@@ -234,10 +375,35 @@ function parseArgs(argv) {
  * @param {string[]} argv
  * @returns {Promise<0 | 1 | 2>}
  */
-export async function main(argv) {
+export async function main(argv, { fetchManifest = fetchNpmManifest } = {}) {
   try {
-    const { mode, root, self } = parseArgs(argv);
+    const { mode, root, self, npm } = parseArgs(argv);
     const tiers = readJson(TIERS_PATH, "the tiers file");
+    if (npm) {
+      const committed = readJson(CATALOG_PATH, "the committed catalog");
+      const { catalog, notes } = await generateFromNpm(tiers, committed, fetchManifest);
+      for (const note of notes) process.stdout.write(`catalog: note: ${note}\n`);
+      if (mode === "write") {
+        writeFileSync(CATALOG_PATH, serialize(catalog));
+        process.stdout.write(
+          `catalog: wrote ${CATALOG_PATH} from the latest npm release of ${tiers.standards.length + tiers.builtOn.length} libraries\n`,
+        );
+        return 0;
+      }
+      const differences = diffCatalogs(committed, catalog, "npm's latest release");
+      if (differences.length > 0) {
+        process.stderr.write(
+          `catalog: the committed catalog is behind what npm has released:\n${differences.map((d) => `  ${d}`).join("\n")}\n` +
+            "Run `node scripts/catalog.mjs write --npm`, commit the result with a patch changeset for " +
+            "@cosyte/script-utils, and release it.\n",
+        );
+        return 1;
+      }
+      process.stdout.write(
+        "catalog: OK (the committed catalog matches every library's latest npm release)\n",
+      );
+      return 0;
+    }
     if (mode === "check" && self) {
       const problems = checkSelf(readJson(CATALOG_PATH, "the committed catalog"), tiers);
       if (problems.length > 0) {

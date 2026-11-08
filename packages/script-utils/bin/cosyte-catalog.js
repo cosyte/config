@@ -9,11 +9,12 @@ import { answerHelp } from "./help.js";
 
 const HELP = `cosyte-catalog: check that a library's package.json description is the catalog's.
 
-  cosyte-catalog [--dir <package directory>]
+  cosyte-catalog [--dir <package directory>] [--strict]
 
-The catalog is the one list of our libraries, generated in cosyte/config from each package.json.
-Exit 0 the description is the catalog's, 1 it is not (both values printed), 2 the package is not
-listed or package.json cannot be read.
+The catalog is the one list of our libraries, generated in cosyte/config, which keeps it fresh
+against npm. This check is advisory: exit 0 when the description is the catalog's, and 0 with both
+values printed when it is not or the package is unlisted; 2 when package.json cannot be read. With
+--strict a disagreement exits 1 and an unlisted package 2.
 `;
 
 const args = process.argv.slice(2);
