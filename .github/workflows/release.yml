@@ -319,6 +319,11 @@ jobs:
         with:
           # `pnpm run version`, NOT `pnpm version`, which is pnpm's built-in and shadows the script.
           version: pnpm run version
+          # A Conventional Commits title and commit subject, which pr-title.yml requires of every PR
+          # and which the squash merge puts on main. The action's default, "Version Packages", is
+          # refused by that check. The shared release workflow sets the same two values.
+          title: "chore(release): version packages"
+          commit: "chore(release): version packages"
           # NO `publish:` INPUT, DELIBERATELY, AND IT IS THIS JOB'S WHOLE SAFETY PROPERTY. The action
           # only ever calls `runPublish` when a publish script was supplied; with none, the version
           # arm is the only arm it can take. Combined with the absent `id-token: write` on this job,
@@ -513,6 +518,9 @@ jobs:
         uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
         with:
           version: pnpm run version
+          # The version arm's title and commit, should this call ever take it: see the version job.
+          title: "chore(release): version packages"
+          commit: "chore(release): version packages"
           # UNCONDITIONAL, AND IT STAYS THAT WAY. This repo does not gate the publish on its own
           # classifier: a classifier that wrongly said "not a release" would withhold a publish on a
           # green run, which is the failure Gate 1 exists to close.
