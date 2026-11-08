@@ -104,6 +104,31 @@
       "why": "The two packages exempted from the trust policy, pinned EXACTLY as a list rather than permitted at any value. Each entry is a hole in the control, so widening the list must be a reviewed diff here as well as in pnpm-workspace.yaml, where each one also carries a `# reason:` comment that scripts/install-hardening.mjs refuses to do without. Version-pinned on both sides, so a later release of either package is graded again rather than inheriting the exemption."
     },
     {
+      "key": "engine-strict",
+      "value": true,
+      "why": "The repository .npmrc, which is the parser template's (scripts/parser-template/.npmrc) and the one every library carries (EN9 in the umbrella's plans/standards.md). It refuses an install on a Node outside a package's engines range. It governs installs, not what is packed or where it is published."
+    },
+    {
+      "key": "save-exact",
+      "value": false,
+      "why": "The repository .npmrc, which is the parser template's (scripts/parser-template/.npmrc) and the one every library carries (EN9 in the umbrella's plans/standards.md). It decides how `pnpm add` writes a new dependency's range into package.json. Nothing in a release adds a dependency, so it never reaches a tarball."
+    },
+    {
+      "key": "save-prefix",
+      "value": "^",
+      "why": "Reported alongside `save-exact = false` from the repository .npmrc, which leaves the range prefix at its default caret. Like `save-exact`, it shapes only what `pnpm add` writes, never a publish."
+    },
+    {
+      "key": "auto-install-peers",
+      "value": true,
+      "why": "The repository .npmrc, which is the parser template's (scripts/parser-template/.npmrc) and the one every library carries (EN9 in the umbrella's plans/standards.md). pnpm's own default, set explicitly; pnpm-lock.yaml records `autoInstallPeers: true`, so the frozen install the release runs is unchanged by it."
+    },
+    {
+      "key": "strict-peer-dependencies",
+      "value": false,
+      "why": "The repository .npmrc, which is the parser template's (scripts/parser-template/.npmrc) and the one every library carries (EN9 in the umbrella's plans/standards.md). pnpm's own default, set explicitly. It decides whether a peer-range mismatch fails an install, not what is packed or where it is published."
+    },
+    {
       "key": "pnpm-field:overrides",
       "value": {
         "@eslint/config-array>minimatch": "11.0.1",
