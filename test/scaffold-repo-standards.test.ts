@@ -191,26 +191,24 @@ describe("workflows", () => {
   const workflows = (): string[] =>
     readdirSync(join(repo, ".github", "workflows")).filter((f) => f.endsWith(".yml"));
 
-  it("calls the shared workflows at one published reference, pinned by commit with its name", () => {
-    // The two security callers are the exception, and a recorded one: their `uses` is part of the
-    // trigger surface @cosyte/process publishes and grades (`SECURITY_WORKFLOW_SURFACES`), which
-    // still names `@main`. They move with that surface, in the same change as the next published
-    // workflows reference (EN2).
-    const SURFACE_PINNED = new Set(["codeql.yml", "scorecard.yml"]);
+  it("calls every shared workflow at one published reference, pinned by commit with its name", () => {
+    // ST37. The two security callers included: @cosyte/process's trigger surface accepts any
+    // published reference, so they move with the rest.
     const refs = new Set<string>();
+    let callers = 0;
     for (const file of workflows()) {
       for (const line of read(`.github/workflows/${file}`).split("\n")) {
         const uses = /^\s*(?:- )?uses: (\S+)(.*)$/.exec(line);
         if (uses === null) continue;
-        if (SURFACE_PINNED.has(file)) {
-          expect(uses[1], file).toBe(`cosyte/.github/.github/workflows/${file}@main`);
-          continue;
-        }
         expect(uses[1], `${file}: ${line.trim()}`).toMatch(/@[0-9a-f]{40}$/);
         expect(uses[2], `${file}: ${line.trim()}`).toMatch(/^ # \S+/);
-        if (uses[1]?.startsWith("cosyte/.github/")) refs.add(`${uses[1].split("@")[1]}${uses[2]}`);
+        if (uses[1]?.startsWith("cosyte/.github/")) {
+          callers += 1;
+          refs.add(`${uses[1].split("@")[1]}${uses[2]}`);
+        }
       }
     }
+    expect(callers).toBe(5);
     expect(refs.size, [...refs].join("\n")).toBe(1);
     expect([...refs][0]).toMatch(/ # workflows-\d{4}-\d{2}-\d{2}-[0-9a-f]{12}$/);
   });

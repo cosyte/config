@@ -300,7 +300,10 @@ gradeWorkflowText("name: Scorecard\n", SECURITY_WORKFLOW_SURFACES["scorecard.yml
 ```
 
 `gradeWorkflowText(text, surface)` returns one finding per differing element, each naming the file
-and the element; an empty array is a pass. `gradeWorkflowFile(path, surface)` grades the file at a
+and the element; an empty array is a pass. A caller's `uses` names the shared workflow at any
+published reference, by commit or by its `workflows-YYYY-MM-DD-<12 hex>` name
+(`PUBLISHED_WORKFLOWS_REFERENCE`), since references move and every caller moves with them; `@main`
+is refused. `gradeWorkflowFile(path, surface)` grades the file at a
 path, and `gradeSecurityWorkflows(repoRoot)` grades both callers of a repository.
 
 A pass means every element of the surface was found and was equal. That the file exists is not one of

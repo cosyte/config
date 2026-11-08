@@ -51,9 +51,9 @@ describe("AC-C9: this repository's canonical caller texts match the surface it p
     },
   );
 
-  it("reports the canonical codeql text when its reusable workflow reference moves", () => {
+  it("reports the canonical codeql text when its reusable workflow reference is not a published one", () => {
     const text = readFileSync(join(TEMPLATE_WORKFLOWS, "codeql.yml"), "utf8");
-    const moved = text.replace("codeql.yml@main", "codeql.yml@v2");
+    const moved = text.replace(/codeql\.yml@[0-9a-f]{40}/, "codeql.yml@v2");
     expect(moved).not.toBe(text);
     expect(gradeWorkflowText(moved, SECURITY_WORKFLOW_SURFACES["codeql.yml"]).join("\n")).toContain(
       "uses",
