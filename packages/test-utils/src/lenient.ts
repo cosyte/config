@@ -138,7 +138,10 @@ export function lenientNeverThrowsProperty<TArb>(options: LenientOptions<TArb>):
         }
       }
     }),
-    { numRuns },
+    // The failing check's own message goes in the thrown error's message. fast-check 4 otherwise
+    // moves it to `cause`, which a runner may not print; fast-check 3 ignores the flag and puts it
+    // in the message already.
+    { numRuns, includeErrorInReport: true },
   );
 }
 

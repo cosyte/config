@@ -101,7 +101,7 @@ export function fakeSpecCleanMessage(): fc.Arbitrary<FakeMessage> {
     .stringMatching(/^[A-Za-z0-9_]{1,8}$/)
     .filter((s) => s.length > 0 && !s.includes("=") && !s.includes(";"));
   return fc
-    .dictionary(token, token, { minKeys: 1, maxKeys: 5 })
+    .dictionary(token, token, { minKeys: 1, maxKeys: 5, noNullPrototype: true })
     .map((fields) => ({ fields, warnings: [] }));
 }
 

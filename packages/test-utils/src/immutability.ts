@@ -110,6 +110,9 @@ export function immutabilityProperty<T>(options: ImmutabilityOptions<T>): void {
         "immutability: the original model's snapshot changed after a mutation attempt. Mutation must throw or return a new instance, never edit in place",
       );
     }),
-    { numRuns },
+    // The failing check's own message goes in the thrown error's message. fast-check 4 otherwise
+    // moves it to `cause`, which a runner may not print; fast-check 3 ignores the flag and puts it
+    // in the message already.
+    { numRuns, includeErrorInReport: true },
   );
 }
