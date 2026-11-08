@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.7
+
+### Patch Changes
+
+- 9d0d69f: Deprecated: the agent-notes checker, `@cosyte/script-utils/agent-notes` and its bin `cosyte-agent-notes`. The agent notes, `documentation/agent-notes.md`, were removed from every Cosyte repository (D62), so remove the package script or CI step that runs it. Until a minor release removes the entry point and the bin, a repository with no notes file (not tracked, or deleted from the working tree) passes: the checker exits 0 with one line, `agent notes: OK, no agent notes (retired, D62)`, where it used to fail on a pointer left in the card, a source comment or a changelog. A repository that still has the file is checked as before, and a failing run ends with a line saying the notes are retired. `--help`, the `script-utils` command list, the declarations and the README say it is deprecated.
+- 9d0d69f: The CLAUDE.md card checker no longer sends detail to `documentation/agent-notes.md`, which was removed from every repository (D62). A card over 5,120 bytes, or with a level-2 heading other than Gate, Hazard and Rules, is told to move the detail to where it is used: a test, a comment at the code it guards, an ADR, the README or docs, or a runbook. What the checker checks, and its exit codes, are unchanged.
+
 ## 0.1.6
 
 ### Patch Changes
