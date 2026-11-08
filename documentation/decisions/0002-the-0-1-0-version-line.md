@@ -1,6 +1,6 @@
 # 0002: The `0.1.0` version line for the eight published `@cosyte/*` packages
 
-- **Status:** Accepted (2026-08-31)
+- **Status:** Accepted (2026-08-31); amended 2026-11-07 (see "Amendment, 2026-11-07" below)
 - **Scope:** the eight packages this repository publishes (`@cosyte/eslint-config`,
   `@cosyte/prettier-config`, `@cosyte/process`, `@cosyte/script-utils`, `@cosyte/test-utils`,
   `@cosyte/tsconfig`, `@cosyte/tsup-config`, `@cosyte/vitest-config`). It does **not** reach the
@@ -91,3 +91,15 @@ retired for them.**
 It is not a release cadence. How often these packages ship is unsettled and is tracked elsewhere;
 nothing in this ADR sets, implies or constrains a frequency. The audit that accompanies it records
 which cadence questions were deliberately left open and why.
+
+## Amendment, 2026-11-07: patch versions on the 0.1 line
+
+Decision 4 above makes the bump type a judgement per change, with `minor` for an addition. On
+2026-11-07 the operator replaced that for these packages, in their words: "do not move anything to a
+minor. do patch versions unless I say otherwise". They gave it when the release carrying five new
+`@cosyte/script-utils` entry points was due, choosing `0.1.3` over `0.2.0`, which would have moved
+that one package off the line the other seven share.
+
+So until the operator says otherwise, every changeset here is `patch`, additions included, and the
+packages stay on the `0.1.x` line together. A removal or a rename is still a breaking change and is
+raised with the operator rather than written as a changeset. Decisions 1 to 3 and 5 stand.
