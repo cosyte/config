@@ -4,6 +4,8 @@ The pnpm workspace that publishes the toolchain every `@cosyte/*` repo builds, l
 with: eight packages under `packages/`, the PHI-scan engine in `script-utils` among them. It
 also holds the estate baseline, `drift-manifest.json`, which `scripts/drift-check.js` checks.
 
+@AGENTS.md
+
 ## Gate
 
 Required checks: `verify (22)` and `verify (24)` (one job, Node 22 and 24) and `actionlint`. Run
@@ -12,25 +14,16 @@ from the repo root after `git add`, since the em-dash gate reads only `git ls-fi
 ```sh
 node scripts/changeset-guard.mjs
 node scripts/release-notes.mjs prepare --repo . --out "$RUNNER_TEMP/release-notes"
-node scripts/credential-surface.mjs
-node scripts/install-hardening.mjs
-node scripts/readme-check.mjs
-node packages/script-utils/claude-card.js
-node scripts/drift-check.js
-pnpm install --frozen-lockfile
-pnpm check:no-emdash
-pnpm format:check
-pnpm typecheck
-pnpm lint
-pnpm test
-pnpm build
-pnpm attw
+node scripts/credential-surface.mjs && node scripts/install-hardening.mjs
+node scripts/readme-check.mjs && node packages/script-utils/claude-card.js
+node scripts/drift-check.js && pnpm install --frozen-lockfile && pnpm check:no-emdash
+pnpm format:check && pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm attw
 actionlint
 ```
 
-- Outside CI: set `RUNNER_TEMP` to a scratch directory; make every `pnpm` on `PATH` 10.34.5, since
-  scripts and tests call a bare `pnpm` and a newer one fails them; and run `drift-check.js` from a
-  copy at `<dir>/config/`, since under any other directory name it exits 2, "nothing was graded".
+- Outside CI: `RUNNER_TEMP` set to a scratch directory, every `pnpm` on `PATH` at 10.34.5 (a newer
+  one fails the scripts and tests that call it bare), and a checkout named `config`, or
+  `drift-check.js` exits 2, "nothing was graded".
 - Not required, but red if they fail: CI's `release-dry-run` job (publish and pack dry runs), and
   `no-emdash.yml`, which also reads the PR title, the PR body and every commit message.
 
