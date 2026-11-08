@@ -52,6 +52,7 @@ const MANIFEST = JSON.parse(RAW_MANIFEST) as Record<string, any>;
 const JS_YAML_DOS = "GHSA-h67p-54hq-rp68";
 const JS_YAML_POLLUTION = "GHSA-5p4m-2wfm-xmqj";
 const ESBUILD = "GHSA-g7r4-m6w7-qqqr";
+const JS_YAML_MERGE = "GHSA-2883-xcg3-v3hh";
 
 const NO_PROBE = () => null;
 const CONTROLS_PASS = () => [];
@@ -147,7 +148,7 @@ function umbrellaWithConfig(files: Record<string, string> = {}): string {
     // moves here and this fixture cannot go stale against the standard it is meant to satisfy.
     "pnpm-workspace.yaml": hardeningSettings(),
     "pnpm-lock.yaml":
-      "lockfileVersion: '9.0'\n\npackages:\n\n  js-yaml@3.15.1: {}\n\n  js-yaml@4.3.1: {}\n\n  esbuild@0.28.1: {}\n",
+      "lockfileVersion: '9.0'\n\npackages:\n\n  js-yaml@3.15.2: {}\n\n  js-yaml@4.3.2: {}\n\n  esbuild@0.28.1: {}\n",
     // The light baseline holds config too, and its four workflows are the only reason a clean run
     // here would otherwise still red. They are empty because only their filenames are graded.
     ".github/workflows/ci.yml": "",
@@ -373,7 +374,7 @@ describe("AC2 and AC6: an override pinned below the first patched version fails"
     const requirements = shippedRequirements();
     const stale = {
       ...requirements,
-      pnpmOverrides: { ...requirements.pnpmOverrides, "js-yaml@>=4.0.0 <4.3.1": "4.3.0" },
+      pnpmOverrides: { ...requirements.pnpmOverrides, "js-yaml@>=4.0.0 <4.3.2": "4.3.0" },
     };
     const { lookup } = stubLookup();
     const advisories = await loadAdvisories({
@@ -389,6 +390,51 @@ describe("AC2 and AC6: an override pinned below the first patched version fails"
     expect(lines).toContain(JS_YAML_POLLUTION);
     expect(lines).toContain("pins js-yaml@4.3.0");
     expect(lines).toContain("its first patched version is 4.3.1");
+  });
+
+  it("refuses the previous js-yaml pins, naming the advisory that moved them", async () => {
+    // 4.3.1 and 3.15.1 were the first patched versions of the two earlier advisories, and are one
+    // patch below GHSA-2883-xcg3-v3hh's. The baseline cites all three, so the old pins red on the
+    // new advisory alone.
+    const requirements = shippedRequirements();
+    const previous = {
+      ...requirements,
+      pnpmOverrides: {
+        ...requirements.pnpmOverrides,
+        "js-yaml@>=4.0.0 <4.3.2": "4.3.1",
+        "js-yaml@>=3.0.0 <3.15.2": "3.15.1",
+      },
+    };
+    for (const source of ["github", "osv"] as const) {
+      const { lookup } = stubLookup(source);
+      const advisories = await loadAdvisories({
+        manifest: { baselines: { package: { groups: { d: { requirements: previous } } } } },
+        fetchAdvisory: lookup,
+      });
+      const lines = (
+        gradeOverrideAdvisories({ requirements: previous, advisories }) as { line: string }[]
+      ).map((f) => f.line);
+
+      expect(
+        lines.some(
+          (l) =>
+            l.includes("pins js-yaml@4.3.1") &&
+            l.includes(JS_YAML_MERGE) &&
+            l.includes("its first patched version is 4.3.2"),
+        ),
+        `graded against the ${source} records`,
+      ).toBe(true);
+      expect(
+        lines.some(
+          (l) =>
+            l.includes("pins js-yaml@3.15.1") &&
+            l.includes(JS_YAML_MERGE) &&
+            l.includes("its first patched version is 3.15.2"),
+        ),
+        `graded against the ${source} records`,
+      ).toBe(true);
+      expect(lines.every((l) => l.includes(JS_YAML_MERGE))).toBe(true);
+    }
   });
 
   it("passes the override that pins exactly the first patched version", async () => {
@@ -447,7 +493,7 @@ describe("AC3: a RESOLVED dependency inside a cited range is reported, not excus
     const resolved = readLockfilePackages(
       readFileSync(join(REPO_ROOT, "pnpm-lock.yaml"), "utf8"),
     ) as Map<string, Set<string>>;
-    expect([...(resolved.get("js-yaml") ?? [])].sort()).toEqual(["3.15.1", "4.3.1"]);
+    expect([...(resolved.get("js-yaml") ?? [])].sort()).toEqual(["3.15.2", "4.3.2"]);
     expect([...(resolved.get("esbuild") ?? [])]).toEqual(["0.28.1"]);
     // Scoped names are quoted in the lockfile and must survive the quoting.
     expect(resolved.has("@esbuild/linux-x64")).toBe(true);
@@ -659,14 +705,14 @@ describe("AC7 and AC10: the exit code the whole run produces", () => {
   it("exits non-zero when an override pins below what the record reports", async () => {
     const path = manifestFile((draft) => {
       const requirements = draft["baselines"].package.groups.dependencies.requirements;
-      requirements.pnpmOverrides["js-yaml@>=4.0.0 <4.3.1"] = "4.3.0";
+      requirements.pnpmOverrides["js-yaml@>=4.0.0 <4.3.2"] = "4.3.0";
     });
     const root = umbrellaWithConfig({
       // The subject's own package.json follows the manifest, so the ONLY thing wrong here is that
       // the pin both files agree on is below the advisory's first patched version.
       "package.json": readFileSync(join(umbrellaWithConfig(), "config", "package.json"), "utf8")
-        .split('"js-yaml@>=4.0.0 <4.3.1": "4.3.1"')
-        .join('"js-yaml@>=4.0.0 <4.3.1": "4.3.0"'),
+        .split('"js-yaml@>=4.0.0 <4.3.2": "4.3.2"')
+        .join('"js-yaml@>=4.0.0 <4.3.2": "4.3.0"'),
     });
     const io = capture();
     const advisories = await loadAdvisories({

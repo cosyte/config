@@ -79,7 +79,12 @@ function tempDir(): string {
  */
 function fixtureAdvisories(): Map<string, unknown> {
   const advisories = new Map<string, unknown>();
-  for (const id of ["GHSA-5p4m-2wfm-xmqj", "GHSA-h67p-54hq-rp68", "GHSA-g7r4-m6w7-qqqr"]) {
+  for (const id of [
+    "GHSA-5p4m-2wfm-xmqj",
+    "GHSA-h67p-54hq-rp68",
+    "GHSA-2883-xcg3-v3hh",
+    "GHSA-g7r4-m6w7-qqqr",
+  ]) {
     advisories.set(id, {
       url: `test/fixtures/advisories/osv-${id}.json`,
       ok: true,
@@ -144,7 +149,7 @@ function umbrellaWithConfig(others: Record<string, Record<string, string>> = {})
     ".changeset/config.json": JSON.stringify({ access: "public", baseBranch: "main" }),
     "pnpm-workspace.yaml": shippedHardeningSettings(),
     "pnpm-lock.yaml":
-      "lockfileVersion: '9.0'\n\npackages:\n\n  js-yaml@3.15.1: {}\n\n  js-yaml@4.3.1: {}\n\n  esbuild@0.28.1: {}\n",
+      "lockfileVersion: '9.0'\n\npackages:\n\n  js-yaml@3.15.2: {}\n\n  js-yaml@4.3.2: {}\n\n  esbuild@0.28.1: {}\n",
     // The light baseline holds config too and asks for these four by name. Empty because only the
     // filenames are graded.
     ".github/workflows/ci.yml": "",

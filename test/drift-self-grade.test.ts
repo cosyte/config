@@ -54,7 +54,12 @@ const CONTROLS_PASS = () => [];
  */
 function fixtureAdvisories(): Map<string, unknown> {
   const advisories = new Map<string, unknown>();
-  for (const id of ["GHSA-5p4m-2wfm-xmqj", "GHSA-h67p-54hq-rp68", "GHSA-g7r4-m6w7-qqqr"]) {
+  for (const id of [
+    "GHSA-5p4m-2wfm-xmqj",
+    "GHSA-h67p-54hq-rp68",
+    "GHSA-2883-xcg3-v3hh",
+    "GHSA-g7r4-m6w7-qqqr",
+  ]) {
     advisories.set(id, {
       url: `test/fixtures/advisories/osv-${id}.json`,
       ok: true,
@@ -128,7 +133,7 @@ function umbrellaWithConfig(files: Record<string, string> = {}): string {
     // and not package.json, so a fixture without one reports a drift about the fixture.
     "pnpm-workspace.yaml": shippedHardeningSettings(),
     "pnpm-lock.yaml":
-      "lockfileVersion: '9.0'\n\npackages:\n\n  js-yaml@3.15.1: {}\n\n  js-yaml@4.3.1: {}\n\n  esbuild@0.28.1: {}\n",
+      "lockfileVersion: '9.0'\n\npackages:\n\n  js-yaml@3.15.2: {}\n\n  js-yaml@4.3.2: {}\n\n  esbuild@0.28.1: {}\n",
     // The LIGHT baseline holds config as well and asks for these four by name. They are empty
     // because only the filenames are graded, and they are here so that a case measuring the SUBJECT
     // is not reading a light-baseline drift by accident.
@@ -180,7 +185,7 @@ describe("AC1: config's own package.json is graded against drift-manifest.json",
   it("reports a divergence between the two override blocks as drift, naming both values", () => {
     // The measured defect, rebuilt: the manifest says one thing, config's own manifest says
     // another, and until this slice nothing compared them.
-    const stale = { ...shippedOverrides(), "js-yaml@>=4.0.0 <4.3.1": "4.2.0" };
+    const stale = { ...shippedOverrides(), "js-yaml@>=4.0.0 <4.3.2": "4.2.0" };
     const root = umbrellaWithConfig({
       "package.json": JSON.stringify({
         name: "cosyte-config",
@@ -203,8 +208,8 @@ describe("AC1: config's own package.json is graded against drift-manifest.json",
     const graded = subjectOf(root);
     const lines = graded.findings.map((f) => f.line);
     expect(graded.skipped).toBe(false);
-    expect(lines.join("\n")).toContain('pnpm.overrides["js-yaml@>=4.0.0 <4.3.1"]');
-    expect(lines.join("\n")).toContain('want "4.3.1", got "4.2.0"');
+    expect(lines.join("\n")).toContain('pnpm.overrides["js-yaml@>=4.0.0 <4.3.2"]');
+    expect(lines.join("\n")).toContain('want "4.3.2", got "4.2.0"');
   });
 
   it("grades the rest of the package baseline too, not the overrides alone", () => {

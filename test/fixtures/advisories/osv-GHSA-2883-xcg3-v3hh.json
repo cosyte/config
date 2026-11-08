@@ -1,0 +1,52 @@
+{
+  "id": "GHSA-2883-xcg3-v3hh",
+  "schema_version": "1.9.0",
+  "affected": [
+    {
+      "package": {
+        "name": "js-yaml",
+        "ecosystem": "npm",
+        "purl": "pkg:npm/js-yaml"
+      },
+      "ranges": [
+        {
+          "type": "SEMVER",
+          "events": [
+            {
+              "introduced": "4.0.0"
+            },
+            {
+              "fixed": "4.3.2"
+            }
+          ]
+        }
+      ],
+      "database_specific": {
+        "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/09/GHSA-2883-xcg3-v3hh/GHSA-2883-xcg3-v3hh.json"
+      }
+    },
+    {
+      "package": {
+        "name": "js-yaml",
+        "ecosystem": "npm",
+        "purl": "pkg:npm/js-yaml"
+      },
+      "ranges": [
+        {
+          "type": "SEMVER",
+          "events": [
+            {
+              "introduced": "3.0.0"
+            },
+            {
+              "fixed": "3.15.2"
+            }
+          ]
+        }
+      ],
+      "database_specific": {
+        "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/09/GHSA-2883-xcg3-v3hh/GHSA-2883-xcg3-v3hh.json"
+      }
+    }
+  ]
+}
