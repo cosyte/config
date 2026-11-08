@@ -2,9 +2,10 @@
 // cosyte-attw: the attw publish gate for the package in the working directory.
 // A bin of @cosyte/script-utils (D56), so a repository with no package.json can run it with
 // `npx -y -p @cosyte/script-utils cosyte-attw`. It forwards every argument to the gate and exits with
-// the gate's own code; `--help` prints what it does and exits 0.
+// the gate's own code; `--help` prints what it does and exits 0, or 2 under CI.
 
 import { runAttwCli } from "../attw.js";
+import { answerHelp } from "./help.js";
 
 const HELP = `cosyte-attw: run the attw publish gate for the package in the working directory.
 
@@ -18,7 +19,7 @@ passed; attw's own status when attw judged the package; 1 a refusal.
 
 const args = process.argv.slice(2);
 if (args.includes("--help") || args.includes("-h")) {
-  process.stdout.write(HELP);
+  process.exitCode = answerHelp("cosyte-attw", HELP);
 } else {
   process.exitCode = runAttwCli(args);
 }

@@ -2,9 +2,10 @@
 // cosyte-phi-scan: the PHI commit-gate over the repository in the working directory.
 // A bin of @cosyte/script-utils (D56), so a repository with no package.json can run it with
 // `npx -y -p @cosyte/script-utils cosyte-phi-scan`. It forwards every argument to the gate and exits with
-// the gate's own code; `--help` prints what it does and exits 0.
+// the gate's own code; `--help` prints what it does and exits 0, or 2 under CI.
 
 import { runPhiScanCli } from "../phi-scan.js";
+import { answerHelp } from "./help.js";
 
 const HELP = `cosyte-phi-scan: run the PHI commit-gate over the repository in the working directory.
 
@@ -20,7 +21,7 @@ values, and scripts/phi-scan.exclude names literal tracked paths to leave out. E
 
 const args = process.argv.slice(2);
 if (args.includes("--help") || args.includes("-h")) {
-  process.stdout.write(HELP);
+  process.exitCode = answerHelp("cosyte-phi-scan", HELP);
 } else {
   process.exitCode = runPhiScanCli(args);
 }

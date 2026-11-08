@@ -338,6 +338,25 @@ if [ "$#" -gt 0 ] && [ "$1" = '--' ]; then
   shift
 fi
 
+usage() {
+  cat << 'USAGE'
+check-no-emdash: refuse the em dash (U+2014) and the en dash (U+2013), as the characters and
+in every encoded form, in the tracked files of the repository it runs in and in their names.
+
+  check-no-emdash.sh                 scan every tracked file and every tracked file name
+  check-no-emdash.sh --stdin LABEL   scan the text on stdin (a PR title, body, commit message)
+  check-no-emdash.sh --list-scanned  write the NUL-separated paths the default scan reads
+  check-no-emdash.sh --self-id       write the sha256 of the implementation that is executing
+
+A repository leaves paths out in scripts/check-no-emdash.exclude: one per line, an entry ending
+in / covers everything beneath it, # starts a comment. A changelog archive is named by a boundary,
+`PATH em-only below LINE` or `PATH unread below LINE`: from the first line of PATH equal to LINE to
+the end, em-only reads for the em dash alone and unread reads nothing; above it, both dashes as
+usual. Exit 0 means the mode completed and found nothing banned; exit 1 means anything else. Under
+CI, --help exits 1: it checks nothing.
+USAGE
+}
+
 case "${1:-}" in
   '')
     MODE=files
@@ -363,21 +382,17 @@ case "${1:-}" in
     fi
     ;;
   --help | -h)
-    cat << 'USAGE'
-check-no-emdash: refuse the em dash (U+2014) and the en dash (U+2013), as the characters and
-in every encoded form, in the tracked files of the repository it runs in and in their names.
-
-  check-no-emdash.sh                 scan every tracked file and every tracked file name
-  check-no-emdash.sh --stdin LABEL   scan the text on stdin (a PR title, body, commit message)
-  check-no-emdash.sh --list-scanned  write the NUL-separated paths the default scan reads
-  check-no-emdash.sh --self-id       write the sha256 of the implementation that is executing
-
-A repository leaves paths out in scripts/check-no-emdash.exclude: one per line, an entry ending
-in / covers everything beneath it, # starts a comment. A changelog archive is named by a boundary,
-`PATH em-only below LINE` or `PATH unread below LINE`: from the first line of PATH equal to LINE to
-the end, em-only reads for the em dash alone and unread reads nothing; above it, both dashes as
-usual. Exit 0 means the mode completed and found nothing banned; exit 1 means anything else.
-USAGE
+    # Under CI the help is a refusal: it prints this text and checks nothing, so a CI step that
+    # runs it must not pass. `CI` set to anything but empty, `false` or `0` is how GitHub Actions
+    # and the other common runners announce themselves.
+    if [ -n "${CI:-}" ] && [ "${CI}" != false ] && [ "${CI}" != 0 ]; then
+      usage >&2
+      echo "ERROR: check-no-emdash - refusing --help under CI (CI=${CI}). It prints this text and" >&2
+      echo "       checks nothing, so a CI step that runs it must not pass. Run the gate without" >&2
+      echo "       --help." >&2
+      exit 1
+    fi
+    usage
     exit 0
     ;;
   *)

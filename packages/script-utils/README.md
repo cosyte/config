@@ -271,6 +271,9 @@ npx -y -p @cosyte/script-utils@0.1 cosyte-readme   # or one gate's own bin
 
 Each runs over the working directory, takes the arguments its gate takes, exits with the gate's own
 code, and prints what it does with `--help`. `script-utils` with no command prints the list and exits 2.
+Under CI (`CI` set to anything but empty, `false` or `0`, as GitHub Actions sets it) `--help` and
+`-h` print to stderr and exit non-zero (2, or 1 for the dash gate, whose only codes are 0 and 1): help
+checks nothing, so a package script that ends in `--help` must not pass a required check.
 
 ### The em-dash gate, which is a file rather than a subpath
 

@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 // script-utils: one entry for every gate in @cosyte/script-utils (D56). npx runs the bin named
 // after the package, so `npx -y @cosyte/script-utils@<version> <command> [args]` reaches each gate
-// from a repository with no package.json. `<command> --help` is the gate's own help.
+// from a repository with no package.json. `<command> --help` is the gate's own help; under CI
+// every `--help` exits 2, because it checks nothing.
 
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+
+import { answerHelp } from "./help.js";
 
 const COMMANDS = {
   "no-emdash": ["cosyte-no-emdash", "the em and en dash gate, over tracked files and their names"],
@@ -31,9 +34,11 @@ ${Object.entries(COMMANDS)
 `;
 
 const [command, ...rest] = process.argv.slice(2);
-if (command === undefined || command === "--help" || command === "-h") {
+if (command === undefined) {
   process.stdout.write(HELP);
-  process.exitCode = command === undefined ? 2 : 0;
+  process.exitCode = 2;
+} else if (command === "--help" || command === "-h") {
+  process.exitCode = answerHelp("script-utils", HELP);
 } else if (!(command in COMMANDS)) {
   process.stderr.write(`script-utils: ${JSON.stringify(command)} is not a command.\n\n${HELP}`);
   process.exitCode = 2;
