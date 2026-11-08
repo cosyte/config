@@ -8,7 +8,9 @@ gates). It also holds the parser template, `scripts/parser-template/`, that
 
 ## Build and test
 
-Use Node.js 22.14 or later and pnpm 10.34.5, the version `packageManager` in `package.json` pins.
+Use Node.js 22.22.2 or later and pnpm 10.34.5, the version `packageManager` in `package.json` pins.
+tsup 9 and eslint-plugin-jsdoc 65 need that Node. The root `engines.node` stays `>=22.14`: it is the
+floor that a package declaring no `engines` of its own reports.
 Scripts and tests call a bare `pnpm`, so put 10.34.5 first on PATH.
 
 ```sh

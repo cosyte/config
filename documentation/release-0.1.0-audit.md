@@ -244,7 +244,10 @@ keeps `node >=22.14`. The remaining five declare no `engines` block at all, befo
 `@cosyte/eslint-config`, `@cosyte/prettier-config`, `@cosyte/tsconfig`, `@cosyte/tsup-config` and
 `@cosyte/vitest-config`. Three plus five is the eight in the table above; the root manifest's
 `node >=22.14` is not a package floor and reaches no consumer, because `cosyte-config` is
-`private: true` and is never published.
+`private: true` and is never published. Two floors rose later, on purpose and outside this
+certification: on 2026-11-08 `@cosyte/process` (from `node >=22.0.0`) and `@cosyte/eslint-config`
+(which had none) both moved to `node >=22.22.2`, the oldest Node that tsup 9 and eslint-plugin-jsdoc
+65 run on.
 
 **Certification.** `0.1.0` removes nothing, renames nothing and narrows nothing on any of the eight
 packages. The only observable difference between `<pkg>@<published>` and `<pkg>@0.1.0` is the

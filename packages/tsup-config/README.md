@@ -41,7 +41,8 @@ least likely to move.
 pnpm add -D @cosyte/tsup-config tsup
 ```
 
-`tsup` is a peer dependency. Node `>=22.14`. ESM only.
+`tsup` (8 or 9) is a peer dependency. Node `>=22.14`; tsup 9 itself needs 22.18 or later. ESM
+only.
 
 ## Usage
 

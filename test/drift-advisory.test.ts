@@ -494,7 +494,9 @@ describe("AC3: a RESOLVED dependency inside a cited range is reported, not excus
       readFileSync(join(REPO_ROOT, "pnpm-lock.yaml"), "utf8"),
     ) as Map<string, Set<string>>;
     expect([...(resolved.get("js-yaml") ?? [])].sort()).toEqual(["3.15.2", "4.3.2"]);
-    expect([...(resolved.get("esbuild") ?? [])]).toEqual(["0.28.1"]);
+    // Two copies, on purpose: tsup 9 depends on esbuild ^0.28.2, while the override pins every range
+    // reaching below 0.28.1 (vite's and bundle-require's esbuild peers among them) to 0.28.1.
+    expect([...(resolved.get("esbuild") ?? [])].sort()).toEqual(["0.28.1", "0.28.2"]);
     // Scoped names are quoted in the lockfile and must survive the quoting.
     expect(resolved.has("@esbuild/linux-x64")).toBe(true);
     // `snapshots:` is a second block with peer-decorated keys and is deliberately not read.
