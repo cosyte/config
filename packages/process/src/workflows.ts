@@ -51,9 +51,28 @@ export interface TriggerSurface {
   readonly concurrency?: { readonly group: string; readonly cancelInProgress: boolean };
   /** The workflow-level permissions, exactly. */
   readonly permissions: WorkflowPermissions;
-  /** The single job's permissions and the reusable workflow it calls. */
+  /**
+   * The single job's permissions and the reusable workflow it calls. `uses` names the workflow
+   * without a ref: the caller's `uses` must be that, `@`, and a published reference
+   * ({@link PUBLISHED_WORKFLOWS_REFERENCE}), because references move and every caller moves with
+   * them (ST37).
+   */
   readonly job: { readonly permissions: WorkflowPermissions; readonly uses: string };
 }
+
+/**
+ * A ref that names a published reference of the shared workflows: the commit it was cut from
+ * (forty hex digits, with the reference's name beside it as a comment), or the
+ * `workflows-YYYY-MM-DD-<12 hex>` tag itself. `@main` is neither: it moves on cosyte/.github's
+ * clock rather than the caller's, which is what ST37 retired.
+ *
+ * @example
+ * PUBLISHED_WORKFLOWS_REFERENCE.test("498c7c13c8869bf11b67fa8324684ec2dc691ec6"); // => true
+ * PUBLISHED_WORKFLOWS_REFERENCE.test("workflows-2026-11-07-498c7c13c886"); // => true
+ * PUBLISHED_WORKFLOWS_REFERENCE.test("main"); // => false
+ */
+export const PUBLISHED_WORKFLOWS_REFERENCE =
+  /^(?:[0-9a-f]{40}|workflows-\d{4}-\d{2}-\d{2}-[0-9a-f]{12})$/;
 
 /** The directory a caller has to live in for GitHub to run it at all. */
 export const WORKFLOW_DIRECTORY = ".github/workflows";
@@ -74,7 +93,7 @@ export const SECURITY_WORKFLOW_SURFACES: Readonly<Record<SecurityWorkflowFile, T
     permissions: { contents: "read" },
     job: {
       permissions: { "security-events": "write", contents: "read", actions: "read" },
-      uses: "cosyte/.github/.github/workflows/codeql.yml@main",
+      uses: "cosyte/.github/.github/workflows/codeql.yml",
     },
   },
   "scorecard.yml": {
@@ -86,7 +105,7 @@ export const SECURITY_WORKFLOW_SURFACES: Readonly<Record<SecurityWorkflowFile, T
     permissions: { contents: "read" },
     job: {
       permissions: { contents: "read", "security-events": "write", "id-token": "write" },
-      uses: "cosyte/.github/.github/workflows/scorecard.yml@main",
+      uses: "cosyte/.github/.github/workflows/scorecard.yml",
     },
   },
 };
@@ -244,8 +263,28 @@ function gradeJob(surface: TriggerSurface, root: YamlMapping): string[] {
       surface.job.permissions,
       job["permissions"],
     ),
-    ...gradeValue(file, `jobs.${id}.uses`, surface.job.uses, job["uses"]),
+    ...gradeUses(file, `jobs.${id}.uses`, surface.job.uses, job["uses"]),
   ];
+}
+
+/**
+ * Grade a `uses` value: the surface's workflow, `@`, and a published reference.
+ * @internal
+ */
+function gradeUses(
+  file: string,
+  element: string,
+  workflow: string,
+  got: YamlValue | undefined,
+): string[] {
+  const want = `${workflow}@<a published workflows-* reference, by commit or by name>`;
+  if (typeof got !== "string" || !got.startsWith(`${workflow}@`)) {
+    return [`${file}: ${element}: want ${want}, got ${show(got)}`];
+  }
+  const ref = got.slice(workflow.length + 1);
+  return PUBLISHED_WORKFLOWS_REFERENCE.test(ref)
+    ? []
+    : [`${file}: ${element}: want ${want}, got ${show(got)}`];
 }
 
 /**

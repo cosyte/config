@@ -71,6 +71,7 @@ export {
   gradeWorkflowText,
   SECURITY_WORKFLOW_FILES,
   SECURITY_WORKFLOW_SURFACES,
+  PUBLISHED_WORKFLOWS_REFERENCE,
   type SecurityWorkflowFile,
   type TriggerSurface,
   WORKFLOW_DIRECTORY,

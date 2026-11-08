@@ -46,7 +46,7 @@ jobs:
       security-events: write # upload the SARIF to the Security tab
       contents: read
       actions: read
-    uses: cosyte/.github/.github/workflows/codeql.yml@main
+    uses: cosyte/.github/.github/workflows/codeql.yml@498c7c13c8869bf11b67fa8324684ec2dc691ec6 # workflows-2026-11-07-498c7c13c886
 `;
 
 const SCORECARD = `name: Scorecard
@@ -66,7 +66,7 @@ jobs:
       contents: read # required to resolve the reusable workflow
       security-events: write # upload the SARIF to the Security tab
       id-token: write # publish results to the OpenSSF API (for the badge)
-    uses: cosyte/.github/.github/workflows/scorecard.yml@main
+    uses: cosyte/.github/.github/workflows/scorecard.yml@498c7c13c8869bf11b67fa8324684ec2dc691ec6 # workflows-2026-11-07-498c7c13c886
 `;
 
 const codeqlSurface = SECURITY_WORKFLOW_SURFACES["codeql.yml"];
@@ -154,8 +154,24 @@ describe("AC-C8: each differing element is named", () => {
       element: "codeql.yml: on.pull_request.branches",
     },
     {
-      what: "a moved reusable workflow reference",
-      text: CODEQL.replace("codeql.yml@main", "codeql.yml@v1"),
+      what: "a reference that is not a published one",
+      text: CODEQL.replace("codeql.yml@498c7c13c8869bf11b67fa8324684ec2dc691ec6", "codeql.yml@v1"),
+      element: "codeql.yml: jobs.codeql.uses",
+    },
+    {
+      what: "a reference back on main, which moves on cosyte/.github's clock",
+      text: CODEQL.replace(
+        "codeql.yml@498c7c13c8869bf11b67fa8324684ec2dc691ec6",
+        "codeql.yml@main",
+      ),
+      element: "codeql.yml: jobs.codeql.uses",
+    },
+    {
+      what: "another repository's workflow at a published reference",
+      text: CODEQL.replace(
+        "cosyte/.github/.github/workflows/codeql.yml@",
+        "evil/.github/.github/workflows/codeql.yml@",
+      ),
       element: "codeql.yml: jobs.codeql.uses",
     },
     {
@@ -190,10 +206,24 @@ describe("AC-C8: each differing element is named", () => {
     },
     {
       what: "a second job",
-      text: `${CODEQL}  extra:\n    uses: cosyte/.github/.github/workflows/codeql.yml@main\n`,
+      text: `${CODEQL}  extra:\n    uses: cosyte/.github/.github/workflows/codeql.yml@498c7c13c8869bf11b67fa8324684ec2dc691ec6\n`,
       element: "codeql.yml: jobs",
     },
   ];
+
+  it("accepts any published reference, by commit or by name, so a caller can move with them", () => {
+    for (const ref of [
+      "498c7c13c8869bf11b67fa8324684ec2dc691ec6",
+      "workflows-2026-11-07-498c7c13c886",
+      "workflows-2026-12-01-0123456789ab",
+    ]) {
+      const text = CODEQL.replace(
+        "codeql.yml@498c7c13c8869bf11b67fa8324684ec2dc691ec6",
+        `codeql.yml@${ref}`,
+      );
+      expect(gradeWorkflowText(text, codeqlSurface), ref).toEqual([]);
+    }
+  });
 
   it.each(mutations)("names the element for $what", ({ text, element }) => {
     const findings = gradeWorkflowText(text, codeqlSurface);
