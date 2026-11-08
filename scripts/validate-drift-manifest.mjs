@@ -318,6 +318,16 @@ export function checkInvariants(manifest) {
 
   // 1. Every submodule path is claimed by exactly one baseline, and no baseline invents a repo.
   const estate = new Set(manifest.estate.submodulePaths);
+  // ...and a private repo is one the estate carries: a name it does not would exempt nothing and
+  // read, to anyone checking, as though some repo were spared the public-only workflows.
+  for (const [index, repo] of (manifest.estate.privateRepos ?? []).entries()) {
+    if (!estate.has(repo)) {
+      errors.push(
+        `estate.privateRepos[${index}]: ${JSON.stringify(repo)} is not one of ` +
+          `estate.submodulePaths, so it names a repo the estate does not list`,
+      );
+    }
+  }
   const claimedBy = new Map();
   for (const [name, baseline] of Object.entries(manifest.baselines)) {
     for (const [index, repo] of baseline.repos.entries()) {
@@ -399,7 +409,10 @@ export function checkInvariants(manifest) {
   const requiredWorkflowsBy = new Map();
   for (const [baselineName, baseline] of Object.entries(manifest.baselines)) {
     for (const [groupName, group] of Object.entries(baseline.groups)) {
-      for (const workflow of group.requirements.requiredWorkflows ?? []) {
+      for (const workflow of [
+        ...(group.requirements.requiredWorkflows ?? []),
+        ...(group.requirements.requiredWorkflowsIfPublic ?? []),
+      ]) {
         if (!requiredWorkflowsBy.has(workflow)) {
           requiredWorkflowsBy.set(workflow, `baselines.${baselineName}.groups.${groupName}`);
         }
