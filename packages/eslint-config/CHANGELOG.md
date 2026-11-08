@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.3
+
+### Patch Changes
+
+- 958b55b: The `typescript-eslint` range now starts at 8.72.1 (was 8.62.0), the version this package is linted
+  and tested with. Same major, so the peer ranges are unchanged.
+
 ## 0.1.2
 
 ### Patch Changes
