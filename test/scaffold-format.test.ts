@@ -174,6 +174,10 @@ function scaffold(
  * would be a claim about the template, and it would go stale the first time the template grows a
  * directory. The shape is asserted, so a restructure reds LOUDLY instead of quietly reducing this
  * suite to checking an empty set, which is the never-pointed-at-its-input failure the item is about.
+ *
+ * A script that delegates to @cosyte/process (`cosyte-process format`, `cosyte-process format
+ * --check`) runs prettier over the `format.globs` of the emitted `cosyte-process.config.json`, which
+ * replace the runner's baseline globs wholesale, so those are what it hands prettier.
  */
 function emittedGlobs(dir: string, scriptName: "format" | "format:check"): string[] {
   const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as {
@@ -181,6 +185,22 @@ function emittedGlobs(dir: string, scriptName: "format" | "format:check"): strin
   };
   const script = (pkg.scripts?.[scriptName] ?? "").trim();
   const flag = scriptName === "format" ? "--write" : "--check";
+  const delegated =
+    scriptName === "format" ? "cosyte-process format" : "cosyte-process format --check";
+  if (script === delegated) {
+    const overrides = JSON.parse(readFileSync(join(dir, "cosyte-process.config.json"), "utf8")) as {
+      format?: { globs?: unknown };
+    };
+    const globs = overrides.format?.globs;
+    if (!Array.isArray(globs) || globs.length === 0) {
+      throw new Error(
+        `The emitted "${scriptName}" script delegates to cosyte-process, but the emitted ` +
+          `cosyte-process.config.json declares no format.globs, so this suite can no longer derive ` +
+          `what the new repo checks. Do not narrow it to get green.`,
+      );
+    }
+    return globs as string[];
+  }
   const matched = new RegExp(`^prettier ${flag} ((?:"[^"]+"\\s*)+)$`).exec(script);
   if (!matched) {
     throw new Error(

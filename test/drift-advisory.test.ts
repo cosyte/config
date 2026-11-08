@@ -148,7 +148,7 @@ function umbrellaWithConfig(files: Record<string, string> = {}): string {
     // moves here and this fixture cannot go stale against the standard it is meant to satisfy.
     "pnpm-workspace.yaml": hardeningSettings(),
     "pnpm-lock.yaml":
-      "lockfileVersion: '9.0'\n\npackages:\n\n  js-yaml@3.15.2: {}\n\n  js-yaml@4.3.2: {}\n\n  esbuild@0.28.1: {}\n",
+      "lockfileVersion: '9.0'\n\npackages:\n\n  js-yaml@3.15.2: {}\n\n  js-yaml@4.3.2: {}\n\n  esbuild@0.28.2: {}\n",
     // The light baseline holds config too, and its four workflows are the only reason a clean run
     // here would otherwise still red. They are empty because only their filenames are graded.
     ".github/workflows/ci.yml": "",
@@ -318,7 +318,7 @@ describe("AC5: an override that cites no advisory in machine-readable form is dr
       line: string;
     }[];
     const line = findings.map((f) => f.line).join("\n");
-    expect(line).toContain('pnpmOverrides["esbuild@>=0.27.3 <0.28.1"]: cites no advisory');
+    expect(line).toContain('pnpmOverrides["esbuild@>=0.27.3 <0.28.2"]: cites no advisory');
     expect(line).toContain("a prose note beside it is not a citation");
     // Nothing was consulted for it, which is the half a message could otherwise fake.
     expect(asked).not.toContain(ESBUILD);
@@ -330,7 +330,7 @@ describe("AC5: an override that cites no advisory in machine-readable form is dr
       ...requirements,
       pnpmOverrideAdvisories: {
         ...requirements.pnpmOverrideAdvisories,
-        "esbuild@>=0.27.3 <0.28.1": { ecosystem: "npm", package: "js-yaml", advisories: [ESBUILD] },
+        "esbuild@>=0.27.3 <0.28.2": { ecosystem: "npm", package: "js-yaml", advisories: [ESBUILD] },
       },
     };
     const { lookup } = stubLookup();
@@ -438,7 +438,7 @@ describe("AC2 and AC6: an override pinned below the first patched version fails"
   });
 
   it("passes the override that pins exactly the first patched version", async () => {
-    // esbuild is the clean case in the shipped baseline: pinned at 0.28.1, which is where
+    // esbuild is the clean case in the shipped baseline: pinned at 0.28.2, one patch above where
     // GHSA-g7r4-m6w7-qqqr first patches. A suite of nothing but failures proves nothing.
     const requirements = shippedRequirements();
     const { lookup } = stubLookup();
@@ -483,7 +483,7 @@ describe("AC2 and AC6: an override pinned below the first patched version fails"
     )
       .map((f) => f.line)
       .join("\n");
-    expect(lines).toContain("pins esbuild@0.28.1");
+    expect(lines).toContain("pins esbuild@0.28.2");
     expect(lines).toContain("its first patched version is 0.29.0");
   });
 });
@@ -494,9 +494,9 @@ describe("AC3: a RESOLVED dependency inside a cited range is reported, not excus
       readFileSync(join(REPO_ROOT, "pnpm-lock.yaml"), "utf8"),
     ) as Map<string, Set<string>>;
     expect([...(resolved.get("js-yaml") ?? [])].sort()).toEqual(["3.15.2", "4.3.2"]);
-    // Two copies, on purpose: tsup 9 depends on esbuild ^0.28.2, while the override pins every range
-    // reaching below 0.28.1 (vite's and bundle-require's esbuild peers among them) to 0.28.1.
-    expect([...(resolved.get("esbuild") ?? [])].sort()).toEqual(["0.28.1", "0.28.2"]);
+    // One copy: tsup 9 depends on esbuild ^0.28.2, and the override pins every range reaching below
+    // 0.28.2 (vite's and bundle-require's esbuild peers among them) to that same 0.28.2.
+    expect([...(resolved.get("esbuild") ?? [])].sort()).toEqual(["0.28.2"]);
     // Scoped names are quoted in the lockfile and must survive the quoting.
     expect(resolved.has("@esbuild/linux-x64")).toBe(true);
     // `snapshots:` is a second block with peer-decorated keys and is deliberately not read.

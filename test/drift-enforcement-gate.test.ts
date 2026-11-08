@@ -149,7 +149,7 @@ function umbrellaWithConfig(others: Record<string, Record<string, string>> = {})
     ".changeset/config.json": JSON.stringify({ access: "public", baseBranch: "main" }),
     "pnpm-workspace.yaml": shippedHardeningSettings(),
     "pnpm-lock.yaml":
-      "lockfileVersion: '9.0'\n\npackages:\n\n  js-yaml@3.15.2: {}\n\n  js-yaml@4.3.2: {}\n\n  esbuild@0.28.1: {}\n",
+      "lockfileVersion: '9.0'\n\npackages:\n\n  js-yaml@3.15.2: {}\n\n  js-yaml@4.3.2: {}\n\n  esbuild@0.28.2: {}\n",
     // The light baseline holds config too and asks for these four by name. Empty because only the
     // filenames are graded.
     ".github/workflows/ci.yml": "",

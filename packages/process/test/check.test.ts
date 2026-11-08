@@ -4,12 +4,13 @@ import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 
 import { cleanupTempDirs, useFixture } from "./helpers.js";
-import { checkWiring, expectedScriptBody, RESERVED_VARIANTS } from "../src/check.js";
+import { checkWiring, expectedScriptBody, pinnedVitest, RESERVED_VARIANTS } from "../src/check.js";
 import { OVERRIDE_FILE } from "../src/overrides.js";
 
 /**
  * Term 8: `check`'s scope is the five delegated verb scripts, any PRESENT reserved variant script,
- * and the override file. Nothing else in a consumer's package.json is graded.
+ * the override file, and a direct vitest if one is declared. Nothing else in a consumer's
+ * package.json is graded.
  */
 
 afterAll(cleanupTempDirs);
@@ -108,6 +109,68 @@ describe("drifted wiring", () => {
     editScript(dir, "lint", undefined);
     writeFileSync(join(dir, OVERRIDE_FILE), "{ not json");
     expect(checkWiring(dir)).toHaveLength(3);
+  });
+});
+
+/** Declare vitest in a fixture copy's dependency field, the way `pnpm add -D vitest@<spec>` would. */
+function declareVitest(
+  dir: string,
+  field: "dependencies" | "devDependencies",
+  spec: string | number,
+): void {
+  const path = join(dir, "package.json");
+  const manifest = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+  manifest[field] = { ...(manifest[field] as Record<string, unknown> | undefined), vitest: spec };
+  writeFileSync(path, `${JSON.stringify(manifest, null, 2)}\n`);
+}
+
+describe("a direct vitest, kept for the types test files import", () => {
+  const own = JSON.parse(readFileSync(join(import.meta.dirname, "..", "package.json"), "utf8")) as {
+    dependencies: Record<string, string>;
+  };
+
+  it("reads the pin from this package's own manifest, an exact version", () => {
+    expect(pinnedVitest()).toBe(own.dependencies["vitest"]);
+    expect(pinnedVitest()).toMatch(/^\d+\.\d+\.\d+$/);
+  });
+
+  it("passes a consumer that declares none", () => {
+    expect(checkWiring(useFixture("wired"))).toEqual([]);
+  });
+
+  it("passes a consumer that pins exactly the version this package runs", () => {
+    const dir = useFixture("wired");
+    declareVitest(dir, "devDependencies", pinnedVitest());
+    expect(checkWiring(dir)).toEqual([]);
+  });
+
+  it.each([
+    ["a caret range", `^${own.dependencies["vitest"] ?? ""}`],
+    ["another patch on the same line", "5.1.1"],
+    ["the previous major", "4.1.12"],
+    ["a non-string", 5],
+  ])("names %s as a violation", (_label, spec) => {
+    const dir = useFixture("wired");
+    declareVitest(dir, "devDependencies", spec);
+    const violations = checkWiring(dir);
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toContain(`devDependencies "vitest" is ${JSON.stringify(spec)}`);
+    expect(violations[0]).toContain(`expected exactly: ${pinnedVitest()}`);
+  });
+
+  it("is the version the README tells a consumer to pin", () => {
+    const readme = readFileSync(join(import.meta.dirname, "..", "README.md"), "utf8");
+    const named = [...readme.matchAll(/vitest@(\d+\.\d+\.\d+)/g)].map((m) => m[1]);
+    expect(named.length).toBeGreaterThan(0);
+    for (const version of named) expect(version).toBe(pinnedVitest());
+  });
+
+  it("grades vitest under dependencies as well as devDependencies", () => {
+    const dir = useFixture("wired");
+    declareVitest(dir, "dependencies", "4.1.12");
+    const violations = checkWiring(dir);
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toContain('dependencies "vitest" is "4.1.12"');
   });
 });
 

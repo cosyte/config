@@ -376,7 +376,14 @@ function resolveFormatter() {
 }
 
 /**
- * The prettier argv the emitted repo's own `format` / `format:check` script uses.
+ * The prettier globs the emitted repo's own `format` / `format:check` script uses.
+ *
+ * Two shapes are read. A literal `prettier --write "<glob>" ...` body names its globs inline. A
+ * body that delegates to @cosyte/process (`cosyte-process format`, `cosyte-process format --check`)
+ * runs prettier over the `format.globs` the emitted `cosyte-process.config.json` declares, which
+ * replace the baseline's globs wholesale; the template carries that file so the delegated script
+ * still reads the whole tree. A delegated body with no such globs is refused rather than resolved
+ * to @cosyte/process's baseline, which this generator would have to restate.
  *
  * The shape is asserted rather than loosely pattern-matched, so restructuring the template's script
  * fails LOUDLY here instead of silently formatting nothing. A generator that formats an empty set
@@ -406,6 +413,9 @@ function emittedPrettierGlobs(pkgPath, scriptName) {
   }
   const script = String(pkg.scripts?.[scriptName] ?? "").trim();
   const flag = scriptName === "format" ? "--write" : "--check";
+  const delegated =
+    scriptName === "format" ? "cosyte-process format" : "cosyte-process format --check";
+  if (script === delegated) return delegatedFormatGlobs(dirname(pkgPath), scriptName);
   const shape = new RegExp(`^prettier ${flag} ((?:"[^"]+"\\s*)+)$`);
   const matched = shape.exec(script);
   if (!matched) {
@@ -416,6 +426,29 @@ function emittedPrettierGlobs(pkgPath, scriptName) {
     );
   }
   return [...matched[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+}
+
+/** The `format.globs` the emitted `cosyte-process.config.json` declares, for a delegated script. */
+function delegatedFormatGlobs(destDir, scriptName) {
+  const overridePath = join(destDir, "cosyte-process.config.json");
+  let globs;
+  try {
+    globs = JSON.parse(readFileSync(overridePath, "utf8"))?.format?.globs;
+  } catch (error) {
+    fail(
+      `the template's "${scriptName}" script delegates to cosyte-process, but ${overridePath} ` +
+        `could not be read (${error.code ?? error.message}), so this generator can no longer ` +
+        `derive what to format on emit. Do not drop the format step to get green.`,
+    );
+  }
+  if (!Array.isArray(globs) || globs.length === 0 || !globs.every((g) => typeof g === "string")) {
+    fail(
+      `the template's "${scriptName}" script delegates to cosyte-process, but ${overridePath} ` +
+        `declares no non-empty "format.globs" string array, so this generator can no longer ` +
+        `derive what to format on emit. Do not drop the format step to get green.`,
+    );
+  }
+  return globs;
 }
 
 /**

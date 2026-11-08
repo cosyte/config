@@ -17,7 +17,10 @@ import {
 import { resolveToolBin } from "../src/resolve.js";
 
 /**
- * Term 5 under Amendment 1: the consumer may declare its own vitest, and it changes nothing.
+ * Term 5 under Amendment 1: the consumer may declare its own vitest, and it changes nothing about
+ * which vitest runs. (`cosyte-process check` asks that a declared vitest be exactly the version this
+ * package pins, for the types test files import; this fixture declares another patch on purpose, so
+ * that the two copies can be told apart, and so it fails `check`.)
  *
  * `cosyte-process test` resolves vitest inside @cosyte/process's own installation (src/resolve.ts
  * walks node_modules upward from `import.meta.dirname`) and spawns that bin file with the current
@@ -83,8 +86,12 @@ describe("a consumer that declares its own vitest on the same major line", () =>
       devDependencies: Record<string, string>;
     };
     expect(manifest.devDependencies["vitest"]).toBe(fixture.consumerVersion);
-    // Declaring it leaves the wiring conforming (term 6), so this is a consumer in good standing.
-    expect(runCli(["check"], fixture.dir).code).toBe(0);
+    // Declaring it at a version other than the one this package runs is a wiring violation, which
+    // `check` names; what the rest of this suite proves is that `test` still runs THIS package's
+    // vitest regardless, so a stale direct copy can mistype a test but never change the runner.
+    const checked = runCli(["check"], fixture.dir);
+    expect(checked.code).toBe(1);
+    expect(checked.stderr).toContain(`devDependencies "vitest" is "${fixture.consumerVersion}"`);
 
     // The consumer's copy is where an install puts it, bin shim included.
     expect(existsSync(join(fixture.dir, "node_modules", "vitest", "package.json"))).toBe(true);

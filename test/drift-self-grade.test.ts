@@ -133,7 +133,7 @@ function umbrellaWithConfig(files: Record<string, string> = {}): string {
     // and not package.json, so a fixture without one reports a drift about the fixture.
     "pnpm-workspace.yaml": shippedHardeningSettings(),
     "pnpm-lock.yaml":
-      "lockfileVersion: '9.0'\n\npackages:\n\n  js-yaml@3.15.2: {}\n\n  js-yaml@4.3.2: {}\n\n  esbuild@0.28.1: {}\n",
+      "lockfileVersion: '9.0'\n\npackages:\n\n  js-yaml@3.15.2: {}\n\n  js-yaml@4.3.2: {}\n\n  esbuild@0.28.2: {}\n",
     // The LIGHT baseline holds config as well and asks for these four by name. They are empty
     // because only the filenames are graded, and they are here so that a case measuring the SUBJECT
     // is not reading a light-baseline drift by accident.

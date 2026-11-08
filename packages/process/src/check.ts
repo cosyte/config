@@ -9,8 +9,10 @@ import { DELEGATED_VERBS, type DelegatedVerb } from "./verbs.js";
  * Term 8: `cosyte-process check`, the conformance verb consumers run in CI.
  *
  * Its scope is exactly the "process wiring": the five delegated verb scripts, any present reserved
- * variant scripts, and the override file. An absent reserved variant script is conforming; a present
- * one whose body drifted is not.
+ * variant scripts, the override file, and a direct `vitest` dependency if the consumer declares one.
+ * An absent reserved variant script is conforming; a present one whose body drifted is not. An
+ * absent direct vitest is conforming; a present one not pinned to exactly this package's vitest is
+ * not, because test files import their types from it while `cosyte-process test` runs ours.
  */
 
 /** The four reserved variant script names, and the invocation each one must carry. */
@@ -48,12 +50,43 @@ export function expectedScriptBody(verb: DelegatedVerb, modifier?: Modifier): st
 }
 
 /**
- * The package.json shape `check` reads. Everything else in the manifest is out of scope.
+ * The package.json shape `check` reads: the scripts, and a direct vitest wherever it is declared.
+ * Everything else in the manifest is out of scope.
  *
  * @internal
  */
 interface ConsumerManifest {
   scripts?: Record<string, unknown>;
+  dependencies?: Record<string, unknown>;
+  devDependencies?: Record<string, unknown>;
+}
+
+/**
+ * This package's own manifest. `src/` and the built `dist/` are both one level below it.
+ *
+ * @internal
+ */
+const OWN_MANIFEST = join(import.meta.dirname, "..", "package.json");
+
+/**
+ * The exact vitest version this package depends on, read from its own manifest at run time.
+ *
+ * Read rather than inlined, so the pin `check` asks of a consumer is always the vitest this package
+ * actually resolves for `cosyte-process test`.
+ *
+ * @returns The `dependencies.vitest` specifier of `@cosyte/process`'s package.json.
+ * @throws Error When that manifest declares no vitest dependency.
+ * @internal
+ */
+export function pinnedVitest(): string {
+  const own = JSON.parse(readFileSync(OWN_MANIFEST, "utf8")) as {
+    dependencies?: Record<string, string>;
+  };
+  const pin = own.dependencies?.["vitest"];
+  if (pin === undefined) {
+    throw new Error(`${OWN_MANIFEST} declares no vitest dependency`);
+  }
+  return pin;
 }
 
 /**
@@ -93,6 +126,20 @@ export function checkWiring(cwd: string): string[] {
     if (actual !== expected) {
       violations.push(
         `package.json: script "${name}" is ${JSON.stringify(actual)}; expected exactly: ${expected}`,
+      );
+    }
+  }
+
+  // A consumer may declare vitest directly, for the types its test files import, but only at exactly
+  // the version this package runs: any other specifier type-checks against one vitest and runs
+  // another.
+  const want = pinnedVitest();
+  for (const field of ["dependencies", "devDependencies"] as const) {
+    const declared: unknown = manifest[field]?.["vitest"];
+    if (declared !== undefined && declared !== want) {
+      violations.push(
+        `package.json: ${field} "vitest" is ${JSON.stringify(declared)}; expected exactly: ` +
+          `${want}, the vitest @cosyte/process runs`,
       );
     }
   }

@@ -200,6 +200,34 @@
           "minProperties": 1,
           "additionalProperties": { "type": "string" }
         },
+        "devDepDelegates": {
+          "description": "Packages the standard DECLARES as carrying some of the `devDepVersions` tools on a repo's behalf. A parameter of `devDepVersions`, which is the requirement that reads it: a repo that declares a delegate as a devDependency is not reported for NOT declaring a tool that delegate covers, and a covered tool the repo DOES declare is still graded against its wanted version. It widens how that one requirement can be MET and adds no second requirement. Every entry carries its own provenance because it is a claim about another package's dependencies.",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["package", "covers", "provenance"],
+            "properties": {
+              "package": {
+                "description": "The delegate's npm name, as a repo declares it in devDependencies.",
+                "type": "string",
+                "minLength": 1
+              },
+              "covers": {
+                "description": "The `devDepVersions` names a repo declaring the delegate need not declare itself.",
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": { "type": "string", "minLength": 1 }
+              },
+              "provenance": {
+                "$ref": "#/$defs/provenance"
+              }
+            }
+          }
+        },
         "caretAllowed": {
           "description": "Dependency names exempt from the exact-pin rule.",
           "type": "array",
