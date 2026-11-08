@@ -20,9 +20,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
  * THIS FILE CARRIES NO BANNED FORM AS SOURCE BYTES. It is tracked, so a banned form spelled here
  * would make config track a second file carrying the vocabulary, which reds the gate's own run over
  * its own tree. Most criteria below need no HIT to be observable: they are refusals and reporting
- * modes. The ones that do, the twelve banned forms (six for the em dash, six for the en dash the
- * gate refuses since 2026-11-07), build each form at runtime from pieces that are not themselves a
- * banned form, the way the gate's own self-test builds its bytes with `printf`.
+ * modes. The ones that do, every banned form for the em dash and the en dash (seventeen spellings
+ * of each since D56), build each form at runtime from pieces that are not themselves a banned form,
+ * the way the gate's own self-test builds its bytes with `printf`.
  */
 
 const REPO_ROOT = join(import.meta.dirname, "..");
@@ -140,26 +140,46 @@ function scannedPaths(stdout: Buffer): string[] {
 }
 
 /**
- * The twelve banned forms, each assembled at runtime so this file never carries one as source bytes:
- * per dash, the literal character, its URL encoding, its JS backslash-u escape, and its named,
- * decimal and hexadecimal HTML entities.
+ * Every banned form, each assembled at runtime so this file never carries one as source bytes. Per
+ * dash: the literal character; its URL encoding in either case; the backslash-u escape, braced and
+ * eight-digit; the backslash-x escape; the CSS escape, short and zero-padded; the Unicode name; and
+ * the named, decimal and hexadecimal HTML entities, with and without the semicolon, with leading
+ * zeros and in upper case (D56: the forms the marketing and consulting scanner caught).
  */
 const BANNED_FORMS: { name: string; text: string }[] = [
-  { dash: "em", code: 0x2014, url: "94", named: "mdash", decimal: "8212", hex: "2014" },
-  { dash: "en", code: 0x2013, url: "93", named: "ndash", decimal: "8211", hex: "2013" },
-].flatMap(({ dash, code, url, named, decimal, hex }) => [
-  { name: `${dash} dash, literal`, text: String.fromCharCode(code) },
-  { name: `${dash} dash, URL encoded`, text: `%E2%80%${url}` },
-  { name: `${dash} dash, backslash-u escape`, text: `\\${"u"}${hex}` },
-  { name: `${dash} dash, named entity`, text: `&${named};` },
-  { name: `${dash} dash, decimal entity`, text: `&#${decimal};` },
-  { name: `${dash} dash, hexadecimal entity`, text: `&#x${hex};` },
-]);
+  { dash: "em", code: 0x2014, url: "94", named: "mdash", decimal: "8212", hex: "2014", word: "EM" },
+  { dash: "en", code: 0x2013, url: "93", named: "ndash", decimal: "8211", hex: "2013", word: "EN" },
+].flatMap(({ dash, code, url, named, decimal, hex, word }) => {
+  const bs = "\\";
+  return [
+    { name: `${dash} dash, literal`, text: String.fromCharCode(code) },
+    { name: `${dash} dash, URL encoded`, text: `%E2%80%${url}` },
+    { name: `${dash} dash, URL encoded in lower case`, text: `%e2%80%${url}` },
+    { name: `${dash} dash, backslash-u escape`, text: `${bs}${"u"}${hex}` },
+    { name: `${dash} dash, eight-digit backslash-U escape`, text: `${bs}${"U"}0000${hex}` },
+    { name: `${dash} dash, braced backslash-u escape`, text: `${bs}${"u"}{${hex}}` },
+    { name: `${dash} dash, braced backslash-x escape`, text: `${bs}${"x"}{${hex}}` },
+    { name: `${dash} dash, CSS escape`, text: `${bs}${hex} ` },
+    { name: `${dash} dash, zero-padded CSS escape`, text: `${bs}00${hex} ` },
+    { name: `${dash} dash, Unicode name`, text: `${bs}N{${word} DASH}` },
+    { name: `${dash} dash, named entity`, text: `&${named};` },
+    { name: `${dash} dash, named entity with no semicolon`, text: `&${named} ` },
+    { name: `${dash} dash, named entity in upper case`, text: `&${named.toUpperCase()};` },
+    { name: `${dash} dash, decimal entity`, text: `&#${decimal};` },
+    { name: `${dash} dash, decimal entity, zero-padded, no semicolon`, text: `&#0${decimal} ` },
+    { name: `${dash} dash, hexadecimal entity`, text: `&#x${hex};` },
+    { name: `${dash} dash, hexadecimal entity in upper case`, text: `&#X${hex};` },
+  ];
+});
 
-describe("[brand] every banned form is refused, the en dash's six with the em dash's six", () => {
-  it("[brand] the twelve forms are twelve distinct strings, none of them empty", () => {
+/** Near misses the lookaheads keep out: each names another character, or no entity at all. */
+const NEAR_MISSES = ["&#82120;", `${"\\"}20140`, "&mdashboard", "&#x20140;", "2014 and 8212"];
+
+describe("[brand] every banned form is refused, for the em dash and the en dash alike", () => {
+  it("[brand] the forms are distinct strings, none of them empty", () => {
     // A form that came out empty or duplicated would let a case below pass without testing anything.
-    expect(new Set(BANNED_FORMS.map((form) => form.text)).size).toBe(12);
+    expect(new Set(BANNED_FORMS.map((form) => form.text)).size).toBe(BANNED_FORMS.length);
+    expect(BANNED_FORMS.length).toBe(34);
     for (const form of BANNED_FORMS) expect(form.text.length, form.name).toBeGreaterThan(0);
   });
 
@@ -172,7 +192,7 @@ describe("[brand] every banned form is refused, the en dash's six with the em da
       expect(run.stderr, form.name).toContain("em or en dash");
       expect(run.stdout.length, form.name).toBe(0);
     }
-  });
+  }, 120_000);
 
   it("[brand] refuses each form on stdin, at exit 1, naming the label", () => {
     for (const form of BANNED_FORMS) {
@@ -182,6 +202,36 @@ describe("[brand] every banned form is refused, the en dash's six with the em da
       expect(run.stderr, form.name).toContain("found in the PR text");
       expect(run.stdout.length, form.name).toBe(0);
     }
+  }, 120_000);
+
+  it("[brand] passes the near misses the lookaheads keep out", () => {
+    for (const miss of NEAR_MISSES) {
+      const repo = makeRepo({ "a.txt": `see ${miss} here\n` });
+      const run = runGate(repo);
+      expect(run.code, `${miss}: ${run.stderr}`).toBe(0);
+    }
+  }, 120_000);
+
+  it("[brand] refuses a dash in a tracked file NAME, literal or encoded, naming the path", () => {
+    for (const form of [BANNED_FORMS[0], BANNED_FORMS[1]]) {
+      const path = `notes ${form?.text ?? ""}draft.txt`;
+      const repo = makeRepo({ "clean.txt": "hello\n", [path]: "clean content\n" });
+      const run = runGate(repo);
+      expect(run.code, `${form?.name} passed the name scan`).toBe(1);
+      expect(run.stderr, form?.name).toContain("the tracked file names listed above");
+      expect(run.stderr, form?.name).toContain(path);
+    }
+  }, 120_000);
+
+  it("[brand] leaves out the name of a path the declaration leaves out", () => {
+    const path = `vendor/${BANNED_FORMS[0]?.text ?? ""}.txt`;
+    const repo = makeRepo({
+      "clean.txt": "hello\n",
+      [path]: "clean content\n",
+      [DECLARATION]: "vendor/\n",
+    });
+    const run = runGate(repo);
+    expect(run.code, run.stderr).toBe(0);
   });
 
   it("[brand] passes what the rule allows: hyphens, a range written with to, the minus sign", () => {

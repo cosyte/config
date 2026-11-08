@@ -4,6 +4,7 @@
   "description": "Zero-dependency helpers for the repo-local gate scripts in @cosyte/* repos.",
   "keywords": [
     "cli",
+    "bin",
     "entrypoint",
     "import-meta",
     "phi",
@@ -21,6 +22,17 @@
   "author": "Cosyte <hello@cosyte.com> (https://cosyte.com)",
   "type": "module",
   "main": "index.js",
+  "bin": {
+    "script-utils": "bin/script-utils.js",
+    "cosyte-no-emdash": "bin/cosyte-no-emdash.js",
+    "cosyte-attw": "bin/cosyte-attw.js",
+    "cosyte-phi-scan": "bin/cosyte-phi-scan.js",
+    "cosyte-internal-refs": "bin/cosyte-internal-refs.js",
+    "cosyte-readme": "bin/cosyte-readme.js",
+    "cosyte-claude-card": "bin/cosyte-claude-card.js",
+    "cosyte-agent-notes": "bin/cosyte-agent-notes.js",
+    "cosyte-catalog": "bin/cosyte-catalog.js"
+  },
   "types": "index.d.ts",
   "exports": {
     ".": {
@@ -75,6 +87,7 @@
     "agent-notes.js",
     "agent-notes.d.ts",
     "check-no-emdash.sh",
+    "bin",
     "README.md",
     "CHANGELOG.md"
   ],

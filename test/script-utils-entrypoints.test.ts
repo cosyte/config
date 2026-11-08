@@ -176,6 +176,25 @@ describe("the tarball a consumer installs", () => {
     });
   });
 
+  it("ships every bin, and the dispatcher answers --help from the tarball", () => {
+    const manifest = JSON.parse(readFileSync(join(installed, "package.json"), "utf8")) as {
+      bin: Record<string, string>;
+    };
+    expect(Object.keys(manifest.bin).length).toBe(9);
+    for (const target of Object.values(manifest.bin)) {
+      expect(existsSync(join(installed, target)), `${target} is not in the tarball`).toBe(true);
+    }
+    const help = execFileSync(
+      process.execPath,
+      [join(installed, "bin", "script-utils.js"), "--help"],
+      {
+        cwd: consumer,
+        encoding: "utf8",
+      },
+    );
+    expect(help).toContain("no-emdash");
+  });
+
   it("ships the agent-notes checker and its declarations, and runs it from the tarball", () => {
     for (const file of ["agent-notes.js", "agent-notes.d.ts"]) {
       expect(existsSync(join(installed, file)), `${file} is not in the tarball`).toBe(true);
