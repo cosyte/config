@@ -62,12 +62,12 @@
     "prepublishOnly": "pnpm clean && pnpm typecheck && pnpm lint && pnpm test && pnpm build"
   },
   "dependencies": {
-    "@vitest/coverage-v8": "4.1.4",
+    "@vitest/coverage-v8": "4.1.12",
     "eslint": "10.5.0",
     "prettier": "3.8.3",
     "tsup": "8.5.1",
     "typescript": "5.9.3",
-    "vitest": "4.1.4"
+    "vitest": "4.1.12"
   },
   "devDependencies": {
     "@cosyte/eslint-config": "workspace:^",
