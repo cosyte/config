@@ -105,17 +105,84 @@ function namedPaths(text) {
   const lines = text.split("\n");
   lines.forEach((line, index) => {
     const tokens = [];
-    for (const match of line.matchAll(/`([^`]+)`/g)) tokens.push(match[1]);
-    for (const match of line.matchAll(/\]\(([^)\s]+)\)/g)) tokens.push(match[1]);
+    // Backtick spans, read pairwise with indexOf: no pattern here can backtrack on a long line.
+    let open = line.indexOf("`");
+    while (open >= 0) {
+      const close = line.indexOf("`", open + 1);
+      if (close < 0) break;
+      if (close > open + 1) tokens.push(line.slice(open + 1, close));
+      open = line.indexOf("`", close + 1);
+    }
+    // Link targets: `](` up to the first `)` or whitespace.
+    // The search resumes where a target's scan stopped, so each character is read once: a `](`
+    // inside a target that has not closed shares that target's end and adds nothing.
+    let link = line.indexOf("](");
+    while (link >= 0) {
+      let end = link + 2;
+      while (end < line.length && line[end] !== ")" && !/\s/.test(line[end])) end += 1;
+      if (end < line.length && line[end] === ")" && end > link + 2) {
+        tokens.push(line.slice(link + 2, end));
+      }
+      link = line.indexOf("](", Math.max(end, link + 2));
+    }
     for (const raw of tokens) {
-      if (/^[a-z][a-z0-9+.-]*:/i.test(raw) || raw.startsWith("@") || raw.startsWith("#")) continue;
+      if (hasScheme(raw) || raw.startsWith("@") || raw.startsWith("#")) continue;
       if (/[\s*?<>{}$|]/.test(raw)) continue;
-      const path = raw.replace(/#.*$/, "").replace(/\/+$/, "");
+      const hash = raw.indexOf("#");
+      let path = hash < 0 ? raw : raw.slice(0, hash);
+      let cut = path.length;
+      while (cut > 0 && path[cut - 1] === "/") cut -= 1;
+      path = path.slice(0, cut);
       const first = path.split("/")[0];
       if (path === "" || first === "" || first === "." || first === "..") continue;
       found.push({ path, line: index + 1 });
     }
   });
+  return found;
+}
+
+/** Whether a token starts with a URL scheme (`https:`, `mailto:`), read without a pattern. */
+function hasScheme(token) {
+  const colon = token.indexOf(":");
+  if (colon < 1) return false;
+  const scheme = token.slice(0, colon);
+  return /^[A-Za-z]/.test(scheme) && [...scheme].every((ch) => /[A-Za-z0-9+.-]/.test(ch));
+}
+
+/** A line with every `scheme://...` URL removed, found by `://` and extended either way. */
+function withoutUrls(line) {
+  let out = "";
+  let from = 0;
+  let at = line.indexOf("://");
+  while (at >= 0) {
+    let start = at;
+    while (start > from && /[A-Za-z0-9+.-]/.test(line[start - 1])) start -= 1;
+    let end = at + 3;
+    while (end < line.length && !/\s/.test(line[end])) end += 1;
+    out += line.slice(from, start);
+    from = end;
+    at = line.indexOf("://", end);
+  }
+  return out + line.slice(from);
+}
+
+/** The characters a path in a `<file>.md#<anchor>` pointer may carry. */
+const PATH_CHARACTER = /[A-Za-z0-9._/-]/;
+
+/** Every `<file>.md#<anchor>` pointer in a line, found by `.md#` and extended either way. */
+function markdownPointers(line) {
+  const found = [];
+  let at = line.indexOf(".md#");
+  while (at >= 0) {
+    let start = at;
+    while (start > 0 && PATH_CHARACTER.test(line[start - 1])) start -= 1;
+    let end = at + 4;
+    while (end < line.length && /[\p{L}\p{N}_-]/u.test(line[end])) end += 1;
+    if (start < at && end > at + 4) {
+      found.push({ path: line.slice(start, at + 3), anchor: line.slice(at + 4, end) });
+    }
+    at = line.indexOf(".md#", at + 4);
+  }
   return found;
 }
 
@@ -541,11 +608,8 @@ export function checkAgentNotes(input) {
     ]) {
       if (text === null) continue;
       text.split("\n").forEach((rawLine, index) => {
-        const line = rawLine.replace(/[a-z][a-z0-9+.-]*:\/\/\S+/gi, "");
-        for (const match of line.matchAll(
-          new RegExp(`([A-Za-z0-9._/-]+\\.md)#(${ANCHOR})`, "gu"),
-        )) {
-          const target = match[1].replace(/^\.\//, "");
+        for (const pointer of markdownPointers(withoutUrls(rawLine))) {
+          const target = pointer.path.startsWith("./") ? pointer.path.slice(2) : pointer.path;
           if (
             target === NOTES_PATH ||
             target.endsWith("/agent-notes.md") ||
@@ -562,12 +626,12 @@ export function checkAgentNotes(input) {
             }
             anchorsOf.set(target, targets);
           }
-          if (anchorsOf.get(target).has(match[2])) continue;
+          if (anchorsOf.get(target).has(pointer.anchor)) continue;
           add(
             "cross-anchor",
             file,
             index + 1,
-            `${target}#${match[2]} names no heading or anchor in ${target}; a dead fragment opens ` +
+            `${target}#${pointer.anchor} names no heading or anchor in ${target}; a dead fragment opens ` +
               "the top of the file, so a reader lands on the wrong prose without noticing.",
           );
         }

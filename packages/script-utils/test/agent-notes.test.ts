@@ -122,6 +122,29 @@ describe("slugs, as GitHub writes them", () => {
     expect(Date.now() - started).toBeLessThan(2_000);
   });
 
+  it("reads card paths, URLs and cross-file pointers in linear time on hostile lines", () => {
+    // Each line is the shape that made a backtracking pattern quadratic: unclosed link targets, a
+    // run of hashes or slashes inside backticks, a scheme with no `://`, and `.md#` with no path.
+    const hostile = [
+      "](".repeat(50_000),
+      `\`${"#".repeat(100_000)}\``,
+      `\`a${"/".repeat(100_000)}\``,
+      `${"a".repeat(100_000)}:`,
+      `${"a/".repeat(50_000)}`,
+      ".md#".repeat(25_000),
+    ].join("\n");
+    const started = Date.now();
+    checkAgentNotes({
+      claude: `${CARD}\n${hostile}\n`,
+      notes: NOTES,
+      files: [],
+      also: ["card-path"],
+      tracked: new Set(["src/index.ts", "docs/guide.md"]),
+      markdown: new Map([["docs/guide.md", "# Guide\n"]]),
+    });
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
+
   it("suffixes a repeated heading", () => {
     const slug = makeSlugger();
     expect([slug("Setup"), slug("Setup"), slug("Setup")]).toEqual(["setup", "setup-1", "setup-2"]);
