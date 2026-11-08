@@ -97,6 +97,12 @@
           "minItems": 1,
           "uniqueItems": true,
           "items": { "$ref": "#/$defs/repoName" }
+        },
+        "privateRepos": {
+          "description": "The submodule paths of the PRIVATE repositories (D50). CodeQL and Scorecard run in public repositories only: on a private one CodeQL needs paid GitHub Code Security, which we do not turn on. A `requiredWorkflowsIfPublic` requirement is not graded against a repo named here. A path not named here is public, so a repo the list misses is graded strictly. Each entry must be one of `submodulePaths`; the validator enforces that.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/repoName" }
         }
       }
     },
@@ -271,6 +277,13 @@
           "items": { "type": "string", "minLength": 1 }
         },
         "requiredWorkflows": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "requiredWorkflowsIfPublic": {
+          "description": "Workflows a PUBLIC repo must carry, by filename under .github/workflows/. Not graded against a repo `estate.privateRepos` names (D50: CodeQL and Scorecard run in public repositories only).",
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,

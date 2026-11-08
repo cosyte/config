@@ -885,6 +885,14 @@ export const REQUIREMENT_KINDS = {
         .map((workflow) => `.github/workflows/${workflow}: missing`);
     },
   },
+  // REQUIRED OF A PUBLIC REPO ONLY (D50). CodeQL and Scorecard run in public repositories only:
+  // on a private one CodeQL needs paid GitHub Code Security, which we do not turn on, and the private
+  // repositories remove their callers. Which repos are private is DECLARED in the manifest
+  // (`estate.privateRepos`), never inferred here, and a repo it does not name is graded as public.
+  requiredWorkflowsIfPublic: {
+    check: (context, wanted) =>
+      context.isPrivate ? [] : REQUIREMENT_KINDS.requiredWorkflows.check(context, wanted),
+  },
   agentDoc: {
     check: ({ repoDir }, spec) => {
       const found = spec.files.find((file) => existsSync(join(repoDir, file)));
@@ -986,7 +994,14 @@ export function repoDirFor(root, name) {
  * @returns {{ name: string, baseline: string, skipped: boolean, reason?: string,
  *   findings?: { group: string, line: string }[] }}
  */
-export function evaluateRepo({ name, baselineName, baseline, root, probe = checkRepoPhiScan }) {
+export function evaluateRepo({
+  name,
+  baselineName,
+  baseline,
+  root,
+  probe = checkRepoPhiScan,
+  privateRepos = [],
+}) {
   const repoDir = repoDirFor(root, name);
   if (!existsSync(repoDir)) {
     return {
@@ -1027,7 +1042,7 @@ export function evaluateRepo({ name, baselineName, baseline, root, probe = check
     pkgProblem = `package.json: unparseable (${pkgRead.error}), so nothing that reads it could be graded`;
   }
 
-  const context = { name, repoDir, pkg, probe };
+  const context = { name, repoDir, pkg, probe, isPrivate: privateRepos.includes(name) };
   const findings = [];
   let pkgProblemReported = false;
   for (const [groupName, group] of Object.entries(baseline.groups)) {
@@ -1066,9 +1081,10 @@ export function evaluateRepo({ name, baselineName, baseline, root, probe = check
  */
 export function gradeEstate({ manifest: subject, root, probe = checkRepoPhiScan }) {
   const results = [];
+  const privateRepos = subject.estate?.privateRepos ?? [];
   for (const [baselineName, baseline] of Object.entries(subject.baselines)) {
     for (const name of baseline.repos) {
-      results.push(evaluateRepo({ name, baselineName, baseline, root, probe }));
+      results.push(evaluateRepo({ name, baselineName, baseline, root, probe, privateRepos }));
     }
   }
   return results;
@@ -1669,6 +1685,7 @@ export function gradeConfigSubject({
     baseline,
     root,
     probe,
+    privateRepos: subject?.estate?.privateRepos ?? [],
   });
   if (graded.skipped) {
     return {

@@ -308,6 +308,15 @@ no package, so entries here are **dated** rather than versioned.
 
 ### Changed
 
+- **The drift manifest requires CodeQL and Scorecard of public repos only** (2026-11-07, D50).
+  CodeQL needs paid GitHub Code Security on a private repository, which we do not turn on, and the
+  private repositories are removing their CodeQL and Scorecard callers. `estate.privateRepos` names
+  the six private repositories in the estate (assets, crew, docs, iac, knowledgebase, website),
+  measured with `gh api`, and the new requirement kind `requiredWorkflowsIfPublic` carries
+  `codeql.yml` and `scorecard.yml` in the light baseline's securityWorkflows group and the package
+  baseline's ciWorkflows group. A repo the list does not name is graded as public. The schema and
+  the validator know both, and the validator refuses a private repo the estate does not list.
+
 - **Changesets writes the package changelogs** (2026-11-07, ST35 and EN7 in plans/standards.md).
   `.changeset/config.json` sets `"changelog": "@changesets/cli/changelog"`, so the version commit
   adds each release's section to every package `CHANGELOG.md` it bumps, from the changesets it

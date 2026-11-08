@@ -375,10 +375,13 @@ describe("AC6: the package baseline reaches beyond build config", () => {
     expect(groups().ciWorkflows.requirements.requiredWorkflows).toEqual([
       "ci.yml",
       "release.yml",
-      "codeql.yml",
-      "scorecard.yml",
       "no-emdash.yml",
       "no-internal-refs.yml",
+    ]);
+    // D50: the security workflows are required of a public repo only.
+    expect(groups().ciWorkflows.requirements.requiredWorkflowsIfPublic).toEqual([
+      "codeql.yml",
+      "scorecard.yml",
     ]);
     expect(groups().ciWorkflows.provenance).toMatch(/no-internal-refs/);
   });
@@ -984,7 +987,7 @@ describe("S0228 AC7: an optional workflow is neither drift when present nor owed
 describe("S0228: the validator refuses an optional declaration that contradicts itself", () => {
   it("REFUSES a workflow declared optional AND required", () => {
     const both = JSON.parse(RAW_MANIFEST) as Record<string, any>;
-    both["baselines"].light.groups.securityWorkflows.requirements.requiredWorkflows.push(
+    both["baselines"].light.groups.securityWorkflows.requirements.requiredWorkflowsIfPublic.push(
       "fuzz.yml",
     );
     expect(checkInvariants(both).join("\n")).toMatch(
@@ -1144,8 +1147,11 @@ describe("S0228: the two provenance corrections", () => {
     const shipped = readdirSync(
       join(REPO_ROOT, "scripts", "parser-template", ".github", "workflows"),
     ).sort();
-    const required = MANIFEST["baselines"].package.groups.ciWorkflows.requirements
-      .requiredWorkflows as string[];
+    const requirements = MANIFEST["baselines"].package.groups.ciWorkflows.requirements;
+    const required = [
+      ...(requirements.requiredWorkflows as string[]),
+      ...(requirements.requiredWorkflowsIfPublic as string[]),
+    ];
     expect(shipped).toEqual([
       "ci.yml",
       "codeql.yml",
@@ -1184,7 +1190,7 @@ describe("S0228: config's own two security-workflow callers", () => {
 
   it("carries both workflows the light baseline's securityWorkflows group requires", () => {
     const required = MANIFEST["baselines"].light.groups.securityWorkflows.requirements
-      .requiredWorkflows as string[];
+      .requiredWorkflowsIfPublic as string[];
     expect(required).toEqual(SECURITY);
     const present = readdirSync(WORKFLOWS);
     for (const workflow of required) expect(present, workflow).toContain(workflow);
@@ -1217,5 +1223,65 @@ describe("S0228: config's own two security-workflow callers", () => {
       "the scaffold declares no grants, so this proves nothing",
     ).toBeGreaterThan(0);
     expect(jobGrants(readFileSync(join(WORKFLOWS, name), "utf8"))).toEqual(scaffold);
+  });
+});
+
+describe("D50: CodeQL and Scorecard are required of public repos only", () => {
+  const SECURITY_ONLY = { ".github/workflows/ci.yml": "name: CI\n" };
+
+  it("declares the private repos, measured, and every one is in the estate", () => {
+    expect(MANIFEST["estate"].privateRepos).toEqual([
+      "assets",
+      "crew",
+      "docs",
+      "iac",
+      "knowledgebase",
+      "website",
+    ]);
+    expect(MANIFEST["estate"].provenance).toMatch(/D50/);
+  });
+
+  it("does not grade a private repo on codeql.yml or scorecard.yml, and still grades the rest", () => {
+    const root = tempDir();
+    makeRepo(root, "crew", SECURITY_ONLY);
+    const result = evaluateRepo({
+      name: "crew",
+      baselineName: "light",
+      baseline: MANIFEST["baselines"].light,
+      root,
+      probe: NO_PROBE,
+      privateRepos: ["crew"],
+    }) as { findings: { line: string }[] };
+    const lines = result.findings.map((f) => f.line);
+    expect(lines).not.toContain(".github/workflows/codeql.yml: missing");
+    expect(lines).not.toContain(".github/workflows/scorecard.yml: missing");
+    expect(lines).toContain(".github/workflows/no-emdash.yml: missing");
+  });
+
+  it("grades a public repo on both, through the estate's own declaration", () => {
+    const root = tempDir();
+    makeRepo(root, "dates", SECURITY_ONLY);
+    makeRepo(root, "website", SECURITY_ONLY);
+    const manifest = JSON.parse(RAW_MANIFEST) as Record<string, any>;
+    manifest["baselines"].package.repos = [];
+    manifest["baselines"].light.repos = ["dates", "website"];
+    const results = gradeEstate({ manifest, root, probe: NO_PROBE }) as {
+      name: string;
+      findings: { line: string }[];
+    }[];
+    const linesOf = (name: string): string[] =>
+      (results.find((r) => r.name === name)?.findings ?? []).map((f) => f.line);
+    expect(linesOf("dates")).toContain(".github/workflows/codeql.yml: missing");
+    expect(linesOf("dates")).toContain(".github/workflows/scorecard.yml: missing");
+    expect(linesOf("website")).not.toContain(".github/workflows/codeql.yml: missing");
+    expect(linesOf("website")).not.toContain(".github/workflows/scorecard.yml: missing");
+  });
+
+  it("REFUSES a private repo the estate does not list", () => {
+    const manifest = JSON.parse(RAW_MANIFEST) as Record<string, any>;
+    manifest["estate"].privateRepos.push("nowhere");
+    expect(checkInvariants(manifest).join("\n")).toMatch(
+      /estate\.privateRepos\[6\]: "nowhere" is not one of estate\.submodulePaths/,
+    );
   });
 });
