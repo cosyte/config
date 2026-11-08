@@ -685,19 +685,55 @@ jobs:
           fi
           echo "All $expected bumped package(s) are published, tagged and released."
 
-      # THE OTHER DIRECTION: npm published on a commit the notes gate never recognised as a version
-      # commit, so no body was derived and the step above did not run. Unreachable unless the wiring
-      # broke, and kept for exactly that reason: it is what makes the classifier's correctness
-      # observable instead of assumed. It cannot withhold anything (npm has already published), and
-      # it deliberately does not invent a release body it never checked.
-      - name: Refuse a publish the notes gate never saw
-        if: ${{ !cancelled() && steps.changesets.outputs.published == 'true' && steps.notes.outputs.is-release != 'true' }}
+      # EVERY VERSION ON NPM, NOT ONLY WHAT HEAD BUMPED (config#189, config#192). The step above
+      # works from the version commit at HEAD. When an earlier version commit's run stopped before
+      # publishing, the next publish run's `changeset publish` publishes that commit's versions too,
+      # and the step above never sees them: on 2026-11-08 eslint-config 0.1.3, process 0.1.5 and
+      # test-utils 0.1.3 reached npm that way with no tag and no release, on a green run.
+      #
+      # scripts/release-tags.mjs closes that for every publishable package: a manifest version with
+      # no `<pkg>@<version>` tag or no GitHub release, that the registry has, gets both here, at
+      # this commit, with a body from that version's CHANGELOG section; then both are read back, and
+      # a version on npm still missing either one reds the run. A version that already has both is
+      # left alone, so the step is idempotent and a re-run creates only what is owed.
+      #
+      # It runs whenever the Publish step ran, on any outcome (a partial publish still owes tags),
+      # and on a version commit or not: the push that publishes an earlier commit's versions need
+      # not be a version commit itself. It reads nothing from changesets/action's outputs, so a
+      # publish step done another way keeps this guarantee by keeping this step after it.
+      - name: Every package version on npm must have its tag and release
+        id: reconcile
+        if: ${{ !cancelled() && steps.changesets.outcome != 'skipped' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
+          set -euo pipefail
+          node scripts/release-tags.mjs reconcile --repo "$GITHUB_WORKSPACE" \
+            --target "$GITHUB_SHA" --notes-dir "$RUNNER_TEMP/release-tags"
+
+      # THE OTHER DIRECTION: npm published on a commit the notes gate never recognised as a version
+      # commit, so no changeset-derived body was made and the bumped-package step did not run. It is
+      # reached two ways: the classifier missed a real version commit (a shallow checkout, say), or
+      # a push that is not a version commit published versions an earlier version commit left
+      # unpublished. The step above has already tagged and released whatever reached npm, from the
+      # CHANGELOG, or said why not. This still reds, because only a human can tell the two apart,
+      # and it is what keeps the classifier's correctness observable instead of assumed.
+      - name: Refuse a publish the notes gate never saw
+        if: ${{ !cancelled() && steps.changesets.outputs.published == 'true' && steps.notes.outputs.is-release != 'true' }}
+        env:
+          RECONCILED: ${{ steps.reconcile.outcome }}
+        shell: bash
+        run: |
+          if [ "$RECONCILED" = "success" ]; then
+            tags="every version on npm now has its tag and GitHub release, built from its CHANGELOG"
+          else
+            tags="the tag step above did not finish, so read its errors first"
+          fi
           echo "::error title=Published without a derived release body::npm published, but the" \
-               "release-notes gate did not recognise this commit as a version commit, so no body was" \
-               "derived and no tag or GitHub release was created. This needs a human: check what" \
-               "reached the registry, then tag and release it by hand."
+               "release-notes gate did not recognise this commit as a version commit, so no" \
+               "changeset-derived body was made; $tags. This needs a human: RELEASING.md failure" \
+               "state (d) says how to tell a missed version commit from an earlier one's catch-up."
           exit 1
 
       # When a publish fails, npm writes the only useful diagnostic to

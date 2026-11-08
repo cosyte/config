@@ -407,6 +407,15 @@ no package, so entries here are **dated** rather than versioned.
 
 ### Fixed
 
+- **A release run tags and releases every package version on npm, not only what the latest version
+  commit bumped** (2026-11-08). When #189's run stopped at the catalog check, #192's run published
+  eslint-config 0.1.3, process 0.1.5 and test-utils 0.1.3 with script-utils 0.1.8, tagged and
+  released script-utils alone, and went green; the three were tagged by hand. The publish job now
+  runs `scripts/release-tags.mjs reconcile` after the bumped-package step: every publishable
+  package's manifest version with no `<pkg>@<version>` tag or release, that npm has, gets both at the
+  published commit, with a body from that version's CHANGELOG section, and a version on npm still
+  missing either one reds the run. `test/release-tags.test.ts` rebuilds the two version commits and
+  drives the shipped steps. No package ships this, so it carries no changeset.
 - **The parser template's Release caller grants the permissions the shared release workflow asks
   for** (2026-11-07). The caller had no `permissions:` block, and a called workflow can only narrow
   the caller's token, so a newly scaffolded repo's Release run would be rejected at startup with no

@@ -253,7 +253,25 @@ is actually there. Both choices exist to close the same hole:
    A version consumed by a failed publish is not burned: the same version can be published again
    because nothing reached the registry under it.
 4. Terminal state: the job is green and it has said `All N bumped package(s) are published, tagged and
-released`. That sentence is the only thing that means the release is done.
+released` and `Every package version on npm has its tag and GitHub release`. Those two sentences are
+   the only thing that means the release is done.
+
+**Versions an earlier version commit left unpublished** (config#189, config#192, 2026-11-08). The
+bumped-package step works from the version commit at `HEAD`. When an earlier version commit's run
+stopped before publishing (#189's stopped in `preflight` at the catalog check), the next publish run's
+`changeset publish` publishes that commit's versions as well, and the bumped-package step never sees
+them: eslint-config 0.1.3, process 0.1.5 and test-utils 0.1.3 reached npm that way with no tag and no
+release, on a green run, and were tagged by hand. The next step,
+`Every package version on npm must have its tag and release` (`scripts/release-tags.mjs reconcile`),
+closes that. For every publishable package it asks GitHub for the `<pkg>@<version>` tag and release of
+the version in `package.json`; a version missing either one that the registry has gets both, at the
+commit the run published from, with a body built from that version's section of the package's
+`CHANGELOG.md` and checked like every other body; then both are read back. It reds with
+`On npm with no tag`, `On npm with no release body`, `On npm or not is unknown` or
+`GitHub could not be read`, and the terminal action is the same: re-run the job, which creates only
+what is still owed. It never edits a release that exists, and never tags a version npm does not have
+(that is a `Not on npm, so not tagged` warning, and the publish step's own failure is the one to read).
+If a re-run reds the same way, create the release by hand as in (d), step 3.
 
 **The version-arm variant, and why it exists.** The two arms are chosen by "are there pending
 changesets", and a single push can be both a version commit and a push carrying a pending changeset:
@@ -280,28 +298,37 @@ released`. Until then, `main` is ahead of the registry and the red version run i
 ### (d) A publish succeeds on a commit the release-notes gate did not recognise
 
 **Symptom.** The `publish` job reds on `Published without a derived release body`. npm has already
-published. No tag and no GitHub release were created.
+published. The annotation says whether the step before it,
+`Every package version on npm must have its tag and release`, finished: if it did, every version on npm
+already has a tag and a release, with a body from its `CHANGELOG.md` section.
 
 **What it means.** `changeset publish` uploaded packages on a commit that `release-notes.mjs` did not
-classify as a version commit, so no body was derived and the tag step never ran. This is unreachable
-unless the wiring broke, and the check exists precisely to make the classifier's correctness
-observable rather than assumed. It cannot withhold anything: the registry has already been written.
+classify as a version commit, so no changeset-derived body was made and the bumped-package step did
+not run. Two routes reach it. The push is not a version commit and published versions an earlier
+version commit left unpublished (the `has-unpublished` row of the arm table above): nothing is wrong
+with the classifier, and if the tag step finished, nothing is owed. Or the push IS a version commit the
+classifier missed, which is the defect this check exists to make observable. It cannot withhold
+anything: the registry has already been written.
 
-**Terminal action.** This one needs a human and does not have a re-run fix.
+**Terminal action.** This one needs a human.
 
-1. Find what actually reached the registry:
+1. Tell the two routes apart: `git show --stat HEAD` changes `packages/*/package.json` versions only
+   on a version commit. If it is not one, and the tag step finished, read the release bodies it
+   created; the state is terminal. Otherwise go on.
+2. Find what actually reached the registry:
    `npm view <pkg> versions --json` for each of the eight packages, compared against
    `git show HEAD:packages/<pkg>/package.json`.
-2. For every package published on that commit, create the tag and release by hand:
+3. For every package published on that commit that still has no tag and release, create both by hand:
    `gh release create '<pkg>@<version>' --target <sha> --title '<pkg>@<version>' --notes-file <file>`,
-   writing the body yourself from the changesets that commit consumed (`git show HEAD^:.changeset/`).
+   writing the body yourself from the changesets that commit consumed (`git show HEAD^:.changeset/`)
+   or from that version's section of the package's `CHANGELOG.md`.
    The tag form is `<pkg>@<version>` and **must not** be simplified to `v<version>`: several packages
    publishing in one run would collide on a single tag.
-3. Then work out why the classifier missed it, because that is the actual defect. The usual cause is a
+4. Then work out why the classifier missed it, because that is the actual defect. The usual cause is a
    shallow checkout: the gate classifies `HEAD` against `HEAD^` and reads the changesets a version
    commit consumed out of the parent tree, so `fetch-depth: 0` is load-bearing in both `ci.yml` and
    all three jobs of `release.yml`.
-4. Terminal state: every published package has a tag and a release, and the classifier defect has an
+5. Terminal state: every published package has a tag and a release, and the classifier defect has an
    issue or a fix.
 
 ### (e) The publish configuration is not one the allow-set permits
@@ -479,6 +506,10 @@ supplies the replacement. Two consequences worth knowing:
 - **With the flag off, the action no longer pushes the tags** that `changeset publish` creates in the
   runner's local clone. `release.yml` therefore creates them itself with `gh release create --target`:
   one tag, one release, both created there. Tags are `<pkg>@<version>`.
+- **A version an earlier version commit bumped gets its body from its changelog section.** The
+  changesets that described it were deleted by that commit, so `scripts/release-tags.mjs` builds the
+  body from the package's `## <version>` section, which Changesets wrote from the same changesets, and
+  checks it with the same `assertNotes`. See failure state (c).
 
 **Changesets writes each package's changelog** (`"changelog": "@changesets/cli/changelog"`, the
 operator's decision of 2026-11-07, ST35). The version commit adds a `## <version>` section to every

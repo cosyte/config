@@ -308,6 +308,10 @@ const secs = (value) => (Math.round(value * 10) / 10).toFixed(1);
  * @param {Function} [options.now] The clock.
  * @param {Function} [options.sleep] The wait.
  * @param {Function} [options.log] Where lines and annotations go.
+ * @param {boolean} [options.reportAbsent] Whether an absent version is annotated as `Bumped but
+ *   never published` and counted in the exit code. scripts/release-tags.mjs passes false: it asks
+ *   about versions no commit in this run necessarily bumped, and for it an absent version is simply
+ *   one that is not owed a tag.
  * @returns {Promise<{code: number, expected: number, rows: object[]}>} The verdict and one row per
  *   package, in work list order.
  */
@@ -322,6 +326,7 @@ export async function account({
   now = () => Date.now(),
   sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   log = (line) => process.stdout.write(`${line}\n`),
+  reportAbsent = true,
 } = {}) {
   const rows = packages.map(({ name, version }) => ({
     name,
@@ -377,7 +382,7 @@ export async function account({
     await sleep(Math.min(intervalSeconds * 1000, remainingMs));
   }
 
-  const missing = rows.filter((row) => row.state === ABSENT);
+  const missing = reportAbsent ? rows.filter((row) => row.state === ABSENT) : [];
   const unreadable = rows.filter((row) => row.state === UNREADABLE);
   const named = (list) => list.map((row) => `${row.name}@${row.version}`).join(", ");
 
@@ -439,6 +444,18 @@ export const UNPUBLISHED_UNKNOWN = "unknown";
  * @returns {{ name: string, version: string }[]} One entry per publishable package, sorted by name.
  */
 export function workspaceVersions(root) {
+  return workspacePackages(root).map(({ name, version }) => ({ name, version }));
+}
+
+/**
+ * The same read as `workspaceVersions`, with each package's directory as well, which
+ * scripts/release-tags.mjs needs to find the package's CHANGELOG.
+ *
+ * @param {string} root Repository root.
+ * @returns {{ name: string, version: string, dir: string }[]} One entry per publishable package,
+ *   sorted by name, `dir` absolute.
+ */
+export function workspacePackages(root) {
   const packagesDir = join(root, "packages");
   let entries;
   try {
@@ -471,7 +488,7 @@ export function workspaceVersions(root) {
     if (typeof manifest.version !== "string" || manifest.version === "") {
       throw new InvocationError(`${manifestPath} has no version`);
     }
-    found.push({ name: manifest.name, version: manifest.version });
+    found.push({ name: manifest.name, version: manifest.version, dir: join(packagesDir, entry) });
   }
   if (found.length === 0) {
     throw new InvocationError(`no publishable packages found under ${packagesDir}`);
