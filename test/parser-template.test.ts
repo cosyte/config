@@ -164,7 +164,7 @@ describe("parser-template runnable snippets pass against the scaffold source", (
   const srcPath = join(TMP, "index.ts");
   writeFileSync(
     srcPath,
-    substitute(readFileSync(join(TEMPLATE, "src", "index.ts"), "utf8")),
+    substitute(readFileSync(join(TEMPLATE, "src", "index.ts.tmpl"), "utf8")),
     "utf8",
   );
 

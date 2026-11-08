@@ -248,6 +248,20 @@ describe("changeset-guard: what must NOT be refused", () => {
     const { code } = runGuard(workspaceWith({}));
     expect(code).toBe(0);
   });
+
+  it("passes over a package directory with no readable manifest", () => {
+    // A directory with no package.json, and one whose package.json is a directory, name no
+    // package. The guard reads each manifest once and skips what does not read, with no stat
+    // before it (js/file-system-race); the real packages still count.
+    const root = workspaceWith({ "raise-target.md": REAL_CHANGESET });
+    mkdirSync(join(root, "packages", "no-manifest"), { recursive: true });
+    mkdirSync(join(root, "packages", "manifest-is-a-directory", "package.json"), {
+      recursive: true,
+    });
+    const { code, output } = runGuard(root);
+    expect(output).not.toContain("no-manifest");
+    expect(code).toBe(0);
+  });
 });
 
 describe("changeset-guard: a broken guard must not look like a caught violation", () => {
