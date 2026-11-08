@@ -19,7 +19,7 @@ const COMMANDS = {
   ],
   readme: ["cosyte-readme", "the README gate, for the library here"],
   "claude-card": ["cosyte-claude-card", "the CLAUDE.md card checker"],
-  "agent-notes": ["cosyte-agent-notes", "the agent-notes checker"],
+  "agent-notes": ["cosyte-agent-notes", "the agent-notes checker, deprecated by D62"],
   catalog: ["cosyte-catalog", "the catalog check, for the library here"],
 };
 

@@ -3,7 +3,8 @@
 Every Cosyte repository keeps a `CLAUDE.md` at its root, and every Claude Code session in that
 repository reads it before doing anything else. We keep it short: a card that says what must pass
 before a push, what a change here can break without a gate noticing, and the rules that bind here.
-Anything longer lives in `documentation/agent-notes.md`, and the card points into it.
+The card stands on its own, and anything longer lives where it is used
+([Where the detail goes](#where-the-detail-goes)).
 
 This is the spec. `@cosyte/script-utils/claude-card` checks it, and the parser template's
 `CLAUDE.md` is written to it.
@@ -23,15 +24,15 @@ here`.
      fenced block, in the order CI runs them.
    - `## Hazard`: what a change here can break that a green gate would not show, and what to do
      about it.
-   - `## Rules`: the rules that bind in this repository, one bullet each, each naming the failure or
-     decision that put it there (a PR number or a date).
+   - `## Rules`: the rules that bind in this repository, one bullet each. Each names the failure
+     it prevents and cites the PR or issue behind it (a decision with neither cites its date).
 4. **No other level-2 heading.** Level-3 headings inside a section are fine. No section is empty.
 
 ## Limits
 
 - **At most 60 lines**, counted the way `wc -l` counts them.
 - **Every line at most 100 characters**, code blocks included. Break a long command with `\`, and
-  move a long explanation to the agent notes.
+  move a long explanation off the card, to where it is used.
 - **At most 5,120 bytes** of UTF-8.
 
 The byte cap is the one that binds. A card is loaded into the context of every session in its
@@ -42,11 +43,22 @@ more shorter ones. On 2026-11-07 the nine cards that already kept to 100 charact
 2,440 to 4,067 bytes, so 5 KiB leaves room to grow without inviting a card to fill it. A byte cap
 also counts what the width cap cannot: a line of 100 multi-byte characters is up to 400 bytes.
 
-## Pointers
+## Where the detail goes
 
-A card points into the agent notes with a link to `documentation/agent-notes.md#<anchor>`, and every
-such anchor must name a heading in that file. One file, one pointer form (RD4); the agent-notes
-checker in `@cosyte/script-utils/agent-notes` resolves them.
+A card stands on its own. It points into no file of notes, and the repository keeps none: each rule
+is one bullet that names its failure and cites the PR or issue behind it. Longer reasoning goes
+where it is used:
+
+- **Why a rule binds:** a test that fails when the rule is broken, or a comment at the code it
+  guards.
+- **A lasting design decision:** an ADR in `documentation/decisions/` (ST38).
+- **A fact a user needs:** the README or the docs.
+- **An operating procedure:** the repository's runbook, such as `RELEASING.md`.
+
+History, incident narratives and measurements stay in git and the PRs, and in the changelog when a
+release carries them. Until 2026-11-08 a card pointed into `documentation/agent-notes.md`; those
+notes were removed from every repository (D62), and the agent-notes checker in
+`@cosyte/script-utils` is deprecated.
 
 ## The checker
 

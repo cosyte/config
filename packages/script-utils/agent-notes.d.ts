@@ -2,12 +2,24 @@
  * Types for `@cosyte/script-utils/agent-notes`: the checker for a repository's agent notes, one
  * file at `documentation/agent-notes.md` that CLAUDE.md points into as
  * `documentation/agent-notes.md#<anchor>` (RD4).
+ *
+ * Deprecated (D62): the agent notes were removed from every Cosyte repository. A repository with no
+ * notes file passes `runAgentNotesCheck` with one line, and one that still has the file is checked
+ * as before. This entry point stays until a minor release removes it.
  */
 
-/** The one place the notes live. */
+/**
+ * The one place the notes live.
+ *
+ * @deprecated Retired with the agent notes (D62).
+ */
 export declare const NOTES_PATH: "documentation/agent-notes.md";
 
-/** A rule id a finding can carry. */
+/**
+ * A rule id a finding can carry.
+ *
+ * @deprecated Retired with the agent notes (D62).
+ */
 export type AgentNotesRule =
   | "layout"
   | "pointer-form"
@@ -18,19 +30,39 @@ export type AgentNotesRule =
   | "empty-section"
   | "stale-citation";
 
-/** Every rule id, with what it requires. */
+/**
+ * Every rule id, with what it requires.
+ *
+ * @deprecated Retired with the agent notes (D62).
+ */
 export declare const AGENT_NOTES_RULES: Readonly<Record<AgentNotesRule, string>>;
 
-/** Raised when the check cannot run; the CLI turns it into exit 2. */
+/**
+ * Raised when the check cannot run; the CLI turns it into exit 2.
+ *
+ * @deprecated Retired with the agent notes (D62).
+ */
 export declare class AgentNotesRefusal extends Error {}
 
-/** GitHub's heading slug, as github-slugger writes it. */
+/**
+ * GitHub's heading slug, as github-slugger writes it.
+ *
+ * @deprecated Retired with the agent notes (D62).
+ */
 export declare function slugify(text: string): string;
 
-/** A slugger that suffixes repeats as GitHub does: the second `Setup` is `setup-1`. */
+/**
+ * A slugger that suffixes repeats as GitHub does: the second `Setup` is `setup-1`.
+ *
+ * @deprecated Retired with the agent notes (D62).
+ */
 export declare function makeSlugger(): (text: string) => string;
 
-/** One heading of the notes. */
+/**
+ * One heading of the notes.
+ *
+ * @deprecated Retired with the agent notes (D62).
+ */
 export interface NotesHeading {
   level: number;
   text: string;
@@ -46,10 +78,15 @@ export interface NotesHeading {
  * its headings.
  *
  * @throws {AgentNotesRefusal} On an HTML comment that never closes.
+ * @deprecated Retired with the agent notes (D62).
  */
 export declare function readNotes(text: string): { targets: Set<string>; headings: NotesHeading[] };
 
-/** One place the notes or a pointer depart from RD4. */
+/**
+ * One place the notes or a pointer depart from RD4.
+ *
+ * @deprecated Retired with the agent notes (D62).
+ */
 export interface AgentNotesFinding {
   rule: AgentNotesRule;
   file: string;
@@ -58,6 +95,11 @@ export interface AgentNotesFinding {
   message: string;
 }
 
+/**
+ * What `checkAgentNotes` reads.
+ *
+ * @deprecated Retired with the agent notes (D62).
+ */
 export interface AgentNotesInput {
   /** CLAUDE.md's contents, or `null` when the repository has none. */
   claude: string | null;
@@ -75,9 +117,15 @@ export interface AgentNotesInput {
  * Check the notes and every pointer into them.
  *
  * @throws {AgentNotesRefusal} When the notes cannot be read to the end.
+ * @deprecated Retired with the agent notes (D62).
  */
 export declare function checkAgentNotes(input: AgentNotesInput): AgentNotesFinding[];
 
+/**
+ * What `runAgentNotesCheck` takes.
+ *
+ * @deprecated Retired with the agent notes (D62).
+ */
 export interface AgentNotesCheckOptions {
   /** The repository root. Default: the working directory. */
   dir?: string;
@@ -87,6 +135,9 @@ export interface AgentNotesCheckOptions {
 
 /**
  * Run the checker over one repository's tracked files and return the exit code: 0 clean, 1 at
- * least one finding, 2 the check could not run. It never exits the process.
+ * least one finding, 2 the check could not run. A repository with no notes file is clean: it gets
+ * one line, `agent notes: OK, no agent notes (retired, D62)`. It never exits the process.
+ *
+ * @deprecated Retired with the agent notes (D62).
  */
 export declare function runAgentNotesCheck(options?: AgentNotesCheckOptions): 0 | 1 | 2;

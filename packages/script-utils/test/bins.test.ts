@@ -215,6 +215,26 @@ describe("each bin reaches its gate and returns the gate's verdict", () => {
     expect(r.out).toContain("[dangling]");
   });
 
+  it("cosyte-agent-notes: passes a repository whose notes are gone, with one line (D62)", () => {
+    const dir = fixture(
+      "notes-gone",
+      { "CLAUDE.md": "# demo\n\nSee documentation/agent-notes.md#gone.\n" },
+      true,
+    );
+    const r = run("cosyte-agent-notes", [], dir);
+    expect(r.code, r.out).toBe(0);
+    expect(r.stdout).toBe("agent notes: OK, no agent notes (retired, D62)\n");
+    expect(r.stderr).toBe("");
+  });
+
+  it("cosyte-agent-notes: says in its help that it is deprecated", () => {
+    const r = run("cosyte-agent-notes", ["--help"], root);
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain("deprecated (D62)");
+    // Help checks nothing, so it never prints the line a passing run prints.
+    expect(r.stdout).not.toContain("agent notes: OK");
+  });
+
   it("cosyte-catalog: notes a package the catalog does not list, and refuses it with --strict", () => {
     const dir = fixture("catalog", {
       "package.json": JSON.stringify({ name: "@cosyte/nothing", description: "x" }),
@@ -242,6 +262,7 @@ describe("script-utils, the dispatcher npx runs by the package's name", () => {
     ]) {
       expect(help.out, command).toContain(command);
     }
+    expect(help.out).toMatch(/agent-notes +the agent-notes checker, deprecated by D62/);
     expect(run("script-utils", [], root).code).toBe(2);
     expect(run("script-utils", ["no-such-gate"], root).code).toBe(2);
   });

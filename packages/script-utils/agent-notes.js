@@ -1,10 +1,22 @@
 // @cosyte/script-utils/agent-notes
 //
-// THE AGENT-NOTES CHECKER (RD4). A repository's CLAUDE.md card stays short, and what does not fit in
-// it lives in ONE file, `documentation/agent-notes.md`, which the card points into with ONE form:
-// `documentation/agent-notes.md#<anchor>`. This checker replaces the eight per-repository checkers
-// (mllp, ccda, ncpdp, astm, terminology, transform, deid and cli), keeping every rule they shared and
-// resolving the ones they disagreed on; the README section "The agent-notes checker" lists both.
+// DEPRECATED (D62, 2026-11-08). The agent notes were removed from every Cosyte repository, and the
+// card spec (documentation/claude-card.md in cosyte/config) has no pointer form any more: a card
+// stands on its own. This checker stays only so that a repository still running it keeps passing
+// while its notes are removed:
+//
+//   - with no notes file (not tracked, or deleted from the working tree) it exits 0 with one line,
+//     `agent notes: OK, no agent notes (retired, D62)`, whatever still points at the file;
+//   - with one, it checks the notes and every pointer into them as it always has (below).
+//
+// Removing it (this file, its declarations, the `./agent-notes` export and the `cosyte-agent-notes`
+// bin) is a breaking change, so it waits for a minor release, which the operator approves (D56).
+//
+// THE AGENT-NOTES CHECKER (RD4, as it stood before D62). A repository's CLAUDE.md card stays short,
+// and what does not fit in it lives in ONE file, `documentation/agent-notes.md`, which the card
+// points into with ONE form: `documentation/agent-notes.md#<anchor>`. This checker replaced the eight
+// per-repository checkers (mllp, ccda, ncpdp, astm, terminology, transform, deid and cli), keeping
+// every rule they shared and resolving the ones they disagreed on.
 //
 // THE RULES, each one id a finding names:
 //
@@ -39,6 +51,9 @@ import { isCliEntrypoint } from "./index.js";
 
 /** The one place the notes live. */
 export const NOTES_PATH = "documentation/agent-notes.md";
+
+/** What a repository with no notes file is told, and passes on (D62). */
+const RETIRED = "no agent notes (retired, D62)";
 
 /** The directory layout the one-file rule retires. */
 const NOTES_DIRECTORY = "documentation/agent-notes/";
@@ -406,8 +421,8 @@ export function checkAgentNotes(input) {
   return findings;
 }
 
-/** The tracked files of a repository: regular files read, everything else counted. */
-function trackedFiles(dir) {
+/** The tracked paths of a repository, each with whether git records it as a regular file. */
+function listTracked(dir) {
   let listing;
   try {
     listing = execFileSync("git", ["ls-files", "-z", "-s"], {
@@ -419,14 +434,24 @@ function trackedFiles(dir) {
   } catch (err) {
     throw new AgentNotesRefusal(`could not list the tracked files of ${dir}: ${err.message}`);
   }
-  const files = [];
-  const skipped = [];
+  const entries = [];
   for (const record of listing.split("\0")) {
     if (record === "") continue;
-    const tab = record.indexOf("\t");
     const mode = record.slice(0, 6);
-    const path = record.slice(tab + 1);
-    if (mode !== "100644" && mode !== "100755") {
+    entries.push({
+      path: record.slice(record.indexOf("\t") + 1),
+      regular: mode === "100644" || mode === "100755",
+    });
+  }
+  return entries;
+}
+
+/** The tracked files of a repository: regular files read, everything else counted. */
+function readTracked(dir, entries) {
+  const files = [];
+  const skipped = [];
+  for (const { path, regular } of entries) {
+    if (!regular) {
       skipped.push(path);
       continue;
     }
@@ -469,10 +494,20 @@ export function runAgentNotesCheck(options = {}) {
   }
   dir = resolve(dir);
   try {
-    const { files, skipped } = trackedFiles(dir);
+    const entries = listTracked(dir);
+    // Retired (D62): with no notes file there is nothing to check, so nothing else is read, and a
+    // pointer left in the card, a source comment or a changelog is not a finding.
+    const hasNotes =
+      entries.some((entry) => entry.path === NOTES_PATH && entry.regular) &&
+      existsSync(join(dir, NOTES_PATH));
+    const { files, skipped } = hasNotes ? readTracked(dir, entries) : { files: [], skipped: [] };
     const byPath = new Map(files.map((file) => [file.path, file.text]));
     const claude = byPath.get("CLAUDE.md") ?? null;
     const notes = byPath.get(NOTES_PATH) ?? null;
+    if (notes === null) {
+      process.stdout.write(`agent notes: OK, ${RETIRED}\n`);
+      return 0;
+    }
     const others = files.filter((f) => f.path !== "CLAUDE.md" && f.path !== NOTES_PATH);
     const decisions = join(dir, "documentation", "decisions");
     const findings = checkAgentNotes({
@@ -495,7 +530,9 @@ export function runAgentNotesCheck(options = {}) {
         findings
           .map((f) => `  ${f.file}${f.line > 0 ? `:${f.line}` : ""} [${f.rule}] ${f.message}`)
           .join("\n") +
-        "\n",
+        `\nagent notes: the notes are retired (D62). Rather than fix these, delete ${NOTES_PATH}, ` +
+        `which passes this check, and move what still binds to where it is used ` +
+        `(documentation/claude-card.md in cosyte/config).\n`,
     );
     return 1;
   } catch (err) {
