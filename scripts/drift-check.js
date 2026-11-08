@@ -754,13 +754,26 @@ export const REQUIREMENT_KINDS = {
   lintDelegatingBodies: { parameterOf: "lintMustInclude" },
   devDepVersions: {
     needsPackageJson: true,
-    check: ({ pkg }, wanted) => {
+    // A TOOL CAN BE CARRIED BY A DELEGATE, AND NO DELEGATE IS NAMED HERE. `devDepDelegates`, a
+    // parameter of this rule, names packages the standard declares as carrying some of these tools
+    // as their own dependencies. A repo that declares one is not asked to declare the tools it
+    // covers; a covered tool the repo DOES declare is still graded against its version, so a stale
+    // direct copy is drift either way.
+    check: ({ pkg }, wanted, requirements) => {
       const dev = pkg.devDependencies ?? {};
+      const delegated = new Set(
+        (requirements.devDepDelegates ?? [])
+          .filter((delegate) => dev[delegate.package] !== undefined)
+          .flatMap((delegate) => delegate.covers),
+      );
       const violations = [];
       for (const [depName, want] of Object.entries(wanted)) {
         const spec = dev[depName];
-        if (!spec) violations.push(`devDep ${depName}: missing (want ${want || "any"})`);
-        else if (!versionMatches(spec, want)) {
+        if (!spec) {
+          if (!delegated.has(depName)) {
+            violations.push(`devDep ${depName}: missing (want ${want || "any"})`);
+          }
+        } else if (!versionMatches(spec, want)) {
           violations.push(`devDep ${depName}: want ${want}.x, got ${spec}`);
         }
       }
@@ -801,6 +814,7 @@ export const REQUIREMENT_KINDS = {
     },
   },
   caretAllowedScopes: { parameterOf: "caretAllowed" },
+  devDepDelegates: { parameterOf: "devDepVersions" },
   // The CITATION for each override, graded by `gradeOverrideAdvisories` against the advisory record
   // itself rather than per repo: whether an override cites an advisory, and whether it pins below
   // what that advisory first patched, is a property of the STANDARD and is the same answer in every

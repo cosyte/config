@@ -96,7 +96,7 @@ export function usageText(): string {
     "",
     "Verbs:",
     ...DELEGATED_VERBS.map((verb) => `  ${verb.padEnd(10)} ${toArgv(BASELINE[verb]).join(" ")}`),
-    "  check      verify this repo's process wiring (scripts and override file)",
+    "  check      verify this repo's process wiring (scripts, override file, vitest pin)",
     "",
     "Entry points (not verbs: not graded by check, not overridable):",
     "  sync-version           sync the exported VERSION constant from package.json",

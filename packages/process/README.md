@@ -44,9 +44,23 @@ part designed never to move.
 pnpm add -D @cosyte/process
 ```
 
-Nothing else. The tools the verbs run (tsup, vitest and its `@vitest/coverage-v8` provider, eslint,
-prettier, typescript) are dependencies of this package and resolve from it. A wired consumer declares
-**no direct devDependency** on any of them. Node `>=22.22.2`. ESM only.
+The tools the verbs run (tsup, vitest and its `@vitest/coverage-v8` provider, eslint, prettier,
+typescript) are dependencies of this package, and every verb runs this package's copy. A wired
+consumer declares **no direct devDependency** on tsup, `@vitest/coverage-v8`, eslint, prettier or
+typescript.
+
+vitest is the one exception. Test files import `describe`, `it` and `expect` from `vitest`, and
+`cosyte-process typecheck` needs those types to resolve from the consumer, so a consumer with tests
+keeps `vitest` as a devDependency pinned **exactly** to the version this package pins, which in this
+release is:
+
+```sh
+pnpm add -D --save-exact vitest@5.1.0
+```
+
+`cosyte-process test` still runs this package's vitest, never the consumer's, and
+`cosyte-process check` fails a direct `vitest` at any other specifier, a caret range included,
+because it would type-check against one vitest and run another. Node `>=22.22.2`. ESM only.
 
 ## Usage
 
@@ -224,11 +238,13 @@ Run it in CI. It exits 0 when this repo's process wiring conforms:
 
 - the five verb scripts are present and delegate exactly as above,
 - every reserved variant script that is present delegates exactly as above (absent ones are fine),
-- `cosyte-process.config.json` is absent or valid.
+- `cosyte-process.config.json` is absent or valid,
+- a direct `vitest`, in `devDependencies` or `dependencies`, is absent or exactly the version this
+  package pins.
 
 Otherwise it exits non-zero and names each violation. That scope, the five scripts, any present
-reserved variants, and the override file, is exactly what "process wiring" means here; nothing else
-in your `package.json` is graded.
+reserved variants, the override file and a direct vitest, is exactly what "process wiring" means
+here; nothing else in your `package.json` is graded.
 
 ```json
 {
@@ -316,6 +332,8 @@ longer runs. `scorecard.yml` carrying no `pull_request` trigger is an element in
 A shared-process change reaches a wired consumer as a dependency version bump plus `pnpm install`.
 There is no other consumer-side edit for the five verbs: not to a script body, not to a tool version,
 not to a config file. If a change to this package would require one, that is a bug in the change.
+The one exception is a direct `vitest` kept for types: when a bump moves this package's vitest, the
+consumer moves its pin to match, and `cosyte-process check` names the version until it does.
 
 ## Compatibility
 

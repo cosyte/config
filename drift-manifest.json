@@ -105,28 +105,43 @@
           }
         },
         "dependencies": {
-          "provenance": "devDepVersions and caretAllowed carried unchanged from manifest version 1; scripts/parser-template/package.json carries the override block, which is where a new repo inherits it. caretAllowedScopes states what the checker used to hardcode: a workspace-internal @cosyte/* dependency may stay on a caret range. THE OVERRIDES ARE DEPENDABOT DEV/BUILD-TIME ADVISORY REMEDIATION, AND EACH ONE NOW CITES ITS ADVISORY IN pnpmOverrideAdvisories RATHER THAN IN PROSE. Version 1 argued from a sentence in `pnpmOverridesComment` that named advisories in English beside hand-transcribed ranges, and the transcription decayed: the pin sat at a version the advisory it argued from had already superseded, config's own manifest disagreed with this one, and nothing compared them. What survives here is the reachability argument, which no advisory record can supply. esbuild: a dev-server path traversal, not reachable, since these repos build via tsup/vitest and never run `esbuild serve`. js-yaml: a quadratic merge-key DoS and a prototype-pollution issue, reached at BUILD and RELEASE time only, over YAML this estate wrote itself. THE 3.x REACH IS NO LONGER A RESIDUAL: js-yaml 3.14.2 arrives through read-yaml-file@1.1.0 (@manypkg/get-packages, @changesets/cli) and calls yaml.safeLoad, which js-yaml 4 removed, so version 1 recorded the branch as not pinnable and left it un-remediated. That reasoning applied to the 4.x MAJOR, never to the 3.x branch: 3.x still ships safeLoad, so the branch is pinned on its own line and the release tooling keeps the API it calls. MOVED 2026-11-07 (SEC10): both js-yaml lines now pin 4.3.2 and 3.15.2 and cite GHSA-2883-xcg3-v3hh beside the two earlier advisories, because that advisory's first patched versions are one patch above the earlier pins; 3.15.2 still exports safeLoad. Every repo in this baseline reports the two js-yaml keys as drift until its own override block moves with it, which also closes that advisory's Dependabot alert there. Which version each advisory first patches is NOT written here; the checker reads it from the advisory at check time and fails an override pinned below it.",
+          "provenance": "devDepVersions and caretAllowed carried unchanged from manifest version 1; scripts/parser-template/package.json carries the override block, which is where a new repo inherits it. caretAllowedScopes states what the checker used to hardcode: a workspace-internal @cosyte/* dependency may stay on a caret range. THE OVERRIDES ARE DEPENDABOT DEV/BUILD-TIME ADVISORY REMEDIATION, AND EACH ONE NOW CITES ITS ADVISORY IN pnpmOverrideAdvisories RATHER THAN IN PROSE. Version 1 argued from a sentence in `pnpmOverridesComment` that named advisories in English beside hand-transcribed ranges, and the transcription decayed: the pin sat at a version the advisory it argued from had already superseded, config's own manifest disagreed with this one, and nothing compared them. What survives here is the reachability argument, which no advisory record can supply. esbuild: a dev-server path traversal, not reachable, since these repos build via tsup/vitest and never run `esbuild serve`. js-yaml: a quadratic merge-key DoS and a prototype-pollution issue, reached at BUILD and RELEASE time only, over YAML this estate wrote itself. THE 3.x REACH IS NO LONGER A RESIDUAL: js-yaml 3.14.2 arrives through read-yaml-file@1.1.0 (@manypkg/get-packages, @changesets/cli) and calls yaml.safeLoad, which js-yaml 4 removed, so version 1 recorded the branch as not pinnable and left it un-remediated. That reasoning applied to the 4.x MAJOR, never to the 3.x branch: 3.x still ships safeLoad, so the branch is pinned on its own line and the release tooling keeps the API it calls. MOVED 2026-11-07 (SEC10): both js-yaml lines now pin 4.3.2 and 3.15.2 and cite GHSA-2883-xcg3-v3hh beside the two earlier advisories, because that advisory's first patched versions are one patch above the earlier pins; 3.15.2 still exports safeLoad. Every repo in this baseline reports the two js-yaml keys as drift until its own override block moves with it, which also closes that advisory's Dependabot alert there. Which version each advisory first patches is NOT written here; the checker reads it from the advisory at check time and fails an override pinned below it. MOVED 2026-11-08: devDepVersions now names vitest 5, @vitest/coverage-v8 5, tsup 9 and prettier 3.9, which is what @cosyte/process 0.1.6 pins (config#194), and vite 8, which is what that package's install resolves for vitest 5's vite peer; typescript 5.9 and eslint 10 already matched. devDepDelegates, a parameter of devDepVersions with its own provenance, lets a repo that delegates its verbs to @cosyte/process leave those tools to it, which is how scripts/parser-template/package.json is wired. The esbuild override moved from 0.28.1 to 0.28.2 and its key to `<0.28.2`: tsup 9 depends on esbuild ^0.28.2, so the old pin left two copies in this repository's tree and peer warnings beside them, and 0.28.2 is still at or above what GHSA-g7r4-m6w7-qqqr first patches. Every repo in this baseline reports the esbuild key as drift until its own override block moves with it.",
           "requirements": {
             "devDepVersions": {
               "typescript": "5.9",
               "eslint": "10",
-              "vitest": "4",
-              "vite": "7",
-              "@vitest/coverage-v8": "4",
-              "tsup": "8",
-              "prettier": "3.8",
+              "vitest": "5",
+              "vite": "8",
+              "@vitest/coverage-v8": "5",
+              "tsup": "9",
+              "prettier": "3.9",
               "@types/node": "22",
               "@arethetypeswrong/cli": ""
             },
+            "devDepDelegates": [
+              {
+                "package": "@cosyte/process",
+                "covers": [
+                  "typescript",
+                  "eslint",
+                  "vitest",
+                  "vite",
+                  "@vitest/coverage-v8",
+                  "tsup",
+                  "prettier"
+                ],
+                "provenance": "NEW 2026-11-08. WHERE IT WAS READ, IN THIS REPOSITORY: packages/process/package.json declares typescript, eslint, vitest, @vitest/coverage-v8, tsup and prettier as its own exact-pinned dependencies, and packages/process/src/resolve.ts resolves each verb's tool from inside that package's own installation, never from the consumer's, so a repo whose verbs delegate to `cosyte-process` runs those copies whatever it declares itself. vite is covered because vitest declares it a non-optional peer and pnpm installs it beside vitest (packages/process's own lockfile entry resolves it that way), and no repo invokes vite directly. packages/process/README.md (`Install`) tells a wired consumer to declare none of these except vitest, which it keeps pinned exactly to the version @cosyte/process pins so that test files importing from `vitest` type-check against the runner that runs them; `cosyte-process check` grades that pin. scripts/parser-template/package.json is the wired consumer this standard derives from: it declares @cosyte/process and vitest and none of the other six. TIED TO THE PACKAGE BY A TEST, NOT BY THIS NOTE: test/drift-check-dev-dep-delegates.test.ts reds this repository's own suite if a covered name stops being a dependency of @cosyte/process (or, for vite, a non-optional peer of one), and grades the scaffold's package.json clean against this group."
+              }
+            ],
             "caretAllowed": ["@types/node"],
             "caretAllowedScopes": ["@cosyte/"],
             "pnpmOverrides": {
-              "esbuild@>=0.27.3 <0.28.1": "0.28.1",
+              "esbuild@>=0.27.3 <0.28.2": "0.28.2",
               "js-yaml@>=4.0.0 <4.3.2": "4.3.2",
               "js-yaml@>=3.0.0 <3.15.2": "3.15.2"
             },
             "pnpmOverrideAdvisories": {
-              "esbuild@>=0.27.3 <0.28.1": {
+              "esbuild@>=0.27.3 <0.28.2": {
                 "ecosystem": "npm",
                 "package": "esbuild",
                 "advisories": ["GHSA-g7r4-m6w7-qqqr"]
