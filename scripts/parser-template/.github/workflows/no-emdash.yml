@@ -12,15 +12,16 @@ on:
     branches: [main]
     types: [opened, synchronize, reopened, edited]
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+# No concurrency group. A push and a title or body edit can arrive together (Dependabot does both),
+# and a run a group cancels, even a queued one under `cancel-in-progress: false`, can count as a
+# failed check and block the merge until someone re-runs it. Every run finishes and the newest
+# result stands.
 
 permissions:
   contents: read
 
 jobs:
   no-emdash:
-    uses: cosyte/.github/.github/workflows/gate-no-emdash-install.yml@498c7c13c8869bf11b67fa8324684ec2dc691ec6 # workflows-2026-11-07-498c7c13c886
+    uses: cosyte/.github/.github/workflows/gate-no-emdash-install.yml@c0db8d8e5927269820de4401b3b5ad6141854b76 # workflows-2026-11-08-c0db8d8e5927
     permissions:
       contents: read
