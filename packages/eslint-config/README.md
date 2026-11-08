@@ -12,7 +12,7 @@
 [![npm version](https://img.shields.io/npm/v/@cosyte/eslint-config.svg)](https://www.npmjs.com/package/@cosyte/eslint-config)
 [![CI](https://img.shields.io/github/actions/workflow/status/cosyte/config/ci.yml?branch=main&label=CI)](https://github.com/cosyte/config/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/cosyte/config/blob/main/LICENSE)
-[![Node](https://img.shields.io/badge/node-%3E%3D22.14-brightgreen.svg)](https://nodejs.org)
+[![Node](https://img.shields.io/badge/node-%3E%3D22.22.2-brightgreen.svg)](https://nodejs.org)
 
 Shared ESLint flat config (ESLint 10 + typescript-eslint) for @cosyte/\* packages.
 
@@ -41,7 +41,8 @@ was passing. Pin an exact version if you need a lint run to stay green across an
 pnpm add -D @cosyte/eslint-config eslint typescript
 ```
 
-`eslint` (^9 or ^10) and `typescript` are peer dependencies. Node `>=22.14`. ESM only.
+`eslint` (^9 or ^10) and `typescript` are peer dependencies. Node `>=22.22.2`, which
+`eslint-plugin-jsdoc` 65 requires. ESM only.
 
 ## Usage
 

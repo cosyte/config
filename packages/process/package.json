@@ -23,7 +23,7 @@
   "author": "Cosyte <hello@cosyte.com> (https://cosyte.com)",
   "type": "module",
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.22.2"
   },
   "packageManager": "pnpm@10.0.0",
   "main": "./dist/index.mjs",
@@ -62,12 +62,12 @@
     "prepublishOnly": "pnpm clean && pnpm typecheck && pnpm lint && pnpm test && pnpm build"
   },
   "dependencies": {
-    "@vitest/coverage-v8": "4.1.12",
-    "eslint": "10.5.0",
+    "@vitest/coverage-v8": "5.1.0",
+    "eslint": "10.14.0",
     "prettier": "3.9.10",
-    "tsup": "8.5.1",
+    "tsup": "9.0.0",
     "typescript": "5.9.3",
-    "vitest": "4.1.12"
+    "vitest": "5.1.0"
   },
   "devDependencies": {
     "@cosyte/eslint-config": "workspace:^",

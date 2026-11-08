@@ -7,9 +7,10 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { cleanupTempDirs, ensureBuilt, makeTempDir, PKG_ROOT } from "../helpers.js";
 
 /**
- * Term 9, the compatibility floor: @cosyte/process must install and run under node 22.0.x and
- * pnpm 10.0.0, which is what the consumer repos declare, even though config itself is on node
- * >=22.14 and pnpm@10.34.5.
+ * Term 9, the compatibility floor: @cosyte/process must install and run under node 22.22.2 and
+ * pnpm 10.0.0. Node 22.22.2 is the oldest the tools it ships run on (tsup 9 needs 22.18, and the
+ * eslint-plugin-jsdoc 65 that @cosyte/eslint-config brings needs 22.22.2), and pnpm 10.0.0 is what
+ * the consumer repos declare. config itself is on pnpm@10.34.5.
  *
  * The fixture lives in a temp directory OUTSIDE the config workspace and pins its own
  * `packageManager: pnpm@10.0.0`, so config's root pnpm@10.34.5 invariant is never touched. The
@@ -19,11 +20,11 @@ import { cleanupTempDirs, ensureBuilt, makeTempDir, PKG_ROOT } from "../helpers.
  * script (`pnpm test:floor`) instead of running on every `pnpm test`.
  */
 
-const NODE_FLOOR = "22.0.0";
+const NODE_FLOOR = "22.22.2";
 const PNPM_FLOOR = "10.0.0";
 
 interface Toolchain {
-  /** The node 22.0.x executable. */
+  /** The floor node executable. */
   readonly node: string;
   /** The pnpm 10.0.0 entry script, to be run with `node`. */
   readonly pnpm: string;
@@ -155,7 +156,7 @@ beforeAll(() => {
         version: "0.0.0",
         private: true,
         type: "module",
-        engines: { node: ">=22.0.0" },
+        engines: { node: `>=${NODE_FLOOR}` },
         packageManager: `pnpm@${PNPM_FLOOR}`,
         scripts: {
           build: "cosyte-process build",
@@ -193,7 +194,7 @@ describe(`the compatibility floor: node ${NODE_FLOOR} and pnpm ${PNPM_FLOOR}`, (
     expect(fixture).toBeDefined();
   });
 
-  it("really is node 22.0.x and pnpm 10.0.0", () => {
+  it(`really is node ${NODE_FLOOR} and pnpm ${PNPM_FLOOR}`, () => {
     expect(toolchain).toBeDefined();
     const tools = toolchain as Toolchain;
     const consumer = fixture as string;

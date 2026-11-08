@@ -561,9 +561,10 @@ What has to be true on the runner, each checked or pinned in `release.yml`:
   (read 2026-10-19) requires it, with Node 22.14.0 or later. `changeset publish` runs `pnpm publish`,
   and pnpm 10.34.5 packs the tarball and then runs the `npm` CLI on PATH to upload it
   (`runNpm(opts.npmPath, ["publish", "--ignore-scripts", <tarball>])` in its `dist/pnpm.cjs`, read
-  2026-10-19), so the npm version is what decides. Node 22.14 ships npm 10, so the `publish` job
+  2026-10-19), so the npm version is what decides. Node 22.22 ships npm 10, so the `publish` job
   installs exactly **npm 11.21.0** (published 2026-09-30) and reds if a different npm is first on
-  PATH. npm 12 needs Node `^22.22.2`, so it is not an option on this Node.
+  PATH. npm 12 needs Node `^22.22.2`, which the publish Node (22.22) now meets, but a move to it is a
+  major and is decided on its own.
 - **A GitHub-hosted runner.** npm does not accept trusted publishing from self-hosted runners.
 - **No token in npm's configuration.** The `publish` job's `setup-node` takes no `registry-url`, so
   no npmrc with a `${NODE_AUTH_TOKEN}` slot is generated, and `changesets/action` (v1.9.0, the pinned

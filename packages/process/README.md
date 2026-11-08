@@ -12,7 +12,7 @@
 [![npm version](https://img.shields.io/npm/v/@cosyte/process.svg)](https://www.npmjs.com/package/@cosyte/process)
 [![CI](https://img.shields.io/github/actions/workflow/status/cosyte/config/ci.yml?branch=main&label=CI)](https://github.com/cosyte/config/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/cosyte/config/blob/main/LICENSE)
-[![Node](https://img.shields.io/badge/node-%3E%3D22.0.0-brightgreen.svg)](https://nodejs.org)
+[![Node](https://img.shields.io/badge/node-%3E%3D22.22.2-brightgreen.svg)](https://nodejs.org)
 
 The shared per-repo process scripts for @cosyte/\* repos: one `cosyte-process` bin behind build, test, lint, typecheck, format and check.
 
@@ -46,7 +46,7 @@ pnpm add -D @cosyte/process
 
 Nothing else. The tools the verbs run (tsup, vitest and its `@vitest/coverage-v8` provider, eslint,
 prettier, typescript) are dependencies of this package and resolve from it. A wired consumer declares
-**no direct devDependency** on any of them. Node `>=22.0.0`. ESM only.
+**no direct devDependency** on any of them. Node `>=22.22.2`. ESM only.
 
 ## Usage
 
@@ -319,9 +319,10 @@ not to a config file. If a change to this package would require one, that is a b
 
 ## Compatibility
 
-Node `>=22.0.0` and pnpm `10.0.0` are the floor, which is what the consumer repos declare. The
-package is tested against exactly that floor, installed from a packed tarball into a fixture outside
-this workspace.
+Node `>=22.22.2` and pnpm `10.0.0` are the floor. Node 22.22.2 is the oldest the shipped tools run
+on: tsup 9 needs 22.18, and eslint-plugin-jsdoc 65, which `@cosyte/eslint-config` brings, needs
+22.22.2. The package is tested against exactly that floor, installed from a packed tarball into a
+fixture outside this workspace.
 
 ## Contributing
 

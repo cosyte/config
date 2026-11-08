@@ -85,7 +85,7 @@ permissions:
 #   * THE npm VERSION IS LOAD-BEARING. `changeset publish` runs `pnpm publish`, and pnpm 10.34.5 packs
 #     the tarball and then runs the `npm` CLI on PATH to upload it (`runNpm(opts.npmPath, ["publish",
 #     "--ignore-scripts", <tarball>])` in its dist/pnpm.cjs, read 2026-10-19), so pnpm does NOT carry
-#     trusted publishing on its own. Node 22.14 ships npm 10, which has no OIDC support, so the publish
+#     trusted publishing on its own. Node 22.22 ships npm 10, which has no OIDC support, so the publish
 #     job installs an exact npm 11 first. See that step.
 #   * changesets/action at the sha pinned below (v1.9.0) writes no `.npmrc` when it is given no
 #     npm token and the OIDC variables are present, and logs "using npm trusted publishing".
@@ -157,7 +157,7 @@ jobs:
       # call here would read an unresolvable reference.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: "22.14"
+          node-version: "22.22"
           cache: pnpm
 
       # GATE 1: REFUSE A CHANGESET THAT BUMPS NOTHING.
@@ -284,7 +284,7 @@ jobs:
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: "22.14"
+          node-version: "22.22"
           cache: pnpm
 
       # Say plainly, in the log of the run that is about to open the PR, whether that PR will be
@@ -430,15 +430,16 @@ jobs:
       # logged in".
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: "22.14"
+          node-version: "22.22"
           cache: pnpm
 
       # TRUSTED PUBLISHING NEEDS npm 11.5.1 OR LATER (https://docs.npmjs.com/trusted-publishers, read
-      # 2026-10-19), AND NODE 22.14 SHIPS npm 10. pnpm hands the upload to whichever `npm` is first on
+      # 2026-10-19), AND NODE 22.22 SHIPS npm 10. pnpm hands the upload to whichever `npm` is first on
       # PATH (see the header), so this is the npm that publishes.
       #
-      # PINNED EXACTLY, AND CHECKED. 11.21.0 was published to npm on 2026-09-30. npm 12 is not an
-      # option on this Node: it requires `^22.22.2 || ^24.15.0 || >=26.0.0`. A different npm on PATH
+      # PINNED EXACTLY, AND CHECKED. 11.21.0 was published to npm on 2026-09-30. npm 12 would run on
+      # this Node since the move to 22.22 (it requires `^22.22.2 || ^24.15.0 || >=26.0.0`), but it is
+      # a major and moves on its own decision, not with the Node version. A different npm on PATH
       # after the install reds here, before the configuration check and the build.
       #
       # BEFORE GATE 3, on purpose: Gate 3 asks `npm config ls` for the effective configuration, and

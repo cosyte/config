@@ -37,8 +37,9 @@ jobs:
       fail-fast: false
       matrix:
         # Low end stays "22" (the required-status-check context is `verify (22)`); setup-node
-        # resolves it to the latest 22.x, which is >= the declared 22.14 floor. The floor is declared
-        # in engines.node and pinned explicitly on the publish path (release.yml + release-dry-run).
+        # resolves it to the latest 22.x, which is >= every declared floor (22.14 at the root, 22.22.2
+        # for @cosyte/process and @cosyte/eslint-config). The publish path (release.yml and
+        # release-dry-run) pins 22.22, the oldest line tsup 9 and eslint-plugin-jsdoc 65 run on.
         node: ["22", "24"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -230,7 +231,7 @@ jobs:
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: "22.14"
+          node-version: "22.22"
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
