@@ -79,6 +79,13 @@ pnpm add -D @cosyte/tsconfig @cosyte/eslint-config @cosyte/prettier-config @cosy
 
 `hl7` is the reference consumer: it adopts the toolchain first and the others follow it.
 
+This workspace runs on its own packages too. The root's `vitest.config.ts` is `cosyteVitest()` from
+`packages/vitest-config`, its Prettier settings are `@cosyte/prettier-config`, and its own `format`,
+`format:check` and `test:root` scripts are `cosyte-process` verbs, with the root's format glob in
+`cosyte-process.config.json`. `@cosyte/process` is the one package the root takes from npm, pinned
+exactly, rather than from the workspace: its bin is built by tsup, so a clean install has no bin to
+link yet. `test/root-dogfood.test.ts` holds this wiring in place.
+
 ## PHI and safety
 
 This repository publishes build configuration, not a data path. Nothing here parses, stores,
