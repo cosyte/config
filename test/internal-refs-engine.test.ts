@@ -303,6 +303,112 @@ describe("the slice rule leaves `the` and `each` to the reader", () => {
   });
 });
 
+/**
+ * THE SOURCE STRING-LITERAL PASS. A string literal reaches a consumer as error and warning text
+ * (cli once shipped an item id in a diagnostic), so it is public surface; a comment is not, and an
+ * item id in a `//` note must stay allowed (synth's source carries roadmap citations in them).
+ */
+describe("the source string-literal pass", () => {
+  const literalsOn = (repo: ScratchRepo) => ({
+    ...baseConfig(repo),
+    sourceStringLiterals: { enabled: true, paths: ["src/*.ts", "src/**/*.ts"] },
+  });
+
+  it("finds bookkeeping in a message a consumer reads, and only when the pass is enabled", () => {
+    const repo = scratch("irefs-literal");
+    repo.write(
+      "src/index.ts",
+      [
+        "export function run(): never {",
+        '  throw new Error("redact is unpublished (MLLP-7 in flight)");',
+        "}",
+        "",
+      ].join("\n"),
+    );
+    repo.track("src/index.ts");
+
+    const off = runGate(baseConfig(repo));
+    expect(off.code, off.all).toBe(0);
+
+    const on = runGate(literalsOn(repo));
+    expect(on.code).toBe(1);
+    expect(on.err).toContain("[internal project identifier / src string literal]");
+    expect(on.err).toContain("src/index.ts:2");
+  });
+
+  it("reads single-quoted, template and escaped literals, and a phrase split across two", () => {
+    const repo = scratch("irefs-literal-forms");
+    repo.write(
+      "src/index.ts",
+      [
+        "export const a = 'fixed by ADR 0018';",
+        "export const b = `parser unavailable;",
+        "  vendored per ADR 0025 ${'x'} today`;",
+        'export const c = "Added in Phase\\u00205b";',
+        'export const d = "the final " + "slice of the codec";',
+        "",
+      ].join("\n"),
+    );
+    repo.track("src/index.ts");
+
+    const result = runGate(literalsOn(repo));
+    expect(result.code).toBe(1);
+    expect(result.err).toContain("src/index.ts:1");
+    expect(result.err).toContain("src/index.ts:2");
+    expect(result.err).toContain("src/index.ts:4");
+    expect(result.err).toContain('[internal jargon ("slice") / src string literal] src/index.ts:5');
+  });
+
+  it("never reads a comment: line, trailing or block, so an item id there stays allowed", () => {
+    const repo = scratch("irefs-literal-comments");
+    repo.write(
+      "src/index.ts",
+      [
+        "// Added in Phase G for MLLP-7, per the roadmap.",
+        "/* ADR 0015 decided this, in a block comment. */",
+        'export const ok = "framing complete"; // "MLLP-7" quoted in a trailing comment',
+        'export const re = /"MLLP-7"/;',
+        "",
+      ].join("\n"),
+    );
+    repo.track("src/index.ts");
+
+    const result = runGate(literalsOn(repo));
+    expect(result.code, result.all).toBe(0);
+    expect(result.out).toContain("1 source file(s) scanned for string-literal bookkeeping");
+  });
+
+  it("reads a NUL-bearing source file, the byte as a space, rather than refusing it", () => {
+    // deid's HMAC separator and dicom's charset table are raw NUL bytes inside literals. A space
+    // keeps the word boundary, so an identifier beside the byte is still seen.
+    const repo = scratch("irefs-literal-nul");
+    repo.write(
+      "src/index.ts",
+      ['export const key = "a\0b";', 'export const bad = "x\0MLLP-7 shipped this";', ""].join("\n"),
+    );
+    repo.track("src/index.ts");
+
+    const result = runGate(literalsOn(repo));
+    expect(result.code, result.all).toBe(1);
+    expect(result.err).toContain("src/index.ts:2");
+
+    const docs = runGate({
+      ...baseConfig(repo),
+      sourceDocComments: { enabled: true, paths: ["src/*.ts"] },
+    });
+    expect(docs.err).not.toContain("holds a NUL byte");
+  });
+
+  it("refuses an extraction that found no literal at all", () => {
+    const repo = scratch("irefs-literal-empty");
+    repo.write("src/index.ts", "export const x = 1;\n");
+    repo.track("src/index.ts");
+    const result = runGate(literalsOn(repo));
+    expect(result.code).toBe(1);
+    expect(result.err).toContain("extracted no string literals");
+  });
+});
+
 describe("a missing, empty or unusable axis is refused, naming the axis", () => {
   const required = CONFIG_AXES.filter((axis) => axis.required).map((axis) => axis.name);
 
@@ -667,6 +773,12 @@ describe("no documented configuration value makes a run that found something exi
     surfacePaths: [MISSING, [], ["LICENSE"], ["README.md", "LICENSE"]],
     accountedTarballFiles: [MISSING, ["README.md"], ["dist", "CHANGELOG.md", "everything"]],
     sourceDocComments: [
+      MISSING,
+      { enabled: false },
+      { enabled: true, paths: [] },
+      { enabled: true, paths: ["src/*.ts"] },
+    ],
+    sourceStringLiterals: [
       MISSING,
       { enabled: false },
       { enabled: true, paths: [] },

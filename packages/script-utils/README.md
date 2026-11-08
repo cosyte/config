@@ -616,7 +616,7 @@ still refuses such an entry on both of its routes.
 `@cosyte/script-utils/internal-refs` keeps our own bookkeeping off every surface a consumer reads:
 item identifiers, phase and wave language, ADR numbers, internal repository paths and traceability
 markers, on the pages, the npm metadata and, optionally, the doc comments that compile into shipped
-type declarations.
+type declarations and the string literals a consumer reads as error and warning text.
 
 ```ts
 import { runInternalRefsScan } from "@cosyte/script-utils/internal-refs";
@@ -628,6 +628,7 @@ process.exit(
     surfacePaths: ["README.md", "TRADEMARKS.md", "LICENSE", "docs-content"],
     accountedTarballFiles: ["CHANGELOG.md", "dist"],
     sourceDocComments: { enabled: true, paths: ["src/*.ts", "src/**/*.ts"] },
+    sourceStringLiterals: { enabled: true, paths: ["src/*.ts", "src/**/*.ts"] },
   }),
 );
 ```
@@ -655,13 +656,22 @@ gets wrong, and a default would be one repository's answer imposed on every othe
 | 3 Public surface           | `surfacePaths`          | **Required**, empty refused, every entry must be tracked.             |
 | 4 Tarball accounting       | `accountedTarballFiles` | **Required.** The `files` entries already accounted for.              |
 | 5 Source doc comments      | `sourceDocComments`     | Defaulted OFF. Enable where the build copies doc text verbatim.       |
-| 6 Exit codes               | `exitCodes`             | Defaulted `{ clean: 0, hits: 1, refuse: 1 }`. `clean` must stay 0.    |
-| 7 Added detection          | `extraRules`            | Defaulted `[]`. Each added rule brings its own samples.               |
-| 8 Added self-test material | `extraSamples`          | Defaulted `{}`. Additive only.                                        |
-| 9 Repository under test    | `repoRoot`              | Defaulted to the working directory, anchored at its git top level.    |
-| 10 Report destination      | `write`                 | Defaulted to the process streams.                                     |
+| 6 Source string literals   | `sourceStringLiterals`  | Defaulted OFF. Enable where messages reach a consumer. No comments.   |
+| 7 Exit codes               | `exitCodes`             | Defaulted `{ clean: 0, hits: 1, refuse: 1 }`. `clean` must stay 0.    |
+| 8 Added detection          | `extraRules`            | Defaulted `[]`. Each added rule brings its own samples.               |
+| 9 Added self-test material | `extraSamples`          | Defaulted `{}`. Additive only.                                        |
+| 10 Repository under test   | `repoRoot`              | Defaulted to the working directory, anchored at its git top level.    |
+| 11 Report destination      | `write`                 | Defaulted to the process streams.                                     |
 
 `CONFIG_AXES` is the same table as data, so a consumer can enumerate it rather than transcribe it.
+
+The string-literal pass reads double-quoted, single-quoted and template literals (a multi-line
+template whole, a `${...}` as a space), decodes their escapes, and also reads the literals on one
+source line joined, so a phrase split across `"a " + "b"` is seen. It never reads a comment: a `//`
+line, a trailing `//` and a `/* */` block are skipped, so an item identifier in a maintainer's note
+stays allowed. A regular-expression literal is skipped too. In both source passes a NUL byte reads as
+a space instead of refusing the file, since a raw separator inside a literal is legitimate source;
+the clean line counts them.
 
 #### Two things worth knowing before you adopt this one
 

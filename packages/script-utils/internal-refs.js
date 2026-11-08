@@ -104,6 +104,16 @@ export const CONFIG_AXES = Object.freeze([
       "in a repository that publishes types.",
   }),
   Object.freeze({
+    name: "sourceStringLiterals",
+    required: false,
+    refusesEmpty: false,
+    default: "{ enabled: false }",
+    summary:
+      "Whether the source string-literal pass runs, over which tracked paths, and with which extra " +
+      "rules. A string literal reaches a consumer as error and warning text, so it is public " +
+      "surface; a comment is not, and this pass never reads one.",
+  }),
+  Object.freeze({
     name: "exitCodes",
     required: false,
     refusesEmpty: false,
@@ -634,6 +644,21 @@ export function resolveConfig(config) {
     }
   }
 
+  const literals = config.sourceStringLiterals ?? { enabled: false };
+  if (!isPlainObject(literals)) {
+    problems.push("axis `sourceStringLiterals` is not an object");
+  } else if (literals.enabled === true) {
+    if (!isStringList(literals.paths) || literals.paths.length === 0) {
+      problems.push(
+        "axis `sourceStringLiterals.paths` is required when the pass is enabled, and must name at " +
+          "least one tracked path. An enabled pass with no paths reads nothing.",
+      );
+    }
+    if (literals.extraRules !== undefined && !Array.isArray(literals.extraRules)) {
+      problems.push("axis `sourceStringLiterals.extraRules` is not a list");
+    }
+  }
+
   if (config.extraRules !== undefined && !Array.isArray(config.extraRules)) {
     problems.push("axis `extraRules` is not a list");
   }
@@ -660,6 +685,11 @@ export function resolveConfig(config) {
         enabled: source.enabled === true,
         paths: source.enabled === true ? [...source.paths] : [],
         extraRules: source.extraRules === undefined ? [] : [...source.extraRules],
+      },
+      sourceStringLiterals: {
+        enabled: literals.enabled === true,
+        paths: literals.enabled === true ? [...literals.paths] : [],
+        extraRules: literals.extraRules === undefined ? [] : [...literals.extraRules],
       },
       exitCodes: codes,
       extraRules: config.extraRules === undefined ? [] : [...config.extraRules],
@@ -1067,8 +1097,258 @@ export function extractDocComments(text, file) {
 // ---------------------------------------------------------------------------
 
 /** A NUL byte is how every text matcher decides a file is not text. Refuse rather than skip it. */
+/** NUL bytes read as spaces in source text, counted so the clean line can say so. */
+let sourceNulBytes = 0;
+
+/**
+ * A source file's text for the two source passes. A NUL byte is legitimate in source (a raw
+ * separator inside a string literal, as deid's HMAC keys and dicom's charset table carry), and it
+ * reads as a SPACE rather than refusing the file or vanishing: a space keeps the word boundary on
+ * either side, so `x<NUL>DEID-77` is still an identifier where deleting the byte would glue it to
+ * the `x`. The public-surface pass still refuses a NUL-bearing target.
+ */
+function sourceText(bytes) {
+  let text = bytes.toString("utf8");
+  if (text.includes("\0")) {
+    sourceNulBytes += text.split("\0").length - 1;
+    text = text.replaceAll("\0", " ");
+  }
+  return text;
+}
+
 function looksBinary(bytes) {
   return bytes.includes(0);
+}
+
+/** Keywords after which a `/` starts a regular expression rather than a division. */
+const REGEX_AFTER_WORDS = new Set([
+  "return",
+  "typeof",
+  "instanceof",
+  "case",
+  "do",
+  "else",
+  "in",
+  "of",
+  "new",
+  "delete",
+  "void",
+  "throw",
+  "yield",
+  "await",
+]);
+
+/** Punctuation after which a `/` starts a regular expression rather than a division. */
+const REGEX_AFTER_PUNCTUATION = new Set([..."(,=:[!&|?{};+-*%<>~^"]);
+
+/** The escapes a string literal decodes, so a hit spelled with them is still seen. */
+function decodeLiteral(raw) {
+  let out = "";
+  for (let i = 0; i < raw.length; i += 1) {
+    const ch = raw[i];
+    if (ch !== "\\" || i + 1 >= raw.length) {
+      out += ch;
+      continue;
+    }
+    const next = raw[i + 1];
+    if (next === "u" && raw[i + 2] === "{") {
+      const end = raw.indexOf("}", i + 3);
+      const body = end < 0 ? "" : raw.slice(i + 3, end);
+      if (/^[0-9a-fA-F]{1,6}$/.test(body) && Number.parseInt(body, 16) <= 0x10ffff) {
+        out += String.fromCodePoint(Number.parseInt(body, 16));
+        i = end;
+        continue;
+      }
+    }
+    if (next === "u" && /^[0-9a-fA-F]{4}$/.test(raw.slice(i + 2, i + 6))) {
+      out += String.fromCharCode(Number.parseInt(raw.slice(i + 2, i + 6), 16));
+      i += 5;
+      continue;
+    }
+    if (next === "x" && /^[0-9a-fA-F]{2}$/.test(raw.slice(i + 2, i + 4))) {
+      out += String.fromCharCode(Number.parseInt(raw.slice(i + 2, i + 4), 16));
+      i += 3;
+      continue;
+    }
+    // `\n`, `\t` and the rest of the single-character escapes read as a space: they separate
+    // words in the message a consumer sees. An escaped quote or backslash is itself.
+    out += /[nrtbfv0]/.test(next) ? " " : next === "\n" ? "" : next;
+    i += 1;
+  }
+  return out;
+}
+
+/**
+ * Extract the string literals of JavaScript or TypeScript source: double-quoted, single-quoted and
+ * template literals, each decoded. A string literal reaches a consumer as error and warning text,
+ * so it is public surface. A COMMENT IS NEVER READ HERE: a `//` line comment, a trailing one, and a
+ * `/* *\/` block are skipped whole, because a maintainer's note is where an item identifier is
+ * welcome (doc comments are the doc-comment pass's). A template literal's `${...}` reads as a
+ * space and any literal inside it is extracted on its own; a regular-expression literal is
+ * skipped, so a quote inside one is not mistaken for a string.
+ *
+ * IT IS A SCANNER, NOT A PARSER. A `/` after a value is division and after an operator, an opening
+ * bracket or a keyword such as `return` starts a regular expression, which is the rule every
+ * JavaScript tokenizer uses; a source that defeats it is not one this estate writes.
+ *
+ * @param {string} text The source.
+ * @param {string} file Its repo-relative path, for the report.
+ * @returns {{ literals: { text: string, where: string }[], lines: { text: string, where: string }[] }}
+ *   One entry per non-empty literal, and one per source line holding two or more literals, joined
+ *   with a space, so a phrase split across adjacent literals is still seen.
+ */
+export function extractStringLiterals(text, file) {
+  const literals = [];
+  const byLine = new Map();
+  let line = 1;
+  let i = 0;
+
+  const record = (raw, startLine) => {
+    const value = decodeLiteral(raw).replace(/\s+/g, " ").trim();
+    if (value === "") return;
+    literals.push({ text: value, where: `${file}:${startLine}` });
+    const onLine = byLine.get(startLine) ?? [];
+    onLine.push(value);
+    byLine.set(startLine, onLine);
+  };
+
+  /** Lex from `i` until the end, or until the `}` closing a template expression when `inBraces`. */
+  const lex = (inBraces) => {
+    let depth = 0;
+    let prev = "";
+    let prevWord = "";
+    while (i < text.length) {
+      const ch = text[i];
+      if (ch === "\n") {
+        line += 1;
+        i += 1;
+        continue;
+      }
+      if (ch === "/" && text[i + 1] === "/") {
+        while (i < text.length && text[i] !== "\n") i += 1;
+        continue;
+      }
+      if (ch === "/" && text[i + 1] === "*") {
+        i += 2;
+        while (i < text.length && !(text[i] === "*" && text[i + 1] === "/")) {
+          if (text[i] === "\n") line += 1;
+          i += 1;
+        }
+        i += 2;
+        continue;
+      }
+      if (ch === '"' || ch === "'") {
+        const start = line;
+        let raw = "";
+        i += 1;
+        while (i < text.length && text[i] !== ch && text[i] !== "\n") {
+          if (text[i] === "\\" && i + 1 < text.length) {
+            if (text[i + 1] === "\n") line += 1;
+            raw += text[i] + text[i + 1];
+            i += 2;
+            continue;
+          }
+          raw += text[i];
+          i += 1;
+        }
+        i += 1;
+        record(raw, start);
+        prev = "v";
+        prevWord = "";
+        continue;
+      }
+      if (ch === "`") {
+        const start = line;
+        let raw = "";
+        i += 1;
+        while (i < text.length && text[i] !== "`") {
+          if (text[i] === "\\" && i + 1 < text.length) {
+            if (text[i + 1] === "\n") line += 1;
+            raw += text[i] + text[i + 1];
+            i += 2;
+            continue;
+          }
+          if (text[i] === "$" && text[i + 1] === "{") {
+            i += 2;
+            lex(true);
+            raw += " ";
+            continue;
+          }
+          if (text[i] === "\n") line += 1;
+          raw += text[i];
+          i += 1;
+        }
+        i += 1;
+        record(raw, start);
+        prev = "v";
+        prevWord = "";
+        continue;
+      }
+      if (
+        ch === "/" &&
+        (prev === "" || REGEX_AFTER_PUNCTUATION.has(prev) || REGEX_AFTER_WORDS.has(prevWord))
+      ) {
+        // A regular-expression literal: up to the unescaped `/` outside a character class.
+        let inClass = false;
+        i += 1;
+        while (i < text.length && text[i] !== "\n") {
+          if (text[i] === "\\") {
+            i += 2;
+            continue;
+          }
+          if (text[i] === "[") inClass = true;
+          else if (text[i] === "]") inClass = false;
+          else if (text[i] === "/" && !inClass) break;
+          i += 1;
+        }
+        i += 1;
+        while (i < text.length && /[A-Za-z]/.test(text[i])) i += 1;
+        prev = "v";
+        prevWord = "";
+        continue;
+      }
+      if (/\s/.test(ch)) {
+        i += 1;
+        continue;
+      }
+      if (/[A-Za-z_$]/.test(ch)) {
+        let word = "";
+        while (i < text.length && /[\w$]/.test(text[i])) {
+          word += text[i];
+          i += 1;
+        }
+        prev = "v";
+        prevWord = word;
+        continue;
+      }
+      if (/[0-9]/.test(ch)) {
+        while (i < text.length && /[\w.]/.test(text[i])) i += 1;
+        prev = "v";
+        prevWord = "";
+        continue;
+      }
+      if (inBraces) {
+        if (ch === "{") depth += 1;
+        if (ch === "}") {
+          if (depth === 0) {
+            i += 1;
+            return;
+          }
+          depth -= 1;
+        }
+      }
+      prev = ch === ")" || ch === "]" || ch === "}" ? "v" : ch;
+      prevWord = "";
+      i += 1;
+    }
+  };
+
+  lex(false);
+  const lines = [];
+  for (const [startLine, values] of byLine) {
+    if (values.length > 1) lines.push({ text: values.join(" "), where: `${file}:${startLine}` });
+  }
+  return { literals, lines };
 }
 
 /**
@@ -1081,6 +1361,7 @@ function looksBinary(bytes) {
  * @returns {number} `exitCodes.clean`, `exitCodes.hits` or `exitCodes.refuse`.
  */
 export function runInternalRefsScan(config) {
+  sourceNulBytes = 0;
   const writeOut = config?.write?.out ?? ((s) => process.stdout.write(s));
   const writeErr = config?.write?.err ?? ((s) => process.stderr.write(s));
 
@@ -1322,14 +1603,8 @@ export function runInternalRefsScan(config) {
             "could not open its input.",
         );
       }
-      if (looksBinary(read.bytes)) {
-        return refuse(
-          `tracked source file ${rel} holds a NUL byte, so a text matcher classifies it as ` +
-            "binary. Refusing to report green over input it cannot read.",
-        );
-      }
       sourceFiles += 1;
-      const extracted = extractDocComments(read.bytes.toString("utf8"), rel);
+      const extracted = extractDocComments(sourceText(read.bytes), rel);
       docLines.push(...extracted.lines);
       docParagraphs.push(...extracted.paragraphs);
     }
@@ -1340,6 +1615,78 @@ export function runInternalRefsScan(config) {
       );
     }
     scanDocComments(docLines, docParagraphs, sourceRules, hits);
+  }
+
+  // The source string-literal pass, when the caller has enabled it.
+  let literalFiles = 0;
+  if (resolved.sourceStringLiterals.enabled) {
+    const literalRules = [...rules];
+    let index = 0;
+    for (const rule of resolved.sourceStringLiterals.extraRules) {
+      const compiled = compileExtraRule(rule, index);
+      index += 1;
+      if (compiled.rule === undefined) {
+        return refuse(
+          "a source string-literal rule was refused:\n" +
+            compiled.problems
+              .map((p) => `       ${p}\n`)
+              .join("")
+              .trimEnd(),
+        );
+      }
+      literalRules.push(compiled.rule);
+    }
+    const literalSelfTest = runSelfTests(literalRules);
+    if (literalSelfTest.length > 0) {
+      return refuse(
+        "SELF-TEST FAILED for the source string-literal pass:\n" +
+          literalSelfTest
+            .map((f) => `       ${f}\n`)
+            .join("")
+            .trimEnd(),
+      );
+    }
+
+    const literalTracked = trackedEntriesUnder(root, resolved.sourceStringLiterals.paths);
+    if (literalTracked === null || literalTracked.length === 0) {
+      return refuse(
+        `no tracked source files under ${resolved.sourceStringLiterals.paths.join(", ")} to scan ` +
+          "for string literals. Either the source moved (update `sourceStringLiterals.paths`, " +
+          "deliberately) or the scan is about to cover less than it claims.",
+      );
+    }
+    const literalEntries = [];
+    const joinedEntries = [];
+    for (const entry of literalTracked) {
+      const rel = entry.path;
+      const verdict = classifyTrackedMode(entry.mode);
+      if (verdict === "skip") continue;
+      if (verdict === "refuse") {
+        return refuse(
+          `tracked source entry ${rel} has mode ${entry.mode}, which names nothing this scan can ` +
+            "read. Refusing to report green from a scan that skipped one of its inputs.",
+        );
+      }
+      const read = readTarget(join(root, rel));
+      if (read.error !== undefined) {
+        return refuse(
+          `tracked source file ${rel} ${read.error}. Refusing to report green from a scan that ` +
+            "could not open its input.",
+        );
+      }
+      literalFiles += 1;
+      const extracted = extractStringLiterals(sourceText(read.bytes), rel);
+      literalEntries.push(...extracted.literals);
+      joinedEntries.push(...extracted.lines);
+    }
+    if (literalEntries.length === 0) {
+      return refuse(
+        `extracted no string literals from ${literalFiles} tracked source file(s). A source tree ` +
+          "with no string literal at all is not one this estate writes, so an empty extraction " +
+          "means the extractor is broken, not that the source is clean.",
+      );
+    }
+    scanStringLiterals(literalEntries, joinedEntries, literalRules, hits);
   }
 
   if (hits.length > 0) {
@@ -1353,6 +1700,10 @@ export function runInternalRefsScan(config) {
       (resolved.sourceDocComments.enabled
         ? `; ${sourceFiles} source file(s) scanned for doc-comment bookkeeping`
         : "") +
+      (resolved.sourceStringLiterals.enabled
+        ? `; ${literalFiles} source file(s) scanned for string-literal bookkeeping`
+        : "") +
+      (sourceNulBytes > 0 ? `; ${sourceNulBytes} NUL byte(s) in source read as spaces` : "") +
       `; ${gitlinks} gitlink(s) skipped)\n`,
   );
   return resolved.exitCodes.clean;
@@ -1407,6 +1758,31 @@ function scanDocComments(docLines, docParagraphs, rules, hits) {
   }
 }
 
+/** Scan extracted string literals, one by one and then joined per source line. */
+function scanStringLiterals(literals, joined, rules, hits) {
+  for (const rule of rules) {
+    const located = new Set();
+    for (const entry of literals) {
+      const found = firstMatch(rule, entry.text);
+      if (found === null) continue;
+      located.add(entry.where);
+      hits.push({
+        rule: rule.name,
+        file: entry.where,
+        line: null,
+        text: entry.text,
+        literal: true,
+      });
+    }
+    for (const entry of joined) {
+      const found = firstMatch(rule, entry.text);
+      if (found === null || located.has(entry.where)) continue;
+      located.add(entry.where);
+      hits.push({ rule: rule.name, file: entry.where, line: null, text: found, literal: true });
+    }
+  }
+}
+
 /** The hit report: every finding names its file, its line where it has one, and its rule. */
 function report(hits) {
   const lines = [];
@@ -1415,6 +1791,7 @@ function report(hits) {
     const label =
       `[${hit.rule}` +
       (hit.source ? " / src doc comment" : "") +
+      (hit.literal ? " / src string literal" : "") +
       (hit.wrapped ? " / wrapped across lines" : "") +
       "]";
     lines.push(`${label} ${where}: ${hit.text}`);

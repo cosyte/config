@@ -283,7 +283,7 @@ describe("the tarball a consumer installs", () => {
       ].join("\n"),
     );
     expect(probe.code, probe.out).toBe(0);
-    expect(probe.out.trim()).toBe("function 10 6");
+    expect(probe.out.trim()).toBe("function 11 6");
   });
 
   it("resolves it by relative path too, which is the pre-install route", () => {
