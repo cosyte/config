@@ -409,15 +409,24 @@ node node_modules/@cosyte/script-utils/agent-notes.js              # this reposi
 node node_modules/@cosyte/script-utils/agent-notes.js --dir <path> # another repository
 ```
 
-It reads every file `git ls-files` lists, skipping and counting a binary file or anything that is not
-a regular file. Every pointer in any of them must name a heading of the notes (its GitHub slug) or an
+It reads every file `git ls-files` lists, skipping and counting a file that is not UTF-8 or anything
+that is not a regular file. Every pointer in any of them must name a heading of the notes (its GitHub slug) or an
 explicit `<a id>` or `<a name>` target. In CLAUDE.md the pointer must take the one form, not a bare
 backticked `#anchor` or `agent-notes.md#` without its directory. A `documentation/agent-notes/`
 directory is a finding, and so is a notes file CLAUDE.md never points into, a blank one, an empty
 section (a heading followed by a deeper one is a container, not empty), and a citation of the
-umbrella's deleted ADR 0023 or its doc-budget hook. A repository with no notes and no pointers
-passes. Exit 0 means clean, 1 a finding (file, line and rule from `AGENT_NOTES_RULES`), and 2 that
-the check could not run.
+umbrella's deleted ADR 0023 or its doc-budget hook. A `<file>.md#<anchor>` pointer in CLAUDE.md or
+the notes into another tracked Markdown file must name an anchor that file has. A repository with no
+notes and no pointers passes. Exit 0 means clean, 1 a finding (file, line and rule from
+`AGENT_NOTES_RULES`), and 2 that the check could not run.
+
+Three rules are opt-in, `--also title,orphan,card-path` (or `also` in options), because each would
+fail repositories that follow the card spec: `title` (the first level-1 heading of CLAUDE.md and of
+the notes names the package in package.json; most notes are titled "Agent notes"), `orphan` (CLAUDE.md
+points at every `##` section of the notes; a 60-line card cannot point at 85), and `card-path` (a path
+CLAUDE.md names whose first segment is a tracked top-level file or directory resolves to something
+tracked; a card may name a file a reader is told to create). A file that is not valid UTF-8 is skipped
+as binary; a text file holding a NUL byte is read.
 
 ## Overrides
 

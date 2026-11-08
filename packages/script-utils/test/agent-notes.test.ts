@@ -15,6 +15,7 @@ import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  AGENT_NOTES_OPT_IN,
   AGENT_NOTES_RULES,
   checkAgentNotes,
   makeSlugger,
@@ -166,8 +167,13 @@ describe("a repository that follows RD4", () => {
         "notes-missing",
         "pointer-form",
         "stale-citation",
+        "cross-anchor",
+        "title",
+        "orphan",
+        "card-path",
       ].sort(),
     );
+    expect([...AGENT_NOTES_OPT_IN]).toEqual(["title", "orphan", "card-path"]);
   });
 
   it("passes a repository with no notes and no pointers", () => {
@@ -291,17 +297,84 @@ describe("the CLI", () => {
     expect(cli(dir).out).toContain("[layout]");
   });
 
-  it("skips a binary file and does not follow a symlink", () => {
+  it("skips a file that is not UTF-8 and does not follow a symlink", () => {
     const dir = repo({
       "CLAUDE.md": CARD,
       "documentation/agent-notes.md": NOTES,
-      "fixture.bin": "documentation/agent-notes.md#gone\u0000",
     });
+    // A PNG signature: not UTF-8, so binary, whatever text follows it.
+    writeFileSync(
+      join(dir, "fixture.png"),
+      Buffer.concat([
+        Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0x00]),
+        Buffer.from("documentation/agent-notes.md#gone"),
+      ]),
+    );
     symlinkSync("/etc/hostname", join(dir, "link"));
-    git(dir, ["add", "link"]);
+    git(dir, ["add", "fixture.png", "link"]);
     const r = cli(dir);
     expect(r.code, r.out).toBe(0);
     expect(r.out).toContain("2 skipped");
+  });
+
+  it("reads a text file holding a NUL byte, so a pointer beside it is still held to the notes", () => {
+    // ccda tracks one: a NUL is a separator inside a TypeScript string, and the file is text.
+    const dir = repo({
+      "CLAUDE.md": CARD,
+      "documentation/agent-notes.md": NOTES,
+      "src/merge.ts": 'const key = "a\u0000b"; // documentation/agent-notes.md#gone\n',
+    });
+    const r = cli(dir);
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("src/merge.ts:1 [dangling]");
+    const clean = repo({
+      "CLAUDE.md": CARD,
+      "documentation/agent-notes.md": NOTES,
+      "src/merge.ts": 'const key = "a\u0000b"; // documentation/agent-notes.md#setup-1\n',
+    });
+    expect(cli(clean).code).toBe(0);
+  });
+
+  it("cross-anchor: a pointer into another tracked Markdown file names an anchor it has", () => {
+    const dir = repo({
+      "CLAUDE.md": `${CARD}\nSee docs-content/guide.md#install and docs-content/guide.md#gone.\n`,
+      "documentation/agent-notes.md": NOTES,
+      "docs-content/guide.md": "# Guide\n\n## Install\n\nRun it.\n",
+    });
+    const r = cli(dir);
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("[cross-anchor] docs-content/guide.md#gone names no heading");
+    expect(r.out).not.toContain("guide.md#install names");
+    // A file this repository does not track (the umbrella's, say) is not this rule's to judge.
+    const outside = repo({
+      "CLAUDE.md": `${CARD}\nSee plans/standards.md#st34.\n`,
+      "documentation/agent-notes.md": NOTES,
+    });
+    expect(cli(outside).code).toBe(0);
+  });
+
+  it("title, orphan and card-path run only when --also names them", () => {
+    const files = {
+      "package.json": JSON.stringify({ name: "@cosyte/other" }),
+      "CLAUDE.md": `${CARD}\nThe parser is \`src/parse.ts\`; the plan is \`plans/standards.md\`.\n`,
+      "documentation/agent-notes.md": `${NOTES}\n## Never pointed at\n\nText.\n`,
+      "src/index.ts": "export {};\n",
+    };
+    const dir = repo(files);
+    expect(cli(dir).code, "default rules").toBe(0);
+
+    const all = cli(dir, ["--also", "title,orphan,card-path"]);
+    expect(all.code).toBe(1);
+    expect(all.out).toContain("CLAUDE.md:1 [title] the title does not name @cosyte/other");
+    expect(all.out).toContain('[orphan] the section "Never pointed at" (#never-pointed-at)');
+    expect(all.out).toContain("[card-path] `src/parse.ts` names nothing tracked");
+    // A path outside this repository's own top level is not a claim about this repository.
+    expect(all.out).not.toContain("plans/standards.md");
+
+    const one = cli(dir, ["--also", "card-path"]);
+    expect(one.out).toContain("[card-path]");
+    expect(one.out).not.toContain("[title]");
+    expect(cli(dir, ["--also", "everything"]).code).toBe(2);
   });
 
   it("exits 2 outside a git repository, on an unterminated comment, and on a bad argument", () => {
