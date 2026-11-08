@@ -43,7 +43,7 @@ was passing, which is the point, but it means a version bump is not a safe unatt
 pnpm add -D @cosyte/test-utils fast-check
 ```
 
-`fast-check` (`^3`) is a peer dependency. Node `>=22.0.0`. ESM only.
+`fast-check` (`^3` or `^4`) is a peer dependency. Node `>=22.0.0`. ESM only.
 
 It ships **generic, parameterized invariant runners**. The **format-specific arbitraries stay in
 each parser**. This kit contains no HL7/DICOM/X12 generators. The runners are framework-agnostic:
@@ -356,7 +356,7 @@ the ADR's review triggers are the process for moving one.
 
 ## Compatibility
 
-Node `>=22.0.0`, ESM only, dual-published through tsup with declarations. `fast-check` `^3` is a peer
+Node `>=22.0.0`, ESM only, dual-published through tsup with declarations. `fast-check` `^3` or `^4` is a peer
 dependency of the main entry point; the `./perf` subpath has no dependencies at all and runs on
 `node:perf_hooks` alone, so a package can adopt the performance kit without taking `fast-check`.
 
