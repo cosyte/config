@@ -44,5 +44,6 @@ logs, and keep fixtures synthetic: real patient data never enters this repositor
   `id-token: write`, `pull-requests: write`): without them the release fails at startup.
 - Fix a gate in cosyte/config (`scripts/parser-template/` or `@cosyte/script-utils`), not only here,
   or the next parser scaffolded from the template is born with the same defect.
-- Longer notes go in `documentation/agent-notes.md`, and this card points to them as
-  `documentation/agent-notes.md#<anchor>`.
+- The card stands on its own: each rule names its failure and cites its PR or issue. Reasoning
+  goes in a test, a comment at the code it guards, an ADR in `documentation/decisions/`, the
+  README or `docs-content/`; git and the PRs keep the history.

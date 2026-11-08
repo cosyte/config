@@ -308,6 +308,16 @@ no package, so entries here are **dated** rather than versioned.
 
 ### Changed
 
+- **The card spec and the parser template drop the agent notes** (2026-11-08, D62 and RD4 in
+  plans/standards.md). The operator removed `documentation/agent-notes.md` from every repository, so
+  `documentation/claude-card.md` no longer sends what does not fit on a card there and has no pointer
+  form: a card stands on its own, each rule names its failure and cites the PR or issue behind it,
+  and longer reasoning goes in a test, a comment at the code it guards, an ADR, the README or docs,
+  or a runbook, with history left to git and the PRs. The parser template's card drops its rule
+  pointing at the notes and says where reasoning goes instead, so a scaffolded parser is born
+  without them; `test/scaffold-claude-card.test.ts` holds that. The card checker's messages and the
+  deprecated agent-notes checker are in `@cosyte/script-utils`'s changelog.
+
 - **The drift manifest requires CodeQL and Scorecard of public repos only** (2026-11-07, D50).
   CodeQL needs paid GitHub Code Security on a private repository, which we do not turn on, and the
   private repositories are removing their CodeQL and Scorecard callers. `estate.privateRepos` names

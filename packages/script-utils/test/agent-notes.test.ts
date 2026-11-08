@@ -2,6 +2,10 @@
  * The agent-notes checker, `@cosyte/script-utils/agent-notes`: one repository whose notes and
  * pointers follow RD4, and for every rule a mutation of it that must go red on that rule.
  *
+ * The checker is deprecated (D62): the notes were removed from every repository, so a repository
+ * with no notes file passes with one line whatever still points at it, and one that still has the
+ * file is checked as before.
+ *
  * Each case builds a throwaway git repository in a temp directory; no other repository is read.
  *
  * SECURITY: every subprocess call uses spawnSync with array args. No exec, no shell form.
@@ -72,6 +76,22 @@ const NOTES = [
 
 const SOURCE =
   "// Why: documentation/agent-notes.md#setup-1 and ../documentation/agent-notes.md#explicit-target\n";
+
+/** The one line a repository with no notes file gets (D62). */
+const RETIRED = "agent notes: OK, no agent notes (retired, D62)\n";
+
+/**
+ * A repository partway through removing its notes (D62): the file is gone, and what pointed into it
+ * is left behind. Each of these was a finding: the card's pointers (notes-missing), a bare anchor
+ * (pointer-form), a line naming the notes directory and the directory itself (layout), a source
+ * comment, and a changelog, whose history keeps its pointers.
+ */
+const MID_REMOVAL: Record<string, string> = {
+  "CLAUDE.md": `${CARD}\n- See \`#warning-codes\` and documentation/agent-notes/hazard.md.\n`,
+  "documentation/agent-notes/hazard.md": "# Hazard\n\nText.\n",
+  "src/a.ts": SOURCE,
+  "CHANGELOG.md": "## 0.1.0\n\n- Why: documentation/agent-notes.md#setup.\n",
+};
 
 const temporary: string[] = [];
 afterEach(() => {
@@ -280,6 +300,8 @@ describe("the CLI", () => {
     const r = cli(dir);
     expect(r.code).toBe(1);
     expect(r.out).toContain("test/b.test.ts:2 [dangling]");
+    // And says the notes are retired, so a reader deletes them rather than fixing them.
+    expect(r.out).toContain("the notes are retired (D62)");
   });
 
   it("reads a notes directory as the layout finding", () => {
@@ -302,6 +324,30 @@ describe("the CLI", () => {
     const r = cli(dir);
     expect(r.code, r.out).toBe(0);
     expect(r.out).toContain("2 skipped");
+  });
+
+  it("passes a repository that no longer has its notes, with one line (D62)", () => {
+    const dir = repo(MID_REMOVAL);
+    const r = cli(dir);
+    expect(r.code, r.out).toBe(0);
+    expect(r.out).toBe(RETIRED);
+    // The same tree with its notes file back is still checked, and each pointer resolves.
+    const kept = repo({ ...MID_REMOVAL, "documentation/agent-notes.md": NOTES });
+    expect(cli(kept).out).toContain("[layout]");
+  });
+
+  it("passes a notes file deleted from the working tree before the deletion is staged", () => {
+    const dir = repo({ ...MID_REMOVAL, "documentation/agent-notes.md": NOTES });
+    rmSync(join(dir, "documentation", "agent-notes.md"));
+    const r = cli(dir);
+    expect(r.code, r.out).toBe(0);
+    expect(r.out).toBe(RETIRED);
+  });
+
+  it("passes a repository that never had notes, with the same line", () => {
+    const r = cli(repo({ "CLAUDE.md": "# demo\n\nNo notes here.\n" }));
+    expect(r.code, r.out).toBe(0);
+    expect(r.out).toBe(RETIRED);
   });
 
   it("exits 2 outside a git repository, on an unterminated comment, and on a bad argument", () => {

@@ -202,6 +202,51 @@ describe("each rule goes red on its own", () => {
   });
 });
 
+describe("where a finding sends what does not fit on the card (D62)", () => {
+  // The agent notes were removed from every repository, so a message that sent detail to
+  // documentation/agent-notes.md would tell a session to write the file back.
+  const HOMES = [
+    "a test",
+    "a comment at the code it guards",
+    "an ADR",
+    "the README or docs",
+    "a runbook",
+  ];
+
+  function messages(text: string): Map<string, string> {
+    return new Map(checkClaudeCard(text, { agentsMd: true }).map((f) => [f.rule, f.message]));
+  }
+
+  it("bytes: names where the detail goes", () => {
+    const rule = `- ${"é".repeat(CARD_MAX_LINE_LENGTH - 2)}\n`;
+    const message = messages(`${good()}${rule.repeat(30)}`).get("bytes") ?? "";
+    for (const home of HOMES) expect(message, home).toContain(home);
+  });
+
+  it("section-extra: names where the detail goes", () => {
+    const message = messages(`${good()}\n## Notes\n\nMore.\n`).get("section-extra") ?? "";
+    for (const home of HOMES) expect(message, home).toContain(home);
+  });
+
+  it("no rule's message names the agent notes", () => {
+    // One card that breaks every rule, so every message is read.
+    const text = `${[
+      "x",
+      "## Rules",
+      "## Gate",
+      "",
+      "pnpm test",
+      "## Notes",
+      "",
+      "w".repeat(CARD_MAX_LINE_LENGTH + 1),
+      ...Array.from({ length: 70 }, () => "é".repeat(90)),
+    ].join("\n")}\n`;
+    const found = messages(text);
+    expect([...found.keys()].sort()).toEqual(Object.keys(CARD_RULES).sort());
+    for (const [rule, message] of found) expect(message, rule).not.toMatch(/agent.?notes/i);
+  });
+});
+
 describe("input the checker does not control", () => {
   it("reads a heading line padded with a long run of tabs in linear time", () => {
     const started = Date.now();

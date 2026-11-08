@@ -49,6 +49,14 @@ export const CARD_SECTIONS = Object.freeze(["Gate", "Hazard", "Rules"]);
 /** The line that imports AGENTS.md into the card. */
 export const AGENTS_IMPORT = "@AGENTS.md";
 
+/**
+ * Where what does not fit on the card goes, from the spec's "Where the detail goes". The card stands
+ * on its own: there is no notes file beside it to send detail to (D62).
+ */
+const DETAIL_GOES =
+  "where it is used: a test, a comment at the code it guards, an ADR, the README or docs, or a " +
+  "runbook";
+
 /** Every rule id a finding can carry, with what it requires. */
 export const CARD_RULES = Object.freeze({
   title: "The card opens with `# <name>`, after a YAML front matter block if it has one.",
@@ -140,7 +148,8 @@ export function checkClaudeCard(text, context = {}) {
       "bytes",
       0,
       `the card is ${bytes.toLocaleString("en-US")} bytes; the limit is ` +
-        `${CARD_MAX_BYTES.toLocaleString("en-US")}. Move detail to documentation/agent-notes.md.`,
+        `${CARD_MAX_BYTES.toLocaleString("en-US")}. Move detail to ${DETAIL_GOES}; git and the ` +
+        `PRs keep the history.`,
     );
   }
   lines.forEach((line, index) => {
@@ -185,7 +194,7 @@ export function checkClaudeCard(text, context = {}) {
         "section-extra",
         heading.line + 1,
         `"## ${heading.text}" is not one of the card's sections (${CARD_SECTIONS.join(", ")}); ` +
-          `make it a ### inside one of them, or move it to the agent notes.`,
+          `make it a ### inside one of them, or move it to ${DETAIL_GOES}.`,
       );
     } else if (!found.has(word)) {
       found.set(word, heading);

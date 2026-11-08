@@ -11,7 +11,7 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -73,6 +73,18 @@ describe.each(CASES)("a parser scaffolded as $name", ({ name }) => {
     expect(agents).toContain("pnpm phi-scan");
     expect(agents).toContain("Synthetic data only.");
     expect(agents).toContain("https://github.com/cosyte/.github/blob/main/CONTRIBUTING.md");
+  });
+
+  it("is born without agent notes, and with nothing that sends a session to them (D62)", () => {
+    // The notes were removed from every repository; a scaffold that named them would start a new
+    // library writing them again.
+    const dir = emitted.get(name) ?? "";
+    expect(existsSync(join(dir, "documentation", "agent-notes.md"))).toBe(false);
+    expect(existsSync(join(dir, "documentation", "agent-notes"))).toBe(false);
+    const naming = everyFile(dir).filter((file) =>
+      /agent.?notes/i.test(readFileSync(file, "utf8")),
+    );
+    expect(naming).toEqual([]);
   });
 
   it("leaves no template token and no pointer to the deleted umbrella conventions file", () => {

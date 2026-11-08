@@ -188,20 +188,6 @@ catalogEntry("@cosyte/hl7")?.docs; // => "https://docs.cosyte.com/hl7"
 CATALOG.engine.displayName; // => "Pathways"
 ```
 
-The agent-notes checker is the eighth. It resolves every pointer into a repository's one notes
-file against that file's headings, slugged the way GitHub slugs them:
-
-```ts runnable
-import { checkAgentNotes, slugify } from "@cosyte/script-utils/agent-notes";
-
-slugify("Why `attw` exits 0"); // => "why-attw-exits-0"
-
-const claude = "# demo\n\nSee documentation/agent-notes.md#setup.\n";
-const notes = "# Notes\n\n## Setup\n\nRun it.\n";
-checkAgentNotes({ claude, notes, files: [] }); // => []
-checkAgentNotes({ claude, notes: notes.replace("Setup", "Install"), files: [] })[0]?.rule; // => "dangling"
-```
-
 ## Entry points
 
 | entry point                          | what it is                                                                                   |
@@ -213,7 +199,7 @@ checkAgentNotes({ claude, notes: notes.replace("Setup", "Install"), files: [] })
 | `@cosyte/script-utils/readme`        | `runReadmeGate(options)` and `checkReadme(text, manifest)`, the README gate                  |
 | `@cosyte/script-utils/claude-card`   | `runClaudeCardGate(options)` and `checkClaudeCard(text)`, the CLAUDE.md card checker         |
 | `@cosyte/script-utils/catalog`       | `CATALOG`, `catalogEntry(name)` and `runCatalogCheck(options)`, the catalog of our libraries |
-| `@cosyte/script-utils/agent-notes`   | `runAgentNotesCheck(options)` and `checkAgentNotes(input)`, the agent-notes checker          |
+| `@cosyte/script-utils/agent-notes`   | deprecated (D62): `runAgentNotesCheck(options)` and `checkAgentNotes(input)`                 |
 
 They are separate subpaths because they are separately adoptable: a repo can take the entry-point
 guard without taking a position on PHI scanning, a repo can take the internal-reference gate without
@@ -258,16 +244,16 @@ npx -y @cosyte/script-utils@0.1 no-emdash          # the dispatcher: script-util
 npx -y -p @cosyte/script-utils@0.1 cosyte-readme   # or one gate's own bin
 ```
 
-| bin                    | `script-utils` command | the gate                                      |
-| ---------------------- | ---------------------- | --------------------------------------------- |
-| `cosyte-no-emdash`     | `no-emdash`            | the em and en dash gate, over files and names |
-| `cosyte-attw`          | `attw`                 | the attw publish gate, for the package here   |
-| `cosyte-phi-scan`      | `phi-scan`             | the PHI commit-gate                           |
-| `cosyte-internal-refs` | `internal-refs`        | the internal-reference gate                   |
-| `cosyte-readme`        | `readme`               | the README gate                               |
-| `cosyte-claude-card`   | `claude-card`          | the CLAUDE.md card checker                    |
-| `cosyte-agent-notes`   | `agent-notes`          | the agent-notes checker                       |
-| `cosyte-catalog`       | `catalog`              | the catalog check                             |
+| bin                    | `script-utils` command | the gate                                          |
+| ---------------------- | ---------------------- | ------------------------------------------------- |
+| `cosyte-no-emdash`     | `no-emdash`            | the em and en dash gate, over files and names     |
+| `cosyte-attw`          | `attw`                 | the attw publish gate, for the package here       |
+| `cosyte-phi-scan`      | `phi-scan`             | the PHI commit-gate                               |
+| `cosyte-internal-refs` | `internal-refs`        | the internal-reference gate                       |
+| `cosyte-readme`        | `readme`               | the README gate                                   |
+| `cosyte-claude-card`   | `claude-card`          | the CLAUDE.md card checker                        |
+| `cosyte-agent-notes`   | `agent-notes`          | deprecated (D62): the retired agent-notes checker |
+| `cosyte-catalog`       | `catalog`              | the catalog check                                 |
 
 Each runs over the working directory, takes the arguments its gate takes, exits with the gate's own
 code, and prints what it does with `--help`. `script-utils` with no command prints the list and exits 2.
@@ -398,26 +384,32 @@ release, because config's check against npm picks the change up once the library
 2 means the check could not run (no package.json, or an argument it does not accept). `--strict`
 restores the gate: 1 for a disagreement, 2 for an unlisted package.
 
-### The agent-notes checker
+### The agent-notes checker, deprecated
 
-`@cosyte/script-utils/agent-notes` checks a repository's agent notes (RD4): what does not fit on the
-CLAUDE.md card lives in one file, `documentation/agent-notes.md`, and the card points into it in one
-form, `documentation/agent-notes.md#<anchor>`. A repository runs it with no file of its own:
+`@cosyte/script-utils/agent-notes` and its bin, `cosyte-agent-notes`, are deprecated. They check a
+repository's agent notes, `documentation/agent-notes.md`, and every
+`documentation/agent-notes.md#<anchor>` pointer into them. On 2026-11-08 the notes were removed from
+every Cosyte repository (D62): a CLAUDE.md card stands on its own, and what does not fit on it goes
+where it is used, in a test, a comment at the code it guards, an ADR, the README or docs, or a
+runbook (`documentation/claude-card.md` in cosyte/config). Remove the package script or CI step that
+runs the checker.
 
-```sh
-node node_modules/@cosyte/script-utils/agent-notes.js              # this repository
-node node_modules/@cosyte/script-utils/agent-notes.js --dir <path> # another repository
+Until a minor release removes them, the entry point and the bin keep a repository that still runs
+the checker green while its notes are removed. With no `documentation/agent-notes.md` (not tracked,
+or deleted from the working tree) the checker exits 0 with one line,
+`agent notes: OK, no agent notes (retired, D62)`, whatever still points at the file. A repository
+that still has the file is checked as before: exit 0 clean, 1 a finding (file, line and rule from
+`AGENT_NOTES_RULES`, then a line saying the notes are retired), and 2 that the check could not run.
+
+```ts runnable
+import { checkAgentNotes, NOTES_PATH } from "@cosyte/script-utils/agent-notes";
+
+// The file it checks, which no repository keeps any more.
+NOTES_PATH; // => "documentation/agent-notes.md"
+
+// A card with no notes and nothing pointing at them has no findings.
+checkAgentNotes({ claude: "# demo\n\nOur demo.\n", notes: null, files: [] }); // => []
 ```
-
-It reads every file `git ls-files` lists, skipping and counting a binary file or anything that is not
-a regular file. Every pointer in any of them must name a heading of the notes (its GitHub slug) or an
-explicit `<a id>` or `<a name>` target. In CLAUDE.md the pointer must take the one form, not a bare
-backticked `#anchor` or `agent-notes.md#` without its directory. A `documentation/agent-notes/`
-directory is a finding, and so is a notes file CLAUDE.md never points into, a blank one, an empty
-section (a heading followed by a deeper one is a container, not empty), and a citation of the
-umbrella's deleted ADR 0023 or its doc-budget hook. A repository with no notes and no pointers
-passes. Exit 0 means clean, 1 a finding (file, line and rule from `AGENT_NOTES_RULES`), and 2 that
-the check could not run.
 
 ## Overrides
 
