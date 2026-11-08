@@ -58,6 +58,28 @@ describe("extractRunnableSnippets", () => {
     const md = ["```js runnable", "const x = 1;", "```", "```ts", "const y = 2;", "```"].join("\n");
     expect(extractRunnableSnippets(md)).toEqual([]);
   });
+
+  it("reads an indented opener with spaces around its info string", () => {
+    const md = ["  ```  ts   runnable  ", "  const a = 1;", "  ```"].join("\n");
+    const got = extractRunnableSnippets(md);
+    expect(got.map((s) => [s.lang, s.meta, s.code])).toEqual([
+      ["ts", ["runnable"], "const a = 1;"],
+    ]);
+  });
+
+  it("does not open a fence whose info string holds a line terminator", () => {
+    // The earlier pattern's `(.*)$` refused such a line, so it is not an opener now either.
+    const md = ["```ts\u2028runnable", "const a = 1;", "```"].join("\n");
+    expect(extractRunnableSnippets(md)).toEqual([]);
+  });
+
+  it("reads a long line that is not a fence in linear time (js/polynomial-redos)", () => {
+    // Quadratic before the fix: 100,000 spaces took about 19 seconds on Node 26.
+    const line = "```" + " ".repeat(100_000) + "x\u2028y";
+    const started = performance.now();
+    expect(extractRunnableSnippets(line)).toEqual([]);
+    expect(performance.now() - started).toBeLessThan(500);
+  });
 });
 
 describe("rewriteAssertions", () => {
@@ -72,6 +94,48 @@ describe("rewriteAssertions", () => {
     const { code, assertions } = rewriteAssertions("doThing(); // just a note");
     expect(assertions).toBe(0);
     expect(code).toBe("doThing(); // just a note");
+  });
+
+  it("agrees with the earlier single pattern on every line with an expression and a value", () => {
+    // The pattern rewriteAssertions used until CodeQL reported it as polynomial, kept here as the
+    // oracle for the lines it handled well.
+    const earlier = (line: string): string => {
+      const m = line.match(/^(\s*)(.+?);\s*\/\/\s*=>\s*(.+?)\s*$/);
+      return m ? `${m[1]}expect(${m[2]}).toStrictEqual(${m[3]});` : line;
+    };
+    const lines = [
+      "a; // => 1",
+      "    parse(x).value; // => { a: 1 }",
+      "\tb;//=>2",
+      "c;   //   =>   [1, 2]   ",
+      "d; // => e; // => f",
+      "g; // =>",
+      "h; // => 1; // =>",
+      "i(); // a note, not an assertion",
+      "no marker at all",
+      "j; // => 'x' // trailing comment",
+    ];
+    for (const line of lines) expect(rewriteAssertions(line).code, line).toBe(earlier(line));
+  });
+
+  it("fails an assertion with no expression instead of dropping it", () => {
+    // `  ; // => 1` asserts nothing as written. `expect()` reds the snippet that carries it.
+    expect(rewriteAssertions("  ; // => 1").code).toBe("  expect().toStrictEqual(1);");
+    expect(rewriteAssertions("; // => 1")).toEqual({
+      code: "expect().toStrictEqual(1);",
+      assertions: 1,
+    });
+  });
+
+  it.each([
+    ["a long indent", " ".repeat(100_000) + "x"],
+    ["a long tail after the value", "x; // => 1" + " ".repeat(100_000) + "\u2028y"],
+    ["many markers", "x; // => 1".repeat(20_000)],
+  ])("reads %s in linear time (js/polynomial-redos)", (_label, line) => {
+    // Quadratic before the fix: the first two took about 9 and 32 seconds on Node 26.
+    const started = performance.now();
+    rewriteAssertions(line);
+    expect(performance.now() - started).toBeLessThan(500);
   });
 });
 

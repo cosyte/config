@@ -31,6 +31,30 @@ const RUNNABLE_LANGS = new Set(["ts", "typescript", "tsx"]);
 let moduleCounter = 0;
 
 /**
+ * A fence opener's indentation and its run of three or more backticks or tildes.
+ *
+ * Nothing follows the run in the pattern: the info string is the rest of the line, cut off by hand.
+ * The earlier form, `\s*(.*)$` after the run, had two quantifiers that could both take the same
+ * spaces, so a long line that failed to match cost time quadratic in its length (CodeQL
+ * js/polynomial-redos). These docs come from the package being tested, and a markdown file is
+ * still input this harness should read in linear time.
+ */
+const FENCE_OPEN = /^(\s*)(`{3,}|~{3,})/;
+
+/**
+ * The characters `.` does not match in a JavaScript regular expression. A fence's info string, a
+ * doctest expression and its expected value were each `.+` or `.*` in the earlier patterns, so none
+ * of them may hold one; the hand-written parsing below keeps that rule.
+ */
+const LINE_TERMINATOR = /[\n\r\u2028\u2029]/;
+
+/**
+ * The `; // =>` marker of a doctest assertion. Each quantifier is followed by a character it cannot
+ * match, so a scan of a line is linear in its length.
+ */
+const ASSERTION_MARKER = /;\s*\/\/\s*=>/g;
+
+/**
  * Extract the opt-in runnable snippets from a markdown string.
  *
  * A block is runnable when its fence info string names a TypeScript language *and* carries the
@@ -50,12 +74,13 @@ export function extractRunnableSnippets(markdown, opts = {}) {
   const out = [];
   let i = 0;
   while (i < lines.length) {
-    const open = lines[i].match(/^(\s*)(`{3,}|~{3,})\s*(.*)$/);
-    if (!open) {
+    const open = FENCE_OPEN.exec(lines[i]);
+    const info = open ? lines[i].slice(open[0].length).trimStart() : "";
+    if (!open || LINE_TERMINATOR.test(info)) {
       i++;
       continue;
     }
-    const [, indent, fence, info] = open;
+    const [, indent, fence] = open;
     const firstCodeLine = i + 2; // 1-based line of the first body line
     const body = [];
     let j = i + 1;
@@ -107,14 +132,44 @@ export function rewriteAssertions(code) {
   const rewritten = code
     .split(/\r?\n/)
     .map((line) => {
-      const m = line.match(/^(\s*)(.+?);\s*\/\/\s*=>\s*(.+?)\s*$/);
+      const m = splitAssertion(line);
       if (!m) return line;
       assertions++;
-      const [, ws, expr, expected] = m;
-      return `${ws}expect(${expr}).toStrictEqual(${expected});`;
+      return `${m.ws}expect(${m.expr}).toStrictEqual(${m.expected});`;
     })
     .join("\n");
   return { code: rewritten, assertions };
+}
+
+/**
+ * Split a doctest line into its indentation, its expression and its expected value.
+ *
+ * The first `; // =>` with anything after it splits the line: the expression is what lies between
+ * the indentation and that marker, the expected value is the rest, trimmed. A line with no such
+ * marker, or whose expression or value holds a line terminator, is not an assertion.
+ *
+ * Parsed by hand rather than by one pattern: `^(\s*)(.+?);\s*\/\/\s*=>\s*(.+?)\s*$` let several
+ * quantifiers take the same spaces, so a long line that failed to match cost time quadratic in its
+ * length (CodeQL js/polynomial-redos). This is linear. It agrees with that pattern on every line
+ * with an expression and a value. Where the expression is empty (`; // => 1`), it emits `expect()`,
+ * which fails the snippet; the pattern emitted `expect( )` for an indented line and left an
+ * unindented one as it was, a line that asserts nothing.
+ *
+ * @param {string} line - One source line.
+ * @returns {{ ws: string, expr: string, expected: string } | null} The parts, or `null`.
+ */
+function splitAssertion(line) {
+  for (const marker of line.matchAll(ASSERTION_MARKER)) {
+    const end = marker.index + marker[0].length;
+    // Only the last marker can end the line, so this skips at most once.
+    if (end === line.length) continue;
+    const ws = line.slice(0, line.length - line.trimStart().length);
+    const expr = line.slice(ws.length, marker.index);
+    const expected = line.slice(end).trim();
+    if (LINE_TERMINATOR.test(expr) || LINE_TERMINATOR.test(expected)) return null;
+    return { ws, expr, expected };
+  }
+  return null;
 }
 
 /**
