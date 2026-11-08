@@ -16,10 +16,20 @@ export type AgentNotesRule =
   | "no-pointer"
   | "blank"
   | "empty-section"
-  | "stale-citation";
+  | "stale-citation"
+  | "cross-anchor"
+  | "title"
+  | "orphan"
+  | "card-path";
+
+/** The rules that run only when `also` (or `--also`) names them. */
+export type AgentNotesOptInRule = "title" | "orphan" | "card-path";
 
 /** Every rule id, with what it requires. */
 export declare const AGENT_NOTES_RULES: Readonly<Record<AgentNotesRule, string>>;
+
+/** The opt-in rules, in order. */
+export declare const AGENT_NOTES_OPT_IN: readonly AgentNotesOptInRule[];
 
 /** Raised when the check cannot run; the CLI turns it into exit 2. */
 export declare class AgentNotesRefusal extends Error {}
@@ -69,6 +79,14 @@ export interface AgentNotesInput {
   notesDirectory?: boolean;
   /** Whether the repository has its own `documentation/decisions/0023-*`. */
   localDecision0023?: boolean;
+  /** package.json's `name`, for the opt-in `title` rule. */
+  packageName?: string | null;
+  /** The opt-in rules to run. */
+  also?: AgentNotesOptInRule[];
+  /** Every tracked path, for `card-path` and `cross-anchor`. */
+  tracked?: Set<string>;
+  /** Every tracked Markdown file's contents by path, for `cross-anchor`. */
+  markdown?: Map<string, string>;
 }
 
 /**
@@ -81,8 +99,10 @@ export declare function checkAgentNotes(input: AgentNotesInput): AgentNotesFindi
 export interface AgentNotesCheckOptions {
   /** The repository root. Default: the working directory. */
   dir?: string;
-  /** CLI arguments; only `--dir <path>` is accepted. */
+  /** CLI arguments: `--dir <path>` and `--also <rule>[,<rule>]`. */
   argv?: string[];
+  /** The opt-in rules to run, besides any `--also` names. */
+  also?: AgentNotesOptInRule[];
 }
 
 /**
