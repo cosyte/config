@@ -13,11 +13,14 @@ name: CodeQL
 # multi-package release shape cannot use the shared pipeline); that argument is about the CI entry
 # point and does not reach the security workflows, which take no repository-shaped input at all.
 #
-# THE REFERENCE IS `@main`, DELIBERATELY. Every existing caller in the estate names @main, and so
-# does scripts/parser-template/.github/workflows/codeql.yml, the scaffold this file is derived from.
-# A published, immutable reference is the better answer and it is owed, but it is owed ESTATE-WIDE:
-# pinning one caller inside a fleet of @main callers reduces no fan-out and leaves the reader with
-# two conventions instead of one. Moving every caller at once is separate work.
+# THE REFERENCE IS A PUBLISHED ONE, PINNED BY ITS COMMIT (ST37 in the umbrella's plans/standards.md):
+# `workflows-2026-11-07-498c7c13c886`, the reference every library and the scaffold this file is
+# derived from call. A reference at `@main` would deliver every later change to the shared workflow on
+# cosyte/.github's clock, reviewed by nobody here. The reference moves by hand, with every caller
+# together; dependabot.yml keeps Dependabot from offering cosyte/.github's main in its place.
+#
+# NO `timeout-minutes` HERE: a job that calls a reusable workflow cannot set one. The shared workflow
+# sets it on its own jobs.
 #
 # PERMISSIONS ARE GRANTED AT THE JOB, BECAUSE A CALLED WORKFLOW CAN ONLY DOWNGRADE ITS CALLER'S
 # TOKEN. `permissions:` inside a reusable workflow narrows what it was handed; it cannot widen it. So
@@ -54,4 +57,4 @@ jobs:
       security-events: write # upload the SARIF to the Security tab
       contents: read # required to resolve the reusable workflow (else contents:none is a startup failure)
       actions: read # read this run's own workflow metadata, which the SARIF upload attaches
-    uses: cosyte/.github/.github/workflows/codeql.yml@main
+    uses: cosyte/.github/.github/workflows/codeql.yml@498c7c13c8869bf11b67fa8324684ec2dc691ec6 # workflows-2026-11-07-498c7c13c886
