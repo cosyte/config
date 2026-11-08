@@ -181,7 +181,7 @@
     {
       "name": "@cosyte/cli",
       "slug": "cli",
-      "description": "The Cosyte command line for Node.js and TypeScript: one command over HL7 v2, FHIR R4, X12, ASTM, NCPDP, C-CDA, DICOM, and MLLP, with HL7 v2 to FHIR conversion from transform, code mapping from terminology, and the cosyte-mcp MCP server for agents. Value-free diagnostics and a documented exit-code contract.",
+      "description": "The Cosyte command line for Node.js and TypeScript: one command over HL7 v2, FHIR R4, X12, ASTM, NCPDP, C-CDA, DICOM, and MLLP, with HL7 v2 to FHIR conversion from transform, code mapping from terminology, and the cosyte-mcp MCP server for agents.",
       "line": "0.1",
       "engines": {
         "node": ">=22.0.0"
