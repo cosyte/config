@@ -1194,9 +1194,28 @@ describe("npm-config-allow: the real repository", () => {
     return env;
   }
 
-  it("has no repository-level .npmrc, which must be a normal state and not an error (C3)", () => {
-    expect(() => readFileSync(join(REPO_ROOT, ".npmrc"), "utf8")).toThrow();
-  });
+  it.each([false, true])(
+    "reads the repository .npmrc and permits each setting it carries (C3, EN9), ci=%s",
+    (ci) => {
+      // The root .npmrc is the parser template's (EN9). Every key in it reaches the publish job's
+      // configuration, so each must be observed from that file and permitted, in the local context
+      // and in the one the gated publish job gives the check. A repository with no .npmrc is the
+      // fixtures' default above, and stays a normal state.
+      const keys = readFileSync(join(REPO_ROOT, ".npmrc"), "utf8")
+        .split("\n")
+        .filter((line) => /^[a-z-]+=/.test(line))
+        .map((line) => line.slice(0, line.indexOf("=")));
+      expect(keys.length).toBeGreaterThan(0);
+      const { code, output } = runCheck(REPO_ROOT, repoContext(ci));
+      expect(code, output).toBe(0);
+      for (const key of keys) {
+        expect(output).toMatch(
+          new RegExp(`\\n {2}${key} = .*<- project config from ${join(REPO_ROOT, ".npmrc")}`),
+        );
+      }
+    },
+    SLOW,
+  );
 
   it(
     "passes over this repository's own committed configuration (C3)",
