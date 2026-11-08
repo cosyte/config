@@ -230,10 +230,28 @@ const PHASE_NOT_CLINICAL =
   "(?<!study )(?<!clinical )(?<!trial )(?<!acute )(?<!chronic )(?<!luteal )(?<!follicular )" +
   "(?<!liquid )(?<!gas )";
 
-/** Lookahead that drops the clinical-study field-name tails and the trial roman numerals. */
+/**
+ * Lookbehind that drops `phase` as the second half of a compound word.
+ *
+ * `connect-phase socket`, `two-phase state` and `read-phase timeout` describe a protocol, not a
+ * roadmap: a letter and a hyphen in front of `phase` make it part of an adjective. Only the
+ * characters BEFORE the word are read, so `Phase-L` (the hyphen after it) is still a hit, and so is
+ * a phase after a digit and a hyphen.
+ */
+const PHASE_NOT_COMPOUND = "(?<![A-Za-z]-)";
+
+/**
+ * Lookahead that drops the clinical-study field-name tails, the trial roman numerals, and the
+ * words that make `phase` a noun in a sentence rather than the name of one.
+ *
+ * `All 5 phases are defined`, `the lifecycle phase where the error occurred`, `the phase was`, `the
+ * phases were`, `the phase during which` and `the phase at which` say what a phase is. A roadmap
+ * phase is named by what follows the word, and none of these words names one.
+ */
 const PHASE_NOT_FIELD =
   "(?!of\\b|with\\b|in\\b|out\\b|the\\b|and\\b|is\\b|for\\b|to\\b|identifier\\b|start\\b|end\\b|" +
-  "evaluability\\b|number\\b|(?:I{1,3}|IV)\\s+(?:trial|stud|clinical|oncolog))";
+  "evaluability\\b|number\\b|where\\b|are\\b|was\\b|were\\b|during\\b|at\\b|" +
+  "(?:I{1,3}|IV)\\s+(?:trial|stud|clinical|oncolog))";
 
 /**
  * Imaging vocabulary that follows `slice` in reference material rather than in our jargon.
@@ -340,7 +358,8 @@ export function compileCanonicalRules(resolved) {
       name: "phase or wave language",
       patterns: [
         new RegExp(
-          `\\b(?:roadmap phases?\\b[ ]?[A-Za-z0-9]*|${PHASE_NOT_CLINICAL}phases?[ -]${PHASE_NOT_FIELD}` +
+          `\\b(?:roadmap phases?\\b[ ]?[A-Za-z0-9]*|${PHASE_NOT_CLINICAL}${PHASE_NOT_COMPOUND}phases?[ -]` +
+            `${PHASE_NOT_FIELD}` +
             `[A-Za-z0-9]+[a-z]?\\b|wave \\d+\\b|the \\w+ and final phase\\b|` +
             `documentation residual\\b|${ORDINAL} (?:slice|wave)\\b)`,
           "gi",
@@ -350,12 +369,22 @@ export function compileCanonicalRules(resolved) {
         "Phase 5b closes it (Phase W, Phase-L and the thirteenth slice landed earlier, in wave 2)",
         // The plural, which ten of the eleven per-repository copies matched (`phases?[ -]`).
         "Phases 1 to 6 shipped together",
+        // What the two guards must still catch: a phase named next to a compound word, and a
+        // phase named before the words that make a bare `phase` a noun.
+        "The connect-phase socket shipped in phase 2",
+        "Phase 3 was where the error occurred",
       ],
       negatives: [
         "CSP-1 Study Phase Identifier, CSP-2 Study Phase Start Date/Time, CSP-3 Study Phase End " +
           "Date/Time, CSP-4 Study Phase Evaluability; a Phase III oncology trial and a Phase II " +
           "study; the acute phase reactant; the adapter stays in phase with the source system " +
           "and is out of phase",
+        // The compound-word guard: `phase` as the second half of an adjective.
+        "The connect-phase socket, the two-phase state and the read-phase timeout",
+        // The sentence guard: `phase` as a noun followed by what it is, not by its name.
+        "All 5 phases are defined; Connection lifecycle phase where the error occurred; the " +
+          "phase was open, the phases were closed, and a phase during which and a phase at which " +
+          "the socket failed",
       ],
     },
     {
