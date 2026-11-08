@@ -151,10 +151,13 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+      # No `registry-url`: this job carries no npm credential and reads only the public registry,
+      # npm's default. Given the input, setup-node v7 writes `_authToken=${NODE_AUTH_TOKEN}` into a
+      # user npmrc and, unlike v6, no longer exports a placeholder for it, so every npm and pnpm
+      # call here would read an unresolvable reference.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22.14"
-          registry-url: https://registry.npmjs.org
           cache: pnpm
 
       # GATE 1: REFUSE A CHANGESET THAT BUMPS NOTHING.
@@ -279,7 +282,7 @@ jobs:
           # applicable checks. Clearing it lets the netrc authenticate that push.
           persist-credentials: false
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22.14"
           cache: pnpm
@@ -419,13 +422,13 @@ jobs:
           persist-credentials: false
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
       # NO `registry-url`, DELIBERATELY. With it, `actions/setup-node` generates a user npmrc carrying
-      # `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}` and, in v6, exports a placeholder value
-      # for that variable when none is given. Under trusted publishing there is no token to put
-      # there, so the slot would hold the placeholder: sent to the registry whenever the OIDC
-      # exchange fails, and an unresolvable reference (which Gate 3 refuses) on a later setup-node
-      # that stops exporting it. Without the input npm uses its own default registry, which Gate 3's
-      # `require` rule still pins, and a failed exchange reads as "not logged in".
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+      # `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}`. Under trusted publishing there is no
+      # token to put there: v6 exported a placeholder value for the variable, which was sent to the
+      # registry whenever the OIDC exchange failed, and v7 exports nothing, which leaves an
+      # unresolvable reference (which Gate 3 refuses). Without the input npm uses its own default
+      # registry, which Gate 3's `require` rule still pins, and a failed exchange reads as "not
+      # logged in".
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22.14"
           cache: pnpm
