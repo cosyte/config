@@ -151,7 +151,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22.14"
           registry-url: https://registry.npmjs.org
@@ -279,7 +279,7 @@ jobs:
           # applicable checks. Clearing it lets the netrc authenticate that push.
           persist-credentials: false
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22.14"
           cache: pnpm
@@ -420,7 +420,7 @@ jobs:
       # exchange fails, and an unresolvable reference (which Gate 3 refuses) on a later setup-node
       # that stops exporting it. Without the input npm uses its own default registry, which Gate 3's
       # `require` rule still pins, and a failed exchange reads as "not logged in".
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22.14"
           cache: pnpm
