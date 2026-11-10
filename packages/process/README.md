@@ -120,10 +120,11 @@ one is conforming, exactly as before they existed.
 
 ## Entry points
 
-| entry point       | what it is                                                                       |
-| ----------------- | -------------------------------------------------------------------------------- |
-| `cosyte-process`  | the bin, which is how a wired repo consumes this package                         |
-| `@cosyte/process` | the same contract programmatically: the baseline, the verbs and the wiring check |
+| entry point             | what it is                                                                       |
+| ----------------------- | -------------------------------------------------------------------------------- |
+| `cosyte-process`        | the bin, which is how a wired repo consumes this package                         |
+| `cosyte-docs-reference` | the API reference generator for `docs-content/api/`, a second bin                |
+| `@cosyte/process`       | the same contract programmatically: the baseline, the verbs and the wiring check |
 
 The bin is the product; the module entry point exists so that the wiring check, the tests and any
 future tooling read the contract from one place instead of restating it:
@@ -300,6 +301,27 @@ refuses the same way and names the member. Members are written in a stable order
 entries, so two runs over the same tree produce the same archive. Any other failure, an output path
 that is already a file for instance, is a refusal in the same shape rather than a crash: the path,
 the entry point, what the system reported in structural terms, and the action available.
+
+### `cosyte-docs-reference`
+
+Generates the package's API reference from its TSDoc comments into `docs-content/api/`, the reference
+the docs-content standard asks for (decision record 0006 in cosyte/config), and reports every export
+with no TSDoc summary:
+
+```sh
+cosyte-docs-reference           # write docs-content/api/
+cosyte-docs-reference --check   # write nothing; fail when the committed pages differ
+```
+
+It runs TypeDoc and typedoc-plugin-markdown, dependencies of this package, over each entry point the
+package's `exports` names: `.` is `src/index.ts`, and `./name` is `src/name/index.ts` or `src/name.ts`.
+It writes one page per module, with no source lines, so a page changes only when the public surface or
+its comments do, and every page compiles as MDX. An export counts as documented when it, or one of its
+signatures, has a TSDoc summary; members of an export are not checked. No tag hides an export: one
+tagged `@internal`, `@hidden` or `@ignore` is in the pages and is checked like any other, so a symbol
+is either documented or not exported. Exit `0` clean, `1` a stale page or an undocumented export
+(each named, with its kind and file), `2` the input could not be read (no `package.json`,
+`tsconfig.json` or `docs-content/`, an export with no source, or TypeDoc could not convert it).
 
 ### The security-workflow trigger surface
 

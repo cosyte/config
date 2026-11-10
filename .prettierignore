@@ -16,3 +16,6 @@ experiments/bench-calibration/data
 # DELIBERATELY unformatted (it is how `format` and `format --check` are proven to do anything at
 # all), so formatting them here would delete the evidence.
 packages/process/test/fixtures
+# Mutation testing: Stryker sandboxes and reports, machine-written.
+.stryker-tmp
+**/reports/mutation

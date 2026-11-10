@@ -81,6 +81,15 @@ describe("@cosyte/vitest-config", () => {
       statements: 90,
     });
   });
+
+  it("writes the json-summary and lcov reports the coverage ratchet reads", () => {
+    const coverage = cosyteVitest().test?.coverage as {
+      reporter: string[];
+      reportsDirectory: string;
+    };
+    expect(coverage.reporter).toEqual(["text", "html", "lcov", "json-summary"]);
+    expect(coverage.reportsDirectory).toBe("./coverage");
+  });
 });
 
 describe("@cosyte/prettier-config", () => {

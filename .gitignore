@@ -15,3 +15,9 @@ coverage/
 # the banned vocabulary and that file is the implementation; a tracked second copy is the divergence
 # the whole consolidation exists to end.
 packages/script-utils/check-no-emdash.sh
+
+# Mutation testing (@cosyte/vitest-config/stryker): Stryker's sandboxes and the reports a run writes, and
+# the throwaway fixtures its own end-to-end test makes inside the package.
+.stryker-tmp/
+**/reports/mutation/
+packages/vitest-config/.e2e-*/

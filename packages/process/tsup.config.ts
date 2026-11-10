@@ -7,11 +7,16 @@ import { cosyteTsup } from "@cosyte/tsup-config";
  * package, and the only consumer-facing entry point is a bin that Node runs directly, so a CJS half
  * would ship a second copy of the CLI that nothing can call.
  *
- * Two entries: `index` is the programmatic surface (the baseline table, the override loader, the
- * wiring check), and `cli` is the `cosyte-process` bin. The bin is a separate entry rather than a
- * shebang on the library entry so that importing the package does not run an argv parser.
+ * Three entries: `index` is the programmatic surface (the baseline table, the override loader, the
+ * wiring check), `cli` is the `cosyte-process` bin, and `docs-reference` is the
+ * `cosyte-docs-reference` bin. Each bin is a separate entry rather than a shebang on the library
+ * entry so that importing the package does not run an argv parser.
  */
 export default cosyteTsup({
-  entry: { index: "src/index.ts", cli: "src/cli.ts" },
+  entry: {
+    index: "src/index.ts",
+    cli: "src/cli.ts",
+    "docs-reference": "src/docs-reference-cli.ts",
+  },
   format: ["esm"],
 });

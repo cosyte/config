@@ -21,5 +21,13 @@ export default defineConfig({
     environment: "node",
     include: ["test/**/*.test.ts"],
     testTimeout: 120_000,
+    // The modules at the package root are the source. Most of the older gates are also tested from
+    // the repository's root suite and through child processes, which this run does not see, so its
+    // numbers count this package's own suite only; the floor file holds them as they are.
+    coverage: {
+      provider: "v8",
+      include: ["*.js"],
+      reporter: ["text-summary", "json-summary", "lcov"],
+    },
   },
 });

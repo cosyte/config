@@ -9,7 +9,7 @@
 
 /** One extracted runnable snippet, in document order. */
 export interface RunnableSnippet {
-  /** The fence language (`ts` / `typescript` / `tsx`). */
+  /** The fence language (`ts` / `typescript` / `tsx`; a sample may also be `js` / `javascript` / `mjs`). */
   lang: string;
   /** Fence info-string tokens after the language (e.g. `["runnable", "throws"]`). */
   meta: string[];
@@ -19,6 +19,47 @@ export interface RunnableSnippet {
   line: number;
   /** Whether the block is tagged `throws` (expected to throw rather than run clean). */
   throws: boolean;
+  /**
+   * The extension of the module {@link runSnippet} writes the snippet to. Absent, it is `.ts`, which
+   * is what every snippet {@link extractRunnableSnippets} returns runs as.
+   */
+  extension?: string;
+}
+
+/** One extracted code sample, in document order: a TypeScript or JavaScript block, tagged or not. */
+export interface Sample extends RunnableSnippet {
+  /**
+   * The reason the block is not run: the words after its `no-run` tag (empty when the tag has no
+   * reason, which the suite reports as an error), or `null` for a block that runs.
+   */
+  skip: string | null;
+  /** The module it runs as: `.mjs` for a `js`, `javascript` or `mjs` sample, `.tsx` for `tsx`, else `.ts`. */
+  extension: ".ts" | ".tsx" | ".mjs";
+}
+
+/** The fence languages that make a block a code sample: TypeScript and JavaScript. */
+export declare const SAMPLE_LANGS: ReadonlySet<string>;
+
+/** What a suite does with one sample. */
+export interface SamplePlanStep {
+  /** The test name: the file, relative to the root, and the sample's first code line. */
+  label: string;
+  /** Run it, skip it with its reason, or report a `no-run` that gives no reason. */
+  kind: "run" | "skip" | "invalid";
+  /** Why it is skipped or invalid, or `null` for a run. */
+  reason: string | null;
+  /** The sample. */
+  snippet: Sample;
+}
+
+/** Options for {@link planSamples}. */
+export interface PlanSamplesOptions {
+  /** Take every sample rather than only the `runnable` ones. Default `false`. */
+  every?: boolean;
+  /** What labels are relative to. Default: the working directory. */
+  root?: string;
+  /** Fence opt-in tag when `every` is off. Default `"runnable"`. */
+  runnableTag?: string;
 }
 
 /** Options for {@link extractRunnableSnippets}. */
@@ -55,7 +96,33 @@ export interface DocSnippetSuiteOptions {
   requireSnippet?: boolean;
   /** Where temp modules are written (must be inside the project root). */
   tmpDir?: string;
+  /**
+   * Run every TypeScript and JavaScript sample, not only the `runnable` ones; a `no-run <reason>`
+   * sample is listed as skipped with its reason, and a `no-run` with no reason fails. Default `false`.
+   */
+  every?: boolean;
 }
+
+/**
+ * Extract every code sample from a markdown string: each `ts`, `typescript`, `tsx`, `js`,
+ * `javascript` or `mjs` block, tagged or not, in document order.
+ *
+ * @param markdown - The markdown source.
+ * @returns One entry per sample.
+ */
+export declare function extractSamples(markdown: string): Sample[];
+
+/**
+ * Decide what a suite does with each sample in a set of markdown files.
+ *
+ * @param files - Markdown file paths.
+ * @param options - Options.
+ * @returns One step per sample, in file and document order.
+ */
+export declare function planSamples(
+  files: string[],
+  options?: PlanSamplesOptions,
+): SamplePlanStep[];
 
 /**
  * Extract the opt-in runnable snippets from a markdown string, in document order.
