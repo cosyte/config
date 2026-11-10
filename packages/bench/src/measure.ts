@@ -6,22 +6,26 @@
  * @packageDocumentation
  */
 
+// The one source of the warmup rule. A relative import of the scaling gate's own contract file, not
+// of the published `@cosyte/test-utils/perf`, so the build bundles it into `dist` and this package
+// keeps no runtime dependency (that one would bring `fast-check` in as a peer). A change to the rule
+// there changes this package's build, so it needs a changeset that bumps this package too.
+import { PERF_CONTRACT } from "../../test-utils/src/perf/contract.js";
 import { BENCH_CONTRACT } from "./contract.js";
 import { median, nearestRank, round } from "./stats.js";
 
 /**
- * The warmup rule, the same numbers as `PERF_CONTRACT` in `@cosyte/test-utils/perf` (ADR 0001
- * section 2). Restated rather than imported so this package has no runtime dependency; a test
- * holds the two equal, so they cannot drift apart.
+ * The warmup rule, read from `PERF_CONTRACT` in `@cosyte/test-utils/perf` (ADR 0001 section 2) and
+ * renamed, so the scaling gate and the benchmarks warm up by one rule kept in one place.
  *
  * @internal
  */
 export const WARMUP = Object.freeze({
-  MIN_MS: 500,
-  BATCH_MS: 50,
-  MAX_MS: 5_000,
-  STABLE_TOL: 0.05,
-  STABLE_BATCHES: 3,
+  MIN_MS: PERF_CONTRACT.WARMUP_MIN_MS,
+  BATCH_MS: PERF_CONTRACT.WARMUP_BATCH_MS,
+  MAX_MS: PERF_CONTRACT.WARMUP_MAX_MS,
+  STABLE_TOL: PERF_CONTRACT.WARMUP_STABLE_TOL,
+  STABLE_BATCHES: PERF_CONTRACT.WARMUP_STABLE_BATCHES,
 });
 
 /**
@@ -97,9 +101,14 @@ export function warmUp(pass: () => void, clock: Clock): WarmupReport {
  * Take `SAMPLES` throughput samples. A sample runs whole passes until `SAMPLE_MIN_MS` has passed
  * and reports milliseconds per operation.
  *
- * `inject` is a known slowdown for calibration only: after each pass the clock is spun for that
- * fraction of the pass's own time, so `0.05` makes every pass exactly 5% slower. Zero in every real
- * measurement.
+ * `inject` plants a slowdown, for calibration only: after each pass the loop reads the clock until
+ * `inject` times that pass's own measured time has passed, then starts the next pass, so each
+ * sample's time includes the spin. That is all it does. It does not make the measured code slower
+ * by exactly that fraction: the spin changes the loop the engine compiles and what the processor
+ * does between passes, so the ratio a comparison then measures is not `1 + inject` and differs by
+ * workload and machine. A calibration reports the ratio it observed for each case
+ * (`CalibrationBody.observed`), and a detection rate is read against that, never against `inject`.
+ * Zero in every real measurement.
  *
  * @internal
  */

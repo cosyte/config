@@ -1,12 +1,11 @@
-import { mkdtempSync, readdirSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
 import type { Job } from "../src/child.js";
 import { BenchError, ENTRIES, childEnv, flagsFor, runInChild, runNode } from "../src/spawn.js";
-import { FIXTURES, entry } from "./support/paths.js";
+import { entry, FIXTURES, scratchDir } from "./support/paths.js";
 
 const job: Job = {
   mode: "timing",
@@ -71,7 +70,7 @@ describe("runInChild", () => {
 
   it("does not pass on a compile cache, and leaves no temporary directory behind", async () => {
     // A temporary directory of this test's own, so other test files' directories cannot interfere.
-    const scratch = mkdtempSync(join(tmpdir(), "bench-spawn-tmp-"));
+    const scratch = scratchDir("bench-spawn-tmp-");
     const saved = process.env["TMPDIR"];
     process.env["TMPDIR"] = scratch;
     process.env["NODE_COMPILE_CACHE"] = join(scratch, "a-compile-cache");

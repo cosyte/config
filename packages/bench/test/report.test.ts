@@ -143,16 +143,22 @@ describe("renderMarkdown", () => {
 
       Node v24.0.0 on github-actions-github-hosted-ubuntu24-x64 (Synthetic CPU, 4 logical CPUs), @cosyte/bench 9.9.9, 2026-11-10T00:00:00.000Z.
 
-      2 comparisons. Regression verdicts (false alarms): 1 of 3 case verdicts (33.33%, upper bound 86.47%); 1 of 2 comparisons (50%, upper bound 97.47%).
+      2 comparisons. Regression verdicts (false alarms): 1 of 3 measured case verdicts (33.33%, upper bound 86.47%); 1 of 2 comparisons that measured every case or called a regression (50%, upper bound 97.47%). Comparisons that skipped a case: 0 of 2 (0%, upper bound 77.64%).
 
       Verdicts: regression 1, improvement 0, no-regression 2, inconclusive 0, skipped 0.
 
-      Required check rule: not met. 1 false alarm(s) in 2 A/A comparisons: the upper bound 97.47% is not under 1%; a clean record needs at least 299 comparisons.
+      The change each case was observed at, the median of every measured round's head / base:
+
+      | Benchmark | Size | Measured rounds | Observed change |
+      | --- | --- | --- | --- |
+      | scan | 1 KiB | 6 | +10% |
+
+      Required check rule: not met. 1 false alarm(s) in 2 A/A comparisons that measured every case or called a regression: the upper bound 97.4679% is not under 1%, and a clean record needs at least 299 of them; 0 of 2 comparisons skipped a case, and a required check is red on each: the upper bound 77.6393% on that rate is not under 1%.
       "
     `);
     expect(text).toContain("### A/A calibration: suite");
     expect(text).toContain(
-      "2 comparisons. Regression verdicts (false alarms): 1 of 3 case verdicts (33.33%, upper bound 86.47%); 1 of 2 comparisons (50%, upper bound 97.47%).",
+      "2 comparisons. Regression verdicts (false alarms): 1 of 3 measured case verdicts (33.33%, upper bound 86.47%); 1 of 2 comparisons that measured every case or called a regression (50%, upper bound 97.47%).",
     );
     expect(text).toContain(
       "Verdicts: regression 1, improvement 0, no-regression 2, inconclusive 0, skipped 0.",
@@ -166,8 +172,15 @@ describe("renderMarkdown", () => {
       ),
     });
     expect(clean).toContain("Required check rule: met. 0 false alarm(s) in 299 A/A comparisons");
-    const injected: ResultsDocument = { ...aa, calibration: summarizeCalibration(0.05, [run]) };
+    const injected: ResultsDocument = {
+      ...aa,
+      calibration: summarizeCalibration(0.05, [
+        [...run, caseComparison({ size: "4 MiB", verdict: "skipped", ratios: [] })],
+      ]),
+    };
     const other = renderMarkdown(injected);
+    expect(other).toContain("| scan | 1 KiB | 4 | +10% |");
+    expect(other).toContain("| scan | 4 MiB | 0 | n/a |");
     expect(other).toContain("### Calibration with a 5% slowdown: suite");
     expect(other).toContain("(detections)");
     expect(other).not.toContain("Required check rule");

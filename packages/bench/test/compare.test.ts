@@ -297,32 +297,75 @@ const verdictCase = (verdict: CaseComparison["verdict"]): CaseComparison => ({
   skipReason: null,
 });
 
+const ratioCase = (size: string, ratios: number[]): CaseComparison => ({
+  ...verdictCase("no-regression"),
+  size,
+  ratios,
+});
+
 describe("summarizeCalibration", () => {
-  it("counts false alarms per case and per comparison", () => {
+  it("counts false alarms per measured case and per comparison with an outcome", () => {
     const runs = [
       [verdictCase("regression"), verdictCase("regression")],
       [verdictCase("no-regression"), verdictCase("inconclusive")],
       [verdictCase("improvement"), verdictCase("skipped")],
+      [verdictCase("regression"), verdictCase("skipped")],
     ];
     const s = summarizeCalibration(0, runs);
-    expect(s.perCase).toMatchObject({ events: 2, trials: 6, rate: 0.333333 });
-    expect(s.perComparison).toMatchObject({ events: 1, trials: 3, rate: 0.333333 });
+    // Six case verdicts measured; the two skipped cases are not trials.
+    expect(s.perCase).toMatchObject({ events: 3, trials: 6, rate: 0.5 });
+    // The third comparison skipped a case and called no regression: its outcome is unknown, so it
+    // is not a trial. The fourth called a regression, which a skip elsewhere does not undo.
+    expect(s.perComparison).toMatchObject({ events: 2, trials: 3, rate: 0.666667 });
+    expect(s.skippedComparisons).toMatchObject({ events: 2, trials: 4, rate: 0.5 });
     expect(s.verdicts).toEqual({
-      regression: 2,
+      regression: 3,
       improvement: 1,
       "no-regression": 1,
       inconclusive: 1,
-      skipped: 1,
+      skipped: 2,
     });
     expect(s.requiredRule).toEqual({
       applies: true,
       met: false,
       reason: expect.stringMatching(
-        /^1 false alarm\(s\) in 3 A\/A comparisons: the upper bound .*% is not under 1%; a clean record needs at least 299 comparisons$/,
+        /^2 false alarm\(s\) in 3 A\/A comparisons that measured every case or called a regression: the upper bound .*% is not under 1%, and a clean record needs at least 299 of them; 2 of 4 comparisons skipped a case, and a required check is red on each: the upper bound .*% on that rate is not under 1%$/,
       ) as string,
     });
     expect(s.runs).toBe(runs);
-    expect(s.comparisons).toBe(3);
+    expect(s.comparisons).toBe(4);
+  });
+
+  it("never meets the rule on comparisons that measured nothing", () => {
+    const skipped = Array.from({ length: 299 }, () => [verdictCase("skipped")]);
+    const s = summarizeCalibration(0, skipped);
+    expect(s.perCase).toEqual({ events: 0, trials: 0, rate: 0, upperBound: 1 });
+    expect(s.perComparison).toEqual({ events: 0, trials: 0, rate: 0, upperBound: 1 });
+    expect(s.skippedComparisons).toMatchObject({ events: 299, trials: 299, rate: 1 });
+    expect(s.requiredRule.met).toBe(false);
+    expect(s.requiredRule.reason).toMatch(/^0 false alarm\(s\) in 0 A\/A comparisons/);
+  });
+
+  it("does not meet the rule while comparisons skip, however clean the rest", () => {
+    const clean = Array.from({ length: 400 }, () => [verdictCase("no-regression")]);
+    const s = summarizeCalibration(0, [...clean, [verdictCase("skipped")]]);
+    expect(s.perComparison).toMatchObject({ events: 0, trials: 400 });
+    expect(s.perComparison.upperBound).toBeLessThan(0.01);
+    expect(s.skippedComparisons).toMatchObject({ events: 1, trials: 401 });
+    expect(s.requiredRule.met).toBe(false);
+    expect(s.requiredRule.reason).toMatch(
+      /^1 of 401 comparisons skipped a case, and a required check is red on each: the upper bound 1\.17\d*% on that rate is not under 1%$/,
+    );
+  });
+
+  it("names only the false alarms when they alone keep the rule unmet", () => {
+    const clean = Array.from({ length: 400 }, () => [verdictCase("no-regression")]);
+    const s = summarizeCalibration(0, [...clean, [verdictCase("regression")]]);
+    expect(s.skippedComparisons.upperBound).toBeLessThan(0.01);
+    expect(s.requiredRule.met).toBe(false);
+    expect(s.requiredRule.reason).toMatch(
+      /^1 false alarm\(s\) in 401 A\/A comparisons that measured every case or called a regression: the upper bound 1\.1\d*% is not under 1%, and a clean record needs at least 299 of them$/,
+    );
   });
 
   it("meets the rule with 299 clean A/A comparisons, and not with 298", () => {
@@ -331,9 +374,12 @@ describe("summarizeCalibration", () => {
       applies: true,
       met: true,
       reason:
-        "0 false alarm(s) in 299 A/A comparisons: the rate is under 1% with 95% confidence (upper bound 1%)",
+        "0 false alarm(s) in 299 A/A comparisons that measured every case or called a regression, and 0 of 299 comparisons skipped a case: both rates are under 1% with 95% confidence (upper bounds 0.9969% and 0.9969%)",
     });
     expect(summarizeCalibration(0, clean(298)).requiredRule.met).toBe(false);
+    expect(summarizeCalibration(0, clean(298)).requiredRule.reason).toBe(
+      "0 false alarm(s) in 298 A/A comparisons that measured every case or called a regression: the upper bound 1.0002% is not under 1%, and a clean record needs at least 299 of them; 0 of 298 comparisons skipped a case, and a required check is red on each: the upper bound 1.0002% on that rate is not under 1%",
+    );
     expect(summarizeCalibration(0, clean(299)).perComparison.upperBound).toBeLessThan(0.01);
   });
 
@@ -348,12 +394,24 @@ describe("summarizeCalibration", () => {
   });
 
   it("reports zero runs as zero, with no confidence at all", () => {
-    expect(summarizeCalibration(0, []).perComparison).toEqual({
-      events: 0,
-      trials: 0,
-      rate: 0,
-      upperBound: 1,
-    });
+    const s = summarizeCalibration(0, []);
+    expect(s.perComparison).toEqual({ events: 0, trials: 0, rate: 0, upperBound: 1 });
+    expect(s.skippedComparisons).toEqual({ events: 0, trials: 0, rate: 0, upperBound: 1 });
+    expect(s.observed).toEqual([]);
+  });
+
+  it("reports the ratio each case was observed at, pooled over every measured round", () => {
+    const s = summarizeCalibration(0.1, [
+      [ratioCase("small", [1.1, 1.2, 1.3]), ratioCase("large", [0.9])],
+      [ratioCase("small", [1.4]), { ...verdictCase("skipped"), size: "large" }],
+      [{ ...verdictCase("skipped"), size: "never" }],
+    ]);
+    // `small` pools four rounds, median (1.2 + 1.3) / 2; `large` one; `never` measured none.
+    expect(s.observed).toEqual([
+      { benchmark: "a", size: "small", rounds: 4, medianRatio: 1.25 },
+      { benchmark: "a", size: "large", rounds: 1, medianRatio: 0.9 },
+      { benchmark: "a", size: "never", rounds: 0, medianRatio: null },
+    ]);
   });
 });
 

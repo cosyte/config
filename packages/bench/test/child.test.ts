@@ -1,5 +1,4 @@
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { beforeEach, describe, expect, it } from "vitest";
@@ -16,7 +15,7 @@ import {
 import { BENCH_CONTRACT } from "../src/contract.js";
 import type { HeapProbe } from "../src/memory.js";
 import { fakeClock, fakeNs } from "./support/clock.js";
-import { FIXTURES } from "./support/paths.js";
+import { FIXTURES, scratchDir } from "./support/paths.js";
 
 /** A heap that never moves: every collection reclaims nothing, nothing ever collects. */
 const stillHeap: HeapProbe = {
@@ -229,7 +228,7 @@ describe("runJob: refusals", () => {
   });
 
   it("guards bind too", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "bench-bind-"));
+    const dir = scratchDir("bench-bind-");
     const suite = join(dir, "suite.mjs");
     writeFileSync(
       suite,
@@ -337,7 +336,7 @@ describe("guard, msPerOp and measuredSomething", () => {
 
 describe("childMain", () => {
   const files = (job: unknown) => {
-    const dir = mkdtempSync(join(tmpdir(), "bench-child-"));
+    const dir = scratchDir("bench-child-");
     const jobFile = join(dir, "job.json");
     const outFile = join(dir, "out.json");
     if (job !== undefined) writeFileSync(jobFile, JSON.stringify(job));

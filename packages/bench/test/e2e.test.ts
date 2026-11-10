@@ -2,8 +2,7 @@
  * End to end: real measuring processes, started from this package's sources, on the fixture suite.
  * These check what the processes report, never how fast anything was.
  */
-import { copyFileSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { copyFileSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -12,7 +11,7 @@ import type { Job } from "../src/child.js";
 import { measureImportCost } from "../src/import-cost.js";
 import { readResults } from "../src/results.js";
 import { flagsFor, runInChild, runNode } from "../src/spawn.js";
-import { FIXTURES, TS, here } from "./support/paths.js";
+import { FIXTURES, here, scratchDir, TS } from "./support/paths.js";
 
 const run = (job: Job, flags: readonly string[] = flagsFor(job)) =>
   runInChild(job, { entry: TS.child, execArgv: [...TS.loader, ...flags] });
@@ -92,7 +91,7 @@ describe("a real measuring process", () => {
 
 describe("a real cold import", () => {
   it("records every file the import loads, and only those", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "bench-e2e-import-"));
+    const dir = scratchDir("bench-e2e-import-");
     writeFileSync(join(dir, "leaf.mjs"), "export const x = 1;\n");
     writeFileSync(join(dir, "root.mjs"), 'export { x } from "./leaf.mjs";\n');
     const report = await measureImportCost(join(dir, "root.mjs"), TS.importer, TS.loader);
@@ -110,7 +109,7 @@ describe("the built command line", () => {
     runNode(cli, args, [], 600_000).then((o) => ({ ...o, cwd }));
 
   it("takes a reading, compares two copies of one build, and checks what it wrote", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "bench-e2e-cli-"));
+    const dir = scratchDir("bench-e2e-cli-");
     const copy = join(dir, "copy.mjs");
     copyFileSync(FIXTURES.target, copy);
     const out = join(dir, "r.json");

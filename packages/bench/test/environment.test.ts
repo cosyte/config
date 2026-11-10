@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { environment, readCgroupCpuMax } from "../src/environment.js";
+import { scratchDir } from "./support/paths.js";
 
 describe("environment", () => {
   it("describes a machine off CI, with no name, user or path in it", () => {
@@ -90,7 +90,7 @@ describe("environment", () => {
   });
 
   it("reads a cgroup quota file, trimmed, or null where there is none", () => {
-    const dir = mkdtempSync(join(tmpdir(), "bench-cgroup-"));
+    const dir = scratchDir("bench-cgroup-");
     writeFileSync(join(dir, "cpu.max"), "200000 100000\n");
     expect(readCgroupCpuMax(join(dir, "cpu.max"))).toBe("200000 100000");
     expect(readCgroupCpuMax(join(dir, "absent"))).toBeNull();

@@ -3,9 +3,10 @@
  *
  * Every value here is fixed by the performance standard,
  * `documentation/decisions/0005-the-performance-standard.md` in the `config` repo, which says for
- * each one whether it was measured or chosen, and on what basis. The warmup rule is not restated:
- * it is read from `PERF_CONTRACT` in `@cosyte/test-utils/perf` (ADR 0001 section 2), so the
- * scaling gate and the benchmarks warm up by one rule kept in one place.
+ * each one whether it was measured or chosen, and on what basis. The warmup rule is not here: it
+ * is `PERF_CONTRACT` in `@cosyte/test-utils/perf` (ADR 0001 section 2), which `measure.ts` imports
+ * and the build bundles, so the scaling gate and the benchmarks warm up by one rule kept in one
+ * place.
  *
  * They are not tuning knobs and cannot be overridden per package. A comparison's false alarm rate
  * was measured with these values; change one and the measurement no longer describes the tool.

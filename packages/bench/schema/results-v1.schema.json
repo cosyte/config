@@ -341,8 +341,33 @@
         "perComparison": {
           "$ref": "#/$defs/rate"
         },
+        "skippedComparisons": {
+          "$ref": "#/$defs/rate"
+        },
         "verdicts": {
           "type": "object"
+        },
+        "observed": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["benchmark", "size", "rounds", "medianRatio"],
+            "properties": {
+              "benchmark": {
+                "type": "string"
+              },
+              "size": {
+                "type": "string"
+              },
+              "rounds": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "medianRatio": {
+                "type": ["number", "null"]
+              }
+            }
+          }
         },
         "requiredRule": {
           "type": "object",

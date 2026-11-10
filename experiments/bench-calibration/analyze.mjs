@@ -1,16 +1,19 @@
 // Summarize the calibration runs: the comparison's false alarms and detections, and the long run's
-// slopes. Every number in ANALYSIS.md comes out of this file.
+// slopes. Every table in section 5 of ADR 0005 (documentation/decisions/) comes out of this file.
 //
 //   node experiments/bench-calibration/analyze.mjs compare <dir>...
 //   node experiments/bench-calibration/analyze.mjs long-run <dir>
 //
-// `compare` reads every calibration results file under the directories, groups the comparisons by
-// the slowdown injected, and judges each case again from its stored samples: with the shipped rule
-// (each process's fastest sample, a 3% threshold), and with the alternatives the standard weighed,
-// so the trade-off is measured on the same runs rather than argued. It needs a build
-// (`pnpm build`), because it judges with the package's own `judge`.
+// `compare` reads every calibration results file under the directories (at any depth), groups the
+// comparisons by the slowdown injected, and judges each case again from its stored samples: with the
+// shipped rule (each process's fastest sample, a 3% threshold), and with the alternatives the
+// standard weighed, so the trade-off is measured on the same runs rather than argued. A skipped
+// case is never a trial. A comparison is a trial when its outcome is known: every case measured, or
+// a regression was called. Under a planted slowdown it also prints the change each case was
+// observed at, because that, not the nominal fraction, is what a detection rate is read against. It
+// needs a build (`pnpm build`), because it judges with the package's own `judge`.
 
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import { BENCH_CONTRACT, judge, readResults } from "../../packages/bench/dist/index.mjs";
@@ -47,8 +50,12 @@ const pct = (x) => `${(x * 100).toFixed(2)}%`;
 
 function jsonFiles(dir) {
   return readdirSync(dir)
-    .filter((f) => f.endsWith(".json"))
-    .map((f) => join(dir, f));
+    .sort()
+    .flatMap((f) => {
+      const path = join(dir, f);
+      if (statSync(path).isDirectory()) return jsonFiles(path);
+      return f.endsWith(".json") ? [path] : [];
+    });
 }
 
 function compare(dirs) {
@@ -77,36 +84,66 @@ function compare(dirs) {
   const lines = [
     `Machine: ${environment?.cpuModel ?? "unknown"}, ${String(environment?.logicalCpus ?? "?")} logical CPUs, Node ${environment?.node ?? "?"}, ${environment?.runner.class ?? "?"}.`,
     "",
-    "| Injected | Rule | Comparisons | Case verdicts | Regression (case) | Upper 95% | Regression (comparison) | Upper 95% | Skipped cases |",
-    "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+    "| Injected | Rule | Comparisons | With a skip | With an outcome | Regression (comparison) | Upper 95% | Measured cases | Regression (case) | Upper 95% |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
   ];
+  const observed = [];
   for (const inject of [...byInject.keys()].sort((a, b) => a - b)) {
     const runs = byInject.get(inject);
     for (const rule of rules) {
       let cases = 0;
       let caseHits = 0;
+      let outcomes = 0;
       let compHits = 0;
-      let skipped = 0;
+      let withSkip = 0;
+      const byCase = new Map();
       for (const run of runs) {
         let any = false;
+        let skipped = false;
         for (const c of run) {
+          const key = `${c.benchmark} @ ${c.size}`;
+          const row = byCase.get(key) ?? { ratios: [], measured: 0, hits: 0, skipped: 0 };
+          byCase.set(key, row);
           if (c.verdict === "skipped") {
-            skipped++;
+            skipped = true;
+            row.skipped++;
             continue;
           }
           const ratios = c.headSamples.map(
             (h, k) => rule.estimator(h) / rule.estimator(c.baseSamples[k]),
           );
           cases++;
+          row.measured++;
+          row.ratios.push(...ratios);
           if (judge(ratios, rule.threshold).verdict === "regression") {
             caseHits++;
+            row.hits++;
             any = true;
           }
         }
+        if (skipped) withSkip++;
+        if (any || !skipped) outcomes++;
         if (any) compHits++;
       }
       lines.push(
-        `| ${pct(inject)} | ${rule.name} | ${String(runs.length)} | ${String(cases)} | ${String(caseHits)} (${pct(caseHits / cases)}) | ${pct(upperBound(caseHits, cases))} | ${String(compHits)} (${pct(compHits / runs.length)}) | ${pct(upperBound(compHits, runs.length))} | ${String(skipped)} |`,
+        `| ${pct(inject)} | ${rule.name} | ${String(runs.length)} | ${String(withSkip)} | ${String(outcomes)} | ${String(compHits)} (${pct(compHits / outcomes)}) | ${pct(upperBound(compHits, outcomes))} | ${String(cases)} | ${String(caseHits)} (${pct(caseHits / cases)}) | ${pct(upperBound(caseHits, cases))} |`,
+      );
+      if (rule === rules[0]) observed.push({ inject, byCase });
+    }
+  }
+  lines.push(
+    "",
+    "By case, with the shipped rule: the change each case was observed at (the median of every measured round's head / base, fastest samples) and its regression verdicts.",
+    "",
+    "| Injected | Case | Measured | Skipped | Observed change | Regression verdicts |",
+    "| --- | --- | --- | --- | --- | --- |",
+  );
+  for (const { inject, byCase } of observed) {
+    for (const [key, row] of byCase) {
+      const change =
+        row.ratios.length === 0 ? "n/a" : `${((median(row.ratios) - 1) * 100).toFixed(1)}%`;
+      lines.push(
+        `| ${pct(inject)} | ${key} | ${String(row.measured)} | ${String(row.skipped)} | ${change} | ${String(row.hits)} of ${String(row.measured)} |`,
       );
     }
   }

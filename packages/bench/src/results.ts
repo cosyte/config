@@ -284,7 +284,17 @@ export const RESULTS_SCHEMA = {
         },
         perCase: { $ref: "#/$defs/rate" },
         perComparison: { $ref: "#/$defs/rate" },
+        // Added within version 1, so optional: documents written before it validate unchanged.
+        skippedComparisons: { $ref: "#/$defs/rate" },
         verdicts: { type: "object" },
+        observed: {
+          type: "array",
+          items: {
+            type: "object",
+            required: ["benchmark", "size", "rounds", "medianRatio"],
+            properties: { benchmark: str, size: str, rounds: int, medianRatio: numOrNull },
+          },
+        },
         requiredRule: {
           type: "object",
           required: ["applies", "met", "reason"],

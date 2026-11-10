@@ -48,7 +48,8 @@ Node `>=22.15.0`. No runtime dependencies.
 
 ## Usage
 
-A suite is a module whose default export is `defineSuite(...)`. It is handed the module under test
+A suite is a module whose default export is `defineSuite(...)`: a `.mjs` file on any supported
+Node, or a `.ts` file on a Node that strips types (22.18 and later). It is handed the module under test
 rather than importing it, so the same suite measures a base build and a head build. Every corpus is
 built in code, from an index: the runner never reads a data file, so the inputs are synthetic by
 construction.
@@ -163,7 +164,14 @@ With the two sides the same, each case's chance of a false `regression` is at mo
 1.9%, whatever the noise, as long as the rounds are independent. How often it actually happens on a
 given runner, and how large a slowdown it reliably finds there, is what `cosyte-bench calibrate`
 measures. The comparison posts its numbers and is not a required check until an A/A calibration on
-its runner class shows false alarms under 1% (ADR 0005).
+its runner class shows, with 95% confidence, that false alarms are under 1% of the comparisons that
+measured, and that comparisons with a skipped case are under 1% of all of them (ADR 0005). A
+skipped case is never counted as a pass.
+
+`calibrate --inject <fraction>` plants a slowdown on the head side: after each timed pass it reads
+the clock until that fraction of the pass's own time has passed. The change a comparison then
+measures is not exactly that fraction, and differs by workload and machine, so a calibration
+reports the change it observed for each case, and a detection rate is read against that.
 
 ## PHI and safety
 

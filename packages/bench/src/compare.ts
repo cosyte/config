@@ -235,6 +235,18 @@ function counted(events: number, trials: number): CountedRate {
   };
 }
 
+/** The ratio one case was observed at over a whole calibration. */
+export interface ObservedRatio extends CaseRef {
+  /** Measured rounds, pooled over every comparison that measured the case. */
+  readonly rounds: number;
+  /**
+   * The median of those rounds' `head / base` ratios, or `null` when no round measured. Under an
+   * injected slowdown this is the slowdown the head side was actually measured at, which is not
+   * `1 + inject` (see `sampleThroughput`): a detection rate is read against it.
+   */
+  readonly medianRatio: number | null;
+}
+
 /** A calibration: many comparisons of known outcome. */
 export interface CalibrationBody {
   /** The slowdown injected on the head side. Zero is an A/A calibration: every regression is a false alarm. */
@@ -242,12 +254,20 @@ export interface CalibrationBody {
   readonly comparisons: number;
   /** Each comparison's cases, kept whole so a different rule can be judged against the same runs. */
   readonly runs: readonly (readonly CaseComparison[])[];
-  /** Case verdicts of `regression`, out of all case verdicts. */
+  /** Case verdicts of `regression`, out of the case verdicts that measured. A skipped case is not a trial. */
   readonly perCase: CountedRate;
-  /** Comparisons with at least one `regression`, out of all comparisons: what a required check sees. */
+  /**
+   * Comparisons with at least one `regression`, out of the comparisons whose outcome is known: every
+   * case measured, or a regression was called. A comparison that skipped a case and called no
+   * regression is neither a pass nor a trial.
+   */
   readonly perComparison: CountedRate;
+  /** Comparisons with at least one skipped case, out of all comparisons. A required check is red on each (exit 2). */
+  readonly skippedComparisons: CountedRate;
   /** Case verdicts by kind. */
   readonly verdicts: Readonly<Record<Verdict, number>>;
+  /** Each case's observed ratio, in the order the cases first appear. */
+  readonly observed: readonly ObservedRatio[];
   /** For an A/A calibration: whether the timing comparison may now be a required check, and why. */
   readonly requiredRule: {
     readonly applies: boolean;
@@ -258,9 +278,13 @@ export interface CalibrationBody {
 
 /**
  * Summarize calibration runs. With `inject` zero, every `regression` is a false alarm, and the rule
- * for making the comparison a required check is judged: the upper bound on the per-comparison false
- * alarm rate must be under `REQUIRED_FALSE_ALARM_RATE` at `REQUIRED_CONFIDENCE`. With `inject` above
- * zero every `regression` is a detection, and the rule does not apply.
+ * for making the comparison a required check is judged. A required check on an unchanged pull
+ * request is wrongly red for either of two reasons, so the rule bounds both at
+ * `REQUIRED_CONFIDENCE`: the per-comparison false alarm rate (over the comparisons whose outcome is
+ * known) and the rate of comparisons that skipped a case (over all of them) must each have an upper
+ * bound under `REQUIRED_FALSE_ALARM_RATE`. Comparisons that measured nothing count toward neither a
+ * pass nor a trial, so they can never meet it. With `inject` above zero every `regression` is a
+ * detection, and the rule does not apply.
  *
  * @internal
  */
@@ -275,27 +299,47 @@ export function summarizeCalibration(
     inconclusive: 0,
     skipped: 0,
   };
+  const pooled = new Map<string, { ref: CaseRef; ratios: number[] }>();
   let caseTrials = 0;
   let caseEvents = 0;
+  let compTrials = 0;
   let compEvents = 0;
+  let compSkipped = 0;
   for (const run of runs) {
-    let any = false;
+    let alarmed = false;
+    let skipped = false;
     for (const c of run) {
       verdicts[c.verdict]++;
+      const id = caseId(c);
+      const pool = pooled.get(id) ?? { ref: { benchmark: c.benchmark, size: c.size }, ratios: [] };
+      pooled.set(id, pool);
+      if (c.verdict === "skipped") {
+        skipped = true;
+        continue;
+      }
+      pool.ratios.push(...c.ratios);
       caseTrials++;
       if (c.verdict === "regression") {
         caseEvents++;
-        any = true;
+        alarmed = true;
       }
     }
-    if (any) compEvents++;
+    if (skipped) compSkipped++;
+    if (alarmed || !skipped) compTrials++;
+    if (alarmed) compEvents++;
   }
-  const perComparison = counted(compEvents, runs.length);
+  const perComparison = counted(compEvents, compTrials);
+  const skippedComparisons = counted(compSkipped, runs.length);
   const line = BENCH_CONTRACT.REQUIRED_FALSE_ALARM_RATE;
   const needed = trialsForZeroEvents(line, BENCH_CONTRACT.REQUIRED_CONFIDENCE);
-  const pct = (x: number) => `${String(round(x * 100, 2))}%`;
+  // Four decimals of a percentage: a bound of 0.9969% must not print as "1%" beside "under 1%".
+  const pct = (x: number) => `${String(round(x * 100, 4))}%`;
   // Stryker disable next-line EqualityOperator: an exact Clopper-Pearson bound of exactly 1% is not reached by any whole count of comparisons.
-  const under = perComparison.upperBound < line;
+  const alarmsUnder = perComparison.upperBound < line;
+  // Stryker disable next-line EqualityOperator: the same bound, on the same whole counts.
+  const skipsUnder = skippedComparisons.upperBound < line;
+  const alarms = `${String(compEvents)} false alarm(s) in ${String(compTrials)} A/A comparisons that measured every case or called a regression`;
+  const skips = `${String(compSkipped)} of ${String(runs.length)} comparisons skipped a case`;
   let requiredRule: CalibrationBody["requiredRule"];
   if (inject !== 0) {
     requiredRule = {
@@ -303,18 +347,25 @@ export function summarizeCalibration(
       met: false,
       reason: "a calibration with an injected slowdown measures detection, not false alarms",
     };
-  } else if (under) {
+  } else if (alarmsUnder && skipsUnder) {
     requiredRule = {
       applies: true,
       met: true,
-      reason: `${String(compEvents)} false alarm(s) in ${String(runs.length)} A/A comparisons: the rate is under ${pct(line)} with ${pct(BENCH_CONTRACT.REQUIRED_CONFIDENCE)} confidence (upper bound ${pct(perComparison.upperBound)})`,
+      reason: `${alarms}, and ${skips}: both rates are under ${pct(line)} with ${pct(BENCH_CONTRACT.REQUIRED_CONFIDENCE)} confidence (upper bounds ${pct(perComparison.upperBound)} and ${pct(skippedComparisons.upperBound)})`,
     };
   } else {
-    requiredRule = {
-      applies: true,
-      met: false,
-      reason: `${String(compEvents)} false alarm(s) in ${String(runs.length)} A/A comparisons: the upper bound ${pct(perComparison.upperBound)} is not under ${pct(line)}; a clean record needs at least ${String(needed)} comparisons`,
-    };
+    const why: string[] = [];
+    if (!alarmsUnder) {
+      why.push(
+        `${alarms}: the upper bound ${pct(perComparison.upperBound)} is not under ${pct(line)}, and a clean record needs at least ${String(needed)} of them`,
+      );
+    }
+    if (!skipsUnder) {
+      why.push(
+        `${skips}, and a required check is red on each: the upper bound ${pct(skippedComparisons.upperBound)} on that rate is not under ${pct(line)}`,
+      );
+    }
+    requiredRule = { applies: true, met: false, reason: why.join("; ") };
   }
   return {
     inject,
@@ -322,7 +373,13 @@ export function summarizeCalibration(
     runs,
     perCase: counted(caseEvents, caseTrials),
     perComparison,
+    skippedComparisons,
     verdicts,
+    observed: [...pooled.values()].map(({ ref, ratios }) => ({
+      ...ref,
+      rounds: ratios.length,
+      medianRatio: ratios.length === 0 ? null : round(median(ratios), 6),
+    })),
     requiredRule,
   };
 }

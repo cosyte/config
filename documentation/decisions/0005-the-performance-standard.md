@@ -10,7 +10,7 @@
   contract, whose warmup rule this standard shares and whose stated limits it does not loosen) ·
   [`packages/bench/`](../../packages/bench) (the benchmark package) ·
   [`experiments/bench-calibration/`](../../experiments/bench-calibration) (every number in
-  section 5) · [`packages/script-utils/bench/`](../../packages/script-utils/bench) (the first suite).
+  sections 5 and 7) · [`packages/script-utils/bench/`](../../packages/script-utils/bench) (the first suite).
 - **Supersedes:** nothing. ADR 0001 stands unchanged, including every limit it states.
 
 ## Context
@@ -76,9 +76,10 @@ grounds (no published harness detects V8 steady state; `bench-node` measures an 
 `vitest bench` is experimental and outside semver; mitata is unmaintained), and the same grounds
 hold here. None of them runs a base and a head interleaved in fresh processes, calibrates its own
 false alarm rate, or measures the memory figures above, so we would have built those parts around
-any of them. The package has no runtime dependencies. The warmup constants are restated in
-`@cosyte/bench` rather than imported, and a test holds them equal to `PERF_CONTRACT`, so the two
-instruments warm up by one rule.
+any of them. The package has no runtime dependencies. Its warmup rule is not a copy: `measure.ts`
+imports `PERF_CONTRACT` from the scaling gate's own contract file and the build bundles it, so the
+two instruments warm up by one rule kept in one place (a test swaps that source and sees the
+benchmarks' warmup follow it).
 
 ### 3. The scaling gate stays exactly as ADR 0001 decided
 
@@ -128,93 +129,68 @@ cases are independent, and at most `k` times 1.93% in any case.
 
 **When the comparison becomes a required check.** The scaling gate stays required. The timing
 comparison posts its numbers on every pull request and becomes a required check on a runner class
-when an **A/A calibration on that runner class**, on the repository's own suite, shows a
-per-comparison false alarm rate whose exact one-sided 95% upper bound (Clopper-Pearson) is **under
-1%**. With no false alarm at all that takes at least **299** A/A comparisons; with one, 473; with
-two, 628. `cosyte-bench calibrate` computes the bound and says whether the rule is met. It is
-re-judged at every review trigger below.
+when an **A/A calibration on that runner class**, on the repository's own suite, shows that a
+required check on unchanged code would be wrongly red under 1% of the time, for either of the two
+reasons it can be:
+
+- **False alarms.** The per-comparison false alarm rate's exact one-sided 95% upper bound
+  (Clopper-Pearson) is **under 1%**. It is counted over the comparisons whose outcome is known:
+  every case measured, or a regression was called. A skipped case is never a pass and never a
+  trial, so comparisons that measured nothing cannot meet the rule.
+- **Skips.** A skipped case makes the comparison exit 2, a red check. The rate of comparisons with
+  a skipped case, over all of them, must have its 95% upper bound under 1% too.
+
+With no false alarm and no skip at all that takes at least **299** A/A comparisons; with one, 473;
+with two, 628. `cosyte-bench calibrate` computes both bounds and says whether the rule is met, and
+why not. It is re-judged at every review trigger below.
 
 The constants, and where each comes from:
 
-| Constant                                                               | Value               | Basis                                                                                                                                                                                                                                                                                                                                                                                          |
-| ---------------------------------------------------------------------- | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| warmup                                                                 | ADR 0001 section 2  | **Shared.** Restated, and held equal to `PERF_CONTRACT` by a test                                                                                                                                                                                                                                                                                                                              |
-| `SAMPLES`                                                              | 5                   | **Judgement.** ADR 0001's `REPS`; the fastest of 5 survives four stalled samples                                                                                                                                                                                                                                                                                                               |
-| `SAMPLE_MIN_MS`                                                        | 50                  | **Judgement, anchored on measurement.** ADR 0001's `WARMUP_BATCH_MS`, where a 50 ms aggregate was measured to bring per-pass jitter inside 5%                                                                                                                                                                                                                                                  |
-| `ROUNDS`                                                               | 12                  | **Judgement.** The smallest even count whose sign-test rank at `ALPHA` is 3, so two wild rounds at either end cannot move the interval                                                                                                                                                                                                                                                         |
-| `ALPHA`                                                                | 0.05                | **Judgement.** One-sided, per end; the realized tail at 12 rounds is 79 / 4096                                                                                                                                                                                                                                                                                                                 |
-| `THRESHOLD`                                                            | 3%                  | **Judgement.** The smallest change a comparison will call a regression. Section 5 measures what it costs and buys on the same runs, against 2% and 5%                                                                                                                                                                                                                                          |
-| `REQUIRED_FALSE_ALARM_RATE`, `REQUIRED_CONFIDENCE`                     | 1%, 95%             | **Decided** for the required-check rule                                                                                                                                                                                                                                                                                                                                                        |
-| latency: `LATENCY_BUDGET_MS`, `LATENCY_MAX_CALLS`, `LATENCY_MIN_CALLS` | 2,000 ms, 5,000, 20 | **Judgement.** Bounds a case's latency time; 20 calls is the fewest that report a p50 under the next rule                                                                                                                                                                                                                                                                                      |
-| `LATENCY_TAIL_CALLS`                                                   | 10                  | **Judgement.** A percentile `q` is reported only when `n(1 - q) >= 10`: p95 needs 200 calls, p99 1,000. Below that the "percentile" is the maximum under another name                                                                                                                                                                                                                          |
-| `LATENCY_TIMER_MULTIPLE`                                               | 20                  | **Judgement.** A median call shorter than 20 clock reads is reported as skipped (`latency-below-timer-resolution`): it would measure the clock                                                                                                                                                                                                                                                 |
-| `ALLOC_WINDOW_OPS`, `ALLOC_WINDOW_MS`, `ALLOC_SEMI_SPACE_MIB`          | 256, 100 ms, 64 MiB | **Judgement, checked.** In a prototype of the method on Node 22, 24 and 26, GC-free windows of 200 to 1,000 small operations reproduced the per-operation heap growth to within 1.2% (8,757 to 8,860 bytes for one synthetic operation); `total_allocated_bytes`, which only Node 26 has, converges to the same figure with a fixed overhead per read, which the two-window difference cancels |
-| `PEAK_CALLS`                                                           | 20                  | **Judgement.** The peak is a maximum; 20 calls report it and their median                                                                                                                                                                                                                                                                                                                      |
-| `LONG_RUN_ROUNDS`, `LONG_RUN_SETTLE_ROUNDS`, `LONG_RUN_ROUND_MS`       | 30, 5, 100 ms       | **Judgement.** 3 s of a case; the first 5 rounds left out while caches and compiled code settle                                                                                                                                                                                                                                                                                                |
-| `LONG_RUN_GROWTH_BYTES`                                                | 64 KiB              | **Measured** (section 5): above the largest fitted growth of a run that retains nothing, and reached by a retained 40-byte object every 64 calls over a 1 KiB decode's long run                                                                                                                                                                                                                |
-| `GC_SETTLE_BYTES`, `GC_SETTLE_ROUNDS`, `GC_MAX_ROUNDS`                 | 64 KiB, 2, 7        | **Shared.** ADR 0001 section 8                                                                                                                                                                                                                                                                                                                                                                 |
-| `IMPORT_RUNS`                                                          | 20                  | **Judgement.** Enough for a median and a p95 that is not the maximum                                                                                                                                                                                                                                                                                                                           |
+| Constant                                                               | Value               | Basis                                                                                                                                                                                                                                                                                        |
+| ---------------------------------------------------------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| warmup                                                                 | ADR 0001 section 2  | **Shared.** Read from `PERF_CONTRACT` and bundled at build time                                                                                                                                                                                                                              |
+| `SAMPLES`                                                              | 5                   | **Judgement.** ADR 0001's `REPS`; the fastest of 5 survives four stalled samples                                                                                                                                                                                                             |
+| `SAMPLE_MIN_MS`                                                        | 50                  | **Judgement, anchored on measurement.** ADR 0001's `WARMUP_BATCH_MS`, where a 50 ms aggregate was measured to bring per-pass jitter inside 5%                                                                                                                                                |
+| `ROUNDS`                                                               | 12                  | **Judgement.** The smallest even count whose sign-test rank at `ALPHA` is 3, so two wild rounds at either end cannot move the interval                                                                                                                                                       |
+| `ALPHA`                                                                | 0.05                | **Judgement.** One-sided, per end; the realized tail at 12 rounds is 79 / 4096                                                                                                                                                                                                               |
+| `THRESHOLD`                                                            | 3%                  | **Judgement.** The smallest change a comparison will call a regression. Section 5 measures what it costs and buys on the same runs, against 2% and 5%                                                                                                                                        |
+| `REQUIRED_FALSE_ALARM_RATE`, `REQUIRED_CONFIDENCE`                     | 1%, 95%             | **Decided** for the required-check rule                                                                                                                                                                                                                                                      |
+| latency: `LATENCY_BUDGET_MS`, `LATENCY_MAX_CALLS`, `LATENCY_MIN_CALLS` | 2,000 ms, 5,000, 20 | **Judgement.** Bounds a case's latency time; 20 calls is the fewest that report a p50 under the next rule                                                                                                                                                                                    |
+| `LATENCY_TAIL_CALLS`                                                   | 10                  | **Judgement.** A percentile `q` is reported only when `n(1 - q) >= 10`: p95 needs 200 calls, p99 1,000. Below that the "percentile" is the maximum under another name                                                                                                                        |
+| `LATENCY_TIMER_MULTIPLE`                                               | 20                  | **Judgement.** A median call shorter than 20 clock reads is reported as skipped (`latency-below-timer-resolution`): it would measure the clock                                                                                                                                               |
+| `ALLOC_WINDOW_OPS`, `ALLOC_WINDOW_MS`, `ALLOC_SEMI_SPACE_MIB`          | 256, 100 ms, 64 MiB | **Judgement.** Windows short enough that a 64 MiB young generation rarely collects inside one; a window in which a collection ran is halved and taken again, and a case whose windows always collect is skipped, typed. The two-window difference cancels the fixed cost of reading the heap |
+| `PEAK_CALLS`                                                           | 20                  | **Judgement.** The peak is a maximum; 20 calls report it and their median                                                                                                                                                                                                                    |
+| `LONG_RUN_ROUNDS`, `LONG_RUN_SETTLE_ROUNDS`, `LONG_RUN_ROUND_MS`       | 30, 5, 100 ms       | **Judgement.** 3 s of a case; the first 5 rounds left out while caches and compiled code settle                                                                                                                                                                                              |
+| `LONG_RUN_GROWTH_BYTES`                                                | 64 KiB              | **Judgement, pending a check.** Meant to sit above the fitted growth of a run that retains nothing and to be reached by a retained 40-byte object every 64 calls over a 1 KiB decode's long run; section 5's long-run calibration checks both                                                |
+| `GC_SETTLE_BYTES`, `GC_SETTLE_ROUNDS`, `GC_MAX_ROUNDS`                 | 64 KiB, 2, 7        | **Shared.** ADR 0001 section 8                                                                                                                                                                                                                                                               |
+| `IMPORT_RUNS`                                                          | 20                  | **Judgement.** Enough for a median and a p95 that is not the maximum                                                                                                                                                                                                                         |
 
 ### 5. Noise and its measured bounds
 
 Every number here comes from `experiments/bench-calibration/`, where the runs, the scripts and the
-analysis live; `analyze.mjs` re-derives each table from the committed data.
+analysis live; `analyze.mjs` re-derives each table from the committed data. The runs are taken on
+GitHub-hosted runners (`ubuntu-latest`, one comparison per runner at a time) by
+`.github/workflows/bench-calibration.yml`, which runs on a pull request that changes the comparison
+and can be run by hand. A developer machine's numbers describe that machine and are not used here.
 
-**The comparison's false alarms and detections.** Taken on a developer desktop (Intel i9-9900K,
-8 cores and 16 threads, Node 24.22.2), four comparisons at a time, each pinned to one logical CPU,
-while the machine was shared with other work: its load average ran from 5.7 to 70.7 over the runs
-(`data/loadavg.txt`). The base and the head were two copies of the PHI scan engine in two
-directories, over the suite's six compared cases.
+**The comparison's false alarms and detections.** Pending. The runner calibration started by the
+pull request that adds this standard had not finished when this was written, so this standard
+states no false alarm rate and no detection rate yet. Until it does, the comparison is advisory, as
+it would be anyway until the rule in section 4 is met.
 
-| Injected   | Comparisons | Measured cases | Regression verdicts (cases) | Upper 95% | Comparisons with one | Upper 95% | Skipped cases |
-| ---------- | ----------- | -------------- | --------------------------- | --------- | -------------------- | --------- | ------------- |
-| none (A/A) | 108         | 429            | 0                           | 0.70%     | 0                    | 2.74%     | 219 of 648    |
-| 10%        | 24          | 55             | 16 (29%)                    |           | 12 (50%)             |           | 89 of 144     |
+**What the planted slowdown is.** `cosyte-bench calibrate --inject <f>` does one thing: on the head
+side, after each timed pass over the corpus, it reads the clock until `f` times that pass's own
+measured time has passed, so each sample's time includes the spin. That is not the same as the
+measured code being slower by `f`. The spin changes the loop the engine compiles and what the
+processor does between passes, so the change a comparison measures under it is not `f`, and differs
+by workload and machine. Every calibration therefore reports, for each case, the change it observed
+(the median of every measured round's head over base), and a detection rate in this standard is
+stated against that observed change, never against `f`.
 
-What that does and does not show:
-
-- **No false alarm in 108 A/A comparisons.** The per-comparison rate is therefore under 2.74% with
-  95% confidence on this machine. It is not under 1%: that needs 299 clean comparisons, and it needs
-  them on the runner class the comparison runs on, which this machine is not. The comparison stays
-  advisory.
-- **The machine was too busy for this method a third of the time.** 219 of 648 A/A cases skipped
-  because a process's warmup did not settle within 5 s. A skip is reported as a skip, never as a
-  verdict. This is review trigger 5's condition, on this machine.
-- **One round's noise on this machine is large.** With nothing changed, a round's 5th and 95th
-  percentile ratios were 0.70 to 0.79 and 1.25 to 1.41, by case (`analyze.mjs` prints each). Against that spread a
-  10% slowdown was called a regression in 29% of the measured cases and inconclusive in the rest:
-  under this load the comparison finds slowdowns well above 10%, not 10%.
-- **The estimator and the threshold, judged on the same runs.** The median sample instead of the
-  fastest found more of the 10% slowdowns (22 of 55) and raised one A/A false alarm (1 of 429
-  cases); a 2% threshold found 22 of 55 with one false alarm; 5% found 11 of 55 with none. On this
-  little data and this machine, the fastest sample at 3% is the one that raised no false alarm; the
-  runner's calibration decides again.
-
-**The long run.** Ten readings each of `decodeSourceLiterals` on 1 KiB sources through a wrapper
-that retains nothing, or one small object (about 40 bytes) every 64 calls, every 16 calls, or every
-call, on the developer machine described above:
-
-| Retained                  | Runs | Slope, bytes per operation | Fitted growth            | Called growing |
-| ------------------------- | ---- | -------------------------- | ------------------------ | -------------- |
-| nothing                   | 10   | 0.0023 to 0.0101           | 516 to 530 B             | 0 of 10        |
-| one object every 64 calls | 10   | 0.6270 to 0.6652           | 54,179 to 77,046 B       | 8 of 10        |
-| one object every 16 calls | 10   | 2.0218 to 2.6223           | 77,637 to 449,708 B      | 10 of 10       |
-| one object every call     | 10   | 32.0198 to 42.1982         | 2,079,095 to 8,942,309 B | 10 of 10       |
-
-A run that retains nothing fits a slope of 0.0023 to 0.0101 bytes per operation, about half a
-kilobyte of growth over its fitted span: the heap's own noise (ADR 0001 measured about 1 KiB), not a
-leak. The 64 KiB line sits more than 120 times above it. (The runs' operations per round ranged from
-1,600 to 9,600, because a round is sized by 100 ms of a busy machine.) A retained
-object every 64 calls (about 0.64 bytes per operation) reaches the 64 KiB line in 8 of 10 runs: that
-is the edge of what a 3 s long run of this case can see, and each result reports that edge for its
-own case as `detectableBytesPerOp`. A case with fewer, slower operations sees less: a long run of
-30 calls of a 300 ms operation fits 24 of them, so it cannot call a leak under about 2.7 KB a call
-growing, and says so in that number.
-
-**Allocations.** In a prototype of the method on Node 22.23, 24.22 and 26.10, GC-free windows gave 8,757 to 8,860
-bytes per operation for one synthetic operation across windows of 200 and 1,000 operations; a window
-of 10 read 10,778 on Node 22, which is the fixed cost of reading the heap that the two-window
-difference removes.
+**The long run.** Pending, from the same workflow: ten readings each of `decodeSourceLiterals` on
+1 KiB sources through a wrapper that retains nothing, or one small object (about 40 bytes) every 64
+calls, every 16 calls, or every call. The `LONG_RUN_GROWTH_BYTES` line of 64 KiB is checked against
+them when they land.
 
 ### 6. What it cannot detect
 
@@ -254,38 +230,18 @@ stronger:
    `cosyte-bench compare --suite ... --base <base>/dist/index.mjs --head dist/index.mjs --summary
 ...`, in one job, so both builds run on one machine. Its Markdown goes in the job summary. It is a
    reusable job in `cosyte/.github`, and it is advisory until the rule in section 4 is met.
-5. **A calibration on the runner class the comparison runs on**: an A/A run first, then injected
-   slowdowns of 5%, 10% and 20% for the detection rate, and again at every review trigger. In this
-   repository that is the manual workflow `.github/workflows/bench-calibration.yml`.
+5. **A calibration on the runner class the comparison runs on**: an A/A run first, then planted
+   slowdowns of a nominal 5%, 10% and 20% for the detection rate, read against the change each case
+   was observed at, and again at every review trigger. In this repository that is
+   `.github/workflows/bench-calibration.yml`, which runs on every pull request that changes the
+   comparison's source or the calibration scripts, and by hand.
 
 `config` adopts it first, on the PHI scan engine in `@cosyte/script-utils`, which runs in every
 parser's commit gate: `packages/script-utils/bench/phi-scan.bench.mjs` measures the whole engine on
 one file (`runPhiScan` with a path, the way `cosyte-phi-scan <path>` runs) and the escape decoder
 alone (`decodeSourceLiterals`), each at 1 KiB, 32 KiB, 1 MiB and 4 MiB of synthetic TypeScript.
-`pnpm bench:phi-scan` takes a reading. The first one, on the developer machine above, the measuring processes pinned to one logical CPU, load average 14 to
-25 (`experiments/bench-calibration/data/phi-scan-reading.json`):
-
-| Benchmark            | Size   | Per op  | Bytes/s    | p50      | p95      | p99      | Alloc/op | Peak heap | Long run |
-| -------------------- | ------ | ------- | ---------- | -------- | -------- | -------- | -------- | --------- | -------- |
-| runPhiScan, one file | 1 KiB  | 68.6 us | 15.1 MiB/s | 74.7 us  | 132.4 us | 386.5 us | 59.7 KiB | 85 KiB    | flat     |
-| runPhiScan, one file | 32 KiB | 1.17 ms | 26.8 MiB/s | 0.999 ms | 2.04 ms  | 2.76 ms  | 1.28 MiB | 1.26 MiB  |          |
-| runPhiScan, one file | 1 MiB  | 50.7 ms | 19.7 MiB/s | 52.1 ms  | n/a      | n/a      | skipped  | 37.2 MiB  |          |
-| runPhiScan, one file | 4 MiB  | skipped |            | 243.2 ms | n/a      | n/a      | skipped  | 130.6 MiB |          |
-| decodeSourceLiterals | 1 KiB  | 18.0 us | 57.7 MiB/s | 10.9 us  | 21.2 us  | 29.3 us  | 33.1 KiB | 47.9 KiB  | flat     |
-| decodeSourceLiterals | 32 KiB | 445 us  | 70.4 MiB/s | 396 us   | 809 us   | 1.15 ms  | 1000 KiB | 1 MiB     |          |
-| decodeSourceLiterals | 1 MiB  | 13.0 ms | 76.9 MiB/s | 13.2 ms  | n/a      | n/a      | 31.2 MiB | 31.3 MiB  |          |
-| decodeSourceLiterals | 4 MiB  | skipped |            | 230.5 ms | n/a      | n/a      | skipped  | 120.4 MiB |          |
-
-Cold import of `phi-scan.js`: median 13.0 ms, p95 15.1 ms (an empty module: 0.8 ms); one file,
-112.3 KiB, 36.2 KiB gzipped.
-
-Two things in it are findings rather than numbers. The escape decoder's cost per byte rises above
-about 1 MiB: from 1 MiB to 4 MiB its median call goes from 13.2 ms to 230.5 ms, 17 times the time for
-four times the input, which at those sizes the scaling gate's ceiling of 8 would flag. And the 4 MiB
-throughput cases skip: one call there is longer than the warmup's 50 ms batch, and three calls in a
-row did not land within 5% of each other in 5 s on this machine. ADR 0001 section 2 names that case
-and its remedy (a longer batch, under its review triggers); we have not changed the shared rule here.
-Their latency is still reported, from the first process, which did settle.
+`pnpm bench:phi-scan` takes a reading. The first reading on a GitHub-hosted runner is pending, from
+the `readings` job of the same calibration workflow.
 
 ### 8. Keeping results over time (a proposal)
 

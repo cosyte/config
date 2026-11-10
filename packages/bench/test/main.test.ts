@@ -1,5 +1,4 @@
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -8,12 +7,12 @@ import type { Job, JobResult } from "../src/child.js";
 import { USAGE, main, parseArgs, type MainIo } from "../src/main.js";
 import { readResults } from "../src/results.js";
 import { env, fixedRunner, importCost, warmup } from "./support/bodies.js";
-import { FIXTURES } from "./support/paths.js";
+import { FIXTURES, scratchDir } from "./support/paths.js";
 
 function harness(over: Partial<MainIo> = {}) {
   const out: string[] = [];
   const err: string[] = [];
-  const dir = mkdtempSync(join(tmpdir(), "bench-main-"));
+  const dir = scratchDir("bench-main-");
   const io: MainIo = {
     stdout: (t) => out.push(t),
     stderr: (t) => err.push(t),

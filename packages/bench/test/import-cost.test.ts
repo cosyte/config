@@ -1,5 +1,4 @@
-import { mkdtempSync, readdirSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { performance } from "node:perf_hooks";
 import { gzipSync } from "node:zlib";
@@ -9,9 +8,9 @@ import { describe, expect, it } from "vitest";
 import { BENCH_CONTRACT } from "../src/contract.js";
 import { importMain, loadRecorder, measureImportCost } from "../src/import-cost.js";
 import { BenchError } from "../src/spawn.js";
-import { FIXTURES, entry, here } from "./support/paths.js";
+import { entry, FIXTURES, here, scratchDir } from "./support/paths.js";
 
-const scratch = () => mkdtempSync(join(tmpdir(), "bench-import-"));
+const scratch = () => scratchDir("bench-import-");
 
 describe("importMain", () => {
   it("times an import", async () => {

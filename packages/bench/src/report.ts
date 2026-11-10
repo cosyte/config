@@ -87,11 +87,20 @@ export function renderMarkdown(doc: ResultsDocument): string {
     );
     const what = c.inject === 0 ? "false alarms" : "detections";
     lines.push(
-      `${String(c.comparisons)} comparisons. Regression verdicts (${what}): ${String(c.perCase.events)} of ${String(c.perCase.trials)} case verdicts (${share(c.perCase.rate)}, upper bound ${share(c.perCase.upperBound)}); ${String(c.perComparison.events)} of ${String(c.perComparison.trials)} comparisons (${share(c.perComparison.rate)}, upper bound ${share(c.perComparison.upperBound)}).`,
+      `${String(c.comparisons)} comparisons. Regression verdicts (${what}): ${String(c.perCase.events)} of ${String(c.perCase.trials)} measured case verdicts (${share(c.perCase.rate)}, upper bound ${share(c.perCase.upperBound)}); ${String(c.perComparison.events)} of ${String(c.perComparison.trials)} comparisons that measured every case or called a regression (${share(c.perComparison.rate)}, upper bound ${share(c.perComparison.upperBound)}). Comparisons that skipped a case: ${String(c.skippedComparisons.events)} of ${String(c.skippedComparisons.trials)} (${share(c.skippedComparisons.rate)}, upper bound ${share(c.skippedComparisons.upperBound)}).`,
       "",
       `Verdicts: ${Object.entries(c.verdicts)
         .map(([k, v]) => `${k} ${String(v)}`)
         .join(", ")}.`,
+      "",
+      "The change each case was observed at, the median of every measured round's head / base:",
+      "",
+      "| Benchmark | Size | Measured rounds | Observed change |",
+      "| --- | --- | --- | --- |",
+      ...c.observed.map(
+        (o) =>
+          `| ${o.benchmark} | ${o.size} | ${String(o.rounds)} | ${o.medianRatio === null ? "n/a" : pct(o.medianRatio - 1)} |`,
+      ),
     );
     if (c.requiredRule.applies) {
       lines.push(
