@@ -2,7 +2,9 @@
 
 - **Status:** Proposed (2026-11-10). Sections 1 to 7 decide; section 8 (the results repository)
   and section 9 (comparisons with other libraries) are a method and a proposal, and decide nothing
-  until they are built.
+  until they are built. Amended the same day for large inputs: the large-case plan, allocations
+  counted through collections, external memory in the peak, and the long run at a benchmark's
+  largest size that fits (sections 2, 4, 5 and 6).
 - **Scope:** how every `@cosyte/*` package measures its own performance: what is measured, by which
   instrument, how much noise each instrument has and how that noise was measured, what each one
   cannot detect, how a repository adopts the standard, and how results are kept.
@@ -52,14 +54,14 @@ down to a size its calibration states. The readings say what the numbers are, on
 
 ### 2. What we measure, and why each
 
-| Measure                                | Why                                                                                                                                                                | How (`@cosyte/bench`)                                                                                                                                                                                                                                           |
-| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Throughput, small to very large inputs | A parser that is fast on a 1 KiB message and slow on a 4 MiB one has a problem the small number hides. Each suite declares its sizes; each is measured on its own. | Per size, fresh processes; the warmup of ADR 0001 section 2; 5 samples, each whole passes over the corpus until at least 50 ms; milliseconds per operation, operations a second, and bytes a second when the suite gives a byte count                           |
-| Latency p50, p95, p99                  | Throughput averages away the slow calls; a commit gate or a message pipeline waits on the slow ones.                                                               | One call at a time on `process.hrtime.bigint`, at least 20 calls, then until 2 s or 5,000 calls; percentiles by nearest rank, so every reported value was observed                                                                                              |
-| Allocations per operation              | Allocation is the cost a throughput number spreads over garbage collections it may or may not include.                                                             | Heap growth across a window of `n` and of `2n` operations in which no collection ran, `(growth(2n) - growth(n)) / n`, in a process with a 64 MiB young generation; external (Buffer) bytes the same way                                                         |
-| Peak heap                              | What a very large input needs in memory at once.                                                                                                                   | Per call: the higher of the heap just before any collection during the call (from `v8.GCProfiler`) and the heap at its end, above the settled heap before it, under V8's default heap sizing. The heap only shrinks at a collection, so this is its high point. |
-| Heap flat over a long run              | A leak shows only over many operations.                                                                                                                            | 30 rounds of about 100 ms each; the heap settled after each by ADR 0001 section 8's rule; a Theil-Sen slope over the last 24 rounds; `growing` when the fitted growth reaches 64 KiB                                                                            |
-| Cold import time and loaded bytes      | Every consumer pays the import once per process, and a CLI pays it on every run.                                                                                   | 20 fresh processes import the target and 20 import an empty module, interleaved, with no compile cache; one more records every file the import loads (a synchronous module hook) with its size and gzip size                                                    |
+| Measure                                | Why                                                                                                                                                                | How (`@cosyte/bench`)                                                                                                                                                                                                                                                                                                                                                           |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Throughput, small to very large inputs | A parser that is fast on a 1 KiB message and slow on a 4 MiB one has a problem the small number hides. Each suite declares its sizes; each is measured on its own. | Per size, fresh processes; the warmup of ADR 0001 section 2, or for a large case the large-case plan below; 5 samples, each whole passes over the corpus until at least 50 ms; milliseconds per operation, operations a second, and bytes a second when the suite gives a byte count                                                                                            |
+| Latency p50, p95, p99                  | Throughput averages away the slow calls; a commit gate or a message pipeline waits on the slow ones.                                                               | One call at a time on `process.hrtime.bigint`, at least 20 calls, then until 2 s or 5,000 calls; percentiles by nearest rank, so every reported value was observed                                                                                                                                                                                                              |
+| Allocations per operation              | Allocation is the cost a throughput number spreads over garbage collections it may or may not include.                                                             | Heap growth across a window of `n` and of `2n` operations in which no collection ran, `(growth(2n) - growth(n)) / n`, in a process with a 64 MiB young generation; external (Buffer) bytes the same way. When every window collects, the largest pair is counted with its collections (below)                                                                                   |
+| Peak memory                            | What a very large input needs in memory at once, inside the V8 heap and outside it: a Buffer or an ArrayBuffer is outside.                                         | Per call, for the V8 heap, for external memory (Buffers, ArrayBuffers) and for the two together: the higher of what was in use just before any collection during the call (from `v8.GCProfiler`) and at its end, above what was in use before it, under V8's default heap sizing. Each only shrinks at a collection, so this is its high point. A memory budget reads the total |
+| Heap flat over a long run              | A leak shows only over many operations.                                                                                                                            | 30 rounds of about 100 ms each, at least one pass each; the heap settled after each by ADR 0001 section 8's rule; a Theil-Sen slope over the last 24 rounds; `growing` when the fitted growth reaches 64 KiB. On the benchmark's long-run size and on its largest size whose rounds fit in 60 s                                                                                 |
+| Cold import time and loaded bytes      | Every consumer pays the import once per process, and a CLI pays it on every run.                                                                                   | 20 fresh processes import the target and 20 import an empty module, interleaved, with no compile cache; one more records every file the import loads (a synchronous module hook) with its size and gzip size                                                                                                                                                                    |
 
 All of it runs against the **built entry a consumer imports, in a plain Node process**, which is
 what ADR 0001 section 7 requires of a published number. Every measured call's result is summed into
@@ -70,6 +72,45 @@ the compiler deleted produces a fast, confident and meaningless number.
 measured several functions through one harness loop would make that loop's call site polymorphic,
 and the cost of the second case would depend on which ran first. A fresh process also carries no
 compiled code, heap layout or cache warmth from one side of a comparison to the other.
+
+**Large cases.** ADR 0001 section 2's warmup rule settles when three batches in a row lie within
+5% of their median, and a batch is whole passes of at least 50 ms because that aggregate is what
+ADR 0001 measured as bringing pass-to-pass jitter inside 5%. A case whose single pass takes 50 ms
+or more gets no aggregation: every batch is one pass. On a 4-CPU GitHub-hosted runner the passes of
+a parser on a 1 to 4 MiB input, which builds a heap of a hundred MiB or more and collects it, vary by
+more than 5% from one to the next, three in a row rarely agree, and 5 s holds only a few dozen of
+them, so every audit of a parser so far found its large cases skipped as `warmup-unstable`. That is
+a skip, not a measurement, and it left the sizes the standard most wants to see unmeasured.
+
+So a large case gets a plan sized to its run time. When 500 ms of warmup have passed, the standard
+rule has not settled, and the last three batches were each at least `LARGE_PASS_MS` a pass (one pass
+each, by construction), the warmup moves to the large-case plan: one pass at a time until the median
+of the last `LARGE_WARMUP_WINDOW` (5) passes lies within the same 5% of the median of the 5 before
+them, or `LARGE_WARMUP_MAX_MS` (30 s) from the start pass without that, which is then
+`warmup-unstable` as before. A median of 5 moves with neither of up to two stalled passes, where the
+standard rule needs every one of three to agree; two windows in agreement is the same evidence the
+standard rule asks for, that the code has stopped getting faster, read at the grain a long pass
+allows. The samples are unchanged: 5, each whole passes until at least 50 ms, which at this size is
+one pass. A case that settles by the standard rule never moves, so every case whose batches hold
+several passes, every case of the comparison calibrated in section 5 among them, warms up exactly as
+before. Each timing process records the plan it ended on, in a reading and in a comparison. The
+scaling gate's rule, in `PERF_CONTRACT`, is not changed: it is still the one source of the standard
+plan, and the scaling gate's own fixtures are sized to it.
+
+**Allocations through collections.** A window of a call that allocates more than the 64 MiB young
+generation always collects, so every large case used to skip its allocations as
+`allocation-window-gc`. Now, when every window collects, the first and largest pair of windows is
+counted with its collections instead (`method: "gc-accounted"`): a window allocated what the heap
+grew by over it plus what each collection in it reclaimed, read from `v8.GCProfiler` as the heap in
+use before the collection less the heap in use after it. The heap grows between collections only by
+allocation and shrinks only at a collection, so the sum is the bytes allocated. Nothing extra is
+run: the windows were already taken. External memory is counted the same way, and to make that
+exact a memory process runs with `--no-concurrent-array-buffer-sweeping`, so a collection frees the
+ArrayBuffers it found dead before it ends rather than on a background thread after it: without the
+flag, a collection's after-reading still held them and the count fell short. A test checks both
+against known amounts in real processes: an allocation 256 times another, one counted each way,
+agrees within 5%, and an 8 MiB Buffer a call counts as 8 MiB a call within 5%. A case whose windows
+do not collect is counted exactly as before (`method: "no-gc-window"`).
 
 **The engine is our own.** ADR 0001 closed the library question for the scaling gate on measured
 grounds (no published harness detects V8 steady state; `bench-node` measures an unoptimized tier;
@@ -164,6 +205,10 @@ The constants, and where each comes from:
 | `LONG_RUN_GROWTH_BYTES`                                                | 64 KiB              | **Measured** (section 5): about 40 times the fitted growth of a run that retains nothing on a GitHub-hosted runner, and passed in every run by a retained 40-byte object every 64 calls over a 1 KiB decode's long run                                                                       |
 | `GC_SETTLE_BYTES`, `GC_SETTLE_ROUNDS`, `GC_MAX_ROUNDS`                 | 64 KiB, 2, 7        | **Shared.** ADR 0001 section 8                                                                                                                                                                                                                                                               |
 | `IMPORT_RUNS`                                                          | 20                  | **Judgement.** Enough for a median and a p95 that is not the maximum                                                                                                                                                                                                                         |
+| `LARGE_PASS_MS`                                                        | 50 ms               | **Shared.** ADR 0001's `WARMUP_BATCH_MS`: at or above it a batch is one pass, so the aggregation that rule rests on cannot happen                                                                                                                                                            |
+| `LARGE_WARMUP_WINDOW`                                                  | 5                   | **Judgement.** As `SAMPLES`: a median of 5 survives two stalled passes. Two windows make the fewest passes the plan settles in 10                                                                                                                                                            |
+| `LARGE_WARMUP_MAX_MS`                                                  | 30 s                | **Judgement.** Ten passes of a 3 s call fit; it bounds a process of a case that never settles. Six times the standard cap, for passes up to 60 times longer than a batch                                                                                                                     |
+| `LONG_RUN_MAX_MS`                                                      | 60 s                | **Judgement.** The long run on the largest size: 30 rounds of a pass of up to 2 s. Its `detectableBytesPerOp` says how coarse a run of so few operations is                                                                                                                                  |
 
 ### 5. Noise and its measured bounds
 
@@ -266,13 +311,14 @@ stronger:
   reliably finds is the detection rate in section 5 for that runner class, not the threshold.
 - **A slow drift of many changes, each under the threshold.** Only a series of readings over time
   can show that (section 8).
-- **Anything on a machine too busy to settle.** A process whose warmup does not settle within 5 s is
-  `skipped`, and a skip is not a pass. On a heavily loaded machine most cases skip; the comparison
+- **Anything on a machine too busy to settle.** A process whose warmup does not settle within 5 s,
+  or 30 s on the large-case plan, is `skipped`, and a skip is not a pass. On a heavily loaded machine most cases skip; the comparison
   then says it could not measure rather than guessing.
 - **Anything portable.** A reading belongs to the machine it was taken on; numbers from different
   runner classes, or from different packages, are not comparable.
-- **Memory outside the V8 heap**, in the peak and the long run. Allocations report external bytes
-  separately; the peak does not include them.
+- **Memory outside the V8 heap, in the long run**, and native memory a library allocates outside
+  V8's accounting anywhere. The peak and allocations report external memory (Buffers and
+  ArrayBuffers) beside the heap; the long run reads the heap only.
 - **A leak below `detectableBytesPerOp`** for its case.
 - **What a bundler keeps.** The loaded bytes are what Node loads for the entry; tree shaking depends
   on what a consumer imports.
@@ -287,7 +333,8 @@ stronger:
 2. **A suite**, `bench/<name>.bench.mjs`, over the built entry a consumer imports: a size a typical
    input has, a large one, and one far past what a hand-written input reaches. Corpora are built in
    code, never read from a file. A size whose processes are too slow for a pull request is marked
-   `compare: false`: readings still measure it.
+   `compare: false`: readings still measure it. A memory budget reads the peak's total
+   (`peakTotalBytes`), which counts Buffers and ArrayBuffers as well as the V8 heap.
 3. **A reading** on the default branch: `cosyte-bench run --suite ... --target dist/index.mjs --out
 ...`, kept with its machine (section 8).
 4. **The comparison on every pull request**: the base checked out and built beside the head, then
@@ -395,7 +442,9 @@ measured on its runner. The two instruments warm up by one rule, and the scaling
 carried over unchanged.
 
 **Negative.** A comparison costs about 24 fresh processes per case, most of their time in warmup: a
-few minutes per suite. A suite with many slow cases has to mark some `compare: false`. The bounds
+few minutes per suite. A suite with many slow cases has to mark some `compare: false`. A large case
+costs more again: its warmup takes at least 10 of its calls and up to 30 s, and its long run up to
+a minute. The bounds
 hold only for the runner class they were measured on, so a new runner class needs its own
 calibration before its verdicts mean anything, and on a busy machine the comparison mostly skips.
 
@@ -404,8 +453,8 @@ calibration before its verdicts mean anything, and on a busy machine the compari
 1. The comparison moves to a runner class it has not been calibrated on, including the first GitHub
    hosted runner it runs on.
 2. The runner image or Node's major version changes.
-3. `SAMPLES`, `SAMPLE_MIN_MS`, `ROUNDS`, `THRESHOLD`, the estimator or the warmup rule changes. Each
-   moves what the calibration measured.
+3. `SAMPLES`, `SAMPLE_MIN_MS`, `ROUNDS`, `THRESHOLD`, the estimator, the warmup rule or the
+   large-case plan's constants change. Each moves what the calibration measured.
 4. A false alarm in the wild: a `regression` on a change that a rerun, or a reading of the code,
    shows did not slow anything down.
 5. An A/A calibration in which more than a tenth of the cases skip: the runner is too noisy for this
