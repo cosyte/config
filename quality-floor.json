@@ -1,0 +1,40 @@
+{
+  "$comment": "Coverage and mutation floors, raised by `cosyte-ratchet raise` and never lowered. documentation/decisions/0004-the-testing-standard.md is the standard. packages/process has no mutation floor until its first full run; packages/script-utils mutates phi-scan.js, ratchet.js and changes.js so far.",
+  "packages": {
+    "packages/process": {
+      "coverage": {
+        "lines": 88.84,
+        "branches": 75.69,
+        "functions": 94.31,
+        "statements": 88.04
+      }
+    },
+    "packages/script-utils": {
+      "coverage": {
+        "lines": 49.63,
+        "branches": 46.43,
+        "functions": 61.11,
+        "statements": 49.51
+      },
+      "mutation": 80.91
+    },
+    "packages/test-utils": {
+      "coverage": {
+        "lines": 98.23,
+        "branches": 88.23,
+        "functions": 98.41,
+        "statements": 97.55
+      },
+      "mutation": 73.6
+    },
+    "packages/vitest-config": {
+      "coverage": {
+        "lines": 100,
+        "branches": 100,
+        "functions": 100,
+        "statements": 100
+      },
+      "mutation": 100
+    }
+  }
+}

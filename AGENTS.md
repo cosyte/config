@@ -38,6 +38,7 @@ pnpm format:check
 pnpm typecheck
 pnpm lint
 pnpm test
+pnpm quality:check --base origin/main
 pnpm build
 pnpm attw
 actionlint
@@ -45,6 +46,15 @@ actionlint
 
 Outside CI, set `RUNNER_TEMP` to a scratch directory, and run `drift-check.js` from a checkout whose
 directory is named `config`: under any other name it exits 2, "nothing was graded".
+
+`pnpm quality:check` is the coverage ratchet: it compares the coverage `pnpm test` just measured
+in each package with `quality-floor.json`, and with `--base` also requires every changed line to
+have run. Mutation testing runs in CI's `mutation` job on a pull request, over the files it changed;
+to run it locally, `pnpm exec cosyte-mutate changed --base origin/main` in `packages/vitest-config`,
+`packages/test-utils` and `packages/process`, and
+`pnpm exec cosyte-mutate changed --base origin/main --config packages/script-utils/stryker.config.mjs`
+from the root, then `pnpm exec cosyte-ratchet check --skip coverage --base origin/main`.
+`documentation/decisions/0004-the-testing-standard.md` is the standard.
 
 A change to what a package ships needs a patch changeset (`pnpm changeset`); anything else gets
 none. `RELEASING.md` covers the release.

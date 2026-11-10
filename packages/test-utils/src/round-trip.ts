@@ -18,14 +18,14 @@ import assert from "node:assert/strict";
 import type { Arbitrary } from "fast-check";
 import fc from "fast-check";
 
-import { DEFAULT_NUM_RUNS } from "./internal/config.js";
+import { assertProperty, type PropertyRunOptions } from "./property.js";
 
 /**
  * Options for {@link roundTripProperty}.
  *
  * @template T - The in-memory value type the arbitrary produces and `parse` returns.
  */
-export interface RoundTripOptions<T> {
+export interface RoundTripOptions<T> extends PropertyRunOptions {
   /** Generator of spec-valid in-memory values (the parser's own arbitrary). */
   readonly arbitrary: Arbitrary<T>;
   /** Serialize a value to its on-the-wire string form. */
@@ -39,8 +39,6 @@ export interface RoundTripOptions<T> {
    * would reject (e.g. cached wrappers, Maps with insertion order).
    */
   readonly equals?: (a: T, b: T) => boolean;
-  /** Number of generated cases. Defaults to {@link DEFAULT_NUM_RUNS}. */
-  readonly numRuns?: number;
 }
 
 /**
@@ -76,9 +74,10 @@ export interface RoundTripOptions<T> {
  * ```
  */
 export function roundTripProperty<T>(options: RoundTripOptions<T>): void {
-  const { arbitrary, serialize, parse, equals, numRuns = DEFAULT_NUM_RUNS } = options;
+  const { arbitrary, serialize, parse, equals } = options;
 
-  fc.assert(
+  assertProperty(
+    "round trip",
     fc.property(arbitrary, (value) => {
       const once = serialize(value);
       const reparsed = parse(once);
@@ -105,9 +104,6 @@ export function roundTripProperty<T>(options: RoundTripOptions<T>): void {
         "round-trip: serialization is not idempotent, serialize(parse(serialize(x))) !== serialize(x)",
       );
     }),
-    // The failing check's own message goes in the thrown error's message. fast-check 4 otherwise
-    // moves it to `cause`, which a runner may not print; fast-check 3 ignores the flag and puts it
-    // in the message already.
-    { numRuns, includeErrorInReport: true },
+    options,
   );
 }

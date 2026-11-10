@@ -173,6 +173,8 @@ describe("the tarball a consumer installs", () => {
       "./claude-card": { types: "./claude-card.d.ts", default: "./claude-card.js" },
       "./catalog": { types: "./catalog.d.ts", default: "./catalog.js" },
       "./agent-notes": { types: "./agent-notes.d.ts", default: "./agent-notes.js" },
+      "./ratchet": { types: "./ratchet.d.ts", default: "./ratchet.js" },
+      "./changes": { types: "./changes.d.ts", default: "./changes.js" },
       "./docs-content": { types: "./docs-content.d.ts", default: "./docs-content.js" },
     });
   });
@@ -181,7 +183,7 @@ describe("the tarball a consumer installs", () => {
     const manifest = JSON.parse(readFileSync(join(installed, "package.json"), "utf8")) as {
       bin: Record<string, string>;
     };
-    expect(Object.keys(manifest.bin).length).toBe(10);
+    expect(Object.keys(manifest.bin).length).toBe(11);
     for (const target of Object.values(manifest.bin)) {
       expect(existsSync(join(installed, target)), `${target} is not in the tarball`).toBe(true);
     }

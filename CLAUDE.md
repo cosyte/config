@@ -17,7 +17,8 @@ node scripts/release-notes.mjs prepare --repo . --out "$RUNNER_TEMP/release-note
 node scripts/credential-surface.mjs && node scripts/install-hardening.mjs
 node scripts/readme-check.mjs && node packages/script-utils/claude-card.js
 node scripts/drift-check.js && pnpm install --frozen-lockfile && pnpm check:no-emdash
-pnpm format:check && pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm attw
+pnpm format:check && pnpm typecheck && pnpm lint && pnpm test
+pnpm quality:check --base origin/main && pnpm build && pnpm attw
 actionlint
 ```
 
@@ -49,5 +50,8 @@ path or reports clean after reading nothing turns PHI detection off wherever the
   CLI's exit code, each new case seen red first: gates exited 0 on a defect (#42) and unrun (#48).
 - The template's own `test/` never runs here: cover a template change in the root suites that run
   the real scaffolder (`test/*scaffold*.test.ts`); new parsers were born red (#43, #57).
+- `quality-floor.json` only rises (`cosyte-ratchet raise`); a PR's changed lines are 100% covered
+  and its mutants killed (CI's `mutation` job), or an inline exception names its reason
+  (`documentation/decisions/0004-the-testing-standard.md`).
 - Keep `fetch-depth: 0` in `verify` and the release jobs, and `persist-credentials: false` on the
   version job: without them the notes gate passes blind and a Version PR gets no checks (#45).

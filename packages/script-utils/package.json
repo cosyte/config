@@ -10,7 +10,9 @@
     "phi",
     "readme",
     "scripts",
-    "cosyte"
+    "cosyte",
+    "coverage",
+    "mutation-testing"
   ],
   "homepage": "https://github.com/cosyte/config/tree/main/packages/script-utils#readme",
   "repository": {
@@ -32,6 +34,7 @@
     "cosyte-claude-card": "bin/cosyte-claude-card.js",
     "cosyte-agent-notes": "bin/cosyte-agent-notes.js",
     "cosyte-catalog": "bin/cosyte-catalog.js",
+    "cosyte-ratchet": "bin/cosyte-ratchet.js",
     "cosyte-docs-content": "bin/cosyte-docs-content.js"
   },
   "types": "index.d.ts",
@@ -68,6 +71,14 @@
       "types": "./agent-notes.d.ts",
       "default": "./agent-notes.js"
     },
+    "./ratchet": {
+      "types": "./ratchet.d.ts",
+      "default": "./ratchet.js"
+    },
+    "./changes": {
+      "types": "./changes.d.ts",
+      "default": "./changes.js"
+    },
     "./docs-content": {
       "types": "./docs-content.d.ts",
       "default": "./docs-content.js"
@@ -91,6 +102,10 @@
     "catalog.json",
     "agent-notes.js",
     "agent-notes.d.ts",
+    "ratchet.js",
+    "ratchet.d.ts",
+    "changes.js",
+    "changes.d.ts",
     "docs-content.js",
     "docs-content.d.ts",
     "check-no-emdash.sh",
@@ -102,7 +117,7 @@
     "build": "node ../../scripts/pack-emdash-gate.mjs",
     "prepack": "node ../../scripts/pack-emdash-gate.mjs",
     "prepublishOnly": "node ../../scripts/pack-emdash-gate.mjs",
-    "test": "vitest run"
+    "test": "vitest run --coverage"
   },
   "engines": {
     "node": ">=22.14"
@@ -111,6 +126,7 @@
     "access": "public"
   },
   "devDependencies": {
-    "vitest": "5.1.0"
+    "vitest": "5.1.0",
+    "@vitest/coverage-v8": "5.1.0"
   }
 }

@@ -33,6 +33,7 @@ const GATE_BINS = [
   "cosyte-claude-card",
   "cosyte-agent-notes",
   "cosyte-catalog",
+  "cosyte-ratchet",
   "cosyte-docs-content",
 ];
 
@@ -259,6 +260,34 @@ describe("each bin reaches its gate and returns the gate's verdict", () => {
   });
 });
 
+describe("cosyte-ratchet, from its bin", () => {
+  it("passes a floor that held, fails one that dropped, and exits 2 with no floor file", () => {
+    const summary = (pct: number) =>
+      JSON.stringify({
+        total: Object.fromEntries(
+          ["lines", "branches", "functions", "statements"].map((m) => [m, { pct }]),
+        ),
+      });
+    const floor = JSON.stringify({ packages: { ".": { coverage: { lines: 80 } } } });
+    const held = fixture("ratchet-held", {
+      "quality-floor.json": floor,
+      "coverage/coverage-summary.json": summary(85),
+    });
+    const ok = run("cosyte-ratchet", ["check"], held);
+    expect(ok.code, ok.out).toBe(0);
+    expect(ok.stdout).toContain("  lines          85.00     80.00     15.00\n");
+    const dropped = fixture("ratchet-dropped", {
+      "quality-floor.json": floor,
+      "coverage/coverage-summary.json": summary(79.99),
+    });
+    expect(run("cosyte-ratchet", ["check"], dropped).code).toBe(1);
+    const none = run("cosyte-ratchet", ["check"], fixture("ratchet-none", { "a.txt": "a\n" }));
+    expect(none.code).toBe(2);
+    expect(none.stderr).toMatch(/^cosyte-ratchet: could not run: the floor file /);
+    expect(none.stdout).toBe("");
+  });
+});
+
 describe("cosyte-docs-content reaches its check", () => {
   it("refuses a page with no front matter, and exits 2 with no docs-content/ folder", () => {
     const dir = fixture("docs-content", {
@@ -286,6 +315,7 @@ describe("script-utils, the dispatcher npx runs by the package's name", () => {
       "claude-card",
       "agent-notes",
       "catalog",
+      "ratchet",
       "docs-content",
     ]) {
       expect(help.out, command).toContain(command);
