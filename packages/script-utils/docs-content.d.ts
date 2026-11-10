@@ -10,8 +10,11 @@ export declare const DOCS_DIR: "docs-content";
 /** The sidebar file inside it. */
 export declare const SIDEBARS_FILE: "sidebars.json";
 
-/** The folder the reference generator owns. Nothing under it is read by this check. */
+/** The folder the reference generator owns. Its pages are read only for their headings. */
 export declare const GENERATED_DIR: "api";
+
+/** How a link into the generated reference starts. */
+export declare const REFERENCE_LINK_PREFIX: "./api/";
 
 /** The pages every library has, by id. */
 export declare const REQUIRED_PAGES: readonly string[];
@@ -35,6 +38,12 @@ export declare const QUALITY_PAGES: readonly ["testing-and-quality", "performanc
 /** The heading of the section each quality page's generated numbers go in. */
 export declare const NUMBERS_HEADING: "## Current numbers";
 
+/**
+ * What the "Current numbers" section holds in the repository: this text and nothing else, however
+ * its lines wrap. The release replaces the section with the numbers it measured.
+ */
+export declare const NUMBERS_PLACEHOLDER: string;
+
 /** The label the docs site gives the generated reference. A sidebar never writes it. */
 export declare const RESERVED_LABEL: "API Reference";
 
@@ -52,7 +61,13 @@ export declare const PAGE_NAME: RegExp;
 
 /** A rule a finding can carry. */
 export type DocsContentRule =
-  "sidebar" | "listing" | "required-page" | "front-matter" | "file-name" | "numbers";
+  | "sidebar"
+  | "listing"
+  | "required-page"
+  | "front-matter"
+  | "file-name"
+  | "numbers"
+  | "reference-link";
 
 /** Every rule, with what it requires. */
 export declare const DOCS_CONTENT_RULES: Readonly<Record<DocsContentRule, string>>;
@@ -86,6 +101,16 @@ export interface FrontMatter {
  */
 export declare function parseFrontMatter(text: string): FrontMatter;
 
+/**
+ * Every anchor the headings of a page get on the docs site: each heading's text lower-cased, with
+ * what the site's slugger drops dropped and each space turned into a hyphen; a repeated slug is
+ * numbered `-1`, `-2` and so on in page order. Headings in fenced code are not read.
+ *
+ * @param text - A page.
+ * @returns Its anchors.
+ */
+export declare function headingAnchors(text: string): Set<string>;
+
 /** A docs-content tree, read. */
 export interface DocsContentInput {
   /** The `.md` files at the top of docs-content/, by file name without `.md`. */
@@ -94,6 +119,11 @@ export interface DocsContentInput {
   sidebars: string | null;
   /** Markdown that is not a top-level `.md` page and is not under api/, relative to docs-content/. */
   misplaced?: string[];
+  /**
+   * The generated `.md` pages, by their path under api/, read for the headings a link into the
+   * reference names. Without it, every such link names a page that is not there.
+   */
+  reference?: Map<string, string>;
 }
 
 /** One finding. */
@@ -117,7 +147,8 @@ export interface DocsContentFinding {
 export declare function checkDocsContent(input: DocsContentInput): DocsContentFinding[];
 
 /**
- * Read docs-content/ under a repository root, skipping api/.
+ * Read docs-content/ under a repository root: the pages, the sidebar, and the generated pages under
+ * api/ for their headings.
  *
  * @param root - The repository root.
  * @returns The tree, read.

@@ -33,8 +33,35 @@ export interface Sample extends RunnableSnippet {
    * reason, which the suite reports as an error), or `null` for a block that runs.
    */
   skip: string | null;
+  /**
+   * The reason the sample is run but not type-checked: the words after its `no-typecheck` tag
+   * (empty when the tag has no reason, which the suite reports as an error), or `null` otherwise.
+   * Of `no-run` and `no-typecheck`, the first in the fence counts, and what follows it is its reason.
+   */
+  noTypecheck: string | null;
   /** The module it runs as: `.mjs` for a `js`, `javascript` or `mjs` sample, `.tsx` for `tsx`, else `.ts`. */
   extension: ".ts" | ".tsx" | ".mjs";
+}
+
+/** One type error in a sample. */
+export interface SampleTypeError {
+  /** The markdown line it is on. */
+  line: number;
+  /** TypeScript's error code, as in `TS2322`. */
+  code: number;
+  /** TypeScript's message, on one line. */
+  message: string;
+}
+
+/** Options for {@link typecheckSamples}. */
+export interface TypecheckSamplesOptions {
+  /** The `tsconfig.json` to compile under. Default: the one in the working directory, if any. */
+  tsconfig?: string;
+  /**
+   * Where each sample is written to be compiled; it must sit inside the project, so the package's
+   * name resolves. Default `.cosyte-doc-snippets/typecheck` in the working directory.
+   */
+  dir?: string;
 }
 
 /** The fence languages that make a block a code sample: TypeScript and JavaScript. */
@@ -44,10 +71,15 @@ export declare const SAMPLE_LANGS: ReadonlySet<string>;
 export interface SamplePlanStep {
   /** The test name: the file, relative to the root, and the sample's first code line. */
   label: string;
-  /** Run it, skip it with its reason, or report a `no-run` that gives no reason. */
+  /** Run it, skip it with its reason, or report a `no-run` or `no-typecheck` that gives no reason. */
   kind: "run" | "skip" | "invalid";
-  /** Why it is skipped or invalid, or `null` for a run. */
+  /**
+   * Why it is skipped or invalid; for a run, why it is not type-checked, or `null` when nothing is
+   * left out.
+   */
   reason: string | null;
+  /** Whether the sample is type-checked before it runs: a TypeScript sample, in every-sample mode. */
+  typecheck: boolean;
   /** The sample. */
   snippet: Sample;
 }
@@ -76,6 +108,8 @@ export interface RunSnippetOptions {
   tmpDir?: string;
   /** Force the expected-to-throw expectation even for a raw-string snippet. */
   throws?: boolean;
+  /** The snippet's type errors, from {@link typecheckSamples}: when any, it fails before it runs. */
+  typeErrors?: SampleTypeError[];
 }
 
 /** Options for {@link docSnippetSuite}. */
@@ -98,9 +132,15 @@ export interface DocSnippetSuiteOptions {
   tmpDir?: string;
   /**
    * Run every TypeScript and JavaScript sample, not only the `runnable` ones; a `no-run <reason>`
-   * sample is listed as skipped with its reason, and a `no-run` with no reason fails. Default `false`.
+   * sample is listed as skipped with its reason, and a `no-run` with no reason fails. Each
+   * TypeScript sample is type-checked before it runs, unless it carries `no-typecheck <reason>`.
+   * Walking `docsDir`, the generated `api/` folder is left out. Default `false`.
    */
   every?: boolean;
+  /** In every-sample mode, walk the generated `api/` folder of `docsDir` too. Default `false`. */
+  includeGenerated?: boolean;
+  /** The `tsconfig.json` samples are type-checked under. Default: the one in the working directory. */
+  tsconfig?: string;
 }
 
 /**
@@ -123,6 +163,21 @@ export declare function planSamples(
   files: string[],
   options?: PlanSamplesOptions,
 ): SamplePlanStep[];
+
+/**
+ * Type-check TypeScript samples against the package's types, each as its own module, under the
+ * project's `tsconfig.json` with emit and the unused-name checks off. Needs `typescript`.
+ *
+ * @param samples - The samples: their code, the markdown line of their first code line, and the
+ *   extension they compile as (`.ts` when absent).
+ * @param options - Options.
+ * @returns For each sample, in order, its errors; empty for one that compiles.
+ * @throws When the config cannot be read or the program as a whole has an error.
+ */
+export declare function typecheckSamples(
+  samples: Array<Pick<RunnableSnippet, "code" | "line" | "extension">>,
+  options?: TypecheckSamplesOptions,
+): Promise<SampleTypeError[][]>;
 
 /**
  * Extract the opt-in runnable snippets from a markdown string, in document order.

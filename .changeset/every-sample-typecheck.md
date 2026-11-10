@@ -1,0 +1,5 @@
+---
+"@cosyte/vitest-config": patch
+---
+
+In every-sample mode, `docSnippetSuite({ every: true })` now type-checks each TypeScript sample (`ts`, `typescript`, `tsx`) against the package's types before it runs it, so a sample with a type error fails even though it would run. The samples compile as a reader's project would compile them: each its own module, importing the package by its published name, under the project's `tsconfig.json` (the new `tsconfig` option, or the one in the working directory) with emit, its folders and the unused-name checks off. A sample whose types cannot be checked says why in its fence, `ts no-typecheck <reason>`; it still runs, its test name carries the reason, and a `no-typecheck` with no reason fails. This needs `typescript`, now an optional peer dependency. Walking `docsDir`, every-sample mode also leaves out the generated reference under `api/`, whose examples are parts of a signature's documentation; `includeGenerated: true` walks it too. New export: `typecheckSamples`. Without `every`, nothing changes.

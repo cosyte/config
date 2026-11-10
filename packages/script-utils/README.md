@@ -459,9 +459,12 @@ cosyte-docs-content --dir <path>   # another repository
 It checks the sidebar's shape (`intro`, then Installation, Quickstart, Tutorials, How-to guides,
 Explanation, Reference and Troubleshooting in that order, then `testing-and-quality` and
 `performance`), that every page is listed once and every listed id is a page, the required pages,
-each page's front matter, page names, and the "Current numbers" section on both quality pages. It
-does not read links, the generated pages under `api/`, or whether a sample runs: the shared CI's
-link check, `cosyte-docs-reference` in `@cosyte/process` and the sample runner in
+each page's front matter, page names, and the "Current numbers" section on both quality pages,
+which holds only the placeholder sentence until the release fills in the numbers. It also resolves
+every link into the generated reference, `./api/<page>.md#<anchor>`: the page must exist under
+`api/`, and the anchor must be one of its headings, slugged the way docs.cosyte.com slugs them. It
+does not read any other link, check the generated pages themselves, or run a sample: the shared
+CI's link check, `cosyte-docs-reference` in `@cosyte/process` and the sample runner in
 `@cosyte/vitest-config` do those. Exit 0 clean, 1 a finding, 2 the check could not run.
 
 ```ts runnable

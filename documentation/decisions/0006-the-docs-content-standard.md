@@ -1,6 +1,7 @@
 # 0006: The docs-content standard
 
-- **Status:** Proposed (2026-11-10), for review before merge.
+- **Status:** Proposed (2026-11-10), for review before merge. Revised the same day from what the
+  pilot on `hl7` found (section 11).
 - **Scope:** the `docs-content/` folder of every `@cosyte/*` library: the pages docs.cosyte.com
   renders from each release's `docs-content.tar.gz`. It does not reach a package's README, which
   `scripts/readme-check.mjs` governs.
@@ -125,7 +126,14 @@ description: "Pull the medical record number and other identifiers out of a mess
 
 - A link to another page of the same library is relative and names the file: `./warning-codes.md`
   or `./warning-codes.md#ack-codes`. It resolves on GitHub and on the site alike.
-- A link into the generated reference names its page and anchor: `./api/README.md#parsehl7`.
+- A link into the generated reference names its page and anchor: `./api/README.md#parsehl7`. The
+  page must be one the generator wrote, and the anchor one that a heading on it gets on the site:
+  the heading's text (a code span read as its content, a link as its text, a backslash escape as the
+  character) in lower case, with every character that is not a letter, a mark, a digit, an
+  underscore, a space or a hyphen dropped, and each space turned into a hyphen. A heading whose
+  anchor is already taken on the page gets `-1`, the next `-2`, in page order. That is how the
+  site's markdown loader slugs a heading, so `### parseHL7()` is `#parsehl7` and the second
+  `#### Example` on a page is `#example-1`.
 - A link to another library uses its full docs.cosyte.com address.
 - Every how-to guide links the reference entries it uses; every explanation links the how-to guides
   that apply it; the quickstart ends with links onward to the tutorials and how-to guides;
@@ -152,6 +160,14 @@ needs one (counting `@internal` exports changes no library's count of undocument
 library uses `@hidden` or `@ignore`). If one is ever needed, it will be an explicit list in the
 library, each entry with its reason, so every exception shows in review.
 
+A TSDoc comment holds no markdown heading (a line such as `## Notes`, outside code), on an export
+or on anything inside one: a signature, a parameter, a member, or the package's own comment. The
+generator prints a comment as it is, so a heading in one would sit in the page's outline among the
+generated headings, as if it were an export, and would shift the numbered anchors of the headings
+after it. `cosyte-docs-reference` reports each one, with where it is, and fails. Write it as a bold
+line or a sentence; the same comment also shows in an editor's hover, where a heading is just as out
+of place.
+
 Hand-written guides sit on top: a how-to guide or an explanation links into the generated reference
 rather than restating it.
 
@@ -168,8 +184,23 @@ docSnippetSuite({ docsDir: join(root, "docs-content"), every: true, resolve });
 - A sample imports the package by its published name; `resolve` points that at the built package,
   so a sample is proved against what a reader installs.
 - `value; // => expected` lines become assertions. A block tagged `throws` must throw.
+- Each TypeScript sample (`ts`, `typescript`, `tsx`) is also type-checked against the package's
+  types before it runs, so a sample that runs but would not compile in a reader's project fails.
+  Each is compiled as its own module, importing the package by its published name, which the
+  library resolves to its built declarations through its `exports`; the options are the library's
+  `tsconfig.json`, with emit and the unused-name checks turned off, since a sample may declare a name
+  only to show it.
 - A block that cannot run says why in its fence, `ts no-run <reason>`, and the test report lists it
   as skipped with that reason. A `no-run` with no reason fails the suite.
+- A sample that runs but whose types cannot be checked, such as one that shows what happens when a
+  caller ignores them, says why the same way, `ts no-typecheck <reason>`: it runs, its test name
+  carries the reason, and a `no-typecheck` with no reason fails the suite. A `throws` sample is
+  type-checked like any other, so one that throws only because it misuses the types says so with
+  `no-typecheck`. There is no switch that turns the check off for a whole library: each exception
+  shows in the page and in review.
+- The pages under `api/` are not samples: they are generated from TSDoc, and their examples are
+  parts of a signature's documentation, which the reference check owns. A suite that walks
+  `docs-content/` with `every` leaves `api/` out; `includeGenerated: true` walks it too.
 - Samples use synthetic data only: the 555 telephone range, `example.com` addresses, and identifiers
   that are visibly invented.
 - Shell, JSON and text blocks are not samples and are not run.
@@ -182,8 +213,15 @@ docSnippetSuite({ docsDir: join(root, "docs-content"), every: true, resolve });
 Each quality page has a section headed `## Current numbers`, and that section belongs to a generator:
 at each release, the release workflow replaces it, in the `docs-content.tar.gz` it builds, with the
 numbers measured on `main` at the release commit. The numbers are never typed by hand, and they are
-not committed: the section in the repository holds one sentence saying the numbers are filled in at
-release.
+not committed: the section in the repository holds this placeholder and nothing else, however its
+lines wrap, up to the next heading of level one or two:
+
+> The numbers for this section are measured on `main` at each release and filled in when the release
+> is built. They are never typed by hand.
+
+The structure check refuses anything else in the section, a table or a sub-heading as much as a
+sentence added beside the placeholder, so a number typed by hand cannot be committed there. The
+method, and anything else written by hand, goes in a section of its own.
 
 The section states the commit, the date, the runtime and the runner, and links the method. What it
 shows:
@@ -205,11 +243,11 @@ release" with the reason, never left out.
 
 ### 9. The checks, and what each one cannot catch
 
-| Check                                                        | Catches                                                                                                                                                                                                                                                                                                                                | Cannot catch                                                                                                                                                         |
-| ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `cosyte-docs-content` (`@cosyte/script-utils`)               | the sidebar's shape and order; a page not listed, listed twice, or listed and missing; a missing required page; missing or empty front matter keys, an `id` that is not the file name, a description over 160 characters, `sidebar_position`; a page name or place outside the rules; a quality page with no "Current numbers" section | whether a page holds what its kind asks; a broken link (the shared CI's docs-content link check resolves those); a brace that breaks the MDX build; prose quality    |
-| `cosyte-docs-reference` (`@cosyte/process`)                  | an export with no TSDoc summary; committed reference pages that no longer match the source                                                                                                                                                                                                                                             | an undocumented member; a comment that is wrong; an `@example` that does not run                                                                                     |
-| `docSnippetSuite({ every: true })` (`@cosyte/vitest-config`) | a sample that throws, fails an `// =>` assertion, does not compile as JavaScript, or a `throws` sample that does not throw; a `no-run` with no reason                                                                                                                                                                                  | a sample whose output is right but whose prose is wrong; whether the data in a sample is synthetic; a sample that runs but proves nothing because it asserts nothing |
+| Check                                                        | Catches                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Cannot catch                                                                                                                                                                                                                                                                                                       |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `cosyte-docs-content` (`@cosyte/script-utils`)               | the sidebar's shape and order; a page not listed, listed twice, or listed and missing; a missing required page; missing or empty front matter keys, an `id` that is not the file name, a description over 160 characters, `sidebar_position`; a page name or place outside the rules; a quality page with no "Current numbers" section, or with anything in it but the placeholder; a link into the reference whose page is not generated or whose anchor no heading on it gets | whether a page holds what its kind asks; any other broken link (the shared CI's docs-content link check resolves those); a heading the generator writes in a form the slug reading does not know (setext, an explicit `{#id}`, HTML or an entity in the heading); a brace that breaks the MDX build; prose quality |
+| `cosyte-docs-reference` (`@cosyte/process`)                  | an export with no TSDoc summary; a markdown heading in any TSDoc comment; committed reference pages that no longer match the source                                                                                                                                                                                                                                                                                                                                             | an undocumented member; a comment that is wrong; an `@example` that does not run; a heading inside a list or a quote in a comment                                                                                                                                                                                  |
+| `docSnippetSuite({ every: true })` (`@cosyte/vitest-config`) | a sample that throws, fails an `// =>` assertion, does not compile as JavaScript, or a `throws` sample that does not throw; a TypeScript sample with a type error against the package's built types; a `no-run` or `no-typecheck` with no reason                                                                                                                                                                                                                                | a sample whose output is right but whose prose is wrong; whether the data in a sample is synthetic; a sample that runs but proves nothing because it asserts nothing; the types of a JavaScript sample                                                                                                             |
 
 Measured on 2026-11-10, on each library's checked-out `main` at the time:
 
@@ -232,6 +270,32 @@ The standard is piloted on `hl7`, then brought to every other library, one pull 
 public copy and waits for review before merge. The checks join the shared CI in cosyte/.github after
 the pilot: the shared workflow already has a `check-docs-content` input for the link check, off in
 every repository today.
+
+### 11. Revised after the pilot
+
+Bringing `hl7` to this standard first found five places where the checks fell short of it. Each is
+now part of the standard and of its check:
+
+1. **The generated pages were run as samples.** A suite walking `docs-content/` with `every` also
+   read `api/`, whose examples are fragments of a signature's documentation (385 of them in `hl7`,
+   many using a name the fragment never declares). The sample runner now leaves `api/` out of such
+   a walk (section 7).
+2. **A link into the reference was not checked.** Nothing resolved `./api/README.md#parsehl7`, so an
+   export renamed in the source would have broken every link to it silently. The structure check
+   now resolves each one, page and anchor, as the site slugs headings (section 5). On the pilot's
+   pages it resolves all 87 such links, and a changed anchor turns it red.
+3. **A heading in a TSDoc comment entered the page's outline.** The pilot rewrote one by hand. The
+   reference check now refuses any, rather than rewriting a comment on its way into the page, so the
+   page and the comment a reader sees in an editor stay the same text (section 6).
+4. **A sample that ran was not proved to compile.** Vitest strips types before running a sample,
+   so a sample with a type error passed. The sample runner now type-checks each TypeScript sample
+   against the package's built types (section 7). On the pilot's pages, 110 of the 111 TypeScript
+   samples that run type-check; the one that does not carries a `@ts-expect-error` that TypeScript
+   does not need, since the function it calls is generic and accepts the misspelled option the
+   comment says it refuses.
+5. **The "Current numbers" section could hold anything.** The check asked only for the heading, so a
+   table typed by hand would have passed under it. It now requires the placeholder alone (section
+   8).
 
 ## Consequences
 
