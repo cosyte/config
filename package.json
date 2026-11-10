@@ -43,6 +43,7 @@
     "test:packages": "pnpm --filter \"./packages/*\" run test",
     "test": "pnpm run test:root && pnpm run test:packages",
     "test:perf": "pnpm --filter \"./packages/*\" run --if-present test:perf",
+    "bench:phi-scan": "node packages/bench/dist/cli.mjs run --suite packages/script-utils/bench/phi-scan.bench.mjs --target packages/script-utils/phi-scan.js",
     "build": "pnpm --filter \"./packages/*\" run build",
     "typecheck": "pnpm --filter \"./packages/*\" run typecheck",
     "lint": "pnpm --filter \"./packages/*\" run lint",
@@ -55,6 +56,7 @@
   },
   "devDependencies": {
     "@changesets/cli": "2.31.0",
+    "@cosyte/bench": "workspace:*",
     "@cosyte/eslint-config": "workspace:*",
     "@cosyte/prettier-config": "workspace:*",
     "@cosyte/process": "0.1.7",

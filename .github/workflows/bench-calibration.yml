@@ -1,0 +1,60 @@
+name: Benchmark comparison calibration
+
+# Manual only. This is not a gate and must never become one: it runs for hours, asserts nothing,
+# and its whole output is a dataset. It exists so the base against head comparison in
+# @cosyte/bench is calibrated on the runner class it will run on (one GitHub-hosted runner), not
+# only on a developer machine. See documentation/decisions/0005-the-performance-standard.md.
+#
+# `inject` 0 is an A/A calibration: both sides run the same code, so every regression verdict is a
+# false alarm, and the standard's rule for making the comparison a required check reads its
+# summary. Above 0 the head side is made slower by that fraction, and the summary is the detection
+# rate. Re-run it when the runner image or Node's major version changes.
+on:
+  workflow_dispatch:
+    inputs:
+      inject:
+        description: "Slowdown injected on the head side, as a fraction: 0 for an A/A calibration"
+        type: string
+        default: "0"
+      batches:
+        description: "Batches of five comparisons (each batch keeps its own results file)"
+        type: string
+        default: "12"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  calibrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @cosyte/bench run build
+      - name: Calibrate
+        env:
+          INJECT: ${{ inputs.inject }}
+          BATCHES: ${{ inputs.batches }}
+        # One lane: a pull request's comparison has the runner to itself, so the calibration does too.
+        run: experiments/bench-calibration/calibrate.sh "$INJECT" "$BATCHES" 5 0 1 "$RUNNER_TEMP/calibration"
+      - name: Summarize
+        if: always()
+        run: node experiments/bench-calibration/analyze.mjs compare "$RUNNER_TEMP/calibration" | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: bench-calibration-${{ inputs.inject }}
+          path: ${{ runner.temp }}/calibration/
+          if-no-files-found: error

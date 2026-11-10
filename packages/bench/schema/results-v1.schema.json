@@ -1,0 +1,722 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/cosyte/config/blob/main/packages/bench/schema/results-v1.schema.json",
+  "title": "@cosyte/bench results, version 1",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "tool", "createdAt", "suite", "environment", "contract"],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "kind": {
+      "enum": ["reading", "comparison", "calibration"]
+    },
+    "tool": {
+      "type": "object",
+      "required": ["name", "version"],
+      "properties": {
+        "name": {
+          "const": "@cosyte/bench"
+        },
+        "version": {
+          "type": "string"
+        }
+      }
+    },
+    "createdAt": {
+      "type": "string"
+    },
+    "suite": {
+      "type": "object",
+      "required": ["name", "file"],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "file": {
+          "type": "string"
+        }
+      }
+    },
+    "environment": {
+      "$ref": "#/$defs/environment"
+    },
+    "contract": {
+      "type": "object",
+      "required": ["bench", "warmup"],
+      "properties": {
+        "bench": {
+          "type": "object"
+        },
+        "warmup": {
+          "type": "object"
+        }
+      }
+    }
+  },
+  "oneOf": [
+    {
+      "required": ["subject", "reading"],
+      "properties": {
+        "kind": {
+          "const": "reading"
+        },
+        "subject": {
+          "$ref": "#/$defs/build"
+        },
+        "reading": {
+          "$ref": "#/$defs/reading"
+        }
+      }
+    },
+    {
+      "required": ["base", "head", "comparison"],
+      "properties": {
+        "kind": {
+          "const": "comparison"
+        },
+        "base": {
+          "$ref": "#/$defs/build"
+        },
+        "head": {
+          "$ref": "#/$defs/build"
+        },
+        "comparison": {
+          "$ref": "#/$defs/comparison"
+        }
+      }
+    },
+    {
+      "required": ["base", "head", "calibration"],
+      "properties": {
+        "kind": {
+          "const": "calibration"
+        },
+        "base": {
+          "$ref": "#/$defs/build"
+        },
+        "head": {
+          "$ref": "#/$defs/build"
+        },
+        "calibration": {
+          "$ref": "#/$defs/calibration"
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "build": {
+      "type": "object",
+      "required": ["target", "commit"],
+      "properties": {
+        "target": {
+          "type": "string"
+        },
+        "commit": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "required": [
+        "node",
+        "v8",
+        "platform",
+        "arch",
+        "osRelease",
+        "cpuModel",
+        "logicalCpus",
+        "totalMemoryBytes",
+        "cgroupCpuMax",
+        "runner"
+      ],
+      "properties": {
+        "node": {
+          "type": "string"
+        },
+        "v8": {
+          "type": "string"
+        },
+        "platform": {
+          "type": "string"
+        },
+        "arch": {
+          "type": "string"
+        },
+        "osRelease": {
+          "type": "string"
+        },
+        "cpuModel": {
+          "type": ["string", "null"]
+        },
+        "logicalCpus": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "totalMemoryBytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cgroupCpuMax": {
+          "type": ["string", "null"]
+        },
+        "loadAverage": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "runner": {
+          "type": "object",
+          "required": ["ci", "provider", "class"],
+          "properties": {
+            "ci": {
+              "type": "boolean"
+            },
+            "provider": {
+              "type": ["string", "null"]
+            },
+            "class": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "interval": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "required": ["low", "high", "rank", "tail"],
+          "properties": {
+            "low": {
+              "type": "number"
+            },
+            "high": {
+              "type": "number"
+            },
+            "rank": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "tail": {
+              "type": "number"
+            }
+          }
+        }
+      ]
+    },
+    "caseComparison": {
+      "type": "object",
+      "required": [
+        "benchmark",
+        "size",
+        "baseMsPerOp",
+        "headMsPerOp",
+        "ratios",
+        "medianRatio",
+        "interval",
+        "verdict",
+        "skipReason"
+      ],
+      "properties": {
+        "benchmark": {
+          "type": "string"
+        },
+        "size": {
+          "type": "string"
+        },
+        "baseMsPerOp": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "headMsPerOp": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "ratios": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "medianRatio": {
+          "type": ["number", "null"]
+        },
+        "interval": {
+          "$ref": "#/$defs/interval"
+        },
+        "verdict": {
+          "enum": ["regression", "improvement", "no-regression", "inconclusive", "skipped"]
+        },
+        "skipReason": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "comparison": {
+      "type": "object",
+      "required": ["rounds", "threshold", "alpha", "inject", "cases"],
+      "properties": {
+        "rounds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "threshold": {
+          "type": "number"
+        },
+        "alpha": {
+          "type": "number"
+        },
+        "inject": {
+          "type": "number"
+        },
+        "cases": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/caseComparison"
+          }
+        }
+      }
+    },
+    "rate": {
+      "type": "object",
+      "required": ["events", "trials", "rate", "upperBound"],
+      "properties": {
+        "events": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "trials": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "rate": {
+          "type": "number"
+        },
+        "upperBound": {
+          "type": "number"
+        }
+      }
+    },
+    "calibration": {
+      "type": "object",
+      "required": [
+        "inject",
+        "comparisons",
+        "runs",
+        "perCase",
+        "perComparison",
+        "verdicts",
+        "requiredRule"
+      ],
+      "properties": {
+        "inject": {
+          "type": "number"
+        },
+        "comparisons": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "runs": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/caseComparison"
+            }
+          }
+        },
+        "perCase": {
+          "$ref": "#/$defs/rate"
+        },
+        "perComparison": {
+          "$ref": "#/$defs/rate"
+        },
+        "verdicts": {
+          "type": "object"
+        },
+        "requiredRule": {
+          "type": "object",
+          "required": ["applies", "met", "reason"],
+          "properties": {
+            "applies": {
+              "type": "boolean"
+            },
+            "met": {
+              "type": "boolean"
+            },
+            "reason": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "reading": {
+      "type": "object",
+      "required": ["processes", "cases", "importCost"],
+      "properties": {
+        "processes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cases": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/caseReading"
+          }
+        },
+        "importCost": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "required": [
+                "runs",
+                "coldImportMs",
+                "medianMs",
+                "p95Ms",
+                "emptyImportMs",
+                "emptyMedianMs",
+                "files",
+                "totalBytes",
+                "totalGzipBytes"
+              ],
+              "properties": {
+                "runs": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "coldImportMs": {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  }
+                },
+                "medianMs": {
+                  "type": "number"
+                },
+                "p95Ms": {
+                  "type": "number"
+                },
+                "emptyImportMs": {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  }
+                },
+                "emptyMedianMs": {
+                  "type": "number"
+                },
+                "files": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["path", "bytes", "gzipBytes"],
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      },
+                      "bytes": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "gzipBytes": {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    }
+                  }
+                },
+                "totalBytes": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "totalGzipBytes": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "caseReading": {
+      "type": "object",
+      "required": [
+        "benchmark",
+        "size",
+        "inputsPerPass",
+        "bytesPerPass",
+        "throughput",
+        "latency",
+        "allocations",
+        "peak",
+        "longRun"
+      ],
+      "properties": {
+        "benchmark": {
+          "type": "string"
+        },
+        "size": {
+          "type": "string"
+        },
+        "inputsPerPass": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "bytesPerPass": {
+          "type": ["number", "null"]
+        },
+        "throughput": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": [
+                "status",
+                "processes",
+                "medianMsPerOp",
+                "opsPerSecond",
+                "bytesPerSecond"
+              ],
+              "properties": {
+                "status": {
+                  "const": "measured"
+                },
+                "processes": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["samplesMsPerOp", "medianMsPerOp"],
+                    "properties": {
+                      "samplesMsPerOp": {
+                        "type": "array",
+                        "items": {
+                          "type": "number"
+                        }
+                      },
+                      "medianMsPerOp": {
+                        "type": "number"
+                      }
+                    }
+                  }
+                },
+                "medianMsPerOp": {
+                  "type": "number"
+                },
+                "opsPerSecond": {
+                  "type": "number"
+                },
+                "bytesPerSecond": {
+                  "type": ["number", "null"]
+                }
+              }
+            },
+            {
+              "type": "object",
+              "required": ["status", "reason"],
+              "properties": {
+                "status": {
+                  "const": "skipped"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              }
+            }
+          ]
+        },
+        "latency": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "required": ["status", "calls", "timerOverheadNs", "p50Ns"],
+              "properties": {
+                "status": {
+                  "enum": ["measured", "skipped"]
+                },
+                "calls": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "timerOverheadNs": {
+                  "type": "number"
+                },
+                "p50Ns": {
+                  "type": ["number", "null"]
+                },
+                "p95Ns": {
+                  "type": ["number", "null"]
+                },
+                "p99Ns": {
+                  "type": ["number", "null"]
+                },
+                "maxNs": {
+                  "type": "number"
+                }
+              }
+            }
+          ]
+        },
+        "allocations": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "required": ["status", "windowOps", "heapBytesPerOp", "externalBytesPerOp"],
+                  "properties": {
+                    "status": {
+                      "const": "measured"
+                    },
+                    "windowOps": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "heapBytesPerOp": {
+                      "type": "number"
+                    },
+                    "externalBytesPerOp": {
+                      "type": "number"
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "required": ["status", "reason"],
+                  "properties": {
+                    "status": {
+                      "const": "skipped"
+                    },
+                    "reason": {
+                      "type": "string"
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "peak": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "required": ["status", "calls", "peakHeapBytes", "medianPeakHeapBytes"],
+                  "properties": {
+                    "status": {
+                      "const": "measured"
+                    },
+                    "calls": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "peakHeapBytes": {
+                      "type": "number"
+                    },
+                    "medianPeakHeapBytes": {
+                      "type": "number"
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "required": ["status", "reason"],
+                  "properties": {
+                    "status": {
+                      "const": "skipped"
+                    },
+                    "reason": {
+                      "type": "string"
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "longRun": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "required": [
+                    "status",
+                    "verdict",
+                    "ops",
+                    "opsPerRound",
+                    "settledHeap",
+                    "slopeBytesPerOp"
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": "measured"
+                    },
+                    "verdict": {
+                      "enum": ["flat", "growing"]
+                    },
+                    "ops": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "opsPerRound": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "settledHeap": {
+                      "type": "array",
+                      "items": {
+                        "type": "number"
+                      }
+                    },
+                    "slopeBytesPerOp": {
+                      "type": "number"
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "required": ["status", "reason"],
+                  "properties": {
+                    "status": {
+                      "const": "skipped"
+                    },
+                    "reason": {
+                      "type": "string"
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  }
+}

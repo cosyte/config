@@ -1,0 +1,5 @@
+---
+"@cosyte/bench": patch
+---
+
+First release of `@cosyte/bench`, the benchmark runner of the performance standard (ADR 0005). `cosyte-bench run` takes a reading of one build: throughput at each input size a suite declares, latency p50, p95 and p99, allocations per operation, peak heap per call, whether the heap stays flat over a long run, cold import time and the bytes an import loads. `cosyte-bench compare` runs a base build and a head build interleaved on one machine, 12 rounds of fresh processes, and judges each case with the sign test's interval on the median ratio (a regression is a whole interval above +3%). `cosyte-bench calibrate` runs many comparisons of known outcome, A/A or with an injected slowdown, and reports the false alarm or detection rate with its exact upper bound. Every result is JSON in a versioned shape (`schemaVersion: 1`, `schema/results-v1.schema.json`) carrying the machine, the Node version, the runner, every sample and the constants in force; `cosyte-bench check` and `readResults` validate it. A measured function that throws is reported by case, phase and error class, never by its message, because a message may quote an input.

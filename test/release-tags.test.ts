@@ -17,7 +17,15 @@
  */
 
 import { execFileSync, spawn } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -741,9 +749,28 @@ describe("the CLI contract", () => {
   it("could build a fit body for every package version in this repository today", () => {
     // If a version here ever reached npm untagged, the step would build its body from this section,
     // so each one has to exist and pass the same assertion every release body passes.
+    //
+    // One kind of package is exempt, narrowly: one never released (no tag at all) that a pending
+    // changeset bumps. Its manifest version has no section and never will, because
+    // `changeset version` moves it to the bumped version and writes that section in one commit, and
+    // the publish job runs only on that commit. A released package is never exempt.
     const packages = workspacePackages(REPO_ROOT);
-    expect(packages.length).toBeGreaterThanOrEqual(8);
-    for (const pkg of packages) {
+    const tags = git(REPO_ROOT, ["tag", "--list"]).split("\n");
+    const pending = new Set<string>();
+    for (const file of readdirSync(join(REPO_ROOT, ".changeset"))) {
+      if (!file.endsWith(".md") || file === "README.md") continue;
+      const front = /^---\n([\s\S]*?)\n---/.exec(
+        readFileSync(join(REPO_ROOT, ".changeset", file), "utf8"),
+      );
+      for (const m of (front?.[1] ?? "").matchAll(/^"([^"]+)":\s*(major|minor|patch)\s*$/gm)) {
+        pending.add(m[1] as string);
+      }
+    }
+    const unreleased = (name: string) =>
+      pending.has(name) && !tags.some((tag) => tag.startsWith(`${name}@`));
+    const checked = packages.filter((pkg) => !unreleased(pkg.name));
+    expect(checked.length).toBeGreaterThanOrEqual(8);
+    for (const pkg of checked) {
       const built = changelogBody(pkg);
       expect(built, `${pkg.name}@${pkg.version}`).toHaveProperty("body");
     }

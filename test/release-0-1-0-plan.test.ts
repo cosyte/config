@@ -383,7 +383,33 @@ function summaryHeading(name: string, version: string): RegExp {
   return new RegExp(`^#### \`${escapeRegExp(`${name}@${version}`)}\`\\s*$`);
 }
 
-const PACKAGES = publishablePackages();
+/** The commit the audit certified, read from the audit's own header. */
+const AUDITED_COMMIT = /^- \*\*Audited commit:\*\* `([0-9a-f]{40})`/m.exec(AUDIT)?.[1] ?? "";
+
+/**
+ * Whether a package's manifest existed at the audited commit.
+ *
+ * The audit certified the packages that existed when it was taken, and its completeness claim is
+ * about them. A package added afterwards was never in the 0.1.0 release and has no row to have; it
+ * is released on the line by its own changeset. Read from git rather than listed here, so the only
+ * packages left out are ones the audited commit provably did not have.
+ *
+ * @param {WorkspacePackage} pkg A publishable package.
+ * @returns {boolean} `true` when `packages/<dir>/package.json` exists at the audited commit.
+ */
+function existedAtTheAudit(pkg: WorkspacePackage): boolean {
+  try {
+    git(["cat-file", "-e", `${AUDITED_COMMIT}:packages/${pkg.dir}/package.json`]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Every publishable package in the workspace today. */
+const WORKSPACE = publishablePackages();
+/** The ones the audit covers: those that existed at the audited commit. */
+const PACKAGES = WORKSPACE.filter(existedAtTheAudit);
 const CHANGESETS = pendingChangesets();
 const PLAN = resolvePlan(PACKAGES, CHANGESETS);
 const AUDIT_PLAN = auditPlan();
@@ -440,11 +466,30 @@ function changelogOf(name: string): string {
 }
 
 describe("the 0.1.0 release line, as the audit committed it", () => {
-  it("plans exactly the publishable packages in this workspace, and no phantom", () => {
+  it("covers the packages that existed at the audited commit, and leaves out only later ones", () => {
+    // The scope below is derived from git, so this pins that it derived something: the audited
+    // commit is real, and the eight packages it had are all still here.
+    expect(AUDITED_COMMIT, "the audit's header names no audited commit").toMatch(/^[0-9a-f]{40}$/);
+    expect(PACKAGES.length).toBe(8);
+    // A package left out cannot be an audited one wearing a disguise: it has no tag at or below
+    // the line the audit cut, so it was never released before or by it.
+    for (const pkg of WORKSPACE.filter((entry) => !PACKAGES.includes(entry))) {
+      const old = [...TAGS].filter(
+        (tag) =>
+          tag.startsWith(`${pkg.name}@`) &&
+          compareVersions(tag.slice(pkg.name.length + 1), TARGET_VERSION) <= 0,
+      );
+      expect(
+        old,
+        `${pkg.name} is left out of the audit but was released by ${TARGET_VERSION}`,
+      ).toEqual([]);
+    }
+  });
+
+  it("plans exactly the publishable packages the audit covers, and no phantom", () => {
     // Both directions. A row the workspace does not have is a plan for nothing; a package the plan
-    // omits is the completeness claim of criteria 1 and 4 failing. Adding a ninth publishable
-    // package is a change to the release set and has to be reflected here, which is a documentation
-    // edit and never blocks the release pipeline.
+    // omits is the completeness claim of criteria 1 and 4 failing. A package added after the
+    // audited commit is outside it (see the case above) and is released by its own changeset.
     expect(AUDIT_PLAN.length, "the audit's plan table parsed to no rows").toBeGreaterThan(0);
     expect(AUDIT_PLAN.map((row) => row.name)).toEqual(PACKAGES.map((pkg) => pkg.name));
   });
@@ -530,7 +575,7 @@ describe("the pending changeset set", () => {
   });
 
   it("names only publishable packages in this workspace, each with a real release type", () => {
-    const known = new Set(PACKAGES.map((pkg) => pkg.name));
+    const known = new Set(WORKSPACE.map((pkg) => pkg.name));
     for (const changeset of CHANGESETS) {
       expect(changeset.releases.length, `${changeset.file} declares no packages`).toBeGreaterThan(
         0,

@@ -1647,12 +1647,12 @@ describe("readme-check: the S0200 cross-check, on a 0.1.0 preparation tree (AC13
 });
 
 describe("readme-check: the real repository", () => {
-  it("passes over this repo's own nine READMEs", () => {
+  it("passes over this repo's own ten READMEs", () => {
     // Not a tautology: this is the state ci.yml will actually run the gate against, and it is the
     // assertion that catches a README edited after this gate landed.
     const { code, output } = runCheck(join(import.meta.dirname, ".."));
 
     expect(code).toBe(0);
-    expect(output).toContain("9 governed README(s)");
+    expect(output).toContain("10 governed README(s)");
   });
 });
