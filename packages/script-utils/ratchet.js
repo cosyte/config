@@ -15,10 +15,10 @@
 // reason; 2 an input could not be read (the floor file, a report the floor needs, git), which is
 // never a pass. Zero dependencies, like the rest of this package.
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 
-import { ChangesUnreadable, readChanges, runGit } from "./changes.js";
+import { ChangesUnreadable, readChanges, readFileAtCommit } from "./changes.js";
 
 /** The floor file's name, at a repository's root. */
 export const FLOOR_FILE = "quality-floor.json";
@@ -116,6 +116,31 @@ export function parseFloor(value) {
     }
   }
   return value;
+}
+
+/**
+ * Compare a floor file with the one it replaces: every floor the earlier one held must still be
+ * there, at the same value or higher. A raised floor, and a new package or metric, are not findings.
+ *
+ * @param {ReturnType<typeof parseFloor>} before The earlier floor file.
+ * @param {ReturnType<typeof parseFloor>} after The floor file now.
+ * @returns {{ dir: string, metric: string, before: number, after: number | null }[]} Each floor
+ *   lowered (`after` the lower value) or removed (`after` null), in directory and metric order.
+ */
+export function compareFloors(before, after) {
+  const findings = [];
+  for (const dir of Object.keys(before.packages).sort()) {
+    const was = before.packages[dir];
+    const now = after.packages[dir];
+    for (const metric of [...COVERAGE_METRICS, "mutation"]) {
+      const held = metric === "mutation" ? was.mutation : was.coverage?.[metric];
+      if (held === undefined) continue;
+      const value = metric === "mutation" ? now?.mutation : now?.coverage?.[metric];
+      if (value === undefined) findings.push({ dir, metric, before: held, after: null });
+      else if (value < held) findings.push({ dir, metric, before: held, after: value });
+    }
+  }
+  return findings;
 }
 
 /**
@@ -363,6 +388,42 @@ export function readMutants(path, packageDir) {
   return out;
 }
 
+/**
+ * Compare the floor file with the one at the merge base, so a change cannot lower a floor, or
+ * delete one, to hide a drop.
+ *
+ * @param {object} input The inputs.
+ * @param {string} input.floorPath The floor file, absolute.
+ * @param {ReturnType<typeof parseFloor>} input.floor The floor file now.
+ * @param {{ root: string, mergeBase: string }} input.changes The change, as read from git.
+ * @param {import("./changes.js").GitRunner} [input.git] Runs git; replaced in tests.
+ * @returns {ReturnType<typeof compareFloors> | null} Each floor lowered or removed, or `null` when
+ *   the merge base has no floor file.
+ */
+function floorsAgainstMergeBase({ floorPath, floor, changes, git }) {
+  const name = relative(changes.root, realpathSync(floorPath)).split(sep).join("/");
+  if (name.startsWith("../")) {
+    throw new RatchetUnreadable(
+      `the floor file ${floorPath} is outside the repository at ${changes.root}`,
+    );
+  }
+  const text = readFileAtCommit({ commit: changes.mergeBase, path: name, cwd: changes.root, git });
+  if (text === null) return null;
+  const where = `the floor file ${name} at the merge base ${changes.mergeBase}`;
+  let before;
+  try {
+    before = JSON.parse(text);
+  } catch {
+    throw new RatchetUnreadable(`${where} is not JSON`);
+  }
+  try {
+    parseFloor(before);
+  } catch (error) {
+    throw new RatchetUnreadable(`${where} ${error.message.slice("the floor file ".length)}`);
+  }
+  return compareFloors(before, floor);
+}
+
 const HELP = `cosyte-ratchet: hold coverage and mutation score to a floor that only rises.
 
   cosyte-ratchet check [--floor <file>] [--base <ref>] [--skip coverage|mutation]...
@@ -376,12 +437,13 @@ ${REPORTS.mutation} (a full run) and ${REPORTS.changed} (a changed-files run).
 check   compares each measured metric with its floor and prints the gap to 100. With --base it
         also requires every changed line coverage counts to have run and every mutant in changed
         code to be killed, and lists each inline exception in changed code with its reason; a
-        full mutation report is then compared only when one is there.
+        full mutation report is then compared only when one is there. It also reads the floor
+        file at the merge base and fails when the change lowered or removed any floor in it.
 raise   moves each floor up to what was measured. It never moves one down.
 --skip  leaves a kind of metric out of this run, saying so; use it where that report is not made.
 
-Exit 0 when nothing dropped and changed code is reached, 1 on a drop or unreached changed code, 2
-when an input could not be read.
+Exit 0 when nothing dropped and changed code is reached, 1 on a drop, a lowered or removed floor
+or unreached changed code, 2 when an input could not be read.
 `;
 
 /**
@@ -446,10 +508,11 @@ function pct(value) {
  * @param {string} opts.cwd The directory the floor path is read from.
  * @param {(text: string) => void} opts.out Writes to stdout.
  * @param {(text: string) => void} opts.err Writes to stderr.
- * @param {typeof runGit} [opts.git] Runs git; replaced in tests.
+ * @param {import("./changes.js").GitRunner} [opts.git] Runs git; replaced in tests. Left out,
+ *   the change reader's own runner is used.
  * @returns {number} The exit code.
  */
-export function runRatchet({ argv, cwd, out, err, git = runGit }) {
+export function runRatchet({ argv, cwd, out, err, git }) {
   if (argv.includes("--help") || argv.includes("-h")) {
     out(HELP);
     return 0;
@@ -469,7 +532,8 @@ export function runRatchet({ argv, cwd, out, err, git = runGit }) {
  * The body of {@link runRatchet}, once the arguments are parsed.
  *
  * @param {ReturnType<typeof parseArgs>} options The options.
- * @param {{ cwd: string, out: (text: string) => void, git: typeof runGit }} io Where it runs.
+ * @param {{ cwd: string, out: (text: string) => void, git?: import("./changes.js").GitRunner }} io
+ *   Where it runs.
  * @returns {number} The exit code.
  */
 function ratchet(options, { cwd, out, git }) {
@@ -598,6 +662,21 @@ function ratchet(options, { cwd, out, git }) {
         out(`  not mutated (outside the package's mutate patterns): ${show(file)}\n`);
       }
     }
+    const lowered = floorsAgainstMergeBase({ floorPath, floor, changes, git });
+    out(`\nFloors in ${show(floorPath)} against the merge base:\n`);
+    if (lowered === null) {
+      out("  the floor file is new in this change; there is no earlier floor to hold\n");
+    } else if (lowered.length === 0) {
+      out("  none lowered or removed\n");
+    }
+    for (const f of lowered ?? []) {
+      out(
+        f.after === null
+          ? `  ${f.dir} ${f.metric} removed (was ${f.before.toFixed(2)})\n`
+          : `  ${f.dir} ${f.metric} lowered from ${f.before.toFixed(2)} to ${f.after.toFixed(2)}\n`,
+      );
+    }
+    failures += lowered?.length ?? 0;
     out("\nExceptions in changed code (list each one in the pull request):\n");
     if (judged.exceptions.length === 0) out("  none\n");
     for (const e of judged.exceptions) {

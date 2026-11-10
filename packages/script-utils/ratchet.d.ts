@@ -50,6 +50,15 @@ export declare class RatchetUnreadable extends Error {
 /** Check a parsed floor file's shape; every key must be known. */
 export declare function parseFloor(value: unknown): Floor;
 
+/**
+ * Compare a floor file with the one it replaces: each floor the earlier one held that is now lower
+ * (`after` the lower value) or gone (`after` null). Raised and new floors are not listed.
+ */
+export declare function compareFloors(
+  before: Floor,
+  after: Floor,
+): { dir: string; metric: string; before: number; after: number | null }[];
+
 /** Cut a percentage to two decimals, toward zero. */
 export declare function toFloor(value: number): number;
 

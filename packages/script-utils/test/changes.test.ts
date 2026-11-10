@@ -14,11 +14,12 @@ import { dirname, join } from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import * as changesModule from "../changes.js";
 import {
   ChangesUnreadable,
   parseUnifiedDiff,
   readChanges,
-  runGit,
+  readFileAtCommit,
   unquoteGitPath,
 } from "../changes.js";
 
@@ -256,7 +257,12 @@ describe("readChanges", () => {
       new ChangesUnreadable("no base ref was given to compare against"),
     );
     expect(() => readChanges({ base: "no-such-ref", cwd: dir })).toThrow(
-      /^no merge base with no-such-ref: git merge-base -- no-such-ref HEAD failed: \S/,
+      new ChangesUnreadable('the base ref "no-such-ref" names no commit git can find'),
+    );
+    git(dir, "checkout", "-q", "--orphan", "lonely");
+    git(dir, "commit", "-q", "--allow-empty", "-m", "unrelated");
+    expect(() => readChanges({ base: "main", cwd: dir })).toThrow(
+      /^no merge base with main: git merge-base [0-9a-f]{40} HEAD failed: $/,
     );
     const outside = mkdtempSync(join(tmpdir(), "script-utils-not-a-repo-"));
     try {
@@ -272,6 +278,7 @@ describe("readChanges", () => {
     const answers = (failing: string) => (args: string[]) => {
       if (args.includes(failing)) return { status: 1, stdout: "", stderr: ` boom \n` };
       if (args[0] === "rev-parse") return { status: 0, stdout: "/repo\n", stderr: "" };
+      if (args[0] === "cat-file") return { status: 0, stdout: `${"c".repeat(40)}\n`, stderr: "" };
       if (args[0] === "merge-base") return { status: 0, stdout: "abc\n", stderr: "" };
       return { status: 0, stdout: "", stderr: "" };
     };
@@ -287,8 +294,9 @@ describe("readChanges", () => {
       return answers("none")(args);
     };
     readChanges({ base: "main", cwd: "/repo/pkg", git: recording });
-    expect(calls.map((c) => c.cwd)).toEqual(["/repo/pkg", "/repo", "/repo", "/repo"]);
-    expect(calls[2]?.args).toEqual([
+    expect(calls.map((c) => c.cwd)).toEqual(["/repo/pkg", "/repo", "/repo", "/repo", "/repo"]);
+    expect(calls[2]?.args).toEqual(["merge-base", "c".repeat(40), "HEAD"]);
+    expect(calls[3]?.args).toEqual([
       "-c",
       "core.quotepath=off",
       "diff",
@@ -302,7 +310,7 @@ describe("readChanges", () => {
       "abc",
       "--",
     ]);
-    expect(calls[3]?.args).toEqual([
+    expect(calls[4]?.args).toEqual([
       "-c",
       "core.quotepath=off",
       "ls-files",
@@ -319,17 +327,158 @@ describe("readChanges", () => {
   });
 });
 
-describe("runGit", () => {
-  it("returns git's status and output", () => {
-    const r = runGit(["--version"], root);
-    expect(r.status).toBe(0);
-    expect(r.stdout).toMatch(/^git version /);
+describe("the base ref never reaches git's command line", () => {
+  // A value a caller passes in goes to git on standard input, never as an argument, so no value
+  // can turn into an option such as --upload-pack that runs a command.
+  const base = "origin/feature-x";
+  const recordingGit = () => {
+    const calls: { args: string[]; input: string | undefined }[] = [];
+    const run = (args: string[], _cwd: string, input?: string) => {
+      calls.push({ args, input });
+      if (args[0] === "rev-parse") return { status: 0, stdout: "/repo\n", stderr: "" };
+      if (args[0] === "cat-file") return { status: 0, stdout: `${"d".repeat(40)}\n`, stderr: "" };
+      if (args[0] === "merge-base") return { status: 0, stdout: `${"e".repeat(40)}\n`, stderr: "" };
+      return { status: 0, stdout: "", stderr: "" };
+    };
+    return { calls, run };
+  };
+
+  it("resolves the base on standard input and passes git only the commit it resolved to", () => {
+    const { calls, run } = recordingGit();
+    expect(readChanges({ base, cwd: "/repo", git: run }).mergeBase).toBe("e".repeat(40));
+    for (const call of calls) {
+      for (const arg of call.args) expect(arg, call.args.join(" ")).not.toContain("feature-x");
+    }
+    expect(calls[1]).toEqual({
+      args: ["cat-file", "--batch-check=%(objectname)"],
+      input: `${base}^{commit}\n`,
+    });
   });
 
-  it("reports a git that could not start as a null status with the reason", () => {
-    const r = runGit(["status"], join(root, "no-such-directory"));
-    expect(r.status).toBeNull();
-    expect(r.stderr).toMatch(/ENOENT/);
-    expect(r.stdout).toBe("");
+  it("refuses a base with a control character, and a resolution that is not a commit id", () => {
+    const { calls, run } = recordingGit();
+    for (const bad of ["main\nHEAD", "main\r", "a\u0000b", "tab\there"]) {
+      expect(() => readChanges({ base: bad, cwd: "/repo", git: run })).toThrow(
+        new ChangesUnreadable(`the base ref ${JSON.stringify(bad)} has a control character`),
+      );
+    }
+    expect(calls).toEqual([]);
+    const odd =
+      (stdout: string, status = 0) =>
+      (args: string[]) => {
+        if (args[0] === "rev-parse") return { status: 0, stdout: "/repo\n", stderr: "" };
+        return { status, stdout, stderr: "no" };
+      };
+    for (const stdout of [
+      "main^{commit} missing\n",
+      "abc\n",
+      `${"f".repeat(40)} extra\n`,
+      `g${"f".repeat(40)}\n`,
+      `${"f".repeat(41)}\n`,
+      "",
+    ]) {
+      expect(() => readChanges({ base: "main", git: odd(stdout) }), stdout).toThrow(
+        new ChangesUnreadable('the base ref "main" names no commit git can find'),
+      );
+    }
+    expect(() => readChanges({ base: "main", git: odd("", 128) })).toThrow(
+      /^could not resolve the base ref: git cat-file --batch-check=%\(objectname\) failed: no$/,
+    );
+    // A SHA-256 repository's ids are 64 digits long; one resolves, and the merge base comes next.
+    const sha256 = (args: string[]) => {
+      if (args[0] === "rev-parse") return { status: 0, stdout: "/repo\n", stderr: "" };
+      if (args[0] === "cat-file") return { status: 0, stdout: `${"a".repeat(64)}\n`, stderr: "" };
+      return { status: 1, stdout: "", stderr: "none" };
+    };
+    expect(() => readChanges({ base: "main", git: sha256 })).toThrow(
+      `no merge base with main: git merge-base ${"a".repeat(64)} HEAD failed: none`,
+    );
+  });
+
+  it("offers no generic git runner a caller could pass arguments to", () => {
+    expect("runGit" in changesModule).toBe(false);
+  });
+
+  it("names the reason when git cannot start", () => {
+    expect(() => readChanges({ base: "main", cwd: join(root, "no-such-directory") })).toThrow(
+      /^not inside a git repository: git rev-parse --show-toplevel failed: .*ENOENT/,
+    );
+  });
+});
+
+describe("readFileAtCommit", () => {
+  it("reads a file as it was at a commit, and answers null for a path that commit lacks", () => {
+    const dir = repo("at-commit", { "q.json": '{ "a": 1 }\n', "sp ace/é.json": "x\ny" }, {});
+    write(dir, { "q.json": '{ "a": 2 }\n' });
+    const commit = git(dir, "rev-parse", "main").trim();
+    expect(readFileAtCommit({ commit, path: "q.json", cwd: dir })).toBe('{ "a": 1 }\n');
+    expect(readFileAtCommit({ commit, path: "sp ace/é.json", cwd: dir })).toBe("x\ny");
+    expect(readFileAtCommit({ commit, path: "nowhere.json", cwd: dir })).toBeNull();
+    write(dir, { "empty.json": "" });
+    git(dir, "add", "empty.json");
+    git(dir, "commit", "-q", "-m", "empty");
+    const head = git(dir, "rev-parse", "HEAD").trim();
+    expect(readFileAtCommit({ commit: head, path: "empty.json", cwd: dir })).toBe("");
+  });
+
+  it("passes the path on standard input, never as an argument", () => {
+    const calls: { args: string[]; cwd: string; input: string | undefined }[] = [];
+    const commit = "b".repeat(40);
+    const text = readFileAtCommit({
+      commit,
+      path: "--upload-pack=x",
+      cwd: "/repo",
+      git: (args, cwd, input) => {
+        calls.push({ args, cwd, input });
+        return { status: 0, stdout: `${"1".repeat(40)} blob 3\nabc\n`, stderr: "" };
+      },
+    });
+    expect(text).toBe("abc");
+    expect(calls).toEqual([
+      { args: ["cat-file", "--batch"], cwd: "/repo", input: `${commit}:--upload-pack=x\n` },
+    ]);
+  });
+
+  it("refuses a commit that is not an id, a path with a control character, and what is not a file", () => {
+    const never = () => {
+      throw new Error("git must not run");
+    };
+    for (const commit of ["main", `x${"a".repeat(40)}`, `${"a".repeat(40)}x`]) {
+      expect(() => readFileAtCommit({ commit, path: "a", cwd: "/", git: never })).toThrow(
+        new ChangesUnreadable(`the commit ${JSON.stringify(commit)} is not a commit id`),
+      );
+    }
+    expect(() =>
+      readFileAtCommit({ commit: "a".repeat(40), path: "a\nb", cwd: "/", git: never }),
+    ).toThrow(new ChangesUnreadable('the path "a\\nb" has a control character'));
+    const answer =
+      (stdout: string, status = 0) =>
+      () => ({ status, stdout, stderr: " bad \n" });
+    const at = (stdout: string, status?: number) =>
+      readFileAtCommit({
+        commit: "a".repeat(64),
+        path: "d",
+        cwd: "/",
+        git: answer(stdout, status),
+      });
+    expect(() => at(`${"1".repeat(40)} tree 30\n...\n`)).toThrow(
+      new ChangesUnreadable(`d at ${"a".repeat(64)} is not a file`),
+    );
+    for (const header of ["garbage", `${"1".repeat(40)} blob`, `z${"1".repeat(40)} blob 3`]) {
+      expect(() => at(`${header}\nabc\n`)).toThrow(
+        new ChangesUnreadable(`d at ${"a".repeat(64)} could not be read: ${header}`),
+      );
+    }
+    expect(() => at("garbage")).toThrow(
+      new ChangesUnreadable(`d at ${"a".repeat(64)} could not be read: garbage`),
+    );
+    expect(() => at("", 128)).toThrow(
+      /^could not read d at a{64}: git cat-file --batch failed: bad$/,
+    );
+    const dir = repo("tree-at-commit", { "sub/x.json": "{}\n" }, {});
+    const commit = git(dir, "rev-parse", "main").trim();
+    expect(() => readFileAtCommit({ commit, path: "sub", cwd: dir })).toThrow(
+      new ChangesUnreadable(`sub at ${commit} is not a file`),
+    );
   });
 });

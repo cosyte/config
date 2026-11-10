@@ -29,19 +29,53 @@ export class ChangesUnreadable extends Error {
 }
 
 /**
- * Run git with array arguments, never through a shell.
+ * Run git with array arguments, never through a shell. Not exported: every argument a caller
+ * could reach is a literal or an id git itself printed, and a value a caller passes in (a base
+ * ref, a path) reaches git on standard input, so no value can become an option such as
+ * `--upload-pack`, which runs a command.
  *
  * @param {string[]} args The arguments.
  * @param {string} cwd The directory to run in.
+ * @param {string} [input] What to write to git's standard input.
  * @returns {{ status: number | null, stdout: string, stderr: string }} The result.
  */
-export function runGit(args, cwd) {
-  const r = spawnSync("git", args, { cwd, encoding: "utf8", maxBuffer: 256 * 1024 * 1024 });
+function runGit(args, cwd, input) {
+  const r = spawnSync("git", args, {
+    cwd,
+    input,
+    encoding: "utf8",
+    maxBuffer: 256 * 1024 * 1024,
+  });
+  // When git could not start, the status is null and nothing reads the output.
   return {
     status: r.error ? null : r.status,
-    stdout: r.stdout ?? "",
+    stdout: r.stdout,
     stderr: r.error ? r.error.message : r.stderr,
   };
+}
+
+/** A commit id as git prints one: 40 hex digits, or 64 in a SHA-256 repository. */
+const COMMIT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
+
+/** A control character: it would end or break the line git reads a name from. */
+const CONTROL = /[\u0000-\u001f\u007f]/;
+
+/**
+ * Run git, throwing {@link ChangesUnreadable} with git's own complaint when it fails.
+ *
+ * @param {typeof runGit} git Runs git.
+ * @param {string[]} args The arguments.
+ * @param {string} cwd The directory to run in.
+ * @param {string} what What could not be read, for the message.
+ * @param {string} [input] What to write to git's standard input.
+ * @returns {string} Git's standard output.
+ */
+function mustRun(git, args, cwd, what, input) {
+  const r = git(args, cwd, input);
+  if (r.status !== 0) {
+    throw new ChangesUnreadable(`${what}: git ${args.join(" ")} failed: ${r.stderr.trim()}`);
+  }
+  return r.stdout;
 }
 
 /** The escapes git writes in a quoted path besides octal bytes, as the byte each stands for. */
@@ -130,23 +164,34 @@ export function readChanges({ base, cwd = process.cwd(), git = runGit }) {
   if (typeof base !== "string" || base === "") {
     throw new ChangesUnreadable("no base ref was given to compare against");
   }
-  // A ref that starts with a dash would reach git as an option (`--upload-pack=...` runs a
-  // command), so it is refused before git sees it, and `--` ends git's options anyway.
+  // The ref reaches git on standard input, never as an argument. A dash at its start still names
+  // no ref git would take, so it is refused as a mistake, and a control character would end the
+  // line git reads it from.
   if (base.startsWith("-")) {
     throw new ChangesUnreadable(`the base ref ${JSON.stringify(base)} starts with a dash`);
   }
-  let at = cwd;
-  const must = (args, what) => {
-    const r = git(args, at);
-    if (r.status !== 0) {
-      throw new ChangesUnreadable(`${what}: git ${args.join(" ")} failed: ${r.stderr.trim()}`);
-    }
-    return r.stdout;
-  };
-  const root = must(["rev-parse", "--show-toplevel"], "not inside a git repository").trim();
+  if (CONTROL.test(base)) {
+    throw new ChangesUnreadable(`the base ref ${JSON.stringify(base)} has a control character`);
+  }
+  const root = mustRun(
+    git,
+    ["rev-parse", "--show-toplevel"],
+    cwd,
+    "not inside a git repository",
+  ).trim();
   // Everything after this runs at the root, so a run from a package directory sees the whole change.
-  at = root;
-  const mergeBase = must(["merge-base", "--", base, "HEAD"], `no merge base with ${base}`).trim();
+  const must = (args, what, input) => mustRun(git, args, root, what, input);
+  const resolved = must(
+    ["cat-file", "--batch-check=%(objectname)"],
+    "could not resolve the base ref",
+    `${base}^{commit}\n`,
+  ).trim();
+  if (!COMMIT_ID.test(resolved)) {
+    throw new ChangesUnreadable(
+      `the base ref ${JSON.stringify(base)} names no commit git can find`,
+    );
+  }
+  const mergeBase = must(["merge-base", resolved, "HEAD"], `no merge base with ${base}`).trim();
   const diff = must(
     [
       "-c",
@@ -183,4 +228,42 @@ export function readChanges({ base, cwd = process.cwd(), git = runGit }) {
     files.set(path, new Set(Array.from({ length: count }, (_, i) => i + 1)));
   }
   return { root, base, mergeBase, files };
+}
+
+/**
+ * A file as it was at a commit: what the ratchet reads the floor file at the merge base with.
+ *
+ * @param {object} opts Options.
+ * @param {string} opts.commit The commit id, as git printed it.
+ * @param {string} opts.path The file, relative to the repository root, with `/` separators.
+ * @param {string} opts.cwd Any directory inside the repository.
+ * @param {typeof runGit} [opts.git] Runs git; replaced in tests.
+ * @returns {string | null} The file's text, or `null` when the commit has no such path.
+ * @throws {ChangesUnreadable} When git cannot answer, or the path names no file.
+ */
+export function readFileAtCommit({ commit, path, cwd, git = runGit }) {
+  if (!COMMIT_ID.test(commit)) {
+    throw new ChangesUnreadable(`the commit ${JSON.stringify(commit)} is not a commit id`);
+  }
+  if (CONTROL.test(path)) {
+    throw new ChangesUnreadable(`the path ${JSON.stringify(path)} has a control character`);
+  }
+  // `cat-file --batch` reads the name from standard input and prints a header line, the content,
+  // and a newline; a name it cannot find prints only `<name> missing`.
+  const out = mustRun(
+    git,
+    ["cat-file", "--batch"],
+    cwd,
+    `could not read ${path} at ${commit}`,
+    `${commit}:${path}\n`,
+  );
+  const end = out.indexOf("\n");
+  const header = end === -1 ? out : out.slice(0, end);
+  if (header === `${commit}:${path} missing`) return null;
+  const parts = header.split(" ");
+  if (parts.length !== 3 || !COMMIT_ID.test(parts[0])) {
+    throw new ChangesUnreadable(`${path} at ${commit} could not be read: ${header}`);
+  }
+  if (parts[1] !== "blob") throw new ChangesUnreadable(`${path} at ${commit} is not a file`);
+  return out.slice(end + 1, -1);
 }

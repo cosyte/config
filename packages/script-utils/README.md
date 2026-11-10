@@ -396,7 +396,8 @@ restores the gate: 1 for a disagreement, 2 for an unlisted package.
 
 `cosyte-ratchet` holds a repository to a floor file at its root, `quality-floor.json`: each package
 directory, relative to the file, with its coverage (lines, branches, functions, statements) and its
-mutation score. A floor only rises.
+mutation score. A floor only rises: `raise` never lowers one, and `check --base` fails a change
+that lowers or removes one.
 
 ```sh
 cosyte-ratchet check --skip mutation                     # coverage against its floor, every run
@@ -410,8 +411,10 @@ also holds the change's own code to 100: every changed line coverage counts must
 every mutant in changed code must be killed, unless an inline comment names its reason
 (`/* v8 ignore next -- reason */` for coverage, `// Stryker disable next-line all: reason` for a
 mutant). It lists every exception it finds in changed code, so the pull request can carry the list,
-and an exception with no reason fails. `raise` never lowers a floor. Exit 2 means an input could not
-be read: the floor file, a report a floor needs, or git.
+and an exception with no reason fails. With `--base` it also reads the floor file as it was at the
+merge base and exits 1 when the change lowered any floor in it or removed one; raising a floor or
+adding one passes. `raise` never lowers a floor. Exit 2 means an input could not be read: the floor
+file now or at the merge base, a report a floor needs, or git.
 
 It reads Istanbul's `coverage/coverage-summary.json` and `coverage/lcov.info` (which
 `@cosyte/vitest-config` writes), and StrykerJS's `reports/mutation/mutation.json` and `changed.json`
@@ -420,7 +423,10 @@ suite ran counts as run.
 
 `@cosyte/script-utils/changes` is how both the ratchet and `@cosyte/vitest-config/mutate` read what a
 change touched: the diff from the merge base of the base ref and HEAD to the working tree, plus
-untracked files, as each file's changed lines.
+untracked files, as each file's changed lines. `readFileAtCommit({ commit, path, cwd })` reads a
+file as it was at a commit, which is how the ratchet reads the floor file at the merge base. A base
+ref or a path reaches git on standard input, never as an argument, so no value can become a git
+option.
 
 ```ts runnable
 import { parseUnifiedDiff } from "@cosyte/script-utils/changes";

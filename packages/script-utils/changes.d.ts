@@ -5,8 +5,8 @@ export interface GitResult {
   stderr: string;
 }
 
-/** Runs git with array arguments in a directory. */
-export type GitRunner = (args: string[], cwd: string) => GitResult;
+/** Runs git with array arguments in a directory, writing `input`, when given, to its standard input. */
+export type GitRunner = (args: string[], cwd: string, input?: string) => GitResult;
 
 /** What a change touched against a base ref. */
 export interface Changes {
@@ -24,15 +24,6 @@ export interface Changes {
 export declare class ChangesUnreadable extends Error {
   constructor(message: string);
 }
-
-/**
- * Run git with array arguments, never through a shell.
- *
- * @param args The arguments.
- * @param cwd The directory to run in.
- * @returns The result.
- */
-export declare function runGit(args: string[], cwd: string): GitResult;
 
 /**
  * Undo git's C-style quoting of a path. A path git did not quote is returned as it is.
@@ -64,3 +55,24 @@ export declare function parseUnifiedDiff(text: string): Map<string, Set<number>>
  * ```
  */
 export declare function readChanges(opts: { base: string; cwd?: string; git?: GitRunner }): Changes;
+
+/**
+ * A file as it was at a commit. The path reaches git on standard input, never as an argument.
+ *
+ * @param opts The commit id as git printed it, the path relative to the repository root, a
+ *   directory inside the repository, and the git runner.
+ * @returns The file's text, or `null` when the commit has no such path.
+ * @throws {ChangesUnreadable} When git cannot answer, or the path names no file.
+ * @example
+ * ```js
+ * import { readChanges, readFileAtCommit } from "@cosyte/script-utils/changes";
+ * const { mergeBase, root } = readChanges({ base: "origin/main" });
+ * const before = readFileAtCommit({ commit: mergeBase, path: "quality-floor.json", cwd: root });
+ * ```
+ */
+export declare function readFileAtCommit(opts: {
+  commit: string;
+  path: string;
+  cwd: string;
+  git?: GitRunner;
+}): string | null;

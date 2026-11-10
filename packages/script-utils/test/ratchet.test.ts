@@ -22,6 +22,7 @@ import {
   FLOOR_FILE,
   REPORTS,
   RatchetUnreadable,
+  compareFloors,
   findExceptionComments,
   hintRange,
   judgeChangedCode,
@@ -202,6 +203,37 @@ describe("parseFloor", () => {
     expect(() =>
       parseFloor({ packages: { a: { mutation: 100, coverage: { lines: 0 } } } }),
     ).not.toThrow();
+  });
+});
+
+describe("compareFloors", () => {
+  it("lists each floor lowered or removed, and nothing raised, kept or new", () => {
+    const before = {
+      packages: {
+        b: { coverage: { lines: 50, functions: 20 }, mutation: 40 },
+        a: { coverage: { branches: 10, statements: 10 } },
+        gone: { mutation: 5 },
+        empty: {},
+        c: { coverage: { lines: 1 } },
+      },
+    };
+    const after = {
+      packages: {
+        a: { coverage: { branches: 10, statements: 9.99, lines: 1 } },
+        b: { coverage: { lines: 50.01 }, mutation: 39 },
+        fresh: { mutation: 1 },
+        c: { mutation: 2 },
+      },
+    };
+    expect(compareFloors(before, after)).toEqual([
+      { dir: "a", metric: "statements", before: 10, after: 9.99 },
+      { dir: "b", metric: "functions", before: 20, after: null },
+      { dir: "b", metric: "mutation", before: 40, after: 39 },
+      { dir: "c", metric: "lines", before: 1, after: null },
+      { dir: "gone", metric: "mutation", before: 5, after: null },
+    ]);
+    expect(compareFloors(after, after)).toEqual([]);
+    expect(compareFloors({ packages: {} }, after)).toEqual([]);
   });
 });
 
@@ -1080,6 +1112,9 @@ describe("runRatchet check --base: a pull request's own code", () => {
         "  uncovered changed lines: 0",
         "  surviving mutants in changed code: 0",
         "",
+        `Floors in ${FLOOR_FILE} against the merge base:`,
+        "  the floor file is new in this change; there is no earlier floor to hold",
+        "",
         "Exceptions in changed code (list each one in the pull request):",
         "  - packages/a/src/a.ts:3 coverage, ignore next: the caller never passes zero",
         "  - packages/a/src/a.ts:4 mutation, EqualityOperator mutant ignored: the caller never passes zero",
@@ -1161,7 +1196,9 @@ describe("runRatchet check --base: a pull request's own code", () => {
     write(d, { "packages/a/coverage/lcov.info": lcov({ 2: 1 }) });
     const unknown = run(d, "check", "--base", "nowhere", "--skip", "mutation");
     expect(unknown.code).toBe(2);
-    expect(unknown.err).toMatch(/^cosyte-ratchet: could not run: no merge base with nowhere: /);
+    expect(unknown.err).toBe(
+      'cosyte-ratchet: could not run: the base ref "nowhere" names no commit git can find\n',
+    );
   });
 
   it("compares the full mutation score only when a full report is there, and says so when it is not", () => {
@@ -1210,6 +1247,137 @@ describe("runRatchet check --base: a pull request's own code", () => {
     );
     expect(noCoverage.out).toContain(
       "  - packages/a/src/a.ts:3 coverage, ignore next: the caller never passes zero\n",
+    );
+  });
+});
+
+describe("runRatchet check --base: the floor file only rises", () => {
+  /** A repo whose main holds `before` as the floor file, and whose change makes it `after`. */
+  function floorChange(
+    before: string | null,
+    after: Record<string, unknown>,
+    measured = 75,
+  ): string {
+    const d = dir();
+    git(d, "init", "-q", "-b", "main", ".");
+    git(d, "config", "user.email", "test@example.com");
+    git(d, "config", "user.name", "Test");
+    write(d, { "packages/a/src/a.ts": "export const a = 1;\n" });
+    if (before !== null) write(d, { [FLOOR_FILE]: before });
+    git(d, "add", "-A");
+    git(d, "commit", "-q", "-m", "base");
+    git(d, "checkout", "-q", "-b", "feature");
+    write(d, {
+      ".gitignore": "coverage/\nreports/\n",
+      [FLOOR_FILE]: floor(after),
+      "packages/a/coverage/coverage-summary.json": summary(measured),
+      "packages/a/coverage/lcov.info": "",
+    });
+    git(d, "add", "-A");
+    git(d, "commit", "-q", "-m", "change");
+    return d;
+  }
+
+  it("fails when a change lowers a floor or removes one the merge base held, naming each", () => {
+    // A real drop (lines measured 40 against a floor of 70) hidden by lowering the floor to 30.
+    const d = floorChange(
+      floor({
+        "packages/a": { coverage: { lines: 70, branches: 30 }, mutation: 60 },
+        "packages/b": { coverage: { lines: 10 } },
+      }),
+      { "packages/a": { coverage: { lines: 30 } } },
+      40,
+    );
+    const r = run(d, "check", "--base", "main", "--skip", "mutation");
+    expect(r.err).toBe("");
+    expect(r.code).toBe(1);
+    expect(r.out).toContain(
+      [
+        `Floors in ${FLOOR_FILE} against the merge base:`,
+        "  packages/a lines lowered from 70.00 to 30.00",
+        "  packages/a branches removed (was 30.00)",
+        "  packages/a mutation removed (was 60.00)",
+        "  packages/b lines removed (was 10.00)",
+        "",
+      ].join("\n"),
+    );
+    expect(r.out.endsWith("\ncosyte-ratchet: FAIL, 4 finding(s) above.\n")).toBe(true);
+  });
+
+  it("passes a change that only raises floors or adds them, and one that leaves them alone", () => {
+    const before = floor({ "packages/a": { coverage: { lines: 50, branches: 50 } } });
+    const raised = floorChange(before, {
+      "packages/a": { coverage: { lines: 60, branches: 50, functions: 10 }, mutation: 1 },
+    });
+    const r = run(raised, "check", "--base", "main", "--skip", "mutation");
+    expect(r.code, r.out).toBe(0);
+    expect(r.out).toContain(
+      `Floors in ${FLOOR_FILE} against the merge base:\n  none lowered or removed\n`,
+    );
+    const same = floorChange(before, { "packages/a": { coverage: { lines: 50, branches: 50 } } });
+    expect(run(same, "check", "--base", "main", "--skip", "mutation").code).toBe(0);
+  });
+
+  it("holds nothing when the floor file is new in the change, saying so", () => {
+    const d = floorChange(null, { "packages/a": { coverage: { lines: 50 } } });
+    const r = run(d, "check", "--base", "main", "--skip", "mutation");
+    expect(r.code, r.out + r.err).toBe(0);
+    expect(r.out).toContain(
+      `Floors in ${FLOOR_FILE} against the merge base:\n  the floor file is new in this change; there is no earlier floor to hold\n`,
+    );
+  });
+
+  it("reads the floor file at the merge base, not at the base's tip", () => {
+    const d = floorChange(floor({ "packages/a": { coverage: { lines: 50 } } }), {
+      "packages/a": { coverage: { lines: 50 } },
+    });
+    git(d, "checkout", "-q", "main");
+    write(d, { [FLOOR_FILE]: floor({ "packages/a": { coverage: { lines: 99 } } }) });
+    git(d, "commit", "-q", "-am", "main moved on");
+    git(d, "checkout", "-q", "feature");
+    expect(run(d, "check", "--base", "main", "--skip", "mutation").code).toBe(0);
+  });
+
+  it("exits 2 when the floor file at the merge base is not JSON or not a floor", () => {
+    for (const [before, why] of [
+      ["not json", "is not JSON"],
+      ['{ "packages": [] }', "has no `packages` object"],
+    ]) {
+      const d = floorChange(before, { "packages/a": {} });
+      const mergeBase = git(d, "rev-parse", "main").trim();
+      const r = run(d, "check", "--base", "main", "--skip", "mutation");
+      expect(r.code).toBe(2);
+      expect(r.err).toBe(
+        `cosyte-ratchet: could not run: the floor file ${FLOOR_FILE} at the merge base ${mergeBase} ${why}\n`,
+      );
+    }
+  });
+
+  it("exits 2 when the floor file is outside the repository git names", () => {
+    const d = dir({
+      [FLOOR_FILE]: floor({ ".": {} }),
+      "coverage/coverage-summary.json": summary(5),
+      "coverage/lcov.info": "",
+    });
+    const sha = "a".repeat(40);
+    const fake = (args: string[]) => {
+      if (args[0] === "rev-parse") return { status: 0, stdout: "/elsewhere\n", stderr: "" };
+      if (args[0] === "cat-file" || args[0] === "merge-base") {
+        return { status: 0, stdout: `${sha}\n`, stderr: "" };
+      }
+      return { status: 0, stdout: "", stderr: "" };
+    };
+    let err = "";
+    const code = runRatchet({
+      argv: ["check", "--base", "main", "--skip", "mutation"],
+      cwd: d,
+      out: () => {},
+      err: (t) => (err += t),
+      git: fake,
+    });
+    expect(code).toBe(2);
+    expect(err).toBe(
+      `cosyte-ratchet: could not run: the floor file ${join(d, FLOOR_FILE)} is outside the repository at /elsewhere\n`,
     );
   });
 });
