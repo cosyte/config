@@ -91,9 +91,11 @@ them, or `LARGE_WARMUP_MAX_MS` (30 s) from the start pass without that, which is
 standard rule needs every one of three to agree; two windows in agreement is the same evidence the
 standard rule asks for, that the code has stopped getting faster, read at the grain a long pass
 allows. The samples are unchanged: 5, each whole passes until at least 50 ms, which at this size is
-one pass. A case that settles by the standard rule never moves, so every case whose batches hold
-several passes, every case of the comparison calibrated in section 5 among them, warms up exactly as
-before. Each timing process records the plan it ended on, in a reading and in a comparison. The
+one pass. A case that settles by the standard rule never moves, and a case whose batches hold
+several passes cannot move, so the small and middle cases warm up exactly as before. A case whose
+calls take well under 50 ms can still move when a busy machine makes three of its batches single
+passes of 50 ms or more at the 500 ms point; section 5 says how often that happened. Each timing
+process records the plan it ended on, in a reading and in a comparison. The
 scaling gate's rule, in `PERF_CONTRACT`, is not changed: it is still the one source of the standard
 plan, and the scaling gate's own fixtures are sized to it.
 
@@ -300,6 +302,51 @@ run can call growing there (`detectableBytesPerOp`, which every result reports f
 0.115 to 0.142 bytes per operation. A case with fewer, slower operations sees less: a long run of
 30 calls of a 300 ms operation fits 24 of them, so it cannot call a leak under about 2.7 KB a call
 growing, and says so in that number.
+
+**The large-case plan.** Taken by the calibration workflow on the pull request that added the plan
+(run 42894544614), on GitHub-hosted runners (`ubuntu-latest`, 4 logical CPUs, the `ubuntu26` image,
+Node 24.22.2), over `experiments/bench-calibration/large.bench.mjs`: a delimited-message parser
+written for the calibration (`large-target.mjs`), on one synthetic message of 1 MiB and of 4 MiB. A
+4 MiB call takes about 127 ms there and peaks at about 240 MiB of heap, the shape of a parser's
+largest case. The runs are in `data/large-case/run-42894544614/`.
+
+The same suite, read on one runner (AMD EPYC 9V45) with the runner as it was before the plan and
+with the plan (`large-reading-base.json`, `large-reading-head.json`):
+
+| Runner     | Size  | Per op                      | p50      | Alloc/op                         | Peak heap  | Peak external | Peak total | Long run |
+| ---------- | ----- | --------------------------- | -------- | -------------------------------- | ---------- | ------------- | ---------- | -------- |
+| before     | 1 MiB | 32.1 ms                     | 31.9 ms  | skipped (`allocation-window-gc`) | 64.03 MiB  | n/a           | n/a        | flat     |
+| before     | 4 MiB | skipped (`warmup-unstable`) | n/a      | skipped (`allocation-window-gc`) | 240.92 MiB | n/a           | n/a        |          |
+| large plan | 1 MiB | 28.7 ms                     | 31.3 ms  | 76.22 MiB, collections counted   | 64.03 MiB  | 40 B          | 64.03 MiB  | flat     |
+| large plan | 4 MiB | 126.6 ms, on the large plan | 128.9 ms | 298.95 MiB, collections counted  | 243.29 MiB | 40 B          | 243.29 MiB | flat     |
+
+p95 and p99 stay `n/a` at 4 MiB: 20 calls fit the latency budget, and a percentile needs 10 calls
+above it. The 4 MiB long run is the largest size's (30 calls fit its budget), so it can call a leak
+growing only from about 2.7 KB a call, which its `detectableBytesPerOp` says.
+
+The comparison on the plan: six runners each ran whole A/A comparisons of the 4 MiB case for 80
+minutes, both sides the same code in two directories. The runners drew three CPU models (AMD EPYC
+7763 and 9V74, Intel Xeon Platinum 8370C).
+
+| Case                 | Comparisons | With a skip | Regression verdicts | Upper 95% | Processes on the large plan | A/A round ratio, 5th to 95th percentile |
+| -------------------- | ----------- | ----------- | ------------------- | --------- | --------------------------- | --------------------------------------- |
+| parseMessage @ 4 MiB | 236         | 0           | 0                   | 1.26%     | 5,654 of 5,664              | 0.924 to 1.075                          |
+
+- **No false alarm and no skip in 236 comparisons**, every one of 5,664 processes measured. That
+  bounds both rates under 1.26% with 95% confidence for this case on this runner class, which does
+  not yet meet the rule in section 4 (a clean record needs 299 comparisons). A comparison of a large
+  case stays advisory, as every comparison is until that rule is met on its own suite.
+- **One round's noise is within the small cases' range.** A 4 MiB round's ratio spans 0.924 to
+  1.075 from the 5th to the 95th percentile with nothing changed (median 0.999), against 5th
+  percentiles of 0.911 to 0.981 and 95th percentiles of 1.019 to 1.100 across the small cases
+  above. No detection rate has been measured on the plan yet.
+- **The 10 processes on the standard plan** settled by the standard rule on a quiet moment, which
+  the plan allows: it changes nothing for a case that settles.
+- **The rerun of the comparison calibration above on the same pull request** found no false alarm
+  and no skip in 227 A/A comparisons of the PHI scan suite, and a handful of processes of its
+  slowest compared case (runPhiScan at 1 MiB, about 24 ms a call) moved to the large plan on a busy
+  moment; their rounds' ratios were inside the others' spread. That run is not committed here; its
+  numbers are in the pull request.
 
 ### 6. What it cannot detect
 
