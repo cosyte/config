@@ -34,6 +34,7 @@ const GATE_BINS = [
   "cosyte-agent-notes",
   "cosyte-catalog",
   "cosyte-ratchet",
+  "cosyte-docs-content",
 ];
 
 let root: string;
@@ -287,6 +288,20 @@ describe("cosyte-ratchet, from its bin", () => {
   });
 });
 
+describe("cosyte-docs-content reaches its check", () => {
+  it("refuses a page with no front matter, and exits 2 with no docs-content/ folder", () => {
+    const dir = fixture("docs-content", {
+      "docs-content/sidebars.json": JSON.stringify({ docs: ["intro"] }),
+      "docs-content/intro.md": "# Intro\n",
+    });
+    const r = run("cosyte-docs-content", [], dir);
+    expect(r.code, r.out).toBe(1);
+    expect(r.out).toContain("docs-content/intro.md:1 [front-matter]");
+    expect(run("cosyte-docs-content", [], fixture("no-docs", { "a.txt": "a\n" })).code).toBe(2);
+    expect(run("script-utils", ["docs-content", "--dir", dir], root).code).toBe(1);
+  });
+});
+
 describe("script-utils, the dispatcher npx runs by the package's name", () => {
   it("lists every command with --help, and exits 2 with none", () => {
     const help = run("script-utils", ["--help"], root);
@@ -301,6 +316,7 @@ describe("script-utils, the dispatcher npx runs by the package's name", () => {
       "agent-notes",
       "catalog",
       "ratchet",
+      "docs-content",
     ]) {
       expect(help.out, command).toContain(command);
     }

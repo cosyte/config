@@ -175,6 +175,7 @@ describe("the tarball a consumer installs", () => {
       "./agent-notes": { types: "./agent-notes.d.ts", default: "./agent-notes.js" },
       "./ratchet": { types: "./ratchet.d.ts", default: "./ratchet.js" },
       "./changes": { types: "./changes.d.ts", default: "./changes.js" },
+      "./docs-content": { types: "./docs-content.d.ts", default: "./docs-content.js" },
     });
   });
 
@@ -182,7 +183,7 @@ describe("the tarball a consumer installs", () => {
     const manifest = JSON.parse(readFileSync(join(installed, "package.json"), "utf8")) as {
       bin: Record<string, string>;
     };
-    expect(Object.keys(manifest.bin).length).toBe(10);
+    expect(Object.keys(manifest.bin).length).toBe(11);
     for (const target of Object.values(manifest.bin)) {
       expect(existsSync(join(installed, target)), `${target} is not in the tarball`).toBe(true);
     }
@@ -214,6 +215,22 @@ describe("the tarball a consumer installs", () => {
     );
     expect(probe.code, probe.out).toBe(0);
     expect(probe.out.trim()).toBe("documentation/agent-notes.md a-b");
+  });
+
+  it("ships the docs-content check and its declarations, and runs it from the tarball", () => {
+    for (const file of ["docs-content.js", "docs-content.d.ts", "bin/cosyte-docs-content.js"]) {
+      expect(existsSync(join(installed, file)), `${file} is not in the tarball`).toBe(true);
+    }
+    const probe = inConsumer(
+      [
+        'import { REQUIRED_PAGES, checkDocsContent } from "@cosyte/script-utils/docs-content";',
+        "const found = checkDocsContent({ pages: [], sidebars: null });",
+        "console.log(REQUIRED_PAGES.length, found.length);",
+        "",
+      ].join("\n"),
+    );
+    expect(probe.code, probe.out).toBe(0);
+    expect(probe.out.trim()).toBe("6 7");
   });
 
   it("ships the catalog, its data file and declarations, and reads the data from the tarball", () => {

@@ -34,7 +34,8 @@
     "cosyte-claude-card": "bin/cosyte-claude-card.js",
     "cosyte-agent-notes": "bin/cosyte-agent-notes.js",
     "cosyte-catalog": "bin/cosyte-catalog.js",
-    "cosyte-ratchet": "bin/cosyte-ratchet.js"
+    "cosyte-ratchet": "bin/cosyte-ratchet.js",
+    "cosyte-docs-content": "bin/cosyte-docs-content.js"
   },
   "types": "index.d.ts",
   "exports": {
@@ -77,6 +78,10 @@
     "./changes": {
       "types": "./changes.d.ts",
       "default": "./changes.js"
+    },
+    "./docs-content": {
+      "types": "./docs-content.d.ts",
+      "default": "./docs-content.js"
     }
   },
   "files": [
@@ -101,6 +106,8 @@
     "ratchet.d.ts",
     "changes.js",
     "changes.d.ts",
+    "docs-content.js",
+    "docs-content.d.ts",
     "check-no-emdash.sh",
     "bin",
     "README.md",

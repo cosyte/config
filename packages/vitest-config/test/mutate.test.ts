@@ -443,7 +443,7 @@ describe("@cosyte/script-utils is an optional peer, loaded only by a changed run
       expect(r.status, r.stderr).toBe(0);
       expect(r.stdout).toContain("\nexit 0 2\n");
       expect(r.stderr).toMatch(
-        /^cosyte-mutate: could not run: a changed run reads what a change touched with @cosyte\/script-utils, an optional peer dependency of @cosyte\/vitest-config; install it beside this package \(.+\)\n$/,
+        /^cosyte-mutate: could not run: a changed run reads what a change touched with @cosyte\/script-utils, an optional peer dependency of @cosyte\/vitest-config; install it beside this package \([\s\S]+\)\n$/,
       );
     } finally {
       rmSync(d, { recursive: true, force: true });

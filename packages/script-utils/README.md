@@ -202,6 +202,7 @@ CATALOG.engine.displayName; // => "Pathways"
 | `@cosyte/script-utils/agent-notes`   | deprecated (D62): `runAgentNotesCheck(options)` and `checkAgentNotes(input)`                 |
 | `@cosyte/script-utils/ratchet`       | `runRatchet(options)` and its parts, the coverage and mutation ratchet                       |
 | `@cosyte/script-utils/changes`       | `readChanges({ base })`, the lines a change touched against a base ref, read from git        |
+| `@cosyte/script-utils/docs-content`  | `runDocsContentCheck(options)` and `checkDocsContent(input)`, the docs-content check         |
 
 They are separate subpaths because they are separately adoptable: a repo can take the entry-point
 guard without taking a position on PHI scanning, a repo can take the internal-reference gate without
@@ -262,6 +263,7 @@ npx -y -p @cosyte/script-utils@0.1 cosyte-readme   # or one gate's own bin
 | `cosyte-agent-notes`   | `agent-notes`          | deprecated (D62): the retired agent-notes checker |
 | `cosyte-catalog`       | `catalog`              | the catalog check                                 |
 | `cosyte-ratchet`       | `ratchet`              | the coverage and mutation ratchet                 |
+| `cosyte-docs-content`  | `docs-content`         | the docs-content structure check                  |
 
 Each runs over the working directory, takes the arguments its gate takes, exits with the gate's own
 code, and prints what it does with `--help`. `script-utils` with no command prints the list and exits 2.
@@ -441,6 +443,33 @@ import { parseFloor, toFloor } from "@cosyte/script-utils/ratchet";
 toFloor(98.056); // => 98.05
 const floor = parseFloor({ packages: { ".": { coverage: { lines: 98.05 }, mutation: 81.2 } } });
 floor.packages["."].mutation; // => 81.2
+```
+
+### The docs-content check
+
+`@cosyte/script-utils/docs-content` checks a library's `docs-content/` folder, the pages
+docs.cosyte.com renders, against the docs-content standard (decision record 0006 in this
+repository). Run it from a package script:
+
+```sh
+cosyte-docs-content                # docs-content/ in the working directory
+cosyte-docs-content --dir <path>   # another repository
+```
+
+It checks the sidebar's shape (`intro`, then Installation, Quickstart, Tutorials, How-to guides,
+Explanation, Reference and Troubleshooting in that order, then `testing-and-quality` and
+`performance`), that every page is listed once and every listed id is a page, the required pages,
+each page's front matter, page names, and the "Current numbers" section on both quality pages. It
+does not read links, the generated pages under `api/`, or whether a sample runs: the shared CI's
+link check, `cosyte-docs-reference` in `@cosyte/process` and the sample runner in
+`@cosyte/vitest-config` do those. Exit 0 clean, 1 a finding, 2 the check could not run.
+
+```ts runnable
+import { checkDocsContent } from "@cosyte/script-utils/docs-content";
+
+const found = checkDocsContent({ pages: [{ name: "intro", text: "# Intro\n" }], sidebars: null });
+found.map((f) => f.rule).includes("front-matter"); // => true
+found.map((f) => f.rule).includes("required-page"); // => true
 ```
 
 ### The agent-notes checker, deprecated
