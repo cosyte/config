@@ -1,5 +1,0 @@
----
-"@cosyte/script-utils": patch
----
-
-The PHI scan's command-line form (`cosyte-phi-scan`, `script-utils phi-scan` and `node phi-scan.js`) takes `--allow-list <path>`, the allow list to use instead of `scripts/phi-allow-list.txt`. It goes with `--staged`, with paths, or alone; a relative path is read from the working directory, and the repository's own list is not read. A tool scanning a repository that keeps no allow list can pass an empty file and get a scan with no exceptions, where the scan used to refuse at exit 2 for the missing list. A path the option names that does not exist, or that cannot be read (a directory, no read permission), is refused at exit 2 before anything is scanned, with a line saying which. So are the option with no path, an empty path, and the option given twice. Without the option nothing changes: a repository with no `scripts/phi-allow-list.txt` still refuses at exit 2. `runPhiScan` is unchanged; its `allowListPath` setting already did this for a caller script.
