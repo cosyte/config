@@ -31,7 +31,8 @@
     "cosyte-readme": "bin/cosyte-readme.js",
     "cosyte-claude-card": "bin/cosyte-claude-card.js",
     "cosyte-agent-notes": "bin/cosyte-agent-notes.js",
-    "cosyte-catalog": "bin/cosyte-catalog.js"
+    "cosyte-catalog": "bin/cosyte-catalog.js",
+    "cosyte-docs-content": "bin/cosyte-docs-content.js"
   },
   "types": "index.d.ts",
   "exports": {
@@ -66,6 +67,10 @@
     "./agent-notes": {
       "types": "./agent-notes.d.ts",
       "default": "./agent-notes.js"
+    },
+    "./docs-content": {
+      "types": "./docs-content.d.ts",
+      "default": "./docs-content.js"
     }
   },
   "files": [
@@ -86,6 +91,8 @@
     "catalog.json",
     "agent-notes.js",
     "agent-notes.d.ts",
+    "docs-content.js",
+    "docs-content.d.ts",
     "check-no-emdash.sh",
     "bin",
     "README.md",
