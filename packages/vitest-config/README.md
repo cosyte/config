@@ -110,7 +110,8 @@ consumer cannot reach:
   for any other Vitest option. Both are merged last, so a repo that genuinely cannot hold >= 90 in
   one directory lowers that one key rather than abandoning the config.
 - `docSnippetSuite` takes `docsDir` or `files`, `include` (default `.md` and `.mdx`), `resolve`,
-  `runnableTag` (default `"runnable"`), `name`, `requireSnippet` and `tmpDir`.
+  `runnableTag` (default `"runnable"`), `name`, `requireSnippet`, `tmpDir`, `every`,
+  `includeGenerated` and `tsconfig`.
 
 `cosyteStryker` takes `mutate`, `vitestConfig` and `stryker` (any other Stryker option, merged
 last); its defaults and the reason for each are tabled under the mutation section below.
@@ -269,7 +270,8 @@ docSnippetSuite({
 ```
 
 Options: `docsDir` / `files`, `include` (default `.md` / `.mdx`), `resolve` (import-specifier
-remapper), `runnableTag` (default `"runnable"`), `name`, `requireSnippet`, `tmpDir`, `every`. A package with no
+remapper), `runnableTag` (default `"runnable"`), `name`, `requireSnippet`, `tmpDir`, `every`,
+`includeGenerated`, `tsconfig`. A package with no
 runnable snippets yields an empty, passing suite: absence degrades quietly; a _wrong_ snippet fails
 loudly. The primitives (`extractRunnableSnippets`, `rewriteAssertions`, `remapImports`, `runSnippet`)
 are exported too, for bespoke wiring.
@@ -291,6 +293,31 @@ const server = createServer().listen(2575);
 
 A `no-run` with no reason fails the suite. Shell, JSON and text blocks are not samples and are never
 run. `extractSamples(markdown)` and `planSamples(files, options)` are the primitives behind it.
+
+Walking `docsDir`, this mode leaves out the `api/` folder under it: the reference generator writes
+those pages from TSDoc, and their examples are parts of a signature's documentation, not samples.
+`includeGenerated: true` walks it too. A suite given `files`, or without `every`, reads what it is
+given, as before.
+
+Each TypeScript sample (`ts`, `typescript`, `tsx`) is also type-checked against the package's types
+before it runs, so a sample with a type error fails even though it would run: a reader who copies it
+into a TypeScript project would not get it to compile. The samples are compiled as a reader's project
+would compile them, each as its own module importing the package by its published name, under the
+project's `tsconfig.json` (the one `tsconfig` names, or the one in the working directory) with emit
+and the unused-name checks turned off. A library resolves its own name to its built declarations
+through its `exports`, so build before the suite runs, as the suite already does to run the samples
+against `dist/`. This needs the `typescript` package, an optional peer dependency. A sample whose types
+cannot be checked, such as one that shows what happens when a caller ignores them, says why in its
+fence; it still runs, and its test name carries the reason:
+
+````md
+```ts throws no-typecheck passes a number where the types ask for a string, to show it throws
+parseMessage(42);
+```
+````
+
+A `no-typecheck` with no reason fails the suite, as a bare `no-run` does. `typecheckSamples(samples,
+options)` is the primitive behind it. Without `every`, nothing is type-checked.
 
 > `runSnippet` writes a transient `.ts` module (or the `extension` a sample names) under `tmpDir`
 > (default `.cosyte-doc-snippets/` in the project root) and imports it so Vitest transforms the TypeScript: add `.cosyte-doc-snippets*/` to

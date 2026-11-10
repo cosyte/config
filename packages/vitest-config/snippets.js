@@ -1,8 +1,16 @@
-import { mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { join, relative } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { afterAll, describe, expect, test } from "vitest";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 /**
  * The doc/code-agreement harness: the documentation analog of the parser conformance runners.
@@ -47,6 +55,22 @@ const EXTENSIONS = new Map([
 
 /** The fence tag that marks a sample as not run; the words after it are the reason. */
 const NO_RUN = "no-run";
+
+/**
+ * The fence tag that marks a TypeScript sample as run but not type-checked; the words after it are
+ * the reason. It is the only way to leave a sample's types unchecked in every-sample mode.
+ */
+const NO_TYPECHECK = "no-typecheck";
+
+/** The module extensions of the samples that are type-checked: the TypeScript ones. */
+const TYPED_EXTENSIONS = new Set([".ts", ".tsx"]);
+
+/**
+ * The folder under a docs directory that the reference generator owns. Its pages are generated
+ * from TSDoc, and their examples are fragments of a signature's documentation, not samples a reader
+ * runs, so a suite walking `docsDir` in every-sample mode leaves the folder out unless asked.
+ */
+const GENERATED_DIR = "api";
 
 /** Monotonic counter so every emitted temp module gets a unique, cache-busting filename. */
 let moduleCounter = 0;
@@ -158,11 +182,13 @@ export function extractRunnableSnippets(markdown, opts = {}) {
  *
  * A sample that cannot run carries `no-run` and its reason in the fence, as in
  * ```` ```ts no-run starts a listener that never closes ````: `skip` is then the reason (the words
- * after `no-run`, which may be empty, and an empty reason is an error the suite reports). `throws`
- * is read from the tags before `no-run` only, since the words after it are prose.
+ * after `no-run`, which may be empty, and an empty reason is an error the suite reports). A sample
+ * that runs but whose types cannot be checked carries `no-typecheck` and its reason the same way,
+ * and `noTypecheck` is then the reason. `throws` is read from the tags before either tag only, since
+ * the words after it are prose.
  *
  * @param {string} markdown - The markdown source.
- * @returns {Array<{ lang: string, meta: string[], code: string, line: number, throws: boolean, skip: string | null, extension: string }>}
+ * @returns {Array<{ lang: string, meta: string[], code: string, line: number, throws: boolean, skip: string | null, noTypecheck: string | null, extension: string }>}
  *   One entry per sample, in document order. `extension` is the module it runs as: `.mjs` for a
  *   JavaScript sample, `.tsx` for a `tsx` one, `.ts` for the rest.
  */
@@ -170,12 +196,16 @@ export function extractSamples(markdown) {
   return scanFences(markdown)
     .filter((block) => SAMPLE_LANGS.has(block.lang))
     .map((block) => {
-      const at = block.meta.indexOf(NO_RUN);
+      // The first of the two tags that take a reason wins; the words after it are its reason, so a
+      // tag written inside a reason is prose.
+      const at = block.meta.findIndex((tag) => tag === NO_RUN || tag === NO_TYPECHECK);
       const tags = at === -1 ? block.meta : block.meta.slice(0, at);
+      const reason = block.meta.slice(at + 1).join(" ");
       return {
         ...block,
         throws: tags.includes("throws"),
-        skip: at === -1 ? null : block.meta.slice(at + 1).join(" "),
+        skip: block.meta[at] === NO_RUN ? reason : null,
+        noTypecheck: block.meta[at] === NO_TYPECHECK ? reason : null,
         extension: EXTENSIONS.get(block.lang) ?? ".ts",
       };
     });
@@ -183,13 +213,15 @@ export function extractSamples(markdown) {
 
 /**
  * Decide what the suite does with each sample in a set of markdown files: run it, skip it with its
- * reason, or report it as invalid (a `no-run` with no reason).
+ * reason, or report it as invalid (a `no-run` or a `no-typecheck` with no reason). A sample that runs
+ * is also type-checked when `every` is on, it is TypeScript, and it carries no `no-typecheck`; its
+ * `reason` is then null, and for a `no-typecheck` sample it is that tag's reason.
  *
  * @param {string[]} files - Markdown file paths.
  * @param {{ every?: boolean, root?: string, runnableTag?: string }} [options] - `every` takes every
  *   sample rather than only the `runnable` ones; `root` is what labels are relative to (default the
  *   working directory).
- * @returns {Array<{ label: string, kind: "run" | "skip" | "invalid", reason: string | null, snippet: object }>}
+ * @returns {Array<{ label: string, kind: "run" | "skip" | "invalid", reason: string | null, typecheck: boolean, snippet: object }>}
  */
 export function planSamples(files, options = {}) {
   const root = options.root ?? process.cwd();
@@ -201,20 +233,40 @@ export function planSamples(files, options = {}) {
       : extractRunnableSnippets(markdown, { runnableTag: options.runnableTag }).map((s) => ({
           ...s,
           skip: null,
+          noTypecheck: null,
         }));
     for (const snippet of samples) {
       const label = `${relative(root, filePath)}:${snippet.line}`;
-      if (snippet.skip === null) {
-        plan.push({ label, kind: "run", reason: null, snippet });
+      if (snippet.noTypecheck === "") {
+        plan.push({
+          label,
+          kind: "invalid",
+          reason:
+            "a no-typecheck sample names its reason after no-typecheck, as in: ts no-typecheck <why>",
+          typecheck: false,
+          snippet,
+        });
+      } else if (snippet.skip === null) {
+        plan.push({
+          label,
+          kind: "run",
+          reason: snippet.noTypecheck,
+          typecheck:
+            options.every === true &&
+            snippet.noTypecheck === null &&
+            TYPED_EXTENSIONS.has(snippet.extension),
+          snippet,
+        });
       } else if (snippet.skip === "") {
         plan.push({
           label,
           kind: "invalid",
           reason: "a no-run sample names its reason after no-run, as in: ts no-run <why>",
+          typecheck: false,
           snippet,
         });
       } else {
-        plan.push({ label, kind: "skip", reason: snippet.skip, snippet });
+        plan.push({ label, kind: "skip", reason: snippet.skip, typecheck: false, snippet });
       }
     }
   }
@@ -313,11 +365,19 @@ export function remapImports(code, resolveFn) {
  *
  * @param {{ code: string, throws?: boolean, extension?: string } | string} snippet - A snippet
  *   object or its raw source.
- * @param {{ resolve?: (specifier: string) => string | undefined, tmpDir?: string, throws?: boolean }} [opts]
- *   Options.
+ * @param {{ resolve?: (specifier: string) => string | undefined, tmpDir?: string, throws?: boolean, typeErrors?: Array<{ line: number, code: number, message: string }> }} [opts]
+ *   Options. `typeErrors` are what {@link typecheckSamples} found in this snippet: when there are
+ *   any, the snippet fails with them before it runs.
  * @returns {Promise<void>} Resolves on success; rejects (AssertionError or the thrown error) on failure.
  */
 export async function runSnippet(snippet, opts = {}) {
+  const typeErrors = opts.typeErrors ?? [];
+  if (typeErrors.length > 0) {
+    throw new Error(
+      "the sample does not type-check against the package's types:\n" +
+        typeErrors.map((e) => `  line ${e.line}: TS${e.code}: ${e.message}`).join("\n"),
+    );
+  }
   const code = typeof snippet === "string" ? snippet : snippet.code;
   const throwsExpected =
     (typeof snippet === "string" ? false : snippet.throws) || opts.throws || false;
@@ -358,6 +418,113 @@ export async function runSnippet(snippet, opts = {}) {
 }
 
 /**
+ * Compiler options a sample is checked under when no `tsconfig.json` is found: what our libraries'
+ * shared TypeScript config sets for module resolution and strictness. `skipLibCheck` keeps the
+ * check on the samples, not on the declarations they import.
+ */
+const DEFAULT_COMPILER_OPTIONS = {
+  target: "es2023",
+  module: "nodenext",
+  moduleResolution: "nodenext",
+  strict: true,
+  skipLibCheck: true,
+};
+
+/**
+ * Type-check TypeScript samples against the package's types, as a reader who copies one into a
+ * project would compile it: each sample is its own module, importing the package by the name it is
+ * published under, which TypeScript resolves the way the project does (for a library, to its own
+ * built declarations through its `exports`).
+ *
+ * The compiler options are the project's `tsconfig.json` (the one named, or the one in the working
+ * directory when none is named; without either, {@link DEFAULT_COMPILER_OPTIONS}), with what does
+ * not fit a sample turned off: emit and its folders, and the unused-name checks, since a sample may
+ * declare a name only to show it. The samples are compiled together, as one program, for speed; every sample is a
+ * module, so none sees another's names.
+ *
+ * Needs the `typescript` package, which every TypeScript project has.
+ *
+ * @param {Array<{ code: string, line: number, extension?: string }>} samples - The samples, as
+ *   {@link extractSamples} returns them: `line` is the markdown line of the first code line, and an
+ *   `extension` of `.tsx` compiles a sample as TSX.
+ * @param {{ tsconfig?: string, dir?: string }} [options] - `tsconfig` names the config file; `dir`
+ *   is where each sample is written to be compiled (default `.cosyte-doc-snippets/typecheck` in the
+ *   working directory), which must sit inside the project so its packages resolve.
+ * @returns {Promise<Array<Array<{ line: number, code: number, message: string }>>>} For each sample,
+ *   in order, its errors, each with the markdown line it is on; empty for a sample that compiles.
+ * @throws {Error} When the config cannot be read, or the program as a whole has an error (an option
+ *   or a missing type library), which would fail every sample alike.
+ */
+export async function typecheckSamples(samples, options = {}) {
+  const { default: ts } = await import("typescript");
+  const dir = options.dir ?? join(defaultTmpDir(), "typecheck");
+  const local = join(process.cwd(), "tsconfig.json");
+  const tsconfig = options.tsconfig ?? (existsSync(local) ? local : undefined);
+  const fail = (diagnostics) => {
+    throw new Error(
+      `the samples could not be type-checked: ${diagnostics
+        .map((d) => ts.flattenDiagnosticMessageText(d.messageText, " "))
+        .join("; ")}`,
+    );
+  };
+  let base = ts.convertCompilerOptionsFromJson(DEFAULT_COMPILER_OPTIONS, dir).options;
+  if (tsconfig !== undefined) {
+    const parsed = ts.getParsedCommandLineOfConfigFile(tsconfig, undefined, {
+      ...ts.sys,
+      onUnRecoverableConfigFileDiagnostic: (d) => fail([d]),
+    });
+    // TS18003, "no inputs were found", only says the project's own `include` matched no file; the
+    // samples are the inputs here.
+    const errors = parsed.errors.filter((d) => d.code !== 18003);
+    if (errors.length > 0) fail(errors);
+    base = parsed.options;
+  }
+  const compilerOptions = {
+    ...base,
+    noEmit: true,
+    moduleDetection: ts.ModuleDetectionKind.Force,
+    jsx: base.jsx ?? ts.JsxEmit.Preserve,
+    noUnusedLocals: false,
+    noUnusedParameters: false,
+    declaration: false,
+    declarationMap: false,
+    emitDeclarationOnly: false,
+    composite: false,
+    incremental: false,
+    // With an output folder set, TypeScript reads a package's `exports` into that folder as a
+    // pointer back to its source, and asks for a root folder to map it by. A sample imports what
+    // the package publishes, the built declarations, so neither folder applies.
+    outDir: undefined,
+    rootDir: undefined,
+    declarationDir: undefined,
+  };
+  mkdirSync(dir, { recursive: true });
+  const files = samples.map((sample, index) => {
+    const file = join(dir, `sample-${process.pid}-${index}${sample.extension ?? ".ts"}`);
+    writeFileSync(file, sample.code, "utf8");
+    return file;
+  });
+  try {
+    const program = ts.createProgram({ rootNames: files, options: compilerOptions });
+    const whole = [...program.getOptionsDiagnostics(), ...program.getGlobalDiagnostics()];
+    if (whole.length > 0) fail(whole);
+    return files.map((file, index) => {
+      const source = program.getSourceFile(file);
+      return [
+        ...program.getSyntacticDiagnostics(source),
+        ...program.getSemanticDiagnostics(source),
+      ].map((d) => ({
+        line: samples[index].line + source.getLineAndCharacterOfPosition(d.start).line,
+        code: d.code,
+        message: ts.flattenDiagnosticMessageText(d.messageText, " "),
+      }));
+    });
+  } finally {
+    for (const file of files) rmSync(file, { force: true });
+  }
+}
+
+/**
  * Register a Vitest suite that proves every runnable `docs-content` snippet agrees with the code.
  *
  * Point it at a `docsDir` (or an explicit `files` list); it walks the markdown, turns each opt-in
@@ -376,7 +543,14 @@ export async function runSnippet(snippet, opts = {}) {
  * @param {string} [options.name] - Suite label. Default `"doc/code agreement"`.
  * @param {boolean} [options.requireSnippet] - Assert at least one runnable snippet exists. Default `false`.
  * @param {boolean} [options.every] - Run every TypeScript and JavaScript sample, not only the
- *   `runnable` ones; a `no-run <reason>` sample is listed as skipped with its reason. Default `false`.
+ *   `runnable` ones; a `no-run <reason>` sample is listed as skipped with its reason. Each TypeScript
+ *   sample is also type-checked against the package's types before it runs (see
+ *   {@link typecheckSamples}), unless it carries `no-typecheck <reason>`, which the test's name then
+ *   shows. Walking `docsDir`, it leaves out the generated reference under `api/`. Default `false`.
+ * @param {boolean} [options.includeGenerated] - In every-sample mode, walk the generated `api/`
+ *   folder of `docsDir` too. Default `false`.
+ * @param {string} [options.tsconfig] - The `tsconfig.json` the samples are type-checked under.
+ *   Default: the one in the working directory, when there is one.
  * @param {string} [options.tmpDir] - Where temp modules are written (must be inside the project root).
  * @returns {void}
  */
@@ -393,9 +567,14 @@ export function docSnippetSuite(options = {}) {
     // Stryker disable next-line BooleanLiteral: read while Vitest collects the suite, which Stryker's
     // Vitest runner cannot reach (see below); applied by hand, it fails test/doc-samples-every.test.ts.
     every = false,
+    includeGenerated = false,
+    tsconfig,
   } = options;
 
-  const mdFiles = files ?? (docsDir ? collectMarkdown(docsDir, include) : []);
+  // In every-sample mode the generated reference is left out of a walk: its examples are parts of
+  // a signature's documentation, which `cosyte-docs-reference` writes and checks.
+  const generated = every && !includeGenerated && docsDir ? join(docsDir, GENERATED_DIR) : null;
+  const mdFiles = files ?? (docsDir ? collectMarkdown(docsDir, include, generated) : []);
 
   describe(name, () => {
     afterAll(() => {
@@ -412,12 +591,31 @@ export function docSnippetSuite(options = {}) {
     // test/doc-samples-every.test.ts.
     // Stryker disable all
     const plan = planSamples(mdFiles, { every, runnableTag });
+    // The TypeScript samples are type-checked together before any runs, and each sample's test
+    // fails on its own errors.
+    const checked = plan.filter((step) => step.typecheck);
+    const typeErrors = new Map();
+    if (checked.length > 0) {
+      beforeAll(async () => {
+        const found = await typecheckSamples(
+          checked.map((step) => step.snippet),
+          { tsconfig, dir: join(tmpDir, "typecheck") },
+        );
+        checked.forEach((step, index) => typeErrors.set(step, found[index]));
+      }, 120_000);
+    }
     let total = 0;
     for (const step of plan) {
       if (step.kind === "run") {
         total++;
-        test(step.label, async () => {
-          await runSnippet(step.snippet, { resolve: resolveFn, tmpDir });
+        const name =
+          step.reason === null ? step.label : `${step.label} (not type-checked: ${step.reason})`;
+        test(name, async () => {
+          await runSnippet(step.snippet, {
+            resolve: resolveFn,
+            tmpDir,
+            typeErrors: typeErrors.get(step),
+          });
         });
         continue;
       }
@@ -425,9 +623,10 @@ export function docSnippetSuite(options = {}) {
         test.skip(`${step.label} (not run: ${step.reason})`, () => {});
         continue;
       }
-      // An invalid sample: a no-run with no reason. This test only ever fails, so its lines are
-      // proven by a separate Vitest run (test/doc-samples-every.test.ts, "a no-run sample with no
-      // reason fails the suite"), whose coverage this run cannot collect.
+      // An invalid sample: a no-run or a no-typecheck with no reason. This test only ever fails, so
+      // its lines are proven by separate Vitest runs (test/doc-samples-every.test.ts, "a no-run
+      // sample with no reason fails the suite" and "a sample with a type error fails the suite"),
+      // whose coverage this run cannot collect.
       /* v8 ignore next 3 */
       test(step.label, () => {
         throw new Error(`${step.label}: ${step.reason}`);
@@ -459,9 +658,10 @@ function defaultTmpDir() {
  *
  * @param {string} dir - Root directory.
  * @param {RegExp} include - Filename filter.
+ * @param {string | null} skip - A directory left out of the walk, or null.
  * @returns {string[]} Absolute-or-relative file paths, sorted for stable test ordering.
  */
-function collectMarkdown(dir, include) {
+function collectMarkdown(dir, include, skip) {
   let entries;
   try {
     entries = readdirSync(dir);
@@ -477,8 +677,9 @@ function collectMarkdown(dir, include) {
     } catch {
       continue;
     }
-    if (s.isDirectory()) out.push(...collectMarkdown(full, include));
-    else if (include.test(entry)) out.push(full);
+    if (s.isDirectory()) {
+      if (full !== skip) out.push(...collectMarkdown(full, include, skip));
+    } else if (include.test(entry)) out.push(full);
   }
   return out;
 }

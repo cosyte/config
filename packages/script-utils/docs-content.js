@@ -6,11 +6,16 @@
 // id is a page, that the required pages exist, the front matter of every page, file names, and that
 // both quality pages carry the section their generated numbers go in.
 //
-// WHAT IT DOES NOT CHECK. Links and images: the shared CI's docs-content link check resolves those,
-// and this check does not read a link. The pages under `api/`: the reference generator writes them
-// and checks them itself. Whether a sample runs: the sample runner in @cosyte/vitest-config does
-// that. Whether the prose is good, or whether a page sits in the category its content belongs to:
-// nothing here can judge either, so review does.
+// It also reads every link a page makes into the generated reference (`./api/<page>.md#<anchor>`):
+// the page must exist under `api/`, and the anchor must be one a heading on it gets on the docs
+// site. And it reads the "Current numbers" section of both quality pages, which holds only the
+// placeholder until the release fills in the measured numbers.
+//
+// WHAT IT DOES NOT CHECK. Any other link, and images: the shared CI's docs-content link check
+// resolves those. The pages under `api/` themselves: the reference generator writes them and checks
+// them itself; here they are only read for their headings. Whether a sample runs: the sample runner
+// in @cosyte/vitest-config does that. Whether the prose is good, or whether a page sits in the
+// category its content belongs to: nothing here can judge either, so review does.
 //
 // Zero dependencies, like the rest of this package: the front matter is read by hand, for the one
 // form the standard allows (one `key: value` per line), rather than by a YAML parser.
@@ -24,8 +29,11 @@ export const DOCS_DIR = "docs-content";
 /** The sidebar file inside it. */
 export const SIDEBARS_FILE = "sidebars.json";
 
-/** The folder the reference generator owns. Nothing under it is read here. */
+/** The folder the reference generator owns. Its pages are read only for their headings. */
 export const GENERATED_DIR = "api";
+
+/** How a link into the generated reference starts. */
+export const REFERENCE_LINK_PREFIX = `./${GENERATED_DIR}/`;
 
 /** The pages every library has, by id. */
 export const REQUIRED_PAGES = Object.freeze([
@@ -57,6 +65,14 @@ export const QUALITY_PAGES = Object.freeze(["testing-and-quality", "performance"
 /** The heading of the section each quality page's generated numbers go in. */
 export const NUMBERS_HEADING = "## Current numbers";
 
+/**
+ * What the "Current numbers" section holds in the repository: this text and nothing else, however
+ * its lines wrap. The release replaces the section with the numbers it measured.
+ */
+export const NUMBERS_PLACEHOLDER =
+  "The numbers for this section are measured on `main` at each release and filled in when the " +
+  "release is built. They are never typed by hand.";
+
 /** The label the docs site gives the generated reference. A sidebar never writes it. */
 export const RESERVED_LABEL = "API Reference";
 
@@ -80,7 +96,9 @@ export const DOCS_CONTENT_RULES = Object.freeze({
   "front-matter":
     "every page opens with front matter carrying id, title, sidebar_label, description",
   "file-name": "pages are lower-case, hyphenated .md files at the top of docs-content/",
-  numbers: `both quality pages carry the "${NUMBERS_HEADING.slice(3)}" section`,
+  numbers: `both quality pages carry the "${NUMBERS_HEADING.slice(3)}" section, holding only the placeholder`,
+  "reference-link":
+    "a link into the generated reference names a page under api/ and, after #, a heading on it",
 });
 
 /** Raised when the check cannot read its input; the CLI turns it into exit 2. */
@@ -301,12 +319,265 @@ function checkSidebar(sidebars, report) {
 }
 
 /**
+ * A heading that ends the "Current numbers" section: one or two `#`, as the docs site reads it.
+ * A deeper heading is part of the section.
+ */
+const SECTION_END = /^ {0,3}#{1,2}(?:[ \t]|$)/;
+
+/**
+ * The text of the section a heading opens, up to the next heading of its level or above, with every
+ * run of whitespace read as one space, so a wrapped sentence reads as it does unwrapped.
+ *
+ * @param {string[]} lines The page's lines.
+ * @param {number} at The index of the heading.
+ * @returns {string} The section's text.
+ */
+function sectionText(lines, at) {
+  const body = lines.slice(at + 1);
+  const end = body.findIndex((line) => SECTION_END.test(line));
+  if (end !== -1) body.length = end;
+  return body.join(" ").replace(/\s+/g, " ").trim();
+}
+
+/** A fence opener or closer: up to three spaces, then three or more backticks or tildes. */
+const FENCE = /^ {0,3}(`{3,}|~{3,})/;
+
+/**
+ * The lines of a page outside fenced code, each with its 1-based line number. A fence closes on a
+ * run of its own character at least as long as the one that opened it, with nothing after it; an
+ * unclosed fence runs to the end of the page.
+ *
+ * @param {string} text A page.
+ * @returns {{ text: string, line: number }[]} The lines outside code.
+ */
+function proseLines(text) {
+  const out = [];
+  let fence = null;
+  text.split(/\r?\n/).forEach((line, index) => {
+    const run = FENCE.exec(line)?.[1];
+    if (fence === null) {
+      if (run === undefined) out.push({ text: line, line: index + 1 });
+      else fence = run;
+    } else if (
+      run !== undefined &&
+      run[0] === fence[0] &&
+      run.length >= fence.length &&
+      line.trim() === run
+    ) {
+      fence = null;
+    }
+  });
+  return out;
+}
+
+/**
+ * A line with each inline code span turned into one space, so a link written as code is not read as
+ * a link, and text on either side of a span is not read as one link. A run of backticks closes on
+ * the next run of the same length; an unclosed run is literal.
+ *
+ * @param {string} line One line.
+ * @returns {string} The line, each code span a space.
+ */
+function withoutCodeSpans(line) {
+  let out = "";
+  let i = 0;
+  while (i < line.length) {
+    if (line[i] !== "`") {
+      out += line[i];
+      i += 1;
+      continue;
+    }
+    const run = backtickRun(line, i);
+    const close = closingRun(line, i + run, run);
+    if (close === -1) {
+      out += line.slice(i, i + run);
+      i += run;
+    } else {
+      out += " ";
+      i = close + run;
+    }
+  }
+  return out;
+}
+
+/**
+ * The length of the run of backticks at a position.
+ *
+ * @param {string} text Some text.
+ * @param {number} at Where the run starts.
+ * @returns {number} How many backticks follow, from `at`.
+ */
+function backtickRun(text, at) {
+  let end = at;
+  while (text[end] === "`") end += 1;
+  return end - at;
+}
+
+/**
+ * Where the run of exactly `length` backticks that closes a code span starts.
+ *
+ * @param {string} text Some text.
+ * @param {number} from Where to look from.
+ * @param {number} length The opening run's length.
+ * @returns {number} The closing run's start, or -1 when there is none.
+ */
+function closingRun(text, from, length) {
+  for (let i = from; (i = text.indexOf("`", i)) !== -1;) {
+    const run = backtickRun(text, i);
+    if (run === length) return i;
+    i += run;
+  }
+  return -1;
+}
+
+/** An inline link's destination in the generated reference, read from just after `](`. */
+const REFERENCE_DESTINATION = /^ *<?(\.\/api\/[^\s)>]*)/;
+
+/** A link reference definition whose destination is in the generated reference. */
+const REFERENCE_DEFINITION = /^ {0,3}\[[^\]]*\]:[ \t]*<?(\.\/api\/[^\s>]*)/;
+
+/**
+ * Every link a page makes into the generated reference: inline links and images, `[text](target)`,
+ * and link reference definitions, `[label]: target`, outside fenced and inline code.
+ *
+ * @param {string} text A page.
+ * @returns {{ target: string, line: number }[]} Each target that starts `./api/`, with its line.
+ */
+function referenceLinks(text) {
+  const links = [];
+  for (const { text: raw, line } of proseLines(text)) {
+    const prose = withoutCodeSpans(raw);
+    const definition = REFERENCE_DEFINITION.exec(prose);
+    if (definition !== null) links.push({ target: definition[1], line });
+    for (let at = prose.indexOf("]("); at !== -1; at = prose.indexOf("](", at + 2)) {
+      // The destination: after the parenthesis, spaces and an opening angle bracket, up to a space,
+      // a closing parenthesis or angle bracket, or the end of the line.
+      const destination = REFERENCE_DESTINATION.exec(prose.slice(at + 2));
+      if (destination !== null) links.push({ target: destination[1], line });
+    }
+  }
+  return links;
+}
+
+/** An ATX heading: up to three spaces, one to six `#`, then a space, a tab or the end of the line. */
+const HEADING = /^ {0,3}#{1,6}(?=[ \t]|$)/;
+
+/** ASCII punctuation, which a backslash escapes in markdown. */
+const ESCAPABLE = /[!-/:-@[-`{-~]/;
+
+/**
+ * What a character the docs site's slugger drops matches: anything that is not a letter, a mark,
+ * a decimal or letter number, a connector such as `_`, another alphabetic character (a circled or
+ * squared letter is a symbol, but alphabetic), a space or a hyphen. The site's markdown loader
+ * slugs headings with github-slugger 1.5.0, whose class was built from Unicode 13.0. Compared over
+ * every code point under Unicode 17.0 (Node.js 26), the two agree on every character except 14,802
+ * that Unicode assigned in 14.0 to 17.0 (letters, marks, digits and letter numbers): slugger drops
+ * them and this keeps them. Every character that slugger keeps, this keeps.
+ */
+const SLUG_DROPS = /[^\p{L}\p{M}\p{Nd}\p{Nl}\p{Pc}\p{Alphabetic} -]/gu;
+
+/**
+ * The text of a heading as the docs site reads it before slugging: the closing run of `#` dropped,
+ * a backslash escape read as its character, a code span as its content, and a link or an image as
+ * its text without its destination.
+ *
+ * @param {string} raw What follows the heading's `#` run.
+ * @returns {string} The heading's text.
+ */
+function headingText(raw) {
+  // The closing run of `#` goes with the spaces before it. A `#` the run leaves behind, as in
+  // `C#`, is dropped by the slug in any case, and so is every backtick and backslash below: what
+  // matters here is only what reaches the slug as a letter, a digit, a space or a hyphen.
+  let text = raw.trim();
+  while (text.endsWith("#")) text = text.slice(0, -1);
+  text = text.trimEnd();
+  let out = "";
+  let i = 0;
+  while (i < text.length) {
+    const char = text[i];
+    if (char === "\\" && ESCAPABLE.test(text.charAt(i + 1))) {
+      out += text[i + 1];
+      i += 2;
+    } else if (char === "`") {
+      const run = backtickRun(text, i);
+      const close = closingRun(text, i + run, run);
+      // An unclosed run is literal backticks, which the slug drops.
+      if (close !== -1) out += text.slice(i + run, close);
+      i = close === -1 ? i + run : close + run;
+    } else if (text.startsWith("](", i) && text.includes(")", i)) {
+      i = text.indexOf(")", i) + 1;
+    } else {
+      out += char;
+      i += 1;
+    }
+  }
+  return out;
+}
+
+/**
+ * Every anchor the headings of a page get on the docs site: each heading's text lower-cased, the
+ * characters the slugger drops dropped, and each space turned into a hyphen; a slug already taken
+ * gets `-1`, `-2` and so on, counted per slug in page order. Headings in fenced code are code.
+ *
+ * WHAT IT DOES NOT READ, since the reference generator writes none of it: setext headings
+ * (underlined with `=` or `-`), an explicit `{#id}`, HTML in a heading, entities such as `&amp;`,
+ * and emphasis written with `_`, whose underscores it keeps.
+ *
+ * @param {string} text A page.
+ * @returns {Set<string>} Its anchors.
+ */
+export function headingAnchors(text) {
+  const anchors = new Set();
+  const counts = new Map();
+  for (const { text: line } of proseLines(text)) {
+    const heading = HEADING.exec(line);
+    if (heading === null) continue;
+    const base = headingText(line.slice(heading[0].length))
+      .toLowerCase()
+      .replace(SLUG_DROPS, "")
+      .replaceAll(" ", "-");
+    let slug = base;
+    while (anchors.has(slug)) {
+      const count = (counts.get(base) ?? 0) + 1;
+      counts.set(base, count);
+      slug = `${base}-${count}`;
+    }
+    anchors.add(slug);
+  }
+  return anchors;
+}
+
+/**
+ * What is wrong with a link into the generated reference, or null when it resolves.
+ *
+ * @param {string} target The link's target, starting `./api/`.
+ * @param {Map<string, Set<string>>} anchors The anchors of each generated page, by path under api/.
+ * @returns {string | null} What is wrong.
+ */
+function referenceFault(target, anchors) {
+  const hash = target.indexOf("#");
+  const path = target.slice(REFERENCE_LINK_PREFIX.length, hash === -1 ? undefined : hash);
+  const segments = path.split("/");
+  if (!path.endsWith(".md") || segments.some((s) => s === "" || s === "." || s === "..")) {
+    return `links ${target}: a link into the reference is ${REFERENCE_LINK_PREFIX}<page>.md, with an optional #<anchor>`;
+  }
+  const headings = anchors.get(path);
+  if (headings === undefined) {
+    return `links ${target}, but there is no page ${GENERATED_DIR}/${path}`;
+  }
+  const anchor = target.slice(hash + 1);
+  if (hash === -1 || headings.has(anchor)) return null;
+  return `links ${target}, but no heading on ${GENERATED_DIR}/${path} has the anchor "${anchor}"`;
+}
+
+/**
  * Check a docs-content tree that has already been read.
  *
- * @param {{ pages: { name: string, text: string }[], sidebars: string | null, misplaced?: string[] }} input
+ * @param {{ pages: { name: string, text: string }[], sidebars: string | null, misplaced?: string[], reference?: Map<string, string> }} input
  *   `pages` are the `.md` files at the top of docs-content/, by file name without `.md`; `sidebars`
  *   is the text of sidebars.json, or null when there is none; `misplaced` are the paths, relative to
- *   docs-content/, of markdown that is not a top-level `.md` page and is not under api/.
+ *   docs-content/, of markdown that is not a top-level `.md` page and is not under api/;
+ *   `reference` holds the generated `.md` pages, by their path under api/.
  * @returns {{ file: string, line: number, rule: keyof typeof DOCS_CONTENT_RULES, message: string }[]}
  *   Every finding, in a stable order.
  */
@@ -372,13 +643,35 @@ export function checkDocsContent(input) {
 
   for (const page of input.pages) {
     if (!QUALITY_PAGES.includes(page.name)) continue;
-    if (!page.text.split(/\r?\n/).includes(NUMBERS_HEADING)) {
+    const lines = page.text.split(/\r?\n/);
+    if (!lines.includes(NUMBERS_HEADING)) {
       add(
         `${page.name}.md`,
         0,
         "numbers",
         `the page has no "${NUMBERS_HEADING}" heading: the generated numbers go in that section`,
       );
+    }
+    lines.forEach((line, at) => {
+      if (line === NUMBERS_HEADING && sectionText(lines, at) !== NUMBERS_PLACEHOLDER) {
+        add(
+          `${page.name}.md`,
+          at + 1,
+          "numbers",
+          `the section holds only the placeholder until the release fills it in: "${NUMBERS_PLACEHOLDER}"`,
+        );
+      }
+    });
+  }
+
+  // Each generated page's anchors, read once: a library has a handful of pages and links into them
+  // from many.
+  const reference = input.reference ?? new Map();
+  const anchors = new Map([...reference].map(([path, text]) => [path, headingAnchors(text)]));
+  for (const page of input.pages) {
+    for (const link of referenceLinks(page.text)) {
+      const fault = referenceFault(link.target, anchors);
+      if (fault !== null) add(`${page.name}.md`, link.line, "reference-link", fault);
     }
   }
 
@@ -414,7 +707,7 @@ export function checkDocsContent(input) {
  * Read docs-content/ under a repository root.
  *
  * @param {string} root The repository root.
- * @returns {{ pages: { name: string, text: string }[], sidebars: string | null, misplaced: string[] }}
+ * @returns {{ pages: { name: string, text: string }[], sidebars: string | null, misplaced: string[], reference: Map<string, string> }}
  * @throws {DocsContentRefusal} When the folder is missing or a file in it cannot be read.
  */
 export function readDocsContent(root) {
@@ -422,14 +715,21 @@ export function readDocsContent(root) {
   if (!isDirectory(docs)) throw new DocsContentRefusal(`${docs} is not a directory.`);
   const pages = [];
   const misplaced = [];
+  const reference = new Map();
   let sidebars = null;
+  const generated = `${GENERATED_DIR}/`;
   const walk = (relative) => {
     // Node lists a directory in name order on Linux and macOS (libuv sorts the listing), so the
     // findings come out in one order without sorting here.
     for (const entry of readdirOrRefuse(join(docs, relative))) {
       const path = relative === "" ? entry.name : `${relative}/${entry.name}`;
       if (entry.isDirectory()) {
-        if (path !== GENERATED_DIR) walk(path);
+        walk(path);
+      } else if (path.startsWith(generated)) {
+        // The generated pages are read for their headings, which links into the reference name.
+        if (entry.name.endsWith(".md")) {
+          reference.set(path.slice(generated.length), readOrRefuse(join(docs, path), entry));
+        }
       } else if (path === SIDEBARS_FILE) {
         sidebars = readOrRefuse(join(docs, path), entry);
       } else if (relative === "" && entry.name.endsWith(".md")) {
@@ -440,7 +740,7 @@ export function readDocsContent(root) {
     }
   };
   walk("");
-  return { pages, sidebars, misplaced };
+  return { pages, sidebars, misplaced, reference };
 }
 
 /**
