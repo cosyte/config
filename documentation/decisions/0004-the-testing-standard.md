@@ -37,15 +37,17 @@ functions and statements, and every parser ran the conformance runners in `@cosy
 
 ### 1. What we test, and why
 
-| Technique                                  | What it answers                                                   | Where it runs                                             |
-| ------------------------------------------ | ----------------------------------------------------------------- | --------------------------------------------------------- |
-| Example tests                              | does the code do what we wrote down, for these inputs             | every run                                                 |
-| Coverage (v8)                              | which lines, branches and functions the tests ran                 | every run                                                 |
-| Mutation testing (StrykerJS)               | would the tests notice if this code were wrong                    | a pull request's changed files; weekly in full            |
-| Property-based testing (fast-check)        | does a rule hold for inputs nobody wrote down                     | 100 cases a property on every run; 10,000 or more nightly |
-| Conformance runners (`@cosyte/test-utils`) | does a parser keep the contracts every parser keeps, PHI included | every run                                                 |
+| Technique                                  | What it answers                                                   | Where it runs                                           |
+| ------------------------------------------ | ----------------------------------------------------------------- | ------------------------------------------------------- |
+| Example tests                              | does the code do what we wrote down, for these inputs             | every run                                               |
+| Coverage (v8)                              | which lines, branches and functions the tests ran                 | every run                                               |
+| Mutation testing (StrykerJS)               | would the tests notice if this code were wrong                    | a pull request's changed files; in full by hand for now |
+| Property-based testing (fast-check)        | does a rule hold for inputs nobody wrote down                     | 100 cases a property on every run                       |
+| Conformance runners (`@cosyte/test-utils`) | does a parser keep the contracts every parser keeps, PHI included | every run                                               |
 
-Each answers a question the others cannot, and section 6 says what each one cannot catch.
+Each answers a question the others cannot, and section 6 says what each one cannot catch. Section 7
+says which runs exist today and which are still to come: a weekly full mutation run, a nightly deep
+property run and a full mutation run before each release.
 
 ### 2. The floor file and the ratchet
 
@@ -70,6 +72,13 @@ floor is never above what was measured. Exit 2 means an input could not be read 
 a report a floor needs, git); a gate that could not read its input is never a pass. A floor file
 with a key the ratchet does not know is refused, because a misspelled metric would be a floor
 nobody checks.
+
+**The floor file only rises.** `raise` cannot lower a floor, and a hand edit is caught on the pull
+request: with `--base`, `check` reads the floor file as it was at the merge base and exits 1 when
+the change lowered any floor in it or removed one (a metric, or a whole package). Raising a floor,
+or adding a package or a metric, passes. A floor file that is new in the change has nothing earlier
+to hold, and `check` says so. The comparison needs `--base`, so it runs on a pull request; a
+`check` with no base (a push to main) compares measurements with the floor file as it stands.
 
 The reports come from the shared configs: Istanbul's `coverage/coverage-summary.json` and
 `coverage/lcov.info` from `@cosyte/vitest-config` (which now adds the `json-summary` reporter), and
@@ -126,8 +135,9 @@ config it runs (StrykerJS is an optional peer, so a package that does not mutate
 - no score threshold of its own (`break: null`): the floor decides;
 - the JSON report at `reports/mutation/mutation.json`, and HTML beside it.
 
-`cosyte-mutate full` mutates everything the config names; it runs weekly and before a release,
-and its score can raise the floor. `cosyte-mutate changed --base <ref>` mutates only the source
+`cosyte-mutate full` mutates everything the config names, and its score can raise the floor. Today
+it runs by hand: no CI job runs it yet. A weekly run and a run before each release are future work
+in the shared workflows (section 7). `cosyte-mutate changed --base <ref>` mutates only the source
 files a change touched, whole, and writes `reports/mutation/changed.json`, a separate file so a
 run over a few files is never read as the package's score. A change with no changed source file
 starts no run: it writes an empty report, so the ratchet can tell "ran, nothing to mutate" from
@@ -147,10 +157,11 @@ lines) runs in every parser's commit gate, so it was the first thing we measured
 Both runs used 15 workers on a 16-core machine that other work was also loading. Neither the
 engine nor the suites that test it changed between them, yet the score moved by 0.36 points: a
 mutant that makes a loop run long is a timeout on one run and a kill or a survivor on the next,
-depending on load. The ratchet compares a mutation score with its floor exactly, so a weekly full
-run on a busier runner can fail on that noise alone. Whether the weekly comparison should allow a
-small tolerance is left open for the owner (see Consequences); it does not touch the rule for a
-change's own code, which needs every mutant in changed lines killed. The 478 mutants that survived or were never reached in the second run are the engine's
+depending on load. The ratchet compares a mutation score with its floor exactly, so a full run on a
+busier machine can fail on that noise alone, and so would the weekly run once it exists. Whether a
+full-run comparison should allow a small tolerance is left open for the owner (see Consequences);
+it does not touch the rule for a change's own code, which needs every mutant in changed lines
+killed. The 478 mutants that survived or were never reached in the second run are the engine's
 mutation gap to 100. Each later pull request that touches the engine must kill every mutant in
 the lines it changes.
 
@@ -170,8 +181,9 @@ diagnostic PHI runner already plants synthetic sentinels in every slot a sender 
 
 **Depth.** 100 cases a property on every run, set by `DEFAULT_NUM_RUNS`. One environment variable,
 `COSYTE_PROPERTY_RUNS`, sets the depth of every property in a run and wins over a runner's own
-`numRuns`; the nightly job sets it to 10,000 or more, beside the nightly fuzz job. A value that is
-set but malformed throws, so a nightly job that typed its depth wrong cannot quietly run 100.
+`numRuns`. A nightly job that sets it to 10,000 or more, beside the nightly fuzz job, is future
+work (section 7); until it exists, every property runs 100 cases. A value that is set but malformed
+throws, so a job that typed its depth wrong cannot quietly run 100.
 
 **Replay.** A failure names the property and prints the seed and path that replay it, before
 fast-check's own report:
@@ -224,8 +236,8 @@ runs took 10 and 13 minutes on 16 cores, so a pull request mutates only its chan
 pass means the cases tried held. It cannot reach an input its arbitrary never generates, so the
 arbitraries are as much a part of the test as the property. Depth matters: if one generated case
 in a thousand hits a bug, 100 cases find it with probability 9.5% and 10,000 with 99.995%
-(1 - (1 - p)^n); at one in ten thousand, 1.0% and 63.2%. That is why every run is fast and the
-nightly run is deep. On the toy parser in this repository's own tests, 100 cases of each of the
+(1 - (1 - p)^n); at one in ten thousand, 1.0% and 63.2%. That is why every run is meant to be fast
+and a nightly run deep; until the nightly run exists, the second kind of bug is likely to be missed. On the toy parser in this repository's own tests, 100 cases of each of the
 three properties took 3 to 86 milliseconds, and 10,000 took 68 to 467 milliseconds, on a busy
 16-core machine.
 
@@ -235,15 +247,21 @@ into a diagnostic; a slot nobody declared is not checked.
 
 ### 7. Run depths
 
-| when               | coverage                           | mutation                                | properties                         |
-| ------------------ | ---------------------------------- | --------------------------------------- | ---------------------------------- |
-| every pull request | full suite; ratchet; changed lines | changed files; mutants in changed lines | 100 cases each                     |
-| nightly            | as on a pull request               | none                                    | 10,000 or more each, seeds printed |
-| weekly             | as on a pull request               | full run; can raise the floor           | as on a pull request               |
-| before a release   | as on a pull request               | full run                                | as on a pull request               |
+| when               | coverage                           | mutation                                | properties                         | runs today?       |
+| ------------------ | ---------------------------------- | --------------------------------------- | ---------------------------------- | ----------------- |
+| every pull request | full suite; ratchet; changed lines | changed files; mutants in changed lines | 100 cases each                     | yes, in this repo |
+| nightly            | as on a pull request               | none                                    | 10,000 or more each, seeds printed | no, future work   |
+| weekly             | as on a pull request               | full run; can raise the floor           | as on a pull request               | no, future work   |
+| before a release   | as on a pull request               | full run                                | as on a pull request               | no, future work   |
 
-The budget for a pull request's checks is 15 minutes: mutation of changed files runs as its own
-job, beside the others. The weekly, nightly and release jobs belong to the shared workflows.
+Only the first row runs today, and only in this repository: `verify` runs the coverage ratchet,
+and the `mutation` job (not yet a required check) runs the changed-files run and judges its
+mutants. Both compare the floor file with the merge base's. The budget for a pull request's checks
+is 15 minutes: mutation of changed files runs as its own job, beside the others. The nightly,
+weekly and release jobs are future work in the shared workflows of cosyte/.github. Until they
+exist, no CI job compares a package's full mutation score with its floor: that happens only when
+a person runs `cosyte-mutate full` and then `cosyte-ratchet check`, and properties run 100 cases
+only.
 
 ### 8. How a repository adopts it
 
@@ -260,14 +278,20 @@ job, beside the others. The weekly, nightly and release jobs belong to the share
 
 This repository adopted it in the same change: `quality-floor.json` holds today's measured scores
 for `packages/process`, `packages/script-utils`, `packages/test-utils` and `packages/vitest-config`,
-`verify` runs the coverage ratchet, and a `mutation` job runs the changed-files run. Two limits,
+`verify` runs the coverage ratchet, and a `mutation` job runs the changed-files run; both fail a
+pull request that lowers or removes a floor. Two limits,
 stated rather than hidden: `@cosyte/script-utils` mutates only the PHI-scan engine and the ratchet
 so far (its other gates join as their floors are recorded), and `@cosyte/process` has no mutation
 floor until its first full run.
 
 ## Consequences
 
-- A floor only rises, so a release can never be worse on these numbers than the last raise.
+- A floor only rises: `raise` never lowers one, and on a pull request `check --base` fails a change
+  that lowers or removes one. Coverage is compared with its floor on every pull request and every
+  push to main, so a release is no worse on coverage than the floor. The full mutation score is
+  compared only when someone runs a full mutation run, because the weekly and release runs do not
+  exist yet; until they do, a release can be worse on that score than the last raise with no check
+  failing, though every change's own mutants are still judged.
 - A pull request's own code is held to 100 from the day a repository adopts this, whatever its
   floor says, and every exception is on the page for review.
 - A pull request that changes a large file waits for that file to be mutated whole. On the PHI

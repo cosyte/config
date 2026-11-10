@@ -150,7 +150,8 @@ jobs:
       # THE COVERAGE RATCHET. `pnpm test` just wrote each package's coverage report; this compares
       # it with quality-floor.json and fails on any drop below a floor. On a pull request it also
       # requires every changed line that coverage counts to have run, unless an inline exception
-      # names its reason, and lists each exception (documentation/decisions/0004-the-testing-standard.md).
+      # names its reason, lists each exception, and fails when the change lowered or removed a floor
+      # the merge base held (documentation/decisions/0004-the-testing-standard.md).
       # Mutation is judged in the `mutation` job below, so it is skipped here.
       - name: Coverage ratchet
         env:
@@ -178,8 +179,9 @@ jobs:
   # MUTATION TESTING OF A PULL REQUEST'S OWN CODE. Each package's changed source files are mutated
   # with @cosyte/vitest-config/stryker, and the ratchet then requires every mutant in changed code to be
   # killed, unless an inline exception names its reason. It runs beside `verify` rather than in it,
-  # because a large changed file takes minutes to mutate. Not yet a required check; the weekly full
-  # run, which reports each package's whole score, belongs to the shared workflows.
+  # because a large changed file takes minutes to mutate. Not yet a required check. No job here runs
+  # a full mutation run: a weekly one, which would compare each package's whole score with its
+  # floor, is future work in the shared workflows.
   mutation:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
