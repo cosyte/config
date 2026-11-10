@@ -241,6 +241,17 @@ describe("readChanges", () => {
       new ChangesUnreadable("no base ref was given to compare against"),
     );
     expect(new ChangesUnreadable("x").name).toBe("ChangesUnreadable");
+    const ran: string[][] = [];
+    const recordingGit = (args: string[]) => {
+      ran.push(args);
+      return { status: 0, stdout: "", stderr: "" };
+    };
+    for (const base of ["--upload-pack=touch /tmp/x", "-x"]) {
+      expect(() => readChanges({ base, cwd: dir, git: recordingGit })).toThrow(
+        new ChangesUnreadable(`the base ref ${JSON.stringify(base)} starts with a dash`),
+      );
+    }
+    expect(ran).toEqual([]);
     expect(() => readChanges({ base: undefined as unknown as string, cwd: dir })).toThrow(
       new ChangesUnreadable("no base ref was given to compare against"),
     );

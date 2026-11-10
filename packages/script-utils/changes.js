@@ -130,6 +130,11 @@ export function readChanges({ base, cwd = process.cwd(), git = runGit }) {
   if (typeof base !== "string" || base === "") {
     throw new ChangesUnreadable("no base ref was given to compare against");
   }
+  // A ref that starts with a dash would reach git as an option (`--upload-pack=...` runs a
+  // command), so it is refused before git sees it.
+  if (base.startsWith("-")) {
+    throw new ChangesUnreadable(`the base ref ${JSON.stringify(base)} starts with a dash`);
+  }
   let at = cwd;
   const must = (args, what) => {
     const r = git(args, at);

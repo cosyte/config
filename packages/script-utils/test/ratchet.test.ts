@@ -370,6 +370,9 @@ describe("findExceptionComments", () => {
       "// Stryker restore all",
       "x(); // v8 ignore if -- trailing",
       "// Stryker disable next-line all : the spaced form",
+      "// Stryker disable 4ll: not a mutator list",
+      "// Stryker disable all4: digits are not in a mutator name",
+      "// Stryker disable : no mutators",
     ].join("\n");
     expect(findExceptionComments(text)).toEqual([
       {

@@ -221,7 +221,9 @@ export function findExceptionComments(text) {
         source,
       );
     if (coverage !== null) {
-      const reason = /^\s*--\s*(.*?)\s*$/.exec(coverage[2])?.[1] ?? "";
+      // Read without a regular expression, so a long run of spaces cannot make it slow.
+      const after = coverage[2].trim();
+      const reason = after.startsWith("--") ? after.slice(2).trim() : "";
       found.push({
         line: i + 1,
         tool: "coverage",
@@ -229,15 +231,22 @@ export function findExceptionComments(text) {
         reason: reason === "" ? null : reason,
       });
     }
-    const stryker = /\/\/\s?Stryker disable(?: next-line)? ([a-zA-Z, ]+?)(?::(.*))?$/.exec(source);
-    if (stryker !== null) {
-      const reason = (stryker[2] ?? "").trim();
-      found.push({
-        line: i + 1,
-        tool: "mutation",
-        directive: `disable ${stryker[1].trim()}`,
-        reason: reason === "" ? null : reason,
-      });
+    // Stryker's own reading: `Stryker disable [next-line] <mutators>[: reason]`. The prefix is
+    // matched, then the rest is split at its first colon, so no pattern can backtrack over it.
+    const prefix = /\/\/\s?Stryker disable(?: next-line)? /.exec(source);
+    if (prefix !== null) {
+      const rest = source.slice(prefix.index + prefix[0].length);
+      const colon = rest.indexOf(":");
+      const mutators = (colon === -1 ? rest : rest.slice(0, colon)).trim();
+      const reason = colon === -1 ? "" : rest.slice(colon + 1).trim();
+      if (/^[a-zA-Z, ]+$/.test(mutators)) {
+        found.push({
+          line: i + 1,
+          tool: "mutation",
+          directive: `disable ${mutators}`,
+          reason: reason === "" ? null : reason,
+        });
+      }
     }
   }
   return found;
