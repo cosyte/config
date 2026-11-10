@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.4
+
+### Patch Changes
+
+- 57847cb: The snippet harness can run every code sample, not only the ones tagged `runnable`: `docSnippetSuite({ every: true })` runs each `ts`, `typescript`, `tsx`, `js`, `javascript` and `mjs` block, and a block that cannot run says why in its fence (`ts no-run <reason>`), which the test report lists as skipped with that reason; a `no-run` with no reason fails. In that mode a JavaScript sample runs as a `.mjs` module, so TypeScript syntax in it fails, and a `tsx` sample as a `.tsx` module; each sample `extractSamples` returns names its module in a new `extension` field, which `runSnippet` reads. New exports: `extractSamples`, `planSamples` and `SAMPLE_LANGS`. Without `every`, nothing changes: every `runnable` block, `tsx` included, still runs as a `.ts` module.
+- 65208bf: In every-sample mode, `docSnippetSuite({ every: true })` now type-checks each TypeScript sample (`ts`, `typescript`, `tsx`) against the package's types before it runs it, so a sample with a type error fails even though it would run. The samples compile as a reader's project would compile them: each its own module, importing the package by its published name, under the project's `tsconfig.json` (the new `tsconfig` option, or the one in the working directory) with emit, its folders and the unused-name checks off. A sample whose types cannot be checked says why in its fence, `ts no-typecheck <reason>`; it still runs, its test name carries the reason, and a `no-typecheck` with no reason fails. This needs `typescript`, now an optional peer dependency. Walking `docsDir`, every-sample mode also leaves out the generated reference under `api/`, whose examples are parts of a signature's documentation; `includeGenerated: true` walks it too. New export: `typecheckSamples`. Without `every`, nothing changes.
+- 5a0470a: Adds mutation testing beside the Vitest config. `@cosyte/vitest-config/stryker` exports `cosyteStryker(options?)`, a StrykerJS config for the Vitest runner (resolved from this package, so it works under pnpm), with per-test coverage in Vitest's forks pool, every mutant kept (static ones too), no score threshold of its own, and the JSON report at `reports/mutation/mutation.json`. The new bin, `cosyte-mutate`, runs `full` over everything the config names, or `changed --base <ref>` over only the source files changed against the merge base of that ref and HEAD, writing `reports/mutation/changed.json`; a change with no changed source file starts no run, writes an empty report and exits 0, and a run that cannot start exits 2. `@cosyte/vitest-config/mutate` is the bin's body. `@stryker-mutator/core` and `@stryker-mutator/vitest-runner` 10 are optional peer dependencies, and so is `@cosyte/script-utils`, which a changed run imports when it starts to read what a change touched, so a package that does not mutate installs nothing new; a changed run without it exits 2 and names it. `cosyteVitest` also adds the `json-summary` coverage reporter, so a coverage run writes `coverage/coverage-summary.json`, the totals `cosyte-ratchet` compares with a floor file; the `text`, `html` and `lcov` reporters, the thresholds and the excludes are unchanged.
+- Updated dependencies [65208bf]
+- Updated dependencies [57847cb]
+- Updated dependencies [cc43161]
+- Updated dependencies [5a0470a]
+  - @cosyte/script-utils@0.1.9
+
 ## 0.1.3
 
 ### Patch Changes

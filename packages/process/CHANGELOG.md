@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.8
+
+### Patch Changes
+
+- 65208bf: `cosyte-docs-reference` now refuses a markdown heading written in a TSDoc comment (a line such as `## Notes`, outside code), on an export or anywhere inside one, including a parameter, a member and the package's own comment. The page prints a comment as it is, so the heading would sit in the page's outline among the generated ones and shift their anchors. Each is named with where it is, the pages are still written, and the command exits 1; `--check` exits 1 on them too. `buildReference` returns them as `headings`.
+- 57847cb: A second bin, `cosyte-docs-reference`: it generates a package's API reference from its TSDoc comments into `docs-content/api/`, one page per module for every entry point in `exports`, with TypeDoc and typedoc-plugin-markdown (now dependencies of this package), and reports each export (function, class, interface, type alias, enum, variable or namespace) with no TSDoc summary. No tag hides an export: one tagged `@internal`, `@hidden` or `@ignore` is in the pages and is checked like any other. `--check` writes nothing and fails when the committed pages differ from what the source generates. Exit 0 clean, 1 a finding, 2 the input could not be read. `cosyte-process` itself does not change.
+
 ## 0.1.7
 
 ### Patch Changes

@@ -1,5 +1,0 @@
----
-"@cosyte/test-utils": patch
----
-
-Adds `idempotentNormalizeProperty` (`normalize(normalize(x))` equals `normalize(x)`) and the run options every property runner now shares. Each runner runs 100 cases by default, down from 300: the depth for a pull request. The environment variable `COSYTE_PROPERTY_RUNS` sets the depth of every property in the run and wins over a runner's own `numRuns`, so a nightly job can set 10,000 or more without a code change. A failure now leads with the property's name and the seed and path that replay it exactly, then fast-check's own report; `COSYTE_PROPERTY_SEED` and `COSYTE_PROPERTY_PATH` (or the new `seed` and `path` options) run that one case again. A malformed value in any of the three variables throws instead of being ignored. Also exported: `assertProperty`, `resolvePropertyRun`, `propertyFailureMessage`, `DEFAULT_NUM_RUNS` and `PROPERTY_ENV`. A test that passed no `numRuns` now runs a third of the cases it did; pass `numRuns: 300` to keep the old depth.
