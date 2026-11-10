@@ -301,5 +301,6 @@ floor until its first full run.
   runs of unchanged code), and the ratchet compares it exactly. If the weekly run turns out to fail
   on noise, the fix is a tolerance on the mutation comparison only, decided by the owner, not a
   lower floor.
-- Default property depth falls from 300 cases to 100 on every run; the nightly run at 10,000 or
-  more is where depth now lives. A test that wants more on every run passes `numRuns`.
+- Default property depth falls from 300 cases to 100 on every run. Until the nightly run at 10,000
+  or more exists (future work, section 7), every property runs 100 cases, and a test that wants
+  more on every run passes `numRuns`.

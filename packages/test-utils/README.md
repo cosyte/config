@@ -162,7 +162,8 @@ describe("hl7 conformance", () => {
 
 Every property runner runs 100 cases by default (`DEFAULT_NUM_RUNS`), fast enough for every pull
 request. One environment variable sets the depth of every property in the run, over each runner's
-own `numRuns`; a nightly job sets it to 10,000 or more:
+own `numRuns`. The standard's nightly run will set it to 10,000 or more; that job is not built yet,
+so until it is, a deeper run is one a person or a job starts like this:
 
 ```sh
 COSYTE_PROPERTY_RUNS=10000 pnpm test
