@@ -170,8 +170,8 @@ The constants, and where each comes from:
 Every number here comes from `experiments/bench-calibration/`, where the runs, the scripts and the
 analysis live; `analyze.mjs` re-derives each table from the committed data. The runs are taken on
 GitHub-hosted runners (`ubuntu-latest`, one comparison per runner at a time) by
-`.github/workflows/bench-calibration.yml`, which runs on a pull request that changes the comparison
-and can be run by hand. A developer machine's numbers describe that machine and are not used here.
+`.github/workflows/bench-calibration.yml`, which runs when a pull request that changes the
+comparison is opened or reopened, and can be run by hand. A developer machine's numbers describe that machine and are not used here.
 
 **The comparison's false alarms and detections.** Taken by the calibration workflow's run on the
 pull request that added this standard: nine `ubuntu-latest` runners (4 logical CPUs each; the
@@ -292,8 +292,8 @@ stronger:
 5. **A calibration on the runner class the comparison runs on**: an A/A run first, then planted
    slowdowns of a nominal 5%, 10% and 20% for the detection rate, read against the change each case
    was observed at, and again at every review trigger. In this repository that is
-   `.github/workflows/bench-calibration.yml`, which runs on every pull request that changes the
-   comparison's source or the calibration scripts, and by hand.
+   `.github/workflows/bench-calibration.yml`, which runs when a pull request that changes the
+   comparison's source or the calibration scripts is opened or reopened, and by hand.
 
 `config` adopts it first, on the PHI scan engine in `@cosyte/script-utils`, which runs in every
 parser's commit gate: `packages/script-utils/bench/phi-scan.bench.mjs` measures the whole engine on

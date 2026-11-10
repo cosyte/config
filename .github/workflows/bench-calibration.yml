@@ -5,8 +5,10 @@ name: Benchmark comparison calibration
 # runner), so the rates in documentation/decisions/0005-the-performance-standard.md come from that
 # class and not from a developer machine.
 #
-# It runs on a pull request that changes the comparison itself (the package's source or the
-# calibration scripts), so the change is calibrated before it merges, and by hand. Each job is one
+# It runs when a pull request that changes the comparison itself (the package's source or the
+# calibration scripts) is opened or reopened, so the change is calibrated before it merges, and by
+# hand. Not on every push: GitHub reads a pull request's paths over its whole diff, so a push that
+# changed only a document would start the whole calibration again. Each job is one
 # runner with one lane, the way a pull request's comparison has a runner to itself, and runs whole
 # comparisons until its time budget ends; a comparison of the PHI scan suite takes a few minutes.
 #
@@ -20,6 +22,7 @@ name: Benchmark comparison calibration
 # - `summary`: every table in the standard's section 5, from the artifacts above, in the job summary.
 on:
   pull_request:
+    types: [opened, reopened]
     branches: [main]
     paths:
       - "packages/bench/src/**"
