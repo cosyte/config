@@ -14,26 +14,35 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, relative, sep } from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
   DEFAULT_CONFIG,
+  INCREMENTAL_VARIABLE,
   MutateUnreadable,
+  SHARD_VARIABLE,
   changedReportPath,
   emptyReport,
+  expandMutate,
+  filesInShard,
+  fnv1a32,
   fullReportPath,
   loadChangeReader,
   loadConfig,
   parseMutateArgs,
+  parseShard,
   runMutate,
   runStryker,
   selectChangedFiles,
+  shardReportPath,
 } from "../mutate.js";
 
 const PACKAGE_DIR = join(import.meta.dirname, "..");
@@ -71,9 +80,12 @@ async function run(
 ): Promise<{ code: number; out: string; err: string }> {
   let out = "";
   let err = "";
+  // The variables a sharded run reads are left out unless a case sets them, so a suite run inside a
+  // sharded run (Stryker's own workers inherit them) sees none.
   const code = await runMutate({
     argv,
     cwd,
+    env: {},
     out: (t) => (out += t),
     err: (t) => (err += t),
     ...overrides,
@@ -451,6 +463,436 @@ describe("@cosyte/script-utils is an optional peer, loaded only by a changed run
   });
 });
 
+// The stand-in for `cosyte-mutate` that the shared weekly mutation workflow was proved against
+// (test/fixtures/quality-stubs/stubs.mjs in cosyte/.github) shards by this hash over this file list.
+// Both are copied here unchanged, so a test can hold this tool to the same partition.
+function stubHashOf(text: string): number {
+  let hash = 0x811c9dc5;
+  for (const byte of Buffer.from(text, "utf8")) {
+    hash ^= byte;
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash;
+}
+function stubSourceFiles(cwd: string, dir = join(cwd, "src")): string[] {
+  if (!existsSync(dir)) return [];
+  const found: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) found.push(...stubSourceFiles(cwd, path));
+    else if (entry.name.endsWith(".mjs")) found.push(relative(cwd, path).split(sep).join("/"));
+  }
+  return found.sort();
+}
+
+/** Synthetic source paths, enough that every one of 16 shards gets some. */
+const MANY = Array.from({ length: 300 }, (_, i) => `src/m${i % 7}/file-${i}.ts`);
+
+/** Every shard of `n`, each as the list of files it holds. */
+function shardsOf(files: string[], n: number): string[][] {
+  return Array.from({ length: n }, (_, i) => filesInShard(files, { k: i + 1, n }));
+}
+
+const SHARD_REFUSAL = (value: string) =>
+  `COSYTE_MUTATE_SHARD must be <k>/<n>, two whole numbers with 1 <= k <= n, not ${JSON.stringify(value)}`;
+
+describe("parseShard", () => {
+  it("reads <k>/<n>, and reads unset or empty as no shard", () => {
+    expect(parseShard(undefined)).toBeNull();
+    expect(parseShard("")).toBeNull();
+    expect(parseShard("1/1")).toEqual({ k: 1, n: 1 });
+    expect(parseShard("3/8")).toEqual({ k: 3, n: 8 });
+    expect(parseShard("16/16")).toEqual({ k: 16, n: 16 });
+    expect(parseShard("08/16")).toEqual({ k: 8, n: 16 });
+  });
+
+  it("refuses a value that is not two positive whole numbers with k at most n", () => {
+    for (const value of [
+      "0/1",
+      "2/1",
+      "1/0",
+      "0/0",
+      "-1/2",
+      "1/-2",
+      "a/b",
+      "1",
+      "1/2/3",
+      " 1/2",
+      "1/2 ",
+      "1/2\n",
+      "x1/2",
+      "1.5/2",
+      "1/2.0",
+      "/2",
+      "1/",
+      "+1/2",
+      "1 of 2",
+    ]) {
+      expect(() => parseShard(value), JSON.stringify(value)).toThrow(
+        new MutateUnreadable(SHARD_REFUSAL(value)),
+      );
+    }
+    expect(SHARD_VARIABLE).toBe("COSYTE_MUTATE_SHARD");
+    expect(INCREMENTAL_VARIABLE).toBe("COSYTE_MUTATE_INCREMENTAL_FILE");
+  });
+});
+
+describe("fnv1a32, the hash a file's shard is read from", () => {
+  it("is 32-bit FNV-1a over the UTF-8 bytes", () => {
+    expect(fnv1a32("")).toBe(0x811c9dc5);
+    expect(fnv1a32("a")).toBe(0xe40c292c);
+    expect(fnv1a32("foobar")).toBe(0xbf9cf968);
+  });
+
+  it("matches the stand-in's hash on the same paths, non-ASCII ones included", () => {
+    const paths = [
+      ...MANY,
+      "src/index.mjs",
+      "src/greeting.mjs",
+      "packages/script-utils/phi-scan.js",
+      "src/café.ts",
+      "src/日本/語.ts",
+      "src/😀.ts",
+      `src/${"deep/".repeat(40)}x.ts`,
+    ];
+    for (const path of paths) expect(fnv1a32(path), path).toBe(stubHashOf(path));
+  });
+});
+
+describe("expandMutate", () => {
+  it("lists the files under the run's directory the config names, as selectChangedFiles picks them", () => {
+    const d = dir({
+      "src/b.ts": "",
+      "src/a.ts": "",
+      "src/a.test.ts": "",
+      "src/deep/c.ts": "",
+      "src/node_modules/x.ts": "",
+      "node_modules/p/src/y.ts": "",
+      ".git/src/z.ts": "",
+      ".stryker-tmp/sandbox-1/src/a.ts": "",
+      "lib/q.ts": "",
+      "README.md": "",
+    });
+    expect(expandMutate({ cwd: d, patterns: ["**/*.ts", "!**/*.test.ts"] })).toEqual([
+      "lib/q.ts",
+      "src/a.ts",
+      "src/b.ts",
+      "src/deep/c.ts",
+    ]);
+    // A pattern that names a skipped directory outright still finds nothing in it.
+    expect(
+      expandMutate({
+        cwd: d,
+        patterns: [".git/**/*.ts", ".stryker-tmp/**/*.ts", "node_modules/**/*.ts"],
+      }),
+    ).toEqual([]);
+    expect(expandMutate({ cwd: dir({ "only.md": "" }), patterns: ["**"] })).toEqual(["only.md"]);
+    expect(expandMutate({ cwd: d, patterns: ["src/**/*.ts", "!src/**/*.test.ts"] })).toEqual([
+      "src/a.ts",
+      "src/b.ts",
+      "src/deep/c.ts",
+    ]);
+  });
+
+  it("skips the temp directory the config names, and only that one", () => {
+    const d = dir({
+      "work/tmp/a.ts": "",
+      ".stryker-tmp/b.ts": "",
+      "src/work/tmp/c.ts": "",
+    });
+    const patterns = ["**/*.ts", ".stryker-tmp/*.ts"];
+    expect(expandMutate({ cwd: d, patterns })).toEqual(["src/work/tmp/c.ts", "work/tmp/a.ts"]);
+    expect(expandMutate({ cwd: d, patterns, tempDirName: "./work/tmp/" })).toEqual([
+      ".stryker-tmp/b.ts",
+      "src/work/tmp/c.ts",
+    ]);
+  });
+
+  it("lists nothing when no file matches", () => {
+    expect(expandMutate({ cwd: dir({ "a.md": "" }), patterns: ["src/**/*.ts"] })).toEqual([]);
+  });
+
+  it("never follows a symbolic link, and reads a relative working directory from the process's", () => {
+    const outside = dir({ "src/far.ts": "" });
+    const d = dir({ "src/near.ts": "" });
+    symlinkSync(join(outside, "src"), join(d, "src", "linked"), "dir");
+    symlinkSync(join(outside, "src", "far.ts"), join(d, "src", "file-link.ts"));
+    expect(expandMutate({ cwd: d, patterns: ["src/**/*.ts"] })).toEqual(["src/near.ts"]);
+    expect(expandMutate({ cwd: relative(process.cwd(), d), patterns: ["src/**/*.ts"] })).toEqual([
+      "src/near.ts",
+    ]);
+  });
+});
+
+describe("filesInShard", () => {
+  it("puts every file in exactly one shard, for 1, 2, 8 and 16 shards", () => {
+    for (const n of [1, 2, 8, 16]) {
+      const shards = shardsOf(MANY, n);
+      const all = shards.flat();
+      expect(all.length, `n=${n}`).toBe(MANY.length);
+      expect(new Set(all).size, `n=${n}`).toBe(MANY.length);
+      expect([...all].sort(), `n=${n}`).toEqual([...MANY].sort());
+      shards.forEach((files, i) => {
+        for (const file of files) expect(fnv1a32(file) % n, file).toBe(i);
+      });
+      if (n > 1)
+        expect(
+          shards.every((files) => files.length < MANY.length),
+          `n=${n}`,
+        ).toBe(true);
+    }
+    expect(filesInShard(MANY, { k: 1, n: 1 })).toEqual(MANY);
+  });
+
+  it("picks each shard's files exactly as the stand-in does", () => {
+    const files: Record<string, string> = { "src/README.md": "", "test/t.mjs": "" };
+    for (let i = 0; i < 40; i += 1) files[`src/${i % 3 === 0 ? "nested/" : ""}m${i}.mjs`] = "";
+    const d = dir(files);
+    const ours = expandMutate({ cwd: d, patterns: ["src/**/*.mjs"] });
+    expect(ours).toEqual(stubSourceFiles(d));
+    for (const n of [1, 2, 3, 8, 16]) {
+      for (let k = 1; k <= n; k += 1) {
+        expect(filesInShard(ours, { k, n }), `${k}/${n}`).toEqual(
+          stubSourceFiles(d).filter((file) => stubHashOf(file) % n === k - 1),
+        );
+      }
+    }
+  });
+});
+
+describe("shardReportPath", () => {
+  it("is shard-<k>-of-<n>.json beside the full report", () => {
+    expect(shardReportPath({}, { k: 3, n: 8 })).toBe(
+      join("reports", "mutation", "shard-3-of-8.json"),
+    );
+    expect(
+      shardReportPath(
+        { jsonReporter: { fileName: "packages/s/reports/mutation/mutation.json" } },
+        { k: 1, n: 2 },
+      ),
+    ).toBe(join("packages", "s", "reports", "mutation", "shard-1-of-2.json"));
+  });
+});
+
+describe("runMutate, a sharded or incremental full run", () => {
+  const SOURCES: Record<string, string> = { "src/a.test.ts": "", "docs/x.md": "" };
+  // Ten files, fewer than 16 shards, so a run of 16 has empty shards.
+  for (let i = 0; i < 10; i += 1) SOURCES[`src/f${i}.ts`] = "";
+  const ALL = Object.keys(SOURCES)
+    .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"))
+    .sort();
+
+  it("mutates only its shard's files and writes shard-<k>-of-<n>.json, never mutation.json", async () => {
+    const d = dir({
+      [DEFAULT_CONFIG]: CONFIG,
+      ...SOURCES,
+      "reports/mutation/mutation.json": "{}",
+      "reports/mutation/shard-2-of-3.json": "{}",
+    });
+    const calls: unknown[] = [];
+    const r = await run(d, ["full"], {
+      env: { [SHARD_VARIABLE]: "2/3" },
+      stryker: async (options) => {
+        calls.push(options);
+        expect(existsSync(join(d, "reports/mutation/shard-2-of-3.json"))).toBe(false);
+      },
+    });
+    const mine = filesInShard(ALL, { k: 2, n: 3 });
+    expect(mine.length).toBeGreaterThan(0);
+    expect(r).toEqual({
+      code: 0,
+      out:
+        `cosyte-mutate: shard 2 of 3: mutating ${mine.length} of the ${ALL.length} file(s) stryker.config.mjs names:\n` +
+        mine.map((f) => `  ${f}\n`).join(""),
+      err: "",
+    });
+    expect(calls).toEqual([
+      {
+        configFile: join(d, DEFAULT_CONFIG),
+        mutate: mine,
+        jsonReporter: { fileName: join("reports", "mutation", "shard-2-of-3.json") },
+        htmlReporter: { fileName: join("reports", "mutation", "shard-2-of-3.html") },
+      },
+    ]);
+    expect(readFileSync(join(d, "reports/mutation/mutation.json"), "utf8")).toBe("{}");
+  });
+
+  it("partitions the files across the shards: each in exactly one, for 1, 2, 8 and 16 shards", async () => {
+    const d = dir({ [DEFAULT_CONFIG]: CONFIG, ...SOURCES });
+    for (const n of [1, 2, 8, 16]) {
+      const mutated: string[] = [];
+      let empty = 0;
+      for (let k = 1; k <= n; k += 1) {
+        let started = false;
+        const r = await run(d, ["full"], {
+          env: { [SHARD_VARIABLE]: `${k}/${n}` },
+          stryker: async (options) => {
+            started = true;
+            mutated.push(...(options["mutate"] as string[]));
+          },
+        });
+        expect(r.code, `${k}/${n}`).toBe(0);
+        const report = join(d, "reports", "mutation", `shard-${k}-of-${n}.json`);
+        if (!started) {
+          empty += 1;
+          expect(readFileSync(report, "utf8"), `${k}/${n}`).toBe(emptyReport(d));
+        }
+      }
+      expect(mutated.length, `n=${n}`).toBe(ALL.length);
+      expect([...mutated].sort(), `n=${n}`).toEqual(ALL);
+      if (n === 16) expect(empty).toBeGreaterThan(0);
+    }
+    expect(existsSync(join(d, "reports/mutation/mutation.json"))).toBe(false);
+  });
+
+  it("an empty shard writes the empty report where its shard report goes, starts nothing, and exits 0", async () => {
+    const d = dir({
+      [DEFAULT_CONFIG]:
+        'export default { mutate: ["src/**/*.ts"], jsonReporter: { fileName: "out/deep/m.json" } };\n',
+      "out/deep/shard-1-of-1.json": "{}",
+    });
+    const r = await run(d, ["full"], {
+      env: { [SHARD_VARIABLE]: "1/1", [INCREMENTAL_VARIABLE]: "reports/mutation/incremental.json" },
+      stryker: async () => {
+        throw new Error("must not start");
+      },
+    });
+    expect(r).toEqual({
+      code: 0,
+      out: `cosyte-mutate: shard 1 of 1 holds none of the 0 file(s) stryker.config.mjs names; nothing to mutate. Wrote an empty ${join("out", "deep", "shard-1-of-1.json")}.\n`,
+      err: "",
+    });
+    expect(readFileSync(join(d, "out/deep/shard-1-of-1.json"), "utf8")).toBe(emptyReport(d));
+    expect(existsSync(join(d, "out/deep/m.json"))).toBe(false);
+  });
+
+  it("exits 2 on a malformed shard, before it starts or writes anything", async () => {
+    for (const value of ["0/2", "3/2", "1/0", "x", "1/2/3"]) {
+      const d = dir({ [DEFAULT_CONFIG]: CONFIG, ...SOURCES });
+      const r = await run(d, ["full"], {
+        env: { [SHARD_VARIABLE]: value },
+        stryker: async () => {
+          throw new Error("must not start");
+        },
+      });
+      expect(r, value).toEqual({
+        code: 2,
+        out: "",
+        err: `cosyte-mutate: could not run: ${SHARD_REFUSAL(value)}\n`,
+      });
+      expect(existsSync(join(d, "reports")), value).toBe(false);
+    }
+  });
+
+  it("passes incremental: true and the incremental file to Stryker, sharded or not", async () => {
+    const d = dir({ [DEFAULT_CONFIG]: CONFIG, ...SOURCES });
+    const calls: Record<string, unknown>[] = [];
+    const stryker = async (options: Record<string, unknown>) => {
+      calls.push(options);
+    };
+    const whole = await run(d, ["full"], {
+      env: { [INCREMENTAL_VARIABLE]: "reports/mutation/incremental.json" },
+      stryker,
+    });
+    expect(whole).toEqual({
+      code: 0,
+      out:
+        "cosyte-mutate: mutating everything stryker.config.mjs names\n" +
+        "cosyte-mutate: incremental results read from and written to reports/mutation/incremental.json\n",
+      err: "",
+    });
+    const sharded = await run(d, ["full"], {
+      env: { [SHARD_VARIABLE]: "1/2", [INCREMENTAL_VARIABLE]: "inc/i.json" },
+      stryker,
+    });
+    expect(sharded.code).toBe(0);
+    expect(sharded.out).toContain(
+      "cosyte-mutate: incremental results read from and written to inc/i.json\n",
+    );
+    expect(calls).toEqual([
+      {
+        configFile: join(d, DEFAULT_CONFIG),
+        incremental: true,
+        incrementalFile: join(d, "reports/mutation/incremental.json"),
+      },
+      {
+        configFile: join(d, DEFAULT_CONFIG),
+        mutate: filesInShard(ALL, { k: 1, n: 2 }),
+        jsonReporter: { fileName: join("reports", "mutation", "shard-1-of-2.json") },
+        htmlReporter: { fileName: join("reports", "mutation", "shard-1-of-2.html") },
+        incremental: true,
+        incrementalFile: join(d, "inc/i.json"),
+      },
+    ]);
+  });
+
+  it("with both variables unset or empty, runs exactly as an unsharded full run always has", async () => {
+    for (const env of [{}, { [SHARD_VARIABLE]: "", [INCREMENTAL_VARIABLE]: "" }]) {
+      const d = dir({
+        [DEFAULT_CONFIG]: CONFIG,
+        ...SOURCES,
+        "reports/mutation/mutation.json": "{}",
+      });
+      const calls: unknown[] = [];
+      const r = await run(d, ["full"], {
+        env,
+        stryker: async (options) => {
+          calls.push(options);
+          expect(existsSync(join(d, "reports/mutation/mutation.json"))).toBe(false);
+        },
+      });
+      expect(r).toEqual({
+        code: 0,
+        out: "cosyte-mutate: mutating everything stryker.config.mjs names\n",
+        err: "",
+      });
+      expect(calls).toEqual([{ configFile: join(d, DEFAULT_CONFIG) }]);
+    }
+  });
+
+  it("a changed run reads neither variable", async () => {
+    const d = dir({ [DEFAULT_CONFIG]: CONFIG });
+    const calls: unknown[] = [];
+    const r = await run(d, ["changed", "--base", "main"], {
+      env: { [SHARD_VARIABLE]: "nonsense", [INCREMENTAL_VARIABLE]: "i.json" },
+      changes: () => ({ root: d, files: new Map([["src/a.ts", new Set([1])]]) }),
+      stryker: async (options) => {
+        calls.push(options);
+      },
+    });
+    expect(r.code).toBe(0);
+    expect(calls).toEqual([
+      {
+        configFile: join(d, DEFAULT_CONFIG),
+        mutate: ["src/a.ts"],
+        jsonReporter: { fileName: join("reports", "mutation", "changed.json") },
+        htmlReporter: { fileName: join("reports", "mutation", "changed.html") },
+      },
+    ]);
+  });
+
+  it("reads the variables from the process's environment when it is given none", async () => {
+    const d = dir({ [DEFAULT_CONFIG]: CONFIG });
+    const before = process.env[SHARD_VARIABLE];
+    process.env[SHARD_VARIABLE] = "2/1";
+    try {
+      let err = "";
+      const code = await runMutate({
+        argv: ["full"],
+        cwd: d,
+        out: () => {},
+        err: (t) => (err += t),
+        stryker: async () => {},
+      });
+      expect(code).toBe(2);
+      expect(err).toBe(`cosyte-mutate: could not run: ${SHARD_REFUSAL("2/1")}\n`);
+    } finally {
+      if (before === undefined) delete process.env[SHARD_VARIABLE];
+      else process.env[SHARD_VARIABLE] = before;
+    }
+  });
+});
+
 describe("runStryker, for real", () => {
   it("runs StrykerJS over a fixture and writes the changed report where it was told", async () => {
     // The fixture sits inside this package so Vitest and the runner resolve from its node_modules.
@@ -489,6 +931,48 @@ describe("runStryker, for real", () => {
       rmSync(d, { recursive: true, force: true });
     }
   }, 120_000);
+
+  it("runs one shard of a full run with incremental results, writing the shard report and the results file", async () => {
+    const d = mkdtempSync(join(PACKAGE_DIR, ".e2e-"));
+    try {
+      write(d, {
+        "package.json": '{ "type": "module" }\n',
+        "src/sum.ts": "export function sum(a: number, b: number): number {\n  return a + b;\n}\n",
+        "test/sum.test.ts":
+          'import { expect, it } from "vitest";\nimport { sum } from "../src/sum.js";\nit("adds", () => expect(sum(2, 3)).toBe(5));\n',
+        "vitest.config.ts":
+          'import { defineConfig } from "vitest/config";\nexport default defineConfig({ test: { include: ["test/**/*.test.ts"] } });\n',
+        "stryker.config.mjs":
+          'import { cosyteStryker } from "../stryker.js";\nexport default cosyteStryker({ stryker: { concurrency: 1, reporters: ["json"] } });\n',
+      });
+      const cwd = process.cwd();
+      process.chdir(d);
+      let r;
+      try {
+        r = await run(d, ["full"], {
+          env: {
+            [SHARD_VARIABLE]: "1/1",
+            [INCREMENTAL_VARIABLE]: "reports/mutation/incremental.json",
+          },
+          stryker: runStryker,
+        });
+      } finally {
+        process.chdir(cwd);
+      }
+      expect(r.code, r.err).toBe(0);
+      const report = JSON.parse(
+        readFileSync(join(d, "reports/mutation/shard-1-of-1.json"), "utf8"),
+      );
+      expect(Object.keys(report.files)).toEqual(["src/sum.ts"]);
+      const incremental = JSON.parse(
+        readFileSync(join(d, "reports/mutation/incremental.json"), "utf8"),
+      );
+      expect(Object.keys(incremental.files)).toEqual(["src/sum.ts"]);
+      expect(existsSync(join(d, "reports/mutation/mutation.json"))).toBe(false);
+    } finally {
+      rmSync(d, { recursive: true, force: true });
+    }
+  }, 120_000);
 });
 
 describe("the bin", () => {
@@ -498,6 +982,10 @@ describe("the bin", () => {
   const noCi = () => {
     const env = { ...process.env };
     delete env["CI"];
+    delete env[SHARD_VARIABLE];
+    delete env[INCREMENTAL_VARIABLE];
+    delete env[SHARD_VARIABLE];
+    delete env[INCREMENTAL_VARIABLE];
     return env;
   };
 
