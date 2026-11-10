@@ -131,7 +131,7 @@ export function readChanges({ base, cwd = process.cwd(), git = runGit }) {
     throw new ChangesUnreadable("no base ref was given to compare against");
   }
   // A ref that starts with a dash would reach git as an option (`--upload-pack=...` runs a
-  // command), so it is refused before git sees it.
+  // command), so it is refused before git sees it, and `--` ends git's options anyway.
   if (base.startsWith("-")) {
     throw new ChangesUnreadable(`the base ref ${JSON.stringify(base)} starts with a dash`);
   }
@@ -146,7 +146,7 @@ export function readChanges({ base, cwd = process.cwd(), git = runGit }) {
   const root = must(["rev-parse", "--show-toplevel"], "not inside a git repository").trim();
   // Everything after this runs at the root, so a run from a package directory sees the whole change.
   at = root;
-  const mergeBase = must(["merge-base", base, "HEAD"], `no merge base with ${base}`).trim();
+  const mergeBase = must(["merge-base", "--", base, "HEAD"], `no merge base with ${base}`).trim();
   const diff = must(
     [
       "-c",

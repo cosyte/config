@@ -256,7 +256,7 @@ describe("readChanges", () => {
       new ChangesUnreadable("no base ref was given to compare against"),
     );
     expect(() => readChanges({ base: "no-such-ref", cwd: dir })).toThrow(
-      /^no merge base with no-such-ref: git merge-base no-such-ref HEAD failed: \S/,
+      /^no merge base with no-such-ref: git merge-base -- no-such-ref HEAD failed: \S/,
     );
     const outside = mkdtempSync(join(tmpdir(), "script-utils-not-a-repo-"));
     try {
