@@ -86,7 +86,7 @@ gate, which is what stops a well-covered helper directory paying for an untested
 | `@cosyte/vitest-config/snippets` | the doc/code-agreement harness described under the API below        |
 | `@cosyte/vitest-config/stryker`  | `cosyteStryker(options?)`, the shared StrykerJS config              |
 | `@cosyte/vitest-config/mutate`   | `runMutate`, the body of the `cosyte-mutate` bin, and its parts     |
-| `cosyte-mutate` (bin)            | `full`, and `changed --base <ref>`                                  |
+| `cosyte-mutate` (bin)            | `full`, whole or one shard of it, and `changed --base <ref>`        |
 
 They are separate subpaths because they are separately adoptable, and importing the config never
 loads the harness. `extractRunnableSnippets` is the primitive that decides what runs, and it reports
@@ -148,6 +148,41 @@ read as the whole package's score. A change with no changed source file starts n
 empty report, so the ratchet can tell "ran, nothing to mutate" from "never ran", and exits 0.
 `cosyte-mutate` exits 0 when the run finished and 2 when it could not run; it does not judge the
 score.
+
+### A full run in shards
+
+A full run of a large library takes hours on one machine, so it can be split across parallel jobs.
+Two variables, read only by `full`, do it:
+
+- `COSYTE_MUTATE_SHARD=<k>/<n>` mutates only shard `k` of `n`, and writes `shard-<k>-of-<n>.json`
+  in place of the full report.
+- `COSYTE_MUTATE_INCREMENTAL_FILE=<file>` keeps Stryker's incremental results in that file, so a
+  later run retests only the mutants whose code or tests changed.
+
+```sh
+COSYTE_MUTATE_SHARD=3/8 COSYTE_MUTATE_INCREMENTAL_FILE=reports/mutation/incremental.json \
+  pnpm exec cosyte-mutate full
+```
+
+A shard lists every file the config's `mutate` patterns name under the working directory (never
+inside `node_modules`, `.git` or Stryker's temp directory), and keeps those whose 32-bit FNV-1a hash
+of the path, relative and with forward slashes, is `k - 1` mod `n`. So over shards 1 to `n` every
+file is mutated exactly once, and a file stays in its shard from run to run however many files are
+added elsewhere. The report, `reports/mutation/shard-<k>-of-<n>.json` with its HTML beside it, goes
+where `mutation.json` would, and never as `mutation.json`, so no shard is read as the package's
+score: the shards' reports are merged into one `mutation.json` before `cosyte-ratchet` reads it,
+which is what the weekly mutation workflow in cosyte/.github does. A shard that holds no file writes
+an empty report and exits 0 without starting Stryker. A `COSYTE_MUTATE_SHARD` that is not two whole
+numbers with `1 <= k <= n` exits 2. The incremental file is relative to the working directory and
+reaches Stryker as `incrementalFile`, with `incremental: true`, with or without a shard. Unset or
+empty, neither variable changes anything, and a changed run reads neither.
+
+```ts runnable
+import { filesInShard, fnv1a32 } from "@cosyte/vitest-config/mutate";
+
+fnv1a32("src/a.ts") % 2; // => 0
+filesInShard(["src/a.ts", "src/b.ts"], { k: 1, n: 2 }); // => ["src/a.ts"]
+```
 
 The `/mutate` entry point is the bin's body and the pieces it is built of, for a caller that runs
 it from its own script. `selectChangedFiles` is the rule a changed run picks its files by:

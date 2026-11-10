@@ -11,10 +11,19 @@
 // that uses only the Vitest config installs nothing for it. A changed run with no changed source file starts no mutation run: it writes an empty
 // report, so the ratchet can tell "ran, nothing to mutate" from "never ran", and exits 0.
 //
+// A SHARDED FULL RUN. A full run of a large library takes hours on one machine, so a CI workflow can
+// split it across parallel jobs. Each job sets COSYTE_MUTATE_SHARD=<k>/<n>: the run lists the files
+// the config names, keeps those whose FNV-1a hash of the path mod n is k - 1, mutates just those,
+// and writes shard-<k>-of-<n>.json beside the full report in place of it, for the workflow to merge.
+// The hash, not a position in a sorted list, decides a file's shard, so a file added elsewhere does
+// not move every other file to another shard. COSYTE_MUTATE_INCREMENTAL_FILE names the file where
+// Stryker keeps its incremental results, so a later run retests only what changed. A changed run
+// reads neither variable, and a full run with neither set runs exactly as it always has.
+//
 // Exit codes: 0 the run finished (the score is judged by cosyte-ratchet, not here); 2 it could not
 // run (bad arguments, no config, git could not answer, Stryker failed).
 
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, matchesGlob, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -22,6 +31,12 @@ import { FULL_REPORT, htmlReportFor } from "./stryker.js";
 
 /** The config file a run reads when `--config` names none, relative to the working directory. */
 export const DEFAULT_CONFIG = "stryker.config.mjs";
+
+/** The variable a sharded full run reads its share from: `<k>/<n>`. */
+export const SHARD_VARIABLE = "COSYTE_MUTATE_SHARD";
+
+/** The variable naming the file Stryker reads and writes its incremental results in. */
+export const INCREMENTAL_VARIABLE = "COSYTE_MUTATE_INCREMENTAL_FILE";
 
 /** Thrown for anything that stops a run before Stryker starts. Exit 2. */
 export class MutateUnreadable extends Error {
@@ -45,6 +60,15 @@ changed  mutates only the source files changed against the merge base of <ref> a
          edits not yet committed and untracked files), and writes changed.json beside the full
          report. With no changed source file it writes an empty report and exits 0.
 --config the Stryker config file, default ${DEFAULT_CONFIG}, relative to the working directory.
+
+A full run reads two variables; with neither set it runs as above:
+${SHARD_VARIABLE}=<k>/<n>
+         mutate only shard k of n of the files the config names, and write
+         shard-<k>-of-<n>.json beside the full report in place of it (an empty report when the
+         shard holds no file). A value that is not <k>/<n> with 1 <= k <= n exits 2.
+${INCREMENTAL_VARIABLE}=<file>
+         where Stryker reads and writes its incremental results, relative to the working
+         directory, so a later run retests only what changed.
 
 Exit 0 when the run finished (cosyte-ratchet judges the score), 2 when it could not run.
 `;
@@ -111,6 +135,85 @@ export function selectChangedFiles({ changed, root, cwd, patterns }) {
 }
 
 /**
+ * Read the shard a full run mutates from the value of {@link SHARD_VARIABLE}.
+ *
+ * @param {string | undefined} value `<k>/<n>`, two whole numbers with 1 <= k <= n.
+ * @returns {{ k: number, n: number } | null} The shard, or null when the value is unset or empty.
+ */
+export function parseShard(value) {
+  if (value === undefined || value === "") return null;
+  const match = /^(\d+)\/(\d+)$/.exec(value);
+  const k = match === null ? 0 : Number(match[1]);
+  const n = match === null ? 0 : Number(match[2]);
+  if (k < 1 || k > n) {
+    throw new MutateUnreadable(
+      `${SHARD_VARIABLE} must be <k>/<n>, two whole numbers with 1 <= k <= n, not ${JSON.stringify(value)}`,
+    );
+  }
+  return { k, n };
+}
+
+/**
+ * 32-bit FNV-1a over the UTF-8 bytes of a text: the hash a file's shard is read from.
+ *
+ * @param {string} text The text, here a path relative to the working directory with forward slashes.
+ * @returns {number} The hash, an unsigned 32-bit integer.
+ */
+export function fnv1a32(text) {
+  let hash = 0x811c9dc5;
+  // Buffer.from encodes a string as UTF-8 when it is given no encoding.
+  for (const byte of Buffer.from(text)) {
+    hash = Math.imul(hash ^ byte, 0x01000193) >>> 0;
+  }
+  return hash;
+}
+
+/**
+ * The files of one shard: those whose {@link fnv1a32} hash mod `n` is `k - 1`. Over the shards
+ * 1 to `n`, every file is in exactly one.
+ *
+ * @param {readonly string[]} files Paths relative to the working directory, with forward slashes.
+ * @param {{ k: number, n: number }} shard The shard.
+ * @returns {string[]} The shard's files, in their given order.
+ */
+export function filesInShard(files, { k, n }) {
+  return files.filter((file) => fnv1a32(file) % n === k - 1);
+}
+
+/**
+ * List the files under the working directory that a config's `mutate` patterns name, picked by the
+ * same rule as {@link selectChangedFiles}. It never enters a `node_modules` or `.git` directory, or
+ * Stryker's temp directory.
+ *
+ * @param {object} input The inputs.
+ * @param {string} input.cwd The directory Stryker runs in.
+ * @param {readonly string[]} input.patterns The config's `mutate` patterns.
+ * @param {string} [input.tempDirName] The config's `tempDirName`, relative to `cwd`.
+ * @returns {string[]} The files, relative to `cwd` with forward slashes, sorted.
+ */
+export function expandMutate({ cwd, patterns, tempDirName = ".stryker-tmp" }) {
+  const root = resolve(cwd);
+  const temp = resolve(root, tempDirName);
+  const found = [];
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      if (entry.isFile()) found.push(relative(root, path));
+      else if (
+        entry.isDirectory() &&
+        entry.name !== "node_modules" &&
+        entry.name !== ".git" &&
+        path !== temp
+      ) {
+        walk(path);
+      }
+    }
+  };
+  walk(root);
+  return selectChangedFiles({ changed: found, root, cwd: root, patterns });
+}
+
+/**
  * Where a full run writes its JSON report: the config's `jsonReporter.fileName`, or Stryker's own
  * default, which is also this package's.
  *
@@ -130,6 +233,17 @@ export function fullReportPath(config) {
  */
 export function changedReportPath(config) {
   return join(dirname(fullReportPath(config)), "changed.json");
+}
+
+/**
+ * Where a sharded full run writes its report: `shard-<k>-of-<n>.json` beside the full report.
+ *
+ * @param {Record<string, any>} config The loaded Stryker config.
+ * @param {{ k: number, n: number }} shard The shard.
+ * @returns {string} The path, relative to the working directory.
+ */
+export function shardReportPath(config, { k, n }) {
+  return join(dirname(fullReportPath(config)), `shard-${k}-of-${n}.json`);
 }
 
 /**
@@ -199,11 +313,73 @@ export async function runStryker(options) {
 }
 
 /**
+ * The full run, whole or one shard of it, with Stryker's incremental results or without.
+ *
+ * @param {object} opts Options.
+ * @param {string} opts.cwd The directory Stryker runs in.
+ * @param {Record<string, string | undefined>} opts.env Where the two variables are read.
+ * @param {(text: string) => void} opts.out Writes to stdout.
+ * @param {typeof runStryker} opts.stryker Starts Stryker.
+ * @param {string} opts.configFile The config file, absolute.
+ * @param {Record<string, any>} opts.config The loaded config.
+ * @param {string} opts.name The config file as the command line named it.
+ * @returns {Promise<number>} The exit code.
+ */
+async function runFull({ cwd, env, out, stryker, configFile, config, name }) {
+  const shard = parseShard(env[SHARD_VARIABLE]);
+  const incrementalFile = env[INCREMENTAL_VARIABLE];
+  const incremental =
+    incrementalFile === undefined || incrementalFile === ""
+      ? {}
+      : { incremental: true, incrementalFile: resolve(cwd, incrementalFile) };
+  const sayIncremental = () => {
+    if (incrementalFile)
+      out(`cosyte-mutate: incremental results read from and written to ${incrementalFile}\n`);
+  };
+  if (shard === null) {
+    // A report left from an earlier run must not outlive a run that failed.
+    rmSync(resolve(cwd, fullReportPath(config)), { force: true });
+    out(`cosyte-mutate: mutating everything ${name} names\n`);
+    sayIncremental();
+    await stryker({ configFile, ...incremental });
+    return 0;
+  }
+  const report = shardReportPath(config, shard);
+  rmSync(resolve(cwd, report), { force: true });
+  const all = expandMutate({ cwd, patterns: config.mutate, tempDirName: config.tempDirName });
+  const files = filesInShard(all, shard);
+  const which = `shard ${shard.k} of ${shard.n}`;
+  if (files.length === 0) {
+    mkdirSync(dirname(resolve(cwd, report)), { recursive: true });
+    writeFileSync(resolve(cwd, report), emptyReport(cwd));
+    out(
+      `cosyte-mutate: ${which} holds none of the ${all.length} file(s) ${name} names; nothing to mutate. Wrote an empty ${report}.\n`,
+    );
+    return 0;
+  }
+  out(
+    `cosyte-mutate: ${which}: mutating ${files.length} of the ${all.length} file(s) ${name} names:\n`,
+  );
+  for (const file of files) out(`  ${file}\n`);
+  sayIncremental();
+  await stryker({
+    configFile,
+    mutate: files,
+    jsonReporter: { fileName: report },
+    htmlReporter: { fileName: htmlReportFor(report) },
+    ...incremental,
+  });
+  return 0;
+}
+
+/**
  * Run `cosyte-mutate`.
  *
  * @param {object} opts Options.
  * @param {string[]} opts.argv The arguments after the bin's name.
  * @param {string} opts.cwd The directory Stryker runs in.
+ * @param {Record<string, string | undefined>} [opts.env] Where a full run reads
+ *   {@link SHARD_VARIABLE} and {@link INCREMENTAL_VARIABLE}; the process's environment when left out.
  * @param {(text: string) => void} opts.out Writes to stdout.
  * @param {(text: string) => void} opts.err Writes to stderr.
  * @param {(opts: { base: string, cwd: string }) => { root: string, files: Map<string, Set<number>> }} [opts.changes]
@@ -212,7 +388,15 @@ export async function runStryker(options) {
  * @param {typeof runStryker} [opts.stryker] Starts Stryker; replaced in tests.
  * @returns {Promise<number>} The exit code.
  */
-export async function runMutate({ argv, cwd, out, err, changes, stryker = runStryker }) {
+export async function runMutate({
+  argv,
+  cwd,
+  env = process.env,
+  out,
+  err,
+  changes,
+  stryker = runStryker,
+}) {
   if (argv.includes("--help") || argv.includes("-h")) {
     out(HELP);
     return 0;
@@ -222,11 +406,7 @@ export async function runMutate({ argv, cwd, out, err, changes, stryker = runStr
     const configFile = resolve(cwd, options.config);
     const config = await loadConfig(configFile);
     if (options.mode === "full") {
-      // A report left from an earlier run must not outlive a run that failed.
-      rmSync(resolve(cwd, fullReportPath(config)), { force: true });
-      out(`cosyte-mutate: mutating everything ${options.config} names\n`);
-      await stryker({ configFile });
-      return 0;
+      return await runFull({ cwd, env, out, stryker, configFile, config, name: options.config });
     }
     const readChanges = changes ?? (await loadChangeReader());
     const change = readChanges({ base: options.base, cwd });

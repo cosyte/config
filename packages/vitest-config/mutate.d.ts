@@ -10,6 +10,18 @@ export type ChangeReader = (opts: { base: string; cwd: string }) => {
 /** The config file a run reads when `--config` names none. */
 export declare const DEFAULT_CONFIG: "stryker.config.mjs";
 
+/** The variable a sharded full run reads its share from: `<k>/<n>`. */
+export declare const SHARD_VARIABLE: "COSYTE_MUTATE_SHARD";
+
+/** The variable naming the file Stryker reads and writes its incremental results in. */
+export declare const INCREMENTAL_VARIABLE: "COSYTE_MUTATE_INCREMENTAL_FILE";
+
+/** One shard of a full run: shard `k` of `n`, from 1. */
+export interface Shard {
+  k: number;
+  n: number;
+}
+
 /** Thrown for anything that stops a run before Stryker starts. */
 export declare class MutateUnreadable extends Error {
   constructor(message: string);
@@ -29,6 +41,31 @@ export declare function selectChangedFiles(input: {
   cwd: string;
   patterns: readonly string[];
 }): string[];
+
+/**
+ * Read `<k>/<n>`, two whole numbers with 1 <= k <= n; null when unset or empty. Throws
+ * `MutateUnreadable` on any other value.
+ */
+export declare function parseShard(value: string | undefined): Shard | null;
+
+/** 32-bit FNV-1a over the UTF-8 bytes of a text: the hash a file's shard is read from. */
+export declare function fnv1a32(text: string): number;
+
+/** The files of one shard: those whose `fnv1a32` hash mod `n` is `k - 1`. */
+export declare function filesInShard(files: readonly string[], shard: Shard): string[];
+
+/**
+ * List the files under `cwd` that the `mutate` patterns name, relative to it, sorted; never inside a
+ * `node_modules` or `.git` directory or Stryker's temp directory (default `.stryker-tmp`).
+ */
+export declare function expandMutate(input: {
+  cwd: string;
+  patterns: readonly string[];
+  tempDirName?: string;
+}): string[];
+
+/** Where a sharded full run writes its JSON report: `shard-<k>-of-<n>.json` beside the full report. */
+export declare function shardReportPath(config: Record<string, unknown>, shard: Shard): string;
 
 /** Where a full run writes its JSON report. */
 export declare function fullReportPath(config: Record<string, unknown>): string;
@@ -72,6 +109,8 @@ export declare function runStryker(options: Record<string, unknown>): Promise<vo
 export declare function runMutate(opts: {
   argv: string[];
   cwd: string;
+  /** Where a full run reads `COSYTE_MUTATE_SHARD` and `COSYTE_MUTATE_INCREMENTAL_FILE`; default `process.env`. */
+  env?: Record<string, string | undefined>;
   out: (text: string) => void;
   err: (text: string) => void;
   changes?: ChangeReader;

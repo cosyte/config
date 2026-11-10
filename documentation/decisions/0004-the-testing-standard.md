@@ -137,7 +137,14 @@ config it runs (StrykerJS is an optional peer, so a package that does not mutate
 
 `cosyte-mutate full` mutates everything the config names, and its score can raise the floor. Today
 it runs by hand: no CI job runs it yet. A weekly run and a run before each release are future work
-in the shared workflows (section 7). `cosyte-mutate changed --base <ref>` mutates only the source
+in the shared workflows (section 7). A full run of a large library takes hours on one machine, so
+it can be split across parallel jobs: with `COSYTE_MUTATE_SHARD=<k>/<n>` set, `cosyte-mutate full`
+mutates only the files whose 32-bit FNV-1a hash of the path is `k - 1` mod `n`, so each file is in
+exactly one shard, and writes `reports/mutation/shard-<k>-of-<n>.json`, never `mutation.json`; the
+shards' reports are merged into `mutation.json` before the ratchet reads it. With
+`COSYTE_MUTATE_INCREMENTAL_FILE` set, StrykerJS keeps its incremental results in that file, so a
+later run retests only what changed. A malformed shard exits 2; with neither variable set, a full
+run is unchanged. `cosyte-mutate changed --base <ref>` mutates only the source
 files a change touched, whole, and writes `reports/mutation/changed.json`, a separate file so a
 run over a few files is never read as the package's score. A change with no changed source file
 starts no run: it writes an empty report, so the ratchet can tell "ran, nothing to mutate" from
