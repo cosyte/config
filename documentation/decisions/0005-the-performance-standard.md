@@ -173,53 +173,58 @@ GitHub-hosted runners (`ubuntu-latest`, one comparison per runner at a time) by
 `.github/workflows/bench-calibration.yml`, which runs when a pull request that changes the
 comparison is opened or reopened, and can be run by hand. A developer machine's numbers describe that machine and are not used here.
 
-**The comparison's false alarms and detections.** Taken by the calibration workflow's run on the
-pull request that added this standard: nine `ubuntu-latest` runners (4 logical CPUs each; the
-runners drew four CPU models, AMD EPYC 7763, 9V74 and 9V45 and Intel Xeon Platinum 8370C, on the
-`ubuntu26` image, Node 24.22.2), each running whole comparisons one at a time for 80 minutes, about
-two minutes a comparison. The base and the head were two copies of the PHI scan engine in two
-directories, over the suite's six compared cases. Six runners ran A/A comparisons; one each ran a
-planted slowdown of a nominal 5%, 10% and 20% on the head side.
+**The comparison's false alarms and detections.** Taken by two runs of the calibration workflow
+on the pull request that added this standard (runs 42778129838 and 42789908888; the second started
+when a document changed, on the same `@cosyte/bench` source). Each run used nine `ubuntu-latest`
+runners (4 logical CPUs each; the runners drew four CPU models, AMD EPYC 7763, 9V74 and 9V45 and
+Intel Xeon Platinum 8370C, on the `ubuntu26` image, Node 24.22.2), each running whole comparisons
+one at a time for 80 minutes, about two minutes a comparison. The base and the head were two copies
+of the PHI scan engine in two directories, over the suite's six compared cases. Six runners per run
+ran A/A comparisons; one each ran a planted slowdown of a nominal 5%, 10% and 20% on the head side.
 
 | Planted (nominal) | Comparisons | With a skip | Regression verdicts (comparisons) | Upper 95% | Measured cases | Regression verdicts (cases) | Upper 95% |
 | ----------------- | ----------- | ----------- | --------------------------------- | --------- | -------------- | --------------------------- | --------- |
-| none (A/A)        | 225         | 0           | 0                                 | 1.32%     | 1,350          | 0                           | 0.22%     |
-| 5%                | 36          | 0           | 36                                | 100%      | 216            | 126 (58.3%)                 |           |
-| 10%               | 39          | 0           | 39                                | 100%      | 234            | 234 (100%)                  |           |
-| 20%               | 39          | 0           | 39                                | 100%      | 234            | 234 (100%)                  |           |
+| none (A/A)        | 448         | 0           | 0                                 | 0.67%     | 2,688          | 0                           | 0.11%     |
+| 5%                | 75          | 0           | 75                                | 100%      | 450            | 302 (67.1%)                 |           |
+| 10%               | 77          | 0           | 77                                | 100%      | 462            | 427 (92.4%)                 |           |
+| 20%               | 78          | 0           | 78                                | 100%      | 468            | 468 (100%)                  |           |
 
 By case, with the change each case was observed at (the median of every measured round's head over
-base) and its detections:
+base, over both runs) and its detections:
 
 | Case                          | Observed at a nominal 5% | Found | At 10% | Found | At 20% | Found |
 | ----------------------------- | ------------------------ | ----- | ------ | ----- | ------ | ----- |
-| runPhiScan, one file @ 1 KiB  | +5.4%                    | 14/36 | +10.3% | 39/39 | +20.7% | 39/39 |
-| runPhiScan, one file @ 32 KiB | +4.4%                    | 31/36 | +10.6% | 39/39 | +20.8% | 39/39 |
-| runPhiScan, one file @ 1 MiB  | +4.0%                    | 29/36 | +7.9%  | 39/39 | +16.1% | 39/39 |
-| decodeSourceLiterals @ 1 KiB  | +5.1%                    | 22/36 | +9.9%  | 39/39 | +19.8% | 39/39 |
-| decodeSourceLiterals @ 32 KiB | +3.3%                    | 0/36  | +11.9% | 39/39 | +22.2% | 39/39 |
-| decodeSourceLiterals @ 1 MiB  | +4.2%                    | 29/36 | +7.0%  | 39/39 | +17.0% | 39/39 |
+| runPhiScan, one file @ 1 KiB  | +5.3%                    | 53/75 | +10.5% | 77/77 | +20.8% | 78/78 |
+| runPhiScan, one file @ 32 KiB | +4.8%                    | 70/75 | +10.3% | 77/77 | +20.8% | 78/78 |
+| runPhiScan, one file @ 1 MiB  | +3.9%                    | 62/75 | +8.0%  | 77/77 | +16.3% | 78/78 |
+| decodeSourceLiterals @ 1 KiB  | +5.0%                    | 57/75 | +10.0% | 70/77 | +19.8% | 78/78 |
+| decodeSourceLiterals @ 32 KiB | +4.2%                    | 30/75 | +11.1% | 70/77 | +22.4% | 78/78 |
+| decodeSourceLiterals @ 1 MiB  | +3.9%                    | 30/75 | +7.2%  | 56/77 | +17.0% | 78/78 |
 
 What that does and does not show:
 
-- **No false alarm and no skip in 225 A/A comparisons.** Both per-comparison rates are therefore
-  under 1.32% with 95% confidence on this runner class. That is not under 1%: the rule in section 4
-  needs at least 299 such comparisons. The comparison stays advisory. A further run of the same
-  workflow adds to the count.
+- **No false alarm and no skip in 448 A/A comparisons.** Both per-comparison rates are therefore
+  under 0.67% with 95% confidence for this suite on `ubuntu-latest` with Node 24, which meets the
+  rule in section 4 (`cosyte-bench calibrate`'s own summary of the same runs says so). Nothing
+  becomes a required check in this change: the pull request job that would run the comparison is
+  still to be built in `cosyte/.github`, Node 22 has not been calibrated, and another suite needs
+  its own calibration.
 - **One round's noise on this runner class is small.** With nothing changed, a round's 5th and 95th
-  percentile ratios were 0.914 to 0.981 and 1.019 to 1.095, by case (`analyze.mjs` prints each).
-- **A slowdown observed at about 7% or more was found every time; one observed at 3.3% to 5.4% was
-  found in 0 to 86% of comparisons, by case.** The threshold is 3%, and the interval has to clear it
-  whole, so a change near it is found only some of the time. That is the size this method finds on
-  this runner class for this suite; a suite with noisier cases finds less.
-- **The planted slowdown is not the observed one.** A nominal 10% was observed at 7.0% to 11.9% by
+  percentile ratios were 0.911 to 0.981 and 1.019 to 1.100, by case (`analyze.mjs` prints each).
+- **What it finds depends on the case and the runner.** A slowdown observed at 16% or more was
+  found every time. One observed at 7% to 11% was found in 56 to 77 of 77 comparisons by case: every
+  time on the run whose 10% runner drew an EPYC 9V74 (234 of 234 cases), and 193 of 228 cases on the
+  run whose 10% runner drew an EPYC 9V45, where the decoder's cases were noisier. One observed at 3.9%
+  to 5.3%, near the 3% threshold, was found in 30 to 70 of 75. The interval has to clear the
+  threshold whole, so a change near it is found only some of the time.
+- **The planted slowdown is not the observed one.** A nominal 10% was observed at 7.2% to 11.1% by
   case, which is why every detection here is stated against the observed change.
-- **The estimator and the threshold, judged on the same runs.** On the A/A runs, the median sample
-  instead of the fastest, and a 2% or a 5% threshold, also raised no false alarm in 1,350 cases. At
-  a nominal 5%, a 2% threshold found 184 of 216 cases and the median sample at 3% found 183, against
-  126 for the shipped rule; a 5% threshold found 4. The shipped rule is not the most sensitive on
-  this runner class; changing it is review trigger 3, and the rule for making it required would be
-  judged again on new runs.
+- **The estimator and the threshold, judged on the same runs.** On the A/A runs a 2% threshold, and
+  the median sample instead of the fastest, each raised one false alarm in 448 comparisons (upper
+  bound 1.05%, which would not meet the rule); a 5% threshold raised none. At a nominal 5%, a 2%
+  threshold found 371 of 450 cases and the median sample at 3% found 377, against 302 for the
+  shipped rule; a 5% threshold found 12. The shipped rule trades some sensitivity near the threshold
+  for no false alarm on these runs; changing it is review trigger 3.
 
 **What the planted slowdown is.** `cosyte-bench calibrate --inject <f>` does one thing: on the head
 side, after each timed pass over the corpus, it reads the clock until `f` times that pass's own
