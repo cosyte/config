@@ -15,9 +15,9 @@
 Each library ships a `docs-content/` folder: Markdown pages with front matter and a `sidebars.json`.
 `cosyte-process pack-docs` packs it into a release asset, and docs.cosyte.com renders that asset. The
 folders grew one library at a time, with no shared shape. Measured on 2026-11-10 across the 15
-libraries: 176 pages, from 1 (`pathways`) to 31 (`hl7`); 14 of the 15 sidebars used the same five
-categories, Installation, Quickstart, Core concepts, Guides and Troubleshooting (the fifteenth has
-only its overview), but what went in each varied;
+libraries: 176 pages, from 1 (`pathways`) to 31 (`hl7`); 13 of the 15 sidebars used the same five
+categories, Installation, Quickstart, Core concepts, Guides and Troubleshooting, `dates` used four of
+them (no Guides), and `pathways` has none, only its overview; what went in each varied;
 of 543 TypeScript and JavaScript samples, 284 (52%) were run by any test; and no library had a page on
 how it is tested or how fast it is.
 
@@ -145,6 +145,13 @@ function counts as documented when it or one of its signatures has a summary. A 
 a tag, such as `@deprecated`, is not a summary. Members of an export (properties, methods, enum
 members) are not checked yet.
 
+No tag hides an export. One tagged `@internal`, `@hidden` or `@ignore` is still something a reader can
+import, so it is shown in the reference and checked like any other: a symbol is either documented or
+not exported from a public entry point. There is no allow list; measured on 2026-11-10, no library
+needs one (counting `@internal` exports changes no library's count of undocumented exports, and no
+library uses `@hidden` or `@ignore`). If one is ever needed, it will be an explicit list in the
+library, each entry with its reason, so every exception shows in review.
+
 Hand-written guides sit on top: a how-to guide or an explanation links into the generated reference
 rather than restating it.
 
@@ -166,6 +173,9 @@ docSnippetSuite({ docsDir: join(root, "docs-content"), every: true, resolve });
 - Samples use synthetic data only: the 555 telephone range, `example.com` addresses, and identifiers
   that are visibly invented.
 - Shell, JSON and text blocks are not samples and are not run.
+- Each sample runs as the module its fence names: a `js`, `javascript` or `mjs` sample as a `.mjs`
+  module, so TypeScript syntax in it fails; a `tsx` sample as `.tsx`; any other as `.ts`. A suite
+  without `every` runs its `runnable` blocks as `.ts` modules, as it always has.
 
 ### 8. The live numbers on the two quality pages
 
@@ -207,9 +217,9 @@ Measured on 2026-11-10, on each library's checked-out `main` at the time:
   this standard yet: every library lacks both quality pages, and no sidebar has the new shape. In
   front matter, 13 libraries use `sidebar_position`, 11 have pages with no `sidebar_label`, and 4
   have a description over 160 characters.
-- **The reference generator** ran in 3.0 to 7.2 seconds per library (one 16-core Linux desktop,
-  Node.js 26, a warm cache) and wrote 44 pages across the 15 libraries; every one of them compiled
-  as MDX, checked with `@mdx-js/mdx`. It found 3 undocumented exports, all in `hl7` (three
+- **The reference generator** ran in 1.4 to 7.3 seconds per library (one 16-core Linux desktop
+  under a load average of about 40 from other work, Node.js 26, a warm cache) and wrote 44 pages
+  across the 15 libraries; every one of them compiled as MDX, checked with `@mdx-js/mdx`. It found 3 undocumented exports, all in `hl7` (three
   namespaces re-exported with `export * as`), and none in the other 14. TypeDoc's own rule, which
   also requires members, found 2 to 1,150 undocumented exports and members per library on the root
   entry point alone, which is why members are left for later.

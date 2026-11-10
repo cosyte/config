@@ -163,8 +163,10 @@ are exported too, for bespoke wiring.
 
 `docSnippetSuite({ every: true })` runs every `ts`, `typescript`, `tsx`, `js`, `javascript` and `mjs`
 block, tagged or not, which is what the docs-content standard asks of a library (decision record 0006
-in cosyte/config). A JavaScript sample runs as a `.mjs` module, so TypeScript syntax in it fails. A
-block that cannot run says why in its fence, and the test report lists it as skipped with that reason:
+in cosyte/config). In this mode a JavaScript sample runs as a `.mjs` module, so TypeScript syntax in
+it fails, and a `tsx` sample runs as `.tsx`; without `every`, every `runnable` block runs as `.ts`, as
+before. A block that cannot run says why in its fence, and the test report lists it as skipped with
+that reason:
 
 ````md
 ```ts no-run opens a listener that stays open for the life of the process
@@ -175,8 +177,8 @@ const server = createServer().listen(2575);
 A `no-run` with no reason fails the suite. Shell, JSON and text blocks are not samples and are never
 run. `extractSamples(markdown)` and `planSamples(files, options)` are the primitives behind it.
 
-> `runSnippet` writes a transient `.ts` module under `tmpDir` (default `.cosyte-doc-snippets/` in the
-> project root) and imports it so Vitest transforms the TypeScript: add `.cosyte-doc-snippets*/` to
+> `runSnippet` writes a transient `.ts` module (or the `extension` a sample names) under `tmpDir`
+> (default `.cosyte-doc-snippets/` in the project root) and imports it so Vitest transforms the TypeScript: add `.cosyte-doc-snippets*/` to
 > `.gitignore`. It must stay inside the project root; files under `node_modules` are not transformed.
 
 ## Contributing

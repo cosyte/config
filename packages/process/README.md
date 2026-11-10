@@ -317,10 +317,11 @@ It runs TypeDoc and typedoc-plugin-markdown, dependencies of this package, over 
 package's `exports` names: `.` is `src/index.ts`, and `./name` is `src/name/index.ts` or `src/name.ts`.
 It writes one page per module, with no source lines, so a page changes only when the public surface or
 its comments do, and every page compiles as MDX. An export counts as documented when it, or one of its
-signatures, has a TSDoc summary; members of an export are not checked. Exit `0` clean, `1` a stale
-page or an undocumented export (each named, with its kind and file), `2` the input could not be read
-(no `package.json`, `tsconfig.json` or `docs-content/`, an export with no source, or TypeDoc could not
-convert it).
+signatures, has a TSDoc summary; members of an export are not checked. No tag hides an export: one
+tagged `@internal`, `@hidden` or `@ignore` is in the pages and is checked like any other, so a symbol
+is either documented or not exported. Exit `0` clean, `1` a stale page or an undocumented export
+(each named, with its kind and file), `2` the input could not be read (no `package.json`,
+`tsconfig.json` or `docs-content/`, an export with no source, or TypeDoc could not convert it).
 
 ### The security-workflow trigger surface
 

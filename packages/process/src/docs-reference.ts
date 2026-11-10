@@ -15,6 +15,7 @@ import {
   Application,
   type Comment,
   type ContainerReflection,
+  Converter,
   type DeclarationReflection,
   Logger,
   LogLevel,
@@ -32,7 +33,9 @@ import {
  * fails when the committed pages no longer match the source.
  *
  * WHAT THE CHECK CATCHES: an export (a function, class, interface, type alias, enum, variable or
- * namespace) with no TSDoc summary, and a committed reference that has drifted from the source.
+ * namespace) with no TSDoc summary, and a committed reference that has drifted from the source. No
+ * tag hides an export: one tagged `@internal`, `@hidden` or `@ignore` is checked and shown like any
+ * other, since a consumer can still import it. A symbol that is not public is not exported.
  * WHAT IT DOES NOT: a member of a documented export (a property, a method) with no comment, a
  * comment that is wrong, and an `@example` that does not run. Members are left out on purpose: when
  * this was written, TypeDoc's rule with members found 2 to 1,150 gaps per library, against 0 to 3
@@ -202,6 +205,29 @@ function sourceOf(reflection: DeclarationReflection): string {
   return reflection.sources?.[0]?.fileName ?? "an unknown file";
 }
 
+/** The tags with which TypeDoc leaves a reflection out of its output. @internal */
+const HIDING_TAGS = ["@hidden", "@ignore"] as const;
+
+/**
+ * Take the hiding tags off every reflection before TypeDoc reads them, so an export it would leave
+ * out stays in the pages and in the documented check. TypeDoc reads them when it begins resolving,
+ * so this listener runs ahead of its own. `@internal` hides only under `excludeInternal`, which is off.
+ *
+ * @internal
+ */
+function keepHiddenReflections(app: Application): void {
+  app.converter.on(
+    Converter.EVENT_RESOLVE_BEGIN,
+    (context) => {
+      // Every reflection is registered here, a function's signatures among them.
+      for (const reflection of Object.values(context.project.reflections)) {
+        for (const tag of HIDING_TAGS) reflection.comment?.removeModifier(tag);
+      }
+    },
+    1,
+  );
+}
+
 /** The markdown plugin, resolved from this package so a consumer need not install it. @internal */
 const MARKDOWN_PLUGIN = fileURLToPath(import.meta.resolve("typedoc-plugin-markdown"));
 
@@ -254,7 +280,8 @@ export async function buildReference(cwd: string): Promise<ReferenceResult> {
       // page per module; kept so a change of that default cannot add one.
       readme: "none",
       excludeExternals: true,
-      excludeInternal: true,
+      // No tag hides a public export (keepHiddenReflections takes care of the others).
+      excludeInternal: false,
       skipErrorChecking: true,
       githubPages: false,
       basePath: cwd,
@@ -271,6 +298,7 @@ export async function buildReference(cwd: string): Promise<ReferenceResult> {
     }
     const logger = new CollectingLogger();
     app.logger = logger;
+    keepHiddenReflections(app);
     const project = await app.convert();
     if (project === undefined) {
       throw new ReferenceInputError(

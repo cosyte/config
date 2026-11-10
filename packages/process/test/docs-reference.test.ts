@@ -75,8 +75,8 @@ const DOCUMENTED = [
   "export type Alias = string;",
   "/** A box. */",
   "export class Box {}",
-  "/** Hidden from the reference. @internal */",
-  "export const hidden = 2;",
+  "/** Exported, so in the reference although it is tagged. @internal */",
+  "export const tagged = 2;",
   "export { parse as reparse };",
   "",
 ].join("\n");
@@ -194,10 +194,9 @@ describe("buildReference", () => {
       expect(page.startsWith("# @cosyte/demo\n")).toBe(true);
       expect(page).not.toContain("Defined in");
       expect(page).not.toContain("Readme marker");
-      for (const name of ["parse()", "Message", "DEFAULT", "Kind", "Alias", "Box"]) {
+      for (const name of ["parse()", "Message", "DEFAULT", "Kind", "Alias", "Box", "tagged"]) {
         expect(page, name).toContain(`### ${name}`);
       }
-      expect(page).not.toContain("hidden");
     },
     SLOW,
   );
@@ -254,6 +253,51 @@ describe("buildReference", () => {
         "tools (Namespace), defined in src/helper.ts",
         "tools.inner (Variable), defined in src/helper.ts",
       ]);
+    },
+    SLOW,
+  );
+
+  it(
+    "lets no tag hide a public export: @internal, @hidden and @ignore are each checked and shown",
+    async () => {
+      const dir = pkg({
+        "src/index.ts": [
+          "/** @internal */",
+          "export function internalBare(): void {}",
+          "/** @hidden */",
+          "export const hiddenBare = 1;",
+          "/** @ignore */",
+          "export interface IgnoredBare { a: number }",
+          "/** Documented, and tagged. @internal */",
+          "export const internalDocumented = 1;",
+          "/** Documented, and tagged. @hidden */",
+          "export function hiddenDocumented(): void {}",
+          "/** Documented, with a tagged member. */",
+          "export class Holder {",
+          "  /** A member, tagged. @internal */",
+          "  member = 1;",
+          "}",
+          "",
+        ].join("\n"),
+      });
+      const result = await buildReference(dir);
+      expect(result.undocumented).toEqual([
+        "IgnoredBare (Interface), defined in src/index.ts",
+        "hiddenBare (Variable), defined in src/index.ts",
+        "internalBare (Function), defined in src/index.ts",
+      ]);
+      const page = result.files.get("README.md") ?? "";
+      for (const name of [
+        "internalBare()",
+        "hiddenBare",
+        "IgnoredBare",
+        "internalDocumented",
+        "hiddenDocumented()",
+        "Holder",
+        "member",
+      ]) {
+        expect(page, name).toContain(`### ${name}`);
+      }
     },
     SLOW,
   );

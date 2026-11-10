@@ -33,7 +33,11 @@ const RUNNABLE_LANGS = new Set(["ts", "typescript", "tsx"]);
  */
 export const SAMPLE_LANGS = new Set(["ts", "typescript", "tsx", "js", "javascript", "mjs"]);
 
-/** The module extension each sample language is written with, so a JavaScript sample runs as one. */
+/**
+ * The module extension each sample language is written with in every-sample mode, so a JavaScript
+ * sample runs as JavaScript and a `tsx` one as TSX. Any other language is written as `.ts`. A snippet
+ * taken without `every` carries no extension and is written as `.ts`, as it always has been.
+ */
 const EXTENSIONS = new Map([
   ["tsx", ".tsx"],
   ["js", ".mjs"],
@@ -158,8 +162,9 @@ export function extractRunnableSnippets(markdown, opts = {}) {
  * is read from the tags before `no-run` only, since the words after it are prose.
  *
  * @param {string} markdown - The markdown source.
- * @returns {Array<{ lang: string, meta: string[], code: string, line: number, throws: boolean, skip: string | null }>}
- *   One entry per sample, in document order.
+ * @returns {Array<{ lang: string, meta: string[], code: string, line: number, throws: boolean, skip: string | null, extension: string }>}
+ *   One entry per sample, in document order. `extension` is the module it runs as: `.mjs` for a
+ *   JavaScript sample, `.tsx` for a `tsx` one, `.ts` for the rest.
  */
 export function extractSamples(markdown) {
   return scanFences(markdown)
@@ -171,6 +176,7 @@ export function extractSamples(markdown) {
         ...block,
         throws: tags.includes("throws"),
         skip: at === -1 ? null : block.meta.slice(at + 1).join(" "),
+        extension: EXTENSIONS.get(block.lang) ?? ".ts",
       };
     });
 }
@@ -295,16 +301,18 @@ export function remapImports(code, resolveFn) {
  * Compile and execute one snippet as an ES module in the running Vitest process.
  *
  * The snippet is remapped, its assertions rewritten, an `expect` import prepended, and the result
- * written to a unique temp `.ts` file under `tmpDir` (which MUST live inside the project root so
- * Vitest transforms it: files under `node_modules` are treated as external and would reach Node as
- * raw TypeScript). It is then dynamically imported: Vitest's module runner transforms the TypeScript
+ * written to a unique temp module under `tmpDir` (which MUST live inside the project root so Vitest
+ * transforms it: files under `node_modules` are treated as external and would reach Node as raw
+ * TypeScript). The module is a `.ts` file unless the snippet names another `extension`, as each
+ * sample from {@link extractSamples} does. It is then dynamically imported: Vitest's module runner transforms the TypeScript
  * and runs it. A block tagged `throws` must throw; any other block must run clean. The temp file is
  * always removed afterwards.
  *
  * Exported directly (not only via {@link docSnippetSuite}) so the harness can be unit-tested: a
  * deliberately-wrong snippet must make this reject.
  *
- * @param {{ code: string, throws?: boolean } | string} snippet - A snippet object or its raw source.
+ * @param {{ code: string, throws?: boolean, extension?: string } | string} snippet - A snippet
+ *   object or its raw source.
  * @param {{ resolve?: (specifier: string) => string | undefined, tmpDir?: string, throws?: boolean }} [opts]
  *   Options.
  * @returns {Promise<void>} Resolves on success; rejects (AssertionError or the thrown error) on failure.
@@ -319,8 +327,8 @@ export async function runSnippet(snippet, opts = {}) {
   const { code: asserted } = rewriteAssertions(remapped);
   const moduleSource = `import { expect } from "vitest";\n${asserted}\n`;
 
-  const extension =
-    (typeof snippet === "string" ? undefined : EXTENSIONS.get(snippet.lang)) ?? ".ts";
+  // A raw string has no `extension` property, so it is a `.ts` module too.
+  const extension = snippet.extension ?? ".ts";
   mkdirSync(tmpDir, { recursive: true });
   const file = join(tmpDir, `snippet-${process.pid}-${moduleCounter++}${extension}`);
   writeFileSync(file, moduleSource, "utf8");

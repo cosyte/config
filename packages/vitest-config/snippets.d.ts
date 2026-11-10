@@ -19,6 +19,11 @@ export interface RunnableSnippet {
   line: number;
   /** Whether the block is tagged `throws` (expected to throw rather than run clean). */
   throws: boolean;
+  /**
+   * The extension of the module {@link runSnippet} writes the snippet to. Absent, it is `.ts`, which
+   * is what every snippet {@link extractRunnableSnippets} returns runs as.
+   */
+  extension?: string;
 }
 
 /** One extracted code sample, in document order: a TypeScript or JavaScript block, tagged or not. */
@@ -28,6 +33,8 @@ export interface Sample extends RunnableSnippet {
    * reason, which the suite reports as an error), or `null` for a block that runs.
    */
   skip: string | null;
+  /** The module it runs as: `.mjs` for a `js`, `javascript` or `mjs` sample, `.tsx` for `tsx`, else `.ts`. */
+  extension: ".ts" | ".tsx" | ".mjs";
 }
 
 /** The fence languages that make a block a code sample: TypeScript and JavaScript. */

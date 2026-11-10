@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
   docSnippetSuite,
+  extractRunnableSnippets,
   extractSamples,
   planSamples,
   runSnippet,
@@ -62,14 +63,14 @@ describe("extractSamples", () => {
       fence,
     ].join("\n");
     const got = extractSamples(md);
-    expect(got.map((s) => [s.lang, s.code, s.line])).toEqual([
-      ["ts", "const a = 1;", 3],
-      ["typescript", "const b = 2;", 6],
-      ["tsx", "const c = 3;", 9],
-      ["js", "const d = 4;", 12],
-      ["javascript", "const e = 5;", 15],
-      ["mjs", "const f = 6;", 18],
-      ["ts", "const g = 7;", 30],
+    expect(got.map((s) => [s.lang, s.code, s.line, s.extension])).toEqual([
+      ["ts", "const a = 1;", 3, ".ts"],
+      ["typescript", "const b = 2;", 6, ".ts"],
+      ["tsx", "const c = 3;", 9, ".tsx"],
+      ["js", "const d = 4;", 12, ".mjs"],
+      ["javascript", "const e = 5;", 15, ".mjs"],
+      ["mjs", "const f = 6;", 18, ".mjs"],
+      ["ts", "const g = 7;", 30, ".ts"],
     ]);
     expect(got.every((s) => s.skip === null && s.throws === false)).toBe(true);
     expect([...SAMPLE_LANGS].sort()).toEqual([
@@ -229,47 +230,61 @@ describe("planSamples", () => {
 });
 
 describe("runSnippet runs a JavaScript sample as JavaScript", () => {
-  it("writes a js sample to a .mjs module, and a tsx one to .tsx", async () => {
+  /** The extension of each module runSnippet writes, in order, read from inside the module. */
+  async function extensionsOf(snippets: Parameters<typeof runSnippet>[0][]): Promise<string[]> {
     const seen: string[] = [];
-    const watch = (lang: string) =>
-      runSnippet(
-        {
-          lang,
-          meta: [],
-          line: 1,
-          throws: false,
-          skip: null,
-          code: 'import { readdirSync } from "node:fs";\nglobalThis.__seen = readdirSync(import.meta.dirname);',
-        },
-        { tmpDir: TMP },
-      ).then(() =>
-        seen.push(
-          ...(globalThis as { __seen?: string[] }).__seen!.filter((name) =>
-            name.startsWith("snippet-"),
-          ),
+    for (const snippet of snippets) {
+      const probe =
+        'import { readdirSync } from "node:fs";\nglobalThis.__seen = readdirSync(import.meta.dirname);';
+      await runSnippet(typeof snippet === "string" ? probe : { ...snippet, code: probe }, {
+        tmpDir: TMP,
+      });
+      seen.push(
+        ...(globalThis as { __seen?: string[] }).__seen!.filter((name) =>
+          name.startsWith("snippet-"),
         ),
       );
-    await watch("js");
-    await watch("javascript");
-    await watch("mjs");
-    await watch("tsx");
-    await watch("ts");
-    expect(seen.map((name) => name.replace(/^snippet-\d+-\d+/, ""))).toEqual([
+    }
+    return seen.map((name) => name.replace(/^snippet-\d+-\d+/, ""));
+  }
+
+  it("writes each sample from extractSamples to the module its language names", async () => {
+    const md = ["js", "javascript", "mjs", "tsx", "ts", "typescript"]
+      .map((lang) => `${fence}${lang}\nconst x = 1;\n${fence}`)
+      .join("\n");
+    expect(await extensionsOf(extractSamples(md))).toEqual([
       ".mjs",
       ".mjs",
       ".mjs",
       ".tsx",
       ".ts",
+      ".ts",
     ]);
   });
 
+  it("writes any other snippet to a .ts module, as it always has", async () => {
+    const base = { meta: [], line: 1, throws: false };
+    expect(
+      await extensionsOf([
+        { ...base, lang: "tsx", code: "" },
+        { ...base, lang: "js", code: "" },
+        { ...base, lang: "ts", code: "" },
+        ...extractRunnableSnippets(`${fence}tsx runnable\nconst x = 1;\n${fence}`),
+        "",
+      ]),
+    ).toEqual([".ts", ".ts", ".ts", ".ts", ".ts"]);
+  });
+
   it("rejects TypeScript syntax in a js sample, which a .ts module would have accepted", async () => {
-    const sample = { lang: "js", meta: [], line: 1, throws: false, skip: null };
+    const sample = { lang: "js", meta: [], line: 1, throws: false, skip: null, extension: ".mjs" };
     await expect(
       runSnippet({ ...sample, code: "const a: number = 1;" }, { tmpDir: TMP }),
     ).rejects.toThrow();
     await expect(
-      runSnippet({ ...sample, lang: "ts", code: "const a: number = 1;" }, { tmpDir: TMP }),
+      runSnippet(
+        { ...sample, lang: "ts", extension: ".ts", code: "const a: number = 1;" },
+        { tmpDir: TMP },
+      ),
     ).resolves.toBeUndefined();
   });
 
@@ -359,6 +374,13 @@ describe("docSnippetSuite without every", () => {
       `${fence}ts runnable`,
       "const ran = 1;",
       "ran; // => 1",
+      fence,
+      // Without every, a tsx sample runs as a .ts module, as it always has: an angle-bracket cast,
+      // which a .tsx module refuses, still runs.
+      `${fence}tsx runnable`,
+      "const raw: unknown = 2;",
+      "const cast = <number>raw;",
+      "cast; // => 2",
       fence,
     ].join("\n"),
   );
