@@ -306,7 +306,7 @@ the entry point, what the system reported in structural terms, and the action av
 
 Generates the package's API reference from its TSDoc comments into `docs-content/api/`, the reference
 the docs-content standard asks for (decision record 0006 in cosyte/config), and reports every export
-with no TSDoc summary:
+with no TSDoc summary and every heading written in a TSDoc comment:
 
 ```sh
 cosyte-docs-reference           # write docs-content/api/
@@ -319,9 +319,13 @@ It writes one page per module, with no source lines, so a page changes only when
 its comments do, and every page compiles as MDX. An export counts as documented when it, or one of its
 signatures, has a TSDoc summary; members of an export are not checked. No tag hides an export: one
 tagged `@internal`, `@hidden` or `@ignore` is in the pages and is checked like any other, so a symbol
-is either documented or not exported. Exit `0` clean, `1` a stale page or an undocumented export
-(each named, with its kind and file), `2` the input could not be read (no `package.json`,
-`tsconfig.json` or `docs-content/`, an export with no source, or TypeDoc could not convert it).
+is either documented or not exported. A comment holds no markdown heading (a line such as
+`## Notes`, outside code), on an export or anywhere inside one: the page prints the comment as it is,
+so the heading would sit in the page's outline among the generated ones and shift their anchors.
+Write it as a bold line or a sentence instead. Exit `0` clean, `1` a stale page, an undocumented
+export or a heading in a comment (each named, with its kind and file), `2` the input could not be
+read (no `package.json`, `tsconfig.json` or `docs-content/`, an export with no source, or TypeDoc
+could not convert it).
 
 ### The security-workflow trigger surface
 

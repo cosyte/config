@@ -20,6 +20,7 @@ import {
   Logger,
   LogLevel,
   type ProjectReflection,
+  type Reflection,
   ReflectionKind,
 } from "typedoc";
 
@@ -33,7 +34,9 @@ import {
  * fails when the committed pages no longer match the source.
  *
  * WHAT THE CHECK CATCHES: an export (a function, class, interface, type alias, enum, variable or
- * namespace) with no TSDoc summary, and a committed reference that has drifted from the source. No
+ * namespace) with no TSDoc summary, a heading written in any TSDoc comment (the page prints the
+ * comment as it is, so the heading would land in the page's outline among the generated ones and
+ * shift their anchors), and a committed reference that has drifted from the source. No
  * tag hides an export: one tagged `@internal`, `@hidden` or `@ignore` is checked and shown like any
  * other, since a consumer can still import it. A symbol that is not public is not exported.
  * WHAT IT DOES NOT: a member of a documented export (a property, a method) with no comment, a
@@ -90,6 +93,11 @@ export interface ReferenceResult {
   readonly files: ReadonlyMap<string, string>;
   /** Each export with no TSDoc summary: `name (Kind), defined in path`, sorted. */
   readonly undocumented: readonly string[];
+  /**
+   * Each heading written in a TSDoc comment, on an export or on anything inside one: `name (Kind),
+   * defined in path: ## Heading`, sorted.
+   */
+  readonly headings: readonly string[];
 }
 
 /**
@@ -205,6 +213,71 @@ function sourceOf(reflection: DeclarationReflection): string {
   return reflection.sources?.[0]?.fileName ?? "an unknown file";
 }
 
+/**
+ * A line of comment text that markdown reads as a heading: up to three spaces, one to six `#`, then
+ * a space, a tab or the end of the line. @internal
+ */
+const COMMENT_HEADING = /^ {0,3}#{1,6}(?:[ \t]|$)/;
+
+/**
+ * The headings written in a comment's summary and block tags, each line as it is written. Code is
+ * not text: each character of an inline code span or a fenced block is read as a backtick, which no
+ * heading starts with, so a `#` line inside an example is not read. @internal
+ */
+function headingsInComment(comment: Comment): string[] {
+  const found: string[] = [];
+  for (const content of [comment.summary, ...comment.blockTags.map((tag) => tag.content)]) {
+    let text = "";
+    let masked = "";
+    for (const part of content) {
+      text += part.text;
+      // `.` matches no line end, so the masked text keeps the lines of the text.
+      masked += part.kind === "text" ? part.text : part.text.replace(/./g, "`");
+    }
+    const lines = text.split("\n");
+    masked.split("\n").forEach((line, index) => {
+      if (COMMENT_HEADING.test(line)) found.push((lines[index] as string).trim());
+    });
+  }
+  return found;
+}
+
+/**
+ * Where a reflection is declared: its own source, or the nearest one above it (a parameter records
+ * none of its own). Undefined for the package's own comment, which sits above every declaration.
+ *
+ * @internal
+ */
+function declaredIn(reflection: Reflection): string | undefined {
+  for (let at: Reflection | undefined = reflection; at !== undefined; at = at.parent) {
+    // Stryker disable next-line OptionalChaining: equivalent, TypeDoc never records an empty list
+    // of sources; a reflection without one has none at all.
+    const file = (at as DeclarationReflection).sources?.[0]?.fileName;
+    if (file !== undefined) return file;
+  }
+  return undefined;
+}
+
+/**
+ * Every heading written in a TSDoc comment of a project: the package's own comment, each export's,
+ * and each comment inside one (a signature, a parameter, a member).
+ *
+ * @internal
+ */
+function commentHeadings(project: ProjectReflection): string[] {
+  const found: string[] = [];
+  // The project registers itself among its reflections, so its own comment is read here too.
+  for (const reflection of Object.values(project.reflections)) {
+    if (reflection.comment === undefined) continue;
+    const file = declaredIn(reflection);
+    const where = `${reflection.getFullName()} (${ReflectionKind[reflection.kind]})${
+      file === undefined ? "" : `, defined in ${file}`
+    }`;
+    for (const heading of headingsInComment(reflection.comment)) found.push(`${where}: ${heading}`);
+  }
+  return found.sort();
+}
+
 /** The tags with which TypeDoc leaves a reflection out of its output. @internal */
 const HIDING_TAGS = ["@hidden", "@ignore"] as const;
 
@@ -255,7 +328,7 @@ function readTree(root: string): Map<string, string> {
  * to the package: the pages are generated in a temporary directory and returned.
  *
  * @param cwd - The package root.
- * @returns The pages and the undocumented exports.
+ * @returns The pages, the undocumented exports and the headings written in comments.
  * @throws {@link ReferenceInputError} When the entry points cannot be read or TypeDoc cannot
  *   convert the source.
  * @example
@@ -306,13 +379,14 @@ export async function buildReference(cwd: string): Promise<ReferenceResult> {
       );
     }
     const undocumented = undocumentedExports(project);
+    const headings = commentHeadings(project);
     // The sources are read for the findings above and left out of the pages: a "Defined in" line
     // carries a line number, which would make every edit to a source file a change to the pages.
     for (const reflection of Object.values(project.reflections)) {
       delete (reflection as DeclarationReflection).sources;
     }
     await app.generateOutputs(project);
-    return { files: readTree(out), undocumented };
+    return { files: readTree(out), undocumented, headings };
   } finally {
     rmSync(out, { recursive: true });
   }
@@ -360,7 +434,7 @@ export interface DocsReferenceOptions {
 
 /**
  * The command line: write the reference, or with `--check` compare it, and report undocumented
- * exports.
+ * exports and headings written in comments.
  *
  * @param argv - Arguments after the bin name; only `--check` is accepted.
  * @param options - The package root and the streams.
@@ -420,13 +494,24 @@ export async function runDocsReference(
         result.undocumented.map((line) => `  ${line}\n`).join(""),
     );
   }
+  if (result.headings.length > 0) {
+    stderr.write(
+      `docs-reference: ${String(result.headings.length)} heading(s) in TSDoc comments, which the ` +
+        "pages would show in their outline; write each as a bold line or a sentence:\n" +
+        result.headings.map((line) => `  ${line}\n`).join(""),
+    );
+  }
   if (!check) {
     stdout.write(
       `docs-reference: wrote ${String(result.files.size)} page(s) to ${where}` +
         (result.undocumented.length === 0 ? "; every export is documented\n" : "\n"),
     );
-  } else if (stale.length === 0 && result.undocumented.length === 0) {
+  } else if (
+    stale.length === 0 &&
+    result.undocumented.length === 0 &&
+    result.headings.length === 0
+  ) {
     stdout.write(`docs-reference: ${where} matches the source; every export is documented\n`);
   }
-  return stale.length > 0 || result.undocumented.length > 0 ? 1 : 0;
+  return stale.length > 0 || result.undocumented.length > 0 || result.headings.length > 0 ? 1 : 0;
 }

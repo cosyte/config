@@ -81,6 +81,68 @@ const DOCUMENTED = [
   "",
 ].join("\n");
 
+/**
+ * Headings in comments: in the package's comment, a summary, a block tag, a parameter and a member,
+ * beside lines that are not headings (in code, deeper than six, indented four, no space after).
+ */
+const HEADINGS = [
+  "/**",
+  " * The demo package.",
+  " *",
+  " * # The package",
+  " *",
+  " * @packageDocumentation",
+  " */",
+  'export { other } from "./other.js";',
+  "/**",
+  " * Parse a message.",
+  " *",
+  " * ## Notes",
+  " *",
+  " * ## Use `parse` for this",
+  " *",
+  " * `code` ## is not a heading, but after `code`",
+  " * ## a line that starts with # is one.",
+  " *",
+  " * ##\tTabbed",
+  " *",
+  " * ###",
+  " *",
+  " * ####### Seven is not a heading. #hashtag is not one.",
+  " *",
+  " *     ## Indented four, so code",
+  " *",
+  " * `## inline code`",
+  " *",
+  " * ```md",
+  " * ## In a fenced block",
+  " * ```",
+  " *",
+  " * @remarks",
+  " * ### Remark heading",
+  " * @param input - The input.",
+  " *   # Param heading",
+  " * @example",
+  " * ```ts",
+  " * // ## In an example",
+  ' * parse("x");',
+  " * ```",
+  " */",
+  "export function parse(input: string): number {",
+  "  return input.length;",
+  "}",
+  "/** A box. */",
+  "export class Box {",
+  "  /**",
+  "   * A member.",
+  "   *",
+  "   * #### Member heading",
+  "   */",
+  "  size = 1;",
+  "}",
+  "",
+].join("\n");
+
 function capture(): { stream: { write(text: string): boolean }; text: () => string } {
   let text = "";
   return {
@@ -189,6 +251,7 @@ describe("buildReference", () => {
       const dir = pkg({ "src/index.ts": DOCUMENTED, "README.md": "# Readme marker\n" });
       const result = await buildReference(dir);
       expect(result.undocumented).toEqual([]);
+      expect(result.headings).toEqual([]);
       expect([...result.files.keys()]).toEqual(["README.md"]);
       const page = result.files.get("README.md") ?? "";
       expect(page.startsWith("# @cosyte/demo\n")).toBe(true);
@@ -382,6 +445,34 @@ describe("buildReference", () => {
     SLOW,
   );
 
+  it(
+    "names each heading written in a comment, wherever the comment is, and none in code",
+    async () => {
+      const dir = pkg({
+        "src/index.ts": HEADINGS,
+        "src/other.ts": "/**\n * Another file.\n *\n * ## Other\n */\nexport const other = 1;\n",
+      });
+      const result = await buildReference(dir);
+      expect(result.undocumented).toEqual([]);
+      expect(result.headings).toEqual([
+        "@cosyte/demo (Project): # The package",
+        "Box.size (Property), defined in src/index.ts: #### Member heading",
+        "other (Variable), defined in src/other.ts: ## Other",
+        // Sorted, so the tab comes before the space.
+        "parse.parse (CallSignature), defined in src/index.ts: ##\tTabbed",
+        "parse.parse (CallSignature), defined in src/index.ts: ## Notes",
+        "parse.parse (CallSignature), defined in src/index.ts: ## Use `parse` for this",
+        "parse.parse (CallSignature), defined in src/index.ts: ## a line that starts with # is one.",
+        "parse.parse (CallSignature), defined in src/index.ts: ###",
+        "parse.parse (CallSignature), defined in src/index.ts: ### Remark heading",
+        "parse.parse.input (Parameter), defined in src/index.ts: # Param heading",
+      ]);
+      // The page prints each as it is, which is why it is refused: it would be in the outline.
+      expect(result.files.get("README.md")).toMatch(/^## Notes$/m);
+    },
+    SLOW,
+  );
+
   it("refuses a package with no tsconfig.json", async () => {
     const dir = pkg({ "src/index.ts": "/** A. */\nexport const a = 1;\n" });
     rmSync(join(dir, "tsconfig.json"));
@@ -519,6 +610,24 @@ describe("runDocsReference, the command line", () => {
   );
 
   it(
+    "with --check, exits 1 on a stale page alone, printing no success line",
+    async () => {
+      const dir = pkg({ "src/index.ts": "/** A. */\nexport const a = 1;\n" });
+      await cli([], dir);
+      writeFileSync(join(dir, REFERENCE_DIR, "README.md"), "edited by hand\n");
+      expect(await cli(["--check"], dir)).toEqual({
+        code: 1,
+        out: "",
+        err:
+          "docs-reference: docs-content/api does not match the source:\n" +
+          "  README.md: differs from what the source generates\n" +
+          "docs-reference: run cosyte-docs-reference and commit docs-content/api\n",
+      });
+    },
+    SLOW,
+  );
+
+  it(
     "with --check, exits 1 on an undocumented export alone",
     async () => {
       const dir = pkg({ "src/index.ts": "export const bare = 1;\n" });
@@ -531,6 +640,27 @@ describe("runDocsReference, the command line", () => {
           "docs-reference: 1 export(s) without a TSDoc comment:\n" +
           "  bare (Variable), defined in src/index.ts\n",
       });
+    },
+    SLOW,
+  );
+
+  it(
+    "writes, then exits 1 naming each heading in a comment; with --check, exits 1 on them alone",
+    async () => {
+      const dir = pkg({
+        "src/index.ts": "/**\n * A.\n *\n * ## Notes\n *\n * ### More\n */\nexport const a = 1;\n",
+      });
+      const headings =
+        "docs-reference: 2 heading(s) in TSDoc comments, which the pages would show in their " +
+        "outline; write each as a bold line or a sentence:\n" +
+        "  a (Variable), defined in src/index.ts: ## Notes\n" +
+        "  a (Variable), defined in src/index.ts: ### More\n";
+      expect(await cli([], dir)).toEqual({
+        code: 1,
+        out: "docs-reference: wrote 1 page(s) to docs-content/api; every export is documented\n",
+        err: headings,
+      });
+      expect(await cli(["--check"], dir)).toEqual({ code: 1, out: "", err: headings });
     },
     SLOW,
   );

@@ -18,10 +18,14 @@ import {
   DESCRIPTION_LIMIT,
   DOCS_CONTENT_RULES,
   DocsContentRefusal,
+  GENERATED_DIR,
+  headingAnchors,
   NUMBERS_HEADING,
+  NUMBERS_PLACEHOLDER,
   parseFrontMatter,
   QUALITY_PAGES,
   readDocsContent,
+  REFERENCE_LINK_PREFIX,
   REQUIRED_PAGES,
   runDocsContentCheck,
 } from "../docs-content.js";
@@ -38,8 +42,10 @@ function page(name: string, body = "Text.\n"): Page {
   };
 }
 
-/** The two quality pages, with the numbers section. */
-const QUALITY = QUALITY_PAGES.map((name) => page(name, `${NUMBERS_HEADING}\n\nGenerated.\n`));
+/** The two quality pages, with the numbers section holding its placeholder. */
+const QUALITY = QUALITY_PAGES.map((name) =>
+  page(name, `${NUMBERS_HEADING}\n\n${NUMBERS_PLACEHOLDER}\n`),
+);
 
 /** The smallest sidebar the standard accepts. */
 function minimalSidebar(): { docs: unknown[] } {
@@ -71,7 +77,12 @@ function minimalPages(): Page[] {
 }
 
 function check(
-  overrides: { pages?: Page[]; sidebars?: unknown; misplaced?: string[] } = {},
+  overrides: {
+    pages?: Page[];
+    sidebars?: unknown;
+    misplaced?: string[];
+    reference?: Map<string, string>;
+  } = {},
 ): { file: string; line: number; rule: string; message: string }[] {
   const sidebars =
     overrides.sidebars === undefined
@@ -85,6 +96,7 @@ function check(
     pages: overrides.pages ?? minimalPages(),
     sidebars,
     misplaced: overrides.misplaced ?? [],
+    ...(overrides.reference === undefined ? {} : { reference: overrides.reference }),
   });
 }
 
@@ -122,6 +134,12 @@ describe("the standard's constants", () => {
     ]);
     expect(QUALITY_PAGES).toEqual(["testing-and-quality", "performance"]);
     expect(NUMBERS_HEADING).toBe("## Current numbers");
+    expect(NUMBERS_PLACEHOLDER).toBe(
+      "The numbers for this section are measured on `main` at each release and filled in when " +
+        "the release is built. They are never typed by hand.",
+    );
+    expect(GENERATED_DIR).toBe("api");
+    expect(REFERENCE_LINK_PREFIX).toBe("./api/");
     expect(DESCRIPTION_LIMIT).toBe(160);
     expect(Object.keys(DOCS_CONTENT_RULES)).toEqual([
       "sidebar",
@@ -130,6 +148,7 @@ describe("the standard's constants", () => {
       "front-matter",
       "file-name",
       "numbers",
+      "reference-link",
     ]);
     expect(DOCS_CONTENT_RULES).toEqual({
       sidebar: "sidebars.json holds one `docs` sidebar in the standard shape",
@@ -138,7 +157,10 @@ describe("the standard's constants", () => {
       "front-matter":
         "every page opens with front matter carrying id, title, sidebar_label, description",
       "file-name": "pages are lower-case, hyphenated .md files at the top of docs-content/",
-      numbers: 'both quality pages carry the "Current numbers" section',
+      numbers:
+        'both quality pages carry the "Current numbers" section, holding only the placeholder',
+      "reference-link":
+        "a link into the generated reference names a page under api/ and, after #, a heading on it",
     });
   });
 });
@@ -624,6 +646,361 @@ describe("numbers", () => {
   });
 });
 
+describe("numbers: the section holds only the placeholder", () => {
+  /** The finding for a section whose heading is on `line` of the page `name`. */
+  const finding = (name: string, line: number): string =>
+    `${name}.md:${line} [numbers] the section holds only the placeholder until the release ` +
+    `fills it in: "${NUMBERS_PLACEHOLDER}"`;
+
+  /** The minimal tree with one quality page's body replaced. */
+  function withBody(name: string, body: string): Page[] {
+    return minimalPages().map((p) => (p.name === name ? page(name, body) : p));
+  }
+
+  // page() puts the body on line 10: 6 lines of front matter, a blank, the title and a blank.
+  const at = 10;
+
+  it.each(QUALITY_PAGES)("reports %s with hand-typed numbers in the section", (name) => {
+    const body = `${NUMBERS_HEADING}\n\n| Lines | 98% |\n| --- | --- |\n`;
+    expect(lines(check({ pages: withBody(name, body) }))).toEqual([finding(name, at)]);
+  });
+
+  it("reports the placeholder with anything added before or after it", () => {
+    for (const body of [
+      `${NUMBERS_HEADING}\n\n${NUMBERS_PLACEHOLDER} Coverage is 98%.\n`,
+      `${NUMBERS_HEADING}\n\nCoverage is 98%.\n\n${NUMBERS_PLACEHOLDER}\n`,
+      `${NUMBERS_HEADING}\n\n${NUMBERS_PLACEHOLDER}\n\n### Coverage\n\n98%.\n`,
+      `${NUMBERS_HEADING}\n\n${NUMBERS_PLACEHOLDER.slice(0, -1)}\n`,
+    ]) {
+      expect(lines(check({ pages: withBody("performance", body) }))).toEqual([
+        finding("performance", at),
+      ]);
+    }
+  });
+
+  it("reports an empty section, at the end of the page or before the next heading", () => {
+    for (const body of [`${NUMBERS_HEADING}\n`, `${NUMBERS_HEADING}\n\n## Method\n\nText.\n`]) {
+      expect(lines(check({ pages: withBody("performance", body) }))).toEqual([
+        finding("performance", at),
+      ]);
+    }
+  });
+
+  it("accepts the placeholder wrapped over lines, with CRLF ends, before a heading of level 1 or 2", () => {
+    const wrapped = NUMBERS_PLACEHOLDER.replace(" at each", "\nat each").replace(
+      " They",
+      "\n  They",
+    );
+    for (const body of [
+      `${NUMBERS_HEADING}\n\n${wrapped}\n\n## Method\n\nAnything, typed by hand.\n`,
+      `${NUMBERS_HEADING}\n${NUMBERS_PLACEHOLDER}\n   # Next\n\n| Lines | 98% |\n`,
+      `${NUMBERS_HEADING}\n\n${NUMBERS_PLACEHOLDER}\n##\nText.\n`,
+      `${NUMBERS_HEADING}\n\n${NUMBERS_PLACEHOLDER}\n##\tTabbed\nText.\n`,
+      `Intro.\n\n${NUMBERS_HEADING}\r\n\r\n${wrapped.replaceAll("\n", "\r\n")}\r\n`,
+    ]) {
+      expect(check({ pages: withBody("testing-and-quality", body) })).toEqual([]);
+    }
+  });
+
+  it("reads a deeper heading, or one indented four spaces, as part of the section", () => {
+    for (const body of [
+      `${NUMBERS_HEADING}\n\n${NUMBERS_PLACEHOLDER}\n### Coverage\n`,
+      `${NUMBERS_HEADING}\n\n${NUMBERS_PLACEHOLDER}\n    ## Indented\n`,
+      `${NUMBERS_HEADING}\n\n${NUMBERS_PLACEHOLDER}\n##Joined\n`,
+    ]) {
+      expect(lines(check({ pages: withBody("performance", body) }))).toEqual([
+        finding("performance", at),
+      ]);
+    }
+  });
+
+  it("checks every section with the heading, each at its own line", () => {
+    const body =
+      `${NUMBERS_HEADING}\n\n${NUMBERS_PLACEHOLDER}\n\n` +
+      `## Method\n\nText.\n\n${NUMBERS_HEADING}\n\n| p50 | 2 ms |\n`;
+    expect(lines(check({ pages: withBody("performance", body) }))).toEqual([
+      finding("performance", 18),
+    ]);
+  });
+
+  it("reads a section that runs to the end of a page with no last line end", () => {
+    const pages = withBody("performance", `${NUMBERS_HEADING}\n\n${NUMBERS_PLACEHOLDER}`);
+    expect(check({ pages })).toEqual([]);
+  });
+
+  it("does not read the section of a page that is not a quality page", () => {
+    const pages = [...minimalPages().filter((p) => p.name !== "the-model")];
+    pages.push(page("the-model", `${NUMBERS_HEADING}\n\nAnything.\n`));
+    expect(check({ pages })).toEqual([]);
+  });
+});
+
+describe("headingAnchors", () => {
+  /** The anchors of a page, in the order they were made. */
+  const anchors = (text: string): string[] => [...headingAnchors(text)];
+
+  it("slugs a heading the way the docs site does", () => {
+    expect(
+      anchors(
+        [
+          "# @cosyte/hl7",
+          "## Functions",
+          "### parseHL7()",
+          "### ACK\\_CODES",
+          "##### $ref?",
+          "##### OML^O59\\_A",
+          "## Class: Field\\<T\\>",
+          "## Two  spaces and a\ttab",
+          "## Café Über ½ ²",
+          "###### Get Signature",
+        ].join("\n"),
+      ),
+    ).toEqual([
+      "cosytehl7",
+      "functions",
+      "parsehl7",
+      "ack_codes",
+      "ref",
+      "omlo59_a",
+      "class-fieldt",
+      "two--spaces-and-atab",
+      "café-über--",
+      "get-signature",
+    ]);
+  });
+
+  it("numbers a repeated slug in page order, skipping one already taken", () => {
+    expect(
+      anchors(
+        ["## Example", "## Example", "### Example", "## Example-1", "## a-1", "## a", "## a"].join(
+          "\n",
+        ),
+      ),
+    ).toEqual(["example", "example-1", "example-2", "example-1-1", "a-1", "a", "a-2"]);
+    expect(anchors("## !\n## ?\n## Text")).toEqual(["", "-1", "text"]);
+  });
+
+  it("reads a code span as its content, and a link or an image as its text", () => {
+    expect(
+      anchors(
+        [
+          "## `parse_HL7`",
+          "## ``a`b`` c",
+          "## `unclosed",
+          "## ``two` one",
+          "## [Field](./field.md) and ![Logo](./img/logo.png)",
+          "## [Open](no closing",
+          "## Ends with ]",
+          "## \\`not code\\`",
+          "## a\\b \\_c\\",
+          "## `a](b)c`",
+          "## \\](not a link)",
+          "## a\\](b)",
+          "## \\`a](b)\\`",
+          "## x]y (z)",
+          "##   Padded   ",
+          "## End\\",
+        ].join("\n"),
+      ),
+    ).toEqual([
+      "parse_hl7",
+      "ab-c",
+      "unclosed",
+      "two-one",
+      "field-and-logo",
+      "openno-closing",
+      "ends-with-",
+      "not-code",
+      "ab-_c",
+      "abc",
+      "not-a-link",
+      "ab",
+      "a",
+      "xy-z",
+      "padded",
+      "end",
+    ]);
+  });
+
+  it("drops the closing run of # and keeps a # that is part of the text", () => {
+    expect(
+      anchors(["## Title ##", "## Title\t#", "## C#", "## #", "### ###", "## A # B"].join("\n")),
+    ).toEqual(["title", "title-1", "c", "", "-1", "a--b"]);
+  });
+
+  it("reads only ATX headings of one to six #, indented at most three spaces, outside code", () => {
+    expect(
+      anchors(
+        [
+          "   ### Indented three",
+          "    ## Indented four",
+          "####### Seven",
+          "#hashtag",
+          "##",
+          "```ts",
+          "## In a fence",
+          "```",
+          "~~~~",
+          "## In a tilde fence",
+          "~~~",
+          "```",
+          "## Still in it",
+          "~~~~",
+          "## After",
+          "```",
+          "  ````md",
+          "## In a fence that a longer run with text after it does not close",
+          "```` trailing",
+          "````  ",
+          "## Out",
+          "````",
+          "```",
+          "## Hidden: a shorter run does not close a fence",
+          "````",
+          "~~~",
+          "```",
+          "## Hidden: backticks do not close a tilde fence",
+          "~~~",
+          "Prose with ``` in it opens no fence.",
+          "## Visible",
+          "```",
+          "## In an unclosed fence",
+        ].join("\n"),
+      ),
+    ).toEqual(["indented-three", "", "after", "out", "visible"]);
+  });
+
+  it("reads CRLF line ends", () => {
+    expect(anchors("## One\r\n## Two ##\r\n")).toEqual(["one", "two"]);
+  });
+});
+
+describe("reference-link", () => {
+  const REFERENCE = new Map([
+    [
+      "README.md",
+      "# @cosyte/example\n\n## Functions\n\n### parseThing()\n\n#### Example\n\n#### Example\n",
+    ],
+    ["@cosyte/namespaces/text.md", "# text\n\n## Variables\n\n### ESCAPES\n"],
+  ]);
+
+  /** The minimal tree with a how-to guide whose body is `body`, checked against REFERENCE. */
+  function guide(body: string, reference: Map<string, string> | null = REFERENCE): string[] {
+    const pages = minimalPages().map((p) => (p.name === "read-a-field" ? page(p.name, body) : p));
+    return lines(check({ pages, ...(reference === null ? {} : { reference }) }));
+  }
+
+  it("accepts a link to a generated page, with or without an anchor its headings give", () => {
+    expect(
+      guide(
+        [
+          "See [`parseThing`](./api/README.md#parsething) and [the reference](./api/README.md).",
+          "The [second example](./api/README.md#example-1), and",
+          '[`ESCAPES`](./api/@cosyte/namespaces/text.md#escapes "title").',
+          "[With brackets](<./api/README.md#functions>), [spaced]( ./api/README.md#example).",
+          "[defined]: ./api/README.md#cosyteexample",
+          "   [defined too]: <./api/@cosyte/namespaces/text.md#variables> 'title'",
+        ].join("\n"),
+      ),
+    ).toEqual([]);
+  });
+
+  it("reports a page that is not generated, naming the page and the line", () => {
+    expect(guide("Text.\n\nSee [x](./api/Missing.md#x).\n")).toEqual([
+      "read-a-field.md:12 [reference-link] links ./api/Missing.md#x, but there is no page api/Missing.md",
+    ]);
+  });
+
+  it("reports an anchor no heading on the page gives", () => {
+    expect(
+      guide(
+        "[a](./api/README.md#parseThing) [b](./api/README.md#example-2)\n[c]: ./api/README.md#",
+      ),
+    ).toEqual([
+      'read-a-field.md:10 [reference-link] links ./api/README.md#parseThing, but no heading on api/README.md has the anchor "parseThing"',
+      'read-a-field.md:10 [reference-link] links ./api/README.md#example-2, but no heading on api/README.md has the anchor "example-2"',
+      'read-a-field.md:11 [reference-link] links ./api/README.md#, but no heading on api/README.md has the anchor ""',
+    ]);
+  });
+
+  it("reads a destination after spaces or in angle brackets, or running to the end of the line", () => {
+    const missing = (target: string, line = 10): string =>
+      `read-a-field.md:${line} [reference-link] links ${target}, but there is no page api/Missing.md`;
+    expect(
+      guide(
+        [
+          "[`a`](./api/Missing.md#code-in-the-text) and `b` after it",
+          "[a](./api/Missing.md#before-a-stray-backtick) and a stray `",
+          "[a label]: ./api/Missing.md#long-label",
+          "[x]:./api/Missing.md#no-space",
+        ].join("\n"),
+      ),
+    ).toEqual([
+      missing("./api/Missing.md#code-in-the-text"),
+      missing("./api/Missing.md#before-a-stray-backtick", 11),
+      missing("./api/Missing.md#long-label", 12),
+      missing("./api/Missing.md#no-space", 13),
+    ]);
+    expect(guide("[x](  ./api/Missing.md)")).toEqual([missing("./api/Missing.md")]);
+    expect(guide("[x](<./api/Missing.md#a b>)")).toEqual([missing("./api/Missing.md#a")]);
+    expect(guide("[x](./api/Missing.md#open")).toEqual([missing("./api/Missing.md#open")]);
+  });
+
+  it("reports a link into the reference that names no page", () => {
+    const shape = (target: string): string =>
+      `read-a-field.md:10 [reference-link] links ${target}: a link into the reference is ` +
+      "./api/<page>.md, with an optional #<anchor>";
+    for (const target of [
+      "./api/",
+      "./api/README",
+      "./api/#functions",
+      "./api/../intro.md",
+      "./api/./README.md",
+      "./api//README.md",
+      "./api/README.mdx",
+    ]) {
+      expect(guide(`[x](${target})`)).toEqual([shape(target)]);
+    }
+  });
+
+  it("reports every link into the reference as missing when no generated page was read", () => {
+    expect(guide("[x](./api/README.md)", null)).toEqual([
+      "read-a-field.md:10 [reference-link] links ./api/README.md, but there is no page api/README.md",
+    ]);
+  });
+
+  it("reads no link in code, and no link outside the reference", () => {
+    expect(
+      guide(
+        [
+          "`[x](./api/Missing.md)` and ``[y](./api/Missing.md) ` `` and `[z](./api/README.md#functions)",
+          "```md",
+          "[x](./api/Missing.md)",
+          "```",
+          "[x](./api.md) [y](../api/Missing.md) [z](https://example.com/api/Missing.md)",
+          "[w](api/Missing.md) [v](./guides/api/Missing.md) [u]: ../api/Missing.md",
+          "[t](./other.md#api) ](",
+          "  ./api/Missing.md is a path in prose, not a link",
+          "]`code`(./api/Missing.md) is no link, nor is [x]`(./api/Missing.md)",
+          "See [x]: ./api/Missing.md, which is prose and no definition.",
+        ].join("\n"),
+      ),
+    ).toEqual([]);
+  });
+
+  it("checks every page that links, caching each generated page's anchors", () => {
+    const pages = minimalPages().map((p) =>
+      p.name === "the-model" || p.name === "intro"
+        ? page(p.name, "[a](./api/README.md#functions) [b](./api/README.md#nope)")
+        : p,
+    );
+    expect(lines(check({ pages, reference: REFERENCE }))).toEqual([
+      'intro.md:10 [reference-link] links ./api/README.md#nope, but no heading on api/README.md has the anchor "nope"',
+      'the-model.md:10 [reference-link] links ./api/README.md#nope, but no heading on api/README.md has the anchor "nope"',
+    ]);
+  });
+});
+
 describe("readDocsContent and the command line", () => {
   let root: string;
 
@@ -678,11 +1055,14 @@ describe("readDocsContent and the command line", () => {
     return { code, out: out.text(), err: err.text() };
   }
 
-  it("reads top-level pages, the sidebar, skips api/, and lists misplaced markdown", () => {
+  it("reads top-level pages, the sidebar, the generated pages, and lists misplaced markdown", () => {
     const dir = minimalTree("read", {
       "docs-content/zz/z.md": "# nested, written first\n",
-      "docs-content/api/README.md": "# generated, not read\n",
-      "docs-content/api/deep/x.md": "# generated\n",
+      "docs-content/api/README.md": "# generated\n",
+      "docs-content/api/deep/x.md": "# generated, deeper\n",
+      "docs-content/api/deep/x.mdx": "# not a generated page\n",
+      "docs-content/api/sidebars.json": "{}",
+      "docs-content/api/notes.txt": "not markdown",
       "docs-content/guides/a.md": "# nested\n",
       "docs-content/guides/sidebars.json": "{}",
       "docs-content/guides/notes.md.bak": "a backup",
@@ -696,6 +1076,41 @@ describe("readDocsContent and the command line", () => {
     expect(input.pages.map((p) => p.name)).toEqual([...minimalPages().map((p) => p.name)].sort());
     expect(input.sidebars).toBe(JSON.stringify(minimalSidebar()));
     expect(input.misplaced).toEqual(["C.MD", "b.mdx", "guides/a.md", "zz/z.md"]);
+    expect([...input.reference]).toEqual([
+      ["README.md", "# generated\n"],
+      ["deep/x.md", "# generated, deeper\n"],
+    ]);
+  });
+
+  it("refuses a generated page that is not a regular file", () => {
+    const dir = minimalTree("linked-reference", { "docs-content/api/README.md": "# x\n" });
+    symlinkSync(
+      join(dir, "docs-content", "api", "README.md"),
+      join(dir, "docs-content", "api", "x.md"),
+    );
+    expect(() => readDocsContent(dir)).toThrow(/api\/x\.md is not a regular file\.$/);
+  });
+
+  it("exits 1 on a link into the reference that does not resolve, and 0 once it does", () => {
+    const body = (anchor: string): string =>
+      page("read-a-field", `See [\`parseThing\`](./api/README.md#${anchor}).\n`).text;
+    const broken = minimalTree("reference-broken", {
+      "docs-content/read-a-field.md": body("parse-thing"),
+      "docs-content/api/README.md": "# @cosyte/example\n\n### parseThing()\n",
+    });
+    expect(cli(["--dir", broken])).toEqual({
+      code: 1,
+      out: "",
+      err:
+        "docs-content: 1 finding(s) in 8 page(s).\n" +
+        "  docs-content/read-a-field.md:10 [reference-link] links ./api/README.md#parse-thing, " +
+        'but no heading on api/README.md has the anchor "parse-thing"\n',
+    });
+    const fixed = minimalTree("reference-fixed", {
+      "docs-content/read-a-field.md": body("parsething"),
+      "docs-content/api/README.md": "# @cosyte/example\n\n### parseThing()\n",
+    });
+    expect(cli(["--dir", fixed]).code).toBe(0);
   });
 
   it("returns a null sidebar when sidebars.json is absent", () => {
