@@ -132,6 +132,164 @@ describe("the PHI engine from the command line", () => {
   });
 });
 
+describe("--allow-list <path>, the allow list to use instead of scripts/phi-allow-list.txt", () => {
+  /** A repository with these files and NO allow list of its own. */
+  function bare(files: Record<string, string>): string {
+    const dir = mkdtempSync(join(tmpdir(), "phi-scan-cli-bare-"));
+    repos.push(dir);
+    git(dir, ["init", "-q", "."]);
+    for (const [path, text] of Object.entries(files)) {
+      mkdirSync(dirname(join(dir, path)), { recursive: true });
+      writeFileSync(join(dir, path), text);
+    }
+    git(dir, ["add", "."]);
+    return dir;
+  }
+
+  /** An empty allow list outside every repository, as a tool pushing from a bare repository passes. */
+  function emptyList(): string {
+    const dir = mkdtempSync(join(tmpdir(), "phi-scan-cli-list-"));
+    repos.push(dir);
+    const file = join(dir, "empty-allow-list.txt");
+    writeFileSync(file, "");
+    return file;
+  }
+
+  /** An email shape at a reserved domain: declared by every fixture list here, by no empty one. */
+  const EMAIL = ["someone", "example.com"].join("@");
+
+  it("leaves the default alone: a repository with no allow list still refuses at exit 2", () => {
+    const r = cli(bare({ "src/index.ts": "export const x = 1;\n" }));
+    expect(r.code, r.out).toBe(2);
+    expect(r.out).toContain("scripts/phi-allow-list.txt");
+  });
+
+  it("scans a repository with no allow list of its own, and reports it clean", () => {
+    const r = cli(bare({ "src/index.ts": "export const x = 1;\n" }), ["--allow-list", emptyList()]);
+    expect(r.code, r.out).toBe(0);
+  });
+
+  it("still catches a dashed SSN shape with an empty list, naming the place and not the value", () => {
+    const r = cli(bare({ "test/record.txt": `id ${SSN}\n` }), ["--allow-list", emptyList()]);
+    expect(r.code, r.out).toBe(1);
+    expect(r.out).toContain("test/record.txt");
+    expect(r.out).toContain("dashed SSN pattern");
+    expect(r.out).not.toContain(SSN);
+  });
+
+  it("still catches an email at an undeclared domain with an empty list", () => {
+    const r = cli(bare({ "notes.txt": `write to ${EMAIL}\n` }), ["--allow-list", emptyList()]);
+    expect(r.code, r.out).toBe(1);
+    expect(r.out).toContain("notes.txt");
+    expect(r.out).toContain("email with non-test domain");
+    expect(r.out).not.toContain(EMAIL);
+  });
+
+  it("replaces the repository's own list rather than adding to it", () => {
+    // Without this, an option that merged with (or ignored) the named file would pass the cases
+    // above in a repository that declares the shape itself.
+    const dir = repo({
+      "scripts/phi-allow-list.txt": `EMAILDOMAIN example.com\nID ${SSN}\n`,
+      "a.txt": `id ${SSN} ${EMAIL}\n`,
+    });
+    expect(cli(dir).code).toBe(0);
+    const r = cli(dir, ["--allow-list", emptyList()]);
+    expect(r.code, r.out).toBe(1);
+    expect(r.out).toContain("dashed SSN pattern");
+    expect(r.out).toContain("email with non-test domain");
+  });
+
+  it("reads the declarations of the list it names", () => {
+    const list = emptyList();
+    writeFileSync(list, "EMAILDOMAIN example.com\n");
+    expect(cli(bare({ "a.txt": `${EMAIL}\n` }), ["--allow-list", list]).code).toBe(0);
+  });
+
+  it("takes a path relative to the working directory", () => {
+    const dir = bare({ "a.txt": `id ${SSN}\n` });
+    writeFileSync(join(dir, "empty.txt"), "");
+    git(dir, ["add", "empty.txt"]);
+    const r = cli(dir, ["--allow-list", "empty.txt"]);
+    expect(r.code, r.out).toBe(1);
+    expect(r.out).toContain("a.txt");
+  });
+
+  it("works with --staged, on either side of it", () => {
+    const dir = bare({ "src/index.ts": "export const x = 1;\n" });
+    const list = emptyList();
+    expect(cli(dir, ["--staged", "--allow-list", list]).code).toBe(0);
+    writeFileSync(join(dir, "src", "leak.ts"), `export const id = "${SSN}";\n`);
+    git(dir, ["add", "src/leak.ts"]);
+    for (const args of [
+      ["--staged", "--allow-list", list],
+      ["--allow-list", list, "--staged"],
+    ]) {
+      const r = cli(dir, args);
+      expect(r.code, `${args.join(" ")}: ${r.out}`).toBe(1);
+      expect(r.out).toContain("src/leak.ts");
+    }
+  });
+
+  it("works with paths, before or after them, and scans only those paths", () => {
+    const dir = bare({ "a.txt": `id ${SSN}\n`, "b.txt": "clean\n" });
+    const list = emptyList();
+    expect(cli(dir, ["--allow-list", list, "b.txt"]).code).toBe(0);
+    for (const args of [
+      ["--allow-list", list, "a.txt"],
+      ["a.txt", "--allow-list", list],
+    ]) {
+      const r = cli(dir, args);
+      expect(r.code, `${args.join(" ")}: ${r.out}`).toBe(1);
+      expect(r.out).toContain("a.txt");
+    }
+  });
+
+  it("refuses a path that does not exist, at exit 2, saying so, before scanning", () => {
+    const missing = join(dirname(emptyList()), "no-such-list.txt");
+    const r = cli(bare({ "a.txt": `id ${SSN}\n` }), ["--allow-list", missing]);
+    expect(r.code, r.out).toBe(2);
+    expect(r.out).toContain("--allow-list");
+    expect(r.out).toContain("does not exist");
+    expect(r.out).toContain(missing);
+    expect(r.out).not.toContain("HIT");
+  });
+
+  it("refuses a path that cannot be read, at exit 2, saying so", () => {
+    const dir = dirname(emptyList());
+    const r = cli(bare({ "a.txt": "clean\n" }), ["--allow-list", dir]);
+    expect(r.code, r.out).toBe(2);
+    expect(r.out).toContain("--allow-list");
+    expect(r.out).toContain("could not be read");
+    expect(r.out).toContain(dir);
+  });
+
+  it.each([
+    ["no path", ["--allow-list"]],
+    ["an empty path", ["--allow-list", ""]],
+    ["the option twice", ["--allow-list", "x.txt", "--allow-list", "y.txt"]],
+  ])("refuses %s at exit 2", (_label, args) => {
+    const r = cli(bare({ "a.txt": "clean\n" }), args);
+    expect(r.code, r.out).toBe(2);
+    expect(r.out).toContain("--allow-list");
+  });
+
+  it("reads --allow-list after -- as a path to scan, not as the option", () => {
+    const list = emptyList();
+    const dir = repo({ "a.txt": "clean\n" });
+    const r = cli(dir, ["--", "--allow-list", list]);
+    // Both are paths now: `--allow-list` names no file, so the paths route refuses it.
+    expect(r.code, r.out).toBe(2);
+  });
+
+  it("leaves the value of --allow-fixture alone, even when it reads --allow-list", () => {
+    // `--allow-fixture --allow-list` names a fixture called `--allow-list`; the engine refuses it
+    // for having no override-log entry, and the option parser must not take it as the option.
+    const r = cli(repo({ "a.txt": "clean\n" }), ["--allow-fixture", "--allow-list"]);
+    expect(r.code, r.out).toBe(2);
+    expect(r.out).toContain("--allow-fixture rejected");
+  });
+});
+
 describe("readPhiExclusions", () => {
   const tracked = new Set(["a.txt", "dir/b.txt"]);
 

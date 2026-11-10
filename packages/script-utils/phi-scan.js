@@ -2102,12 +2102,13 @@ function gitModeKind(mode) {
 
 // ---- The command-line form (ST34) ---------------------------------------------------------------
 //
-// `node node_modules/@cosyte/script-utils/phi-scan.js [--staged | <path>...]` runs this engine over
-// the repository in the working directory with the house settings and no caller script: exit codes
-// 0 clean, 1 hits, 2 refuse; the whole repository as the one scan root; the `--staged` route reading
-// everything but Markdown (`exemptsMarkdown`); the allow-list at `scripts/phi-allow-list.txt` and the
-// override log at `phi-scan-overrides.md`, the engine's defaults; and what the repository leaves
-// out, in `scripts/phi-scan.exclude`.
+// `node node_modules/@cosyte/script-utils/phi-scan.js [--allow-list <path>] [--staged | <path>...]`
+// runs this engine over the repository in the working directory with the house settings and no
+// caller script: exit codes 0 clean, 1 hits, 2 refuse; the whole repository as the one scan root;
+// the `--staged` route reading everything but Markdown (`exemptsMarkdown`); the allow-list at
+// `scripts/phi-allow-list.txt` and the override log at `phi-scan-overrides.md`, the engine's
+// defaults; and what the repository leaves out, in `scripts/phi-scan.exclude`. `--allow-list
+// <path>` names another allow list in place of the repository's (see `runPhiScanCli`).
 //
 // AN EXCLUSION IS ONE LITERAL TRACKED PATH, as `excludedPaths` requires: no pattern, no directory,
 // because a class quietly grows new members. One per line; a line whose first character is `#` is a
@@ -2151,13 +2152,89 @@ export function readPhiExclusions(text, tracked) {
 }
 
 /**
+ * Take `--allow-list <path>` out of the command line, leaving every other argument in its place.
+ *
+ * IT READS THE ENGINE'S OWN GRAMMAR, NOT A SIMPLER ONE, so it cannot take an argument the engine
+ * would have read as something else: everything after `--` is a path, and the word after
+ * `--allow-fixture` is that bypass's path, even when it reads `--allow-list`.
+ *
+ * @param {string[]} argv
+ * @returns {{ argv: string[], allowList: string | undefined, problem: string | undefined }}
+ */
+function takeAllowListOption(argv) {
+  /** @type {string[]} */
+  const rest = [];
+  /** @type {string | undefined} */
+  let allowList;
+  let i = 0;
+  while (i < argv.length) {
+    const a = argv[i];
+    if (a === "--") {
+      rest.push(...argv.slice(i));
+      break;
+    }
+    if (a === "--allow-fixture") {
+      rest.push(...argv.slice(i, i + 2));
+      i += 2;
+      continue;
+    }
+    if (a === "--allow-list") {
+      const value = argv[i + 1];
+      if (value === undefined || value === "") {
+        return { argv, allowList: undefined, problem: "--allow-list requires a path argument" };
+      }
+      if (allowList !== undefined) {
+        return { argv, allowList: undefined, problem: "--allow-list was given more than once" };
+      }
+      allowList = value;
+      i += 2;
+      continue;
+    }
+    if (a !== undefined) rest.push(a);
+    i += 1;
+  }
+  return { argv: rest, allowList, problem: undefined };
+}
+
+/**
  * Run the engine from the command line over the repository in the working directory.
  *
- * @param {string[]} argv The engine's own arguments: `--staged`, paths, `--allow-fixture <path>`.
+ * `--allow-list <path>` NAMES THE ALLOW LIST INSTEAD OF `scripts/phi-allow-list.txt`, resolved
+ * against the working directory. It is what a tool scanning a repository that keeps no list of its
+ * own passes, usually an empty file: the run is then a scan with no exceptions, where without the
+ * option it refuses for the missing list. The named file REPLACES the repository's list rather than
+ * adding to it. A path that does not exist, or that exists and cannot be read (a directory, no read
+ * permission), refuses at exit 2 before anything is scanned and says which: the engine itself would
+ * let an unreadable list escape to node's own exit 1, the code reserved for hits. Without the option
+ * nothing here changes.
+ *
+ * @param {string[]} argv The engine's own arguments: `--staged`, paths, `--allow-fixture <path>`,
+ *   and this form's `--allow-list <path>`.
  * @returns {number} 0 clean, 1 hits, 2 the scan could not account for something.
  */
 export function runPhiScanCli(argv) {
   const repoRoot = process.cwd();
+  const option = takeAllowListOption(argv);
+  if (option.problem !== undefined) {
+    process.stderr.write(`[phi-scan] ${option.problem}\n`);
+    return CLI_EXIT_CODES.refuse;
+  }
+  /** @type {string | undefined} */
+  let allowListPath;
+  if (option.allowList !== undefined) {
+    allowListPath = resolve(repoRoot, option.allowList);
+    try {
+      readFileSync(allowListPath, "utf8");
+    } catch (err) {
+      const code = err instanceof Error && "code" in err ? String(err.code) : "";
+      process.stderr.write(
+        code === "ENOENT"
+          ? `[phi-scan] the allow list --allow-list names does not exist: ${allowListPath}\n`
+          : `[phi-scan] the allow list --allow-list names could not be read (${code || "unknown error"}): ${allowListPath}\n`,
+      );
+      return CLI_EXIT_CODES.refuse;
+    }
+  }
   let excludedPaths = new Set();
   const file = join(repoRoot, ...PHI_EXCLUDE_PATH.split("/"));
   if (existsSync(file)) {
@@ -2196,7 +2273,8 @@ export function runPhiScanCli(argv) {
       isStagedReadable: exemptsMarkdown,
       excludedPaths,
       repoRoot,
-      argv,
+      argv: option.argv,
+      ...(allowListPath === undefined ? {} : { allowListPath }),
     });
   } catch (err) {
     // The backstop: an error the engine did not raise as a refusal must still not take node's own

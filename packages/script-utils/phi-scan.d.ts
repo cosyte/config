@@ -293,7 +293,10 @@ export declare function readPhiExclusions(
  * 0 clean, 1 hits, 2 refuse, the whole repository as the scan root, the `--staged` route reading
  * everything but Markdown, and `scripts/phi-scan.exclude`. The cross-cutting floor only: a
  * repository that needs field-level detectors keeps a caller passing `detect`.
- * `node node_modules/@cosyte/script-utils/phi-scan.js [--staged | <path>...]`.
+ * `--allow-list <path>` names the allow list to use instead of `scripts/phi-allow-list.txt`
+ * (resolved against the working directory, replacing the repository's list); a path that does not
+ * exist or cannot be read refuses at 2.
+ * `node node_modules/@cosyte/script-utils/phi-scan.js [--allow-list <path>] [--staged | <path>...]`.
  */
 export declare function runPhiScanCli(argv: string[]): number;
 
