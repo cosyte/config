@@ -27,6 +27,23 @@ import { afterAll, describe, expect, test } from "vitest";
 /** Fence languages treated as executable TypeScript. */
 const RUNNABLE_LANGS = new Set(["ts", "typescript", "tsx"]);
 
+/**
+ * The fence languages that make a block a code sample in every-sample mode: TypeScript and
+ * JavaScript. A shell, JSON or text block is not a sample and is never run.
+ */
+export const SAMPLE_LANGS = new Set(["ts", "typescript", "tsx", "js", "javascript", "mjs"]);
+
+/** The module extension each sample language is written with, so a JavaScript sample runs as one. */
+const EXTENSIONS = new Map([
+  ["tsx", ".tsx"],
+  ["js", ".mjs"],
+  ["javascript", ".mjs"],
+  ["mjs", ".mjs"],
+]);
+
+/** The fence tag that marks a sample as not run; the words after it are the reason. */
+const NO_RUN = "no-run";
+
 /** Monotonic counter so every emitted temp module gets a unique, cache-busting filename. */
 let moduleCounter = 0;
 
@@ -55,26 +72,23 @@ const LINE_TERMINATOR = /[\n\r\u2028\u2029]/;
 const ASSERTION_MARKER = /;\s*\/\/\s*=>/g;
 
 /**
- * Extract the opt-in runnable snippets from a markdown string.
- *
- * A block is runnable when its fence info string names a TypeScript language *and* carries the
- * opt-in tag, e.g. ```` ```ts runnable ````. Everything else (prose, shell, un-tagged `ts` blocks)
- * is ignored: opt-in, never opt-out, so documenting non-executable pseudocode stays possible.
- * The `throws` meta tag marks a block expected to throw rather than run clean.
+ * Every fenced block in a markdown string, in document order.
  *
  * @param {string} markdown - The markdown source.
- * @param {{ runnableTag?: string }} [opts] - Options; `runnableTag` overrides the default `"runnable"`.
- * @returns {Array<{ lang: string, meta: string[], code: string, line: number, throws: boolean }>}
- *   One entry per runnable block, in document order. `line` is the 1-based line of the block's first
- *   code line (so a failure points at the snippet, not the fence).
+ * @returns {Array<{ lang: string | undefined, meta: string[], code: string, line: number }>}
+ *   `lang` is the first word of the info string, lower-cased; `line` is the 1-based line of the
+ *   block's first code line.
  */
-export function extractRunnableSnippets(markdown, opts = {}) {
-  const runnableTag = opts.runnableTag ?? "runnable";
+function scanFences(markdown) {
   const lines = markdown.split(/\r?\n/);
+  // Stryker disable next-line ArrayDeclaration: equivalent, every caller keeps blocks by language.
   const out = [];
   let i = 0;
+  // Stryker disable next-line EqualityOperator: equivalent, the line past the end matches no fence.
   while (i < lines.length) {
     const open = FENCE_OPEN.exec(lines[i]);
+    // Stryker disable next-line StringLiteral,MethodExpression: equivalent, a line that opens no fence
+    // never reads it, and the words are trimmed on both sides below.
     const info = open ? lines[i].slice(open[0].length).trimStart() : "";
     if (!open || LINE_TERMINATOR.test(info)) {
       i++;
@@ -84,6 +98,7 @@ export function extractRunnableSnippets(markdown, opts = {}) {
     const firstCodeLine = i + 2; // 1-based line of the first body line
     const body = [];
     let j = i + 1;
+    // Stryker disable next-line BooleanLiteral: equivalent, an unclosed block runs to the last line.
     let closed = false;
     while (j < lines.length) {
       const close = lines[j].match(/^(\s*)(`{3,}|~{3,})\s*$/);
@@ -99,21 +114,105 @@ export function extractRunnableSnippets(markdown, opts = {}) {
       body.push(indent && lines[j].startsWith(indent) ? lines[j].slice(indent.length) : lines[j]);
       j++;
     }
+    // Stryker disable next-line MethodExpression,Regex: equivalent, every empty word is filtered.
     const tokens = info.trim().split(/\s+/).filter(Boolean);
-    const lang = tokens[0]?.toLowerCase();
-    const meta = tokens.slice(1);
-    if (RUNNABLE_LANGS.has(lang) && meta.includes(runnableTag)) {
-      out.push({
-        lang,
-        meta,
-        code: body.join("\n"),
-        line: firstCodeLine,
-        throws: meta.includes("throws"),
-      });
-    }
+    out.push({
+      lang: tokens[0]?.toLowerCase(),
+      meta: tokens.slice(1),
+      code: body.join("\n"),
+      line: firstCodeLine,
+    });
     i = closed ? j + 1 : j;
   }
   return out;
+}
+
+/**
+ * Extract the opt-in runnable snippets from a markdown string.
+ *
+ * A block is runnable when its fence info string names a TypeScript language *and* carries the
+ * opt-in tag, e.g. ```` ```ts runnable ````. Everything else (prose, shell, un-tagged `ts` blocks)
+ * is ignored: opt-in, never opt-out, so documenting non-executable pseudocode stays possible.
+ * The `throws` meta tag marks a block expected to throw rather than run clean.
+ *
+ * @param {string} markdown - The markdown source.
+ * @param {{ runnableTag?: string }} [opts] - Options; `runnableTag` overrides the default `"runnable"`.
+ * @returns {Array<{ lang: string, meta: string[], code: string, line: number, throws: boolean }>}
+ *   One entry per runnable block, in document order. `line` is the 1-based line of the block's first
+ *   code line (so a failure points at the snippet, not the fence).
+ */
+export function extractRunnableSnippets(markdown, opts = {}) {
+  const runnableTag = opts.runnableTag ?? "runnable";
+  return scanFences(markdown)
+    .filter((block) => RUNNABLE_LANGS.has(block.lang) && block.meta.includes(runnableTag))
+    .map((block) => ({ ...block, throws: block.meta.includes("throws") }));
+}
+
+/**
+ * Extract every code sample from a markdown string: each TypeScript or JavaScript block, tagged or
+ * not.
+ *
+ * A sample that cannot run carries `no-run` and its reason in the fence, as in
+ * ```` ```ts no-run starts a listener that never closes ````: `skip` is then the reason (the words
+ * after `no-run`, which may be empty, and an empty reason is an error the suite reports). `throws`
+ * is read from the tags before `no-run` only, since the words after it are prose.
+ *
+ * @param {string} markdown - The markdown source.
+ * @returns {Array<{ lang: string, meta: string[], code: string, line: number, throws: boolean, skip: string | null }>}
+ *   One entry per sample, in document order.
+ */
+export function extractSamples(markdown) {
+  return scanFences(markdown)
+    .filter((block) => SAMPLE_LANGS.has(block.lang))
+    .map((block) => {
+      const at = block.meta.indexOf(NO_RUN);
+      const tags = at === -1 ? block.meta : block.meta.slice(0, at);
+      return {
+        ...block,
+        throws: tags.includes("throws"),
+        skip: at === -1 ? null : block.meta.slice(at + 1).join(" "),
+      };
+    });
+}
+
+/**
+ * Decide what the suite does with each sample in a set of markdown files: run it, skip it with its
+ * reason, or report it as invalid (a `no-run` with no reason).
+ *
+ * @param {string[]} files - Markdown file paths.
+ * @param {{ every?: boolean, root?: string, runnableTag?: string }} [options] - `every` takes every
+ *   sample rather than only the `runnable` ones; `root` is what labels are relative to (default the
+ *   working directory).
+ * @returns {Array<{ label: string, kind: "run" | "skip" | "invalid", reason: string | null, snippet: object }>}
+ */
+export function planSamples(files, options = {}) {
+  const root = options.root ?? process.cwd();
+  const plan = [];
+  for (const filePath of files) {
+    const markdown = readFileSync(filePath, "utf8");
+    const samples = options.every
+      ? extractSamples(markdown)
+      : extractRunnableSnippets(markdown, { runnableTag: options.runnableTag }).map((s) => ({
+          ...s,
+          skip: null,
+        }));
+    for (const snippet of samples) {
+      const label = `${relative(root, filePath)}:${snippet.line}`;
+      if (snippet.skip === null) {
+        plan.push({ label, kind: "run", reason: null, snippet });
+      } else if (snippet.skip === "") {
+        plan.push({
+          label,
+          kind: "invalid",
+          reason: "a no-run sample names its reason after no-run, as in: ts no-run <why>",
+          snippet,
+        });
+      } else {
+        plan.push({ label, kind: "skip", reason: snippet.skip, snippet });
+      }
+    }
+  }
+  return plan;
 }
 
 /**
@@ -220,8 +319,10 @@ export async function runSnippet(snippet, opts = {}) {
   const { code: asserted } = rewriteAssertions(remapped);
   const moduleSource = `import { expect } from "vitest";\n${asserted}\n`;
 
+  const extension =
+    (typeof snippet === "string" ? undefined : EXTENSIONS.get(snippet.lang)) ?? ".ts";
   mkdirSync(tmpDir, { recursive: true });
-  const file = join(tmpDir, `snippet-${process.pid}-${moduleCounter++}.ts`);
+  const file = join(tmpDir, `snippet-${process.pid}-${moduleCounter++}${extension}`);
   writeFileSync(file, moduleSource, "utf8");
   try {
     if (throwsExpected) {
@@ -266,6 +367,8 @@ export async function runSnippet(snippet, opts = {}) {
  * @param {string} [options.runnableTag] - Fence opt-in tag. Default `"runnable"`.
  * @param {string} [options.name] - Suite label. Default `"doc/code agreement"`.
  * @param {boolean} [options.requireSnippet] - Assert at least one runnable snippet exists. Default `false`.
+ * @param {boolean} [options.every] - Run every TypeScript and JavaScript sample, not only the
+ *   `runnable` ones; a `no-run <reason>` sample is listed as skipped with its reason. Default `false`.
  * @param {string} [options.tmpDir] - Where temp modules are written (must be inside the project root).
  * @returns {void}
  */
@@ -279,6 +382,7 @@ export function docSnippetSuite(options = {}) {
     name = "doc/code agreement",
     requireSnippet = false,
     tmpDir = defaultTmpDir(),
+    every = false,
   } = options;
 
   const mdFiles = files ?? (docsDir ? collectMarkdown(docsDir, include) : []);
@@ -292,17 +396,34 @@ export function docSnippetSuite(options = {}) {
       }
     });
 
+    // From here to the end of the loop the code runs while Vitest collects the suite, and Stryker's
+    // Vitest runner switches a mutant on only once the tests run, so none of its mutants reach this
+    // region. Each mutant of it was applied by hand instead, and each fails
+    // test/doc-samples-every.test.ts.
+    // Stryker disable all
+    const plan = planSamples(mdFiles, { every, runnableTag });
     let total = 0;
-    for (const filePath of mdFiles) {
-      const snippets = extractRunnableSnippets(readFileSync(filePath, "utf8"), { runnableTag });
-      total += snippets.length;
-      for (const snippet of snippets) {
-        const label = `${relative(process.cwd(), filePath)}:${snippet.line}`;
-        test(label, async () => {
-          await runSnippet(snippet, { resolve: resolveFn, tmpDir });
+    for (const step of plan) {
+      if (step.kind === "run") {
+        total++;
+        test(step.label, async () => {
+          await runSnippet(step.snippet, { resolve: resolveFn, tmpDir });
         });
+        continue;
       }
+      if (step.kind === "skip") {
+        test.skip(`${step.label} (not run: ${step.reason})`, () => {});
+        continue;
+      }
+      // An invalid sample: a no-run with no reason. This test only ever fails, so its lines are
+      // proven by a separate Vitest run (test/doc-samples-every.test.ts, "a no-run sample with no
+      // reason fails the suite"), whose coverage this run cannot collect.
+      /* v8 ignore next 3 */
+      test(step.label, () => {
+        throw new Error(`${step.label}: ${step.reason}`);
+      });
     }
+    // Stryker restore all
 
     if (requireSnippet) {
       test("carries at least one runnable snippet", () => {
