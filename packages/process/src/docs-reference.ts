@@ -104,6 +104,7 @@ export function entryPointsFor(cwd: string): EntryPoint[] {
   const manifestPath = join(cwd, "package.json");
   let text: string;
   try {
+    // Stryker disable next-line StringLiteral: equivalent, JSON.parse reads a Buffer as UTF-8 text.
     text = readFileSync(manifestPath, "utf8");
   } catch {
     throw new ReferenceInputError(`${manifestPath} could not be read`);
@@ -129,8 +130,8 @@ export function entryPointsFor(cwd: string): EntryPoint[] {
       entries.push({ subpath, file: join(cwd, "src", "index.ts") });
       continue;
     }
-    const name = subpath.slice(2);
-    const candidates = [join(cwd, "src", name, "index.ts"), join(cwd, "src", `${name}.ts`)];
+    // `join` drops the leading "./" of the subpath.
+    const candidates = [join(cwd, "src", subpath, "index.ts"), join(cwd, "src", `${subpath}.ts`)];
     const file = candidates.find((candidate) => existsSync(candidate));
     if (file === undefined) {
       throw new ReferenceInputError(
@@ -152,15 +153,16 @@ class CollectingLogger extends Logger {
   }
 }
 
-/** Whether a comment has words in its summary. @internal */
+/** Whether a comment has a summary. TypeDoc trims a summary, so one with no words is empty. @internal */
 function hasSummary(comment: Comment | undefined): boolean {
-  return comment !== undefined && comment.summary.some((part) => part.text.trim() !== "");
+  return comment !== undefined && comment.summary.length > 0;
 }
 
 /**
  * Each export of a project with no TSDoc summary, walking into namespaces and, for a package with
  * several entry points, into each module. A function counts as documented when its declaration or
- * any of its signatures has a summary. Members of an export are not walked.
+ * any of its signatures has a summary. Members of an export are walked too, but none of them is of a
+ * required kind, so none is reported.
  *
  * @internal
  */
@@ -178,7 +180,7 @@ function undocumentedExports(project: ProjectReflection): string[] {
       if (!isDocumented(child)) {
         found.push(`${name} (${ReflectionKind[child.kind]}), defined in ${sourceOf(child)}`);
       }
-      if (child.kindOf(ReflectionKind.Namespace)) visit(child, `${name}.`);
+      visit(child, `${name}.`);
     }
   };
   visit(project, "");
@@ -189,14 +191,14 @@ function undocumentedExports(project: ProjectReflection): string[] {
 function isDocumented(reflection: DeclarationReflection): boolean {
   return (
     hasSummary(reflection.comment) ||
-    (reflection.signatures ?? []).some((signature) => hasSummary(signature.comment))
+    reflection.signatures?.some((signature) => hasSummary(signature.comment)) === true
   );
 }
 
 /** The file an export is declared in, relative to the package root. @internal */
 function sourceOf(reflection: DeclarationReflection): string {
-  // Stryker disable next-line StringLiteral: TypeDoc records a source for every declaration it
-  // converts while sources are on, so the fallback is never read.
+  // Stryker disable next-line all: TypeDoc records a source for every declaration it converts
+  // while sources are on, so neither the optional chains nor the fallback is ever exercised.
   return reflection.sources?.[0]?.fileName ?? "an unknown file";
 }
 
@@ -204,7 +206,8 @@ function sourceOf(reflection: DeclarationReflection): string {
 const MARKDOWN_PLUGIN = fileURLToPath(import.meta.resolve("typedoc-plugin-markdown"));
 
 /**
- * Every file under a directory, by its `/`-separated path relative to it, sorted.
+ * Every file under a directory, by its `/`-separated path relative to it, in the order of a walk
+ * that lists each directory by name.
  *
  * @internal
  */
@@ -218,7 +221,7 @@ function readTree(root: string): Map<string, string> {
     }
   };
   if (existsSync(root)) walk("");
-  return new Map([...files].sort(([a], [b]) => (a < b ? -1 : 1)));
+  return files;
 }
 
 /**
@@ -236,6 +239,7 @@ export async function buildReference(cwd: string): Promise<ReferenceResult> {
   const entries = entryPointsFor(cwd);
   const tsconfig = join(cwd, "tsconfig.json");
   if (!existsSync(tsconfig)) throw new ReferenceInputError(`${tsconfig} does not exist`);
+  // Stryker disable next-line StringLiteral: equivalent, the prefix only names the folder.
   const out = mkdtempSync(join(tmpdir(), "cosyte-docs-reference-"));
   try {
     const options = {
@@ -243,8 +247,11 @@ export async function buildReference(cwd: string): Promise<ReferenceResult> {
       tsconfig,
       plugin: [MARKDOWN_PLUGIN],
       out,
+      // Stryker disable next-line StringLiteral: equivalent, English is TypeDoc's default.
       lang: "en",
       logLevel: LogLevel.Warn,
+      // Stryker disable next-line StringLiteral: equivalent today, as TypeDoc puts no README into a
+      // page per module; kept so a change of that default cannot add one.
       readme: "none",
       excludeExternals: true,
       excludeInternal: true,
@@ -279,7 +286,7 @@ export async function buildReference(cwd: string): Promise<ReferenceResult> {
     await app.generateOutputs(project);
     return { files: readTree(out), undocumented };
   } finally {
-    rmSync(out, { recursive: true, force: true });
+    rmSync(out, { recursive: true });
   }
 }
 
@@ -288,24 +295,24 @@ export async function buildReference(cwd: string): Promise<ReferenceResult> {
  *
  * @param expected - The pages the source generates, by path.
  * @param dir - The directory holding the committed pages.
- * @returns One line per page that is missing, differs or is not generated, sorted by path.
+ * @returns One line per page that is missing, differs or is not generated, sorted.
  * @example
  * compareReference(new Map([["README.md", "# x"]]), "/nowhere"); // => ["README.md: missing"]
  */
 export function compareReference(expected: ReadonlyMap<string, string>, dir: string): string[] {
   const actual = readTree(dir);
-  const findings: [string, string][] = [];
+  const findings: string[] = [];
   for (const [path, text] of expected) {
     const committed = actual.get(path);
-    if (committed === undefined) findings.push([path, `${path}: missing`]);
+    if (committed === undefined) findings.push(`${path}: missing`);
     else if (committed !== text) {
-      findings.push([path, `${path}: differs from what the source generates`]);
+      findings.push(`${path}: differs from what the source generates`);
     }
   }
   for (const path of actual.keys()) {
-    if (!expected.has(path)) findings.push([path, `${path}: not generated from the source`]);
+    if (!expected.has(path)) findings.push(`${path}: not generated from the source`);
   }
-  return findings.sort(([a], [b]) => (a < b ? -1 : 1)).map(([, line]) => line);
+  return findings.sort();
 }
 
 /** A stream the command writes to. */

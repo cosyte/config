@@ -382,6 +382,8 @@ export function docSnippetSuite(options = {}) {
     name = "doc/code agreement",
     requireSnippet = false,
     tmpDir = defaultTmpDir(),
+    // Stryker disable next-line BooleanLiteral: read while Vitest collects the suite, which Stryker's
+    // Vitest runner cannot reach (see below); applied by hand, it fails test/doc-samples-every.test.ts.
     every = false,
   } = options;
 

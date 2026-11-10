@@ -345,6 +345,27 @@ describe("docSnippetSuite in every-sample mode", () => {
   });
 });
 
+describe("docSnippetSuite without every", () => {
+  // Built from a fixed folder for the same reason as above.
+  const dir = join(TMP, "runnable-only");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    join(dir, "page.md"),
+    [
+      "# Page",
+      `${fence}ts`,
+      "throw new Error('an illustrative block, not run without every');",
+      fence,
+      `${fence}ts runnable`,
+      "const ran = 1;",
+      "ran; // => 1",
+      fence,
+    ].join("\n"),
+  );
+
+  docSnippetSuite({ docsDir: dir, tmpDir: TMP, name: "fixture runnable-only agreement" });
+});
+
 describe("a no-run sample with no reason fails the suite", () => {
   // The failing test lives in a separate Vitest run, because a failing test registered here would
   // red this suite. The fixture sits inside the repository so it resolves the workspace package.

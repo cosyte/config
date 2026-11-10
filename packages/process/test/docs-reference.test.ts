@@ -114,6 +114,12 @@ function listFiles(dir: string, prefix = ""): string[] {
   return out.sort();
 }
 
+describe("ReferenceInputError", () => {
+  it("names itself", () => {
+    expect(new ReferenceInputError("x").name).toBe("ReferenceInputError");
+  });
+});
+
 describe("the constants", () => {
   it("writes to docs-content/api and requires the export kinds, not their members", () => {
     expect(REFERENCE_DIR).toBe("docs-content/api");
@@ -152,9 +158,10 @@ describe("entryPointsFor", () => {
     ]);
   });
 
-  it("reads a string exports, and no exports, as the one entry point .", () => {
+  it("reads a string exports, a null one and none at all as the one entry point .", () => {
     const one = { "src/index.ts": "export {};\n" };
     expect(entryPointsFor(pkg(one, "./dist/index.js")).map((e) => e.subpath)).toEqual(["."]);
+    expect(entryPointsFor(pkg(one, null)).map((e) => e.subpath)).toEqual(["."]);
     expect(entryPointsFor(pkg(one, undefined)).map((e) => e.subpath)).toEqual(["."]);
   });
 
@@ -179,12 +186,14 @@ describe("buildReference", () => {
   it(
     "writes one page for one entry point, and finds nothing undocumented",
     async () => {
-      const dir = pkg({ "src/index.ts": DOCUMENTED });
+      const dir = pkg({ "src/index.ts": DOCUMENTED, "README.md": "# Readme marker\n" });
       const result = await buildReference(dir);
       expect(result.undocumented).toEqual([]);
       expect([...result.files.keys()]).toEqual(["README.md"]);
       const page = result.files.get("README.md") ?? "";
-      expect(page).toContain("# @cosyte/demo");
+      expect(page.startsWith("# @cosyte/demo\n")).toBe(true);
+      expect(page).not.toContain("Defined in");
+      expect(page).not.toContain("Readme marker");
       for (const name of ["parse()", "Message", "DEFAULT", "Kind", "Alias", "Box"]) {
         expect(page, name).toContain(`### ${name}`);
       }
@@ -218,11 +227,21 @@ describe("buildReference", () => {
           "/** Documented on its one overload. */",
           "export function signed(a?: number): void;",
           "export function signed(): void {}",
+          "/** {@link bare} */",
+          "export const linkOnly = 1;",
+          "/** Documented, though it does not type-check. */",
+          "export const mistyped: number = 'x';",
+          'export { ext } from "ext";',
           "",
         ].join("\n"),
         "src/helper.ts": "export function helper(): void {}\nexport const inner = 1;\n",
+        "node_modules/ext/package.json": JSON.stringify({ name: "ext", types: "index.d.ts" }),
+        "node_modules/ext/index.d.ts": "export declare function ext(): void;\n",
       });
       const result = await buildReference(dir);
+      expect(result.files.get("README.md")).not.toContain("ext()");
+      const namespacePage = [...result.files].find(([path]) => path.endsWith("tools.md"))?.[1];
+      expect(namespacePage?.startsWith("# tools\n")).toBe(true);
       expect(result.undocumented).toEqual([
         "Id (TypeAlias), defined in src/index.ts",
         "Mode (Enum), defined in src/index.ts",
@@ -279,8 +298,12 @@ describe("buildReference", () => {
     "refuses a program TypeDoc cannot convert, with what TypeDoc said",
     async () => {
       const dir = pkg({ "src/other.ts": "export const a = 1;\n" });
-      await expect(buildReference(dir)).rejects.toThrow(ReferenceInputError);
-      await expect(buildReference(dir)).rejects.toThrow(/^TypeDoc could not read the source: \S/);
+      await expect(buildReference(dir)).rejects.toThrow(
+        new ReferenceInputError(
+          `TypeDoc could not read the source: The glob ${join(dir, "src", "index.ts")} ` +
+            "did not match any files; Unable to find any entry points. See previous warnings",
+        ),
+      );
     },
     SLOW,
   );
@@ -322,6 +345,29 @@ describe("buildReference", () => {
       new ReferenceInputError(`${join(dir, "tsconfig.json")} does not exist`),
     );
   });
+});
+
+describe("the temporary folder", () => {
+  it(
+    "is removed after a build, and after a build that fails",
+    async () => {
+      const scratch = makeTempDir("docs-reference-tmp-");
+      const good = pkg({ "src/index.ts": "/** A. */\nexport const a = 1;\n" });
+      const bad = pkg({ "src/other.ts": "export {};\n" });
+      const before = process.env["TMPDIR"];
+      process.env["TMPDIR"] = scratch;
+      try {
+        await buildReference(good);
+        expect(readdirSync(scratch)).toEqual([]);
+        await expect(buildReference(bad)).rejects.toThrow(ReferenceInputError);
+        expect(readdirSync(scratch)).toEqual([]);
+      } finally {
+        if (before === undefined) delete process.env["TMPDIR"];
+        else process.env["TMPDIR"] = before;
+      }
+    },
+    SLOW,
+  );
 });
 
 describe("compareReference", () => {
@@ -380,14 +426,22 @@ describe("runDocsReference, the command line", () => {
   it(
     "writes, then exits 1 naming each undocumented export",
     async () => {
-      const dir = pkg({ "src/index.ts": "export const bare = 1;\n" });
+      const dir = pkg({
+        "src/index.ts": 'export const bare = 1;\nexport * as ns from "./ns.js";\n',
+        "src/ns.ts": "/** Inner. */\nexport const inner = 1;\n",
+      });
       const r = await cli([], dir);
       expect(r.code).toBe(1);
-      expect(r.out).toBe("docs-reference: wrote 1 page(s) to docs-content/api\n");
+      expect(r.out).toBe("docs-reference: wrote 2 page(s) to docs-content/api\n");
       expect(r.err).toBe(
-        "docs-reference: 1 export(s) without a TSDoc comment:\n" +
-          "  bare (Variable), defined in src/index.ts\n",
+        "docs-reference: 2 export(s) without a TSDoc comment:\n" +
+          "  bare (Variable), defined in src/index.ts\n" +
+          "  ns (Namespace), defined in src/ns.ts\n",
       );
+      expect(listFiles(join(dir, REFERENCE_DIR))).toEqual([
+        "@cosyte/namespaces/ns.md",
+        "README.md",
+      ]);
       expect(readFileSync(join(dir, REFERENCE_DIR, "README.md"), "utf8")).toContain("bare");
     },
     SLOW,
@@ -403,12 +457,14 @@ describe("runDocsReference, the command line", () => {
         "/** A. */\nexport const a = 1;\nexport const b = 2;\n",
       );
       const before = readFileSync(join(dir, REFERENCE_DIR, "README.md"), "utf8");
+      writeFileSync(join(dir, REFERENCE_DIR, "notes.md"), "hand-written");
       const r = await cli(["--check"], dir);
       expect(r.code).toBe(1);
       expect(r.out).toBe("");
       expect(r.err).toBe(
         "docs-reference: docs-content/api does not match the source:\n" +
           "  README.md: differs from what the source generates\n" +
+          "  notes.md: not generated from the source\n" +
           "docs-reference: run cosyte-docs-reference and commit docs-content/api\n" +
           "docs-reference: 1 export(s) without a TSDoc comment:\n" +
           "  b (Variable), defined in src/index.ts\n",
