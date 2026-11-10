@@ -930,9 +930,9 @@ describe("pending: the work list is what `changeset publish` would consider", ()
     ]);
   });
 
-  it("reads this repository's eight published packages", () => {
+  it("reads this repository's nine published packages", () => {
     const names = workspaceVersions(REPO_ROOT).map((entry) => entry.name);
-    expect(names).toHaveLength(8);
+    expect(names).toHaveLength(9);
     expect(names.every((name) => name.startsWith("@cosyte/"))).toBe(true);
   });
 

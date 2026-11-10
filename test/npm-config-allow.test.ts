@@ -1223,9 +1223,9 @@ describe("npm-config-allow: the real repository", () => {
       const { code, output } = runCheck(REPO_ROOT, repoContext(false));
       expect(code).toBe(0);
       expect(output).toContain("npm-config-allow: OK");
-      // The publish configuration of every one of the eight published packages was examined, not
+      // The publish configuration of every one of the nine published packages was examined, not
       // merely the repository root's. A census that read nothing would also print OK.
-      expect(output.match(/publishConfig:access/g)?.length).toBe(8);
+      expect(output.match(/publishConfig:access/g)?.length).toBe(9);
       expect(output).toContain("pnpm-field:overrides");
       expect(output).toContain("changesets:access");
     },

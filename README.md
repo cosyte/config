@@ -7,7 +7,7 @@
 
 # cosyte-config
 
-> One enforced toolchain for every Cosyte package, published as eight small config packages.
+> One enforced toolchain for every Cosyte package, published as nine small packages.
 
 [![CI](https://img.shields.io/github/actions/workflow/status/cosyte/config/ci.yml?branch=main&label=CI)](https://github.com/cosyte/config/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/cosyte/config/blob/main/LICENSE)
@@ -36,7 +36,7 @@ document. Every requirement in it carries its own provenance note. There is no p
 `cosyte-config` is on the Cosyte 0.1.x line: the public API is settled and bump types follow ordinary semver.
 
 This root package is `private: true` and is never published; it is the workspace that builds the
-eight `@cosyte/*` packages below, all of which are on that same line. Still moving: the
+nine `@cosyte/*` packages below, all of which are on that same line. Still moving: the
 `@cosyte/process` verb set and its override file, the `@cosyte/test-utils` performance contract
 (whose ceiling is still open, see [ADR 0001](documentation/decisions/0001-perf-measurement-contract.md)),
 and the shared ESLint rule set, which gains rules as the parsers find gaps.
@@ -52,7 +52,7 @@ pnpm install --frozen-lockfile
 ```
 
 Node `>=22.14` and pnpm `10.34.5` (the pinned `packageManager`, which is not to be substituted). The
-eight published packages are what a consumer installs; each one's own README carries its specifier
+nine published packages are what a consumer installs; each one's own README carries its specifier
 and its Node floor.
 
 ## Usage
@@ -70,6 +70,7 @@ that adopts it:
 | [`@cosyte/script-utils`](packages/script-utils)       | Zero-dependency helpers for the gate scripts in `scripts/`: `isCliEntrypoint` and the shared PHI-scan engine                | `import { isCliEntrypoint } from "@cosyte/script-utils";`                                 |
 | [`@cosyte/test-utils`](packages/test-utils)           | The shared conformance kit for the parsers: round-trip, lenient-mode, immutability, warning-code and PHI-leak runners       | `import { roundTripProperty } from "@cosyte/test-utils";`                                 |
 | [`@cosyte/process`](packages/process)                 | One `cosyte-process` bin behind build, test, lint, typecheck, format and check, so script bodies stop being hand-maintained | `"build": "cosyte-process build"`                                                         |
+| [`@cosyte/bench`](packages/bench)                     | Benchmarks: throughput, latency, memory and import cost as versioned JSON, and a base against head comparison               | `cosyte-bench compare --suite <file> --base <file> --head <file>`                         |
 
 A typical parser repository wires four of them at once:
 
@@ -174,6 +175,12 @@ only `config` binds.
   covers how `@cosyte/test-utils/perf` measures: estimator, warmup, the ratio ceiling and floor, coverage,
   `src`-vs-`dist`, and the GC rules. Every constant traced to the PERF-P0 calibration in
   [`experiments/perf-calibration/`](experiments/perf-calibration) or to a written judgement note.
+- [`0005: The performance standard`](documentation/decisions/0005-the-performance-standard.md)
+  covers what every package measures and how: the scaling gate for complexity regressions, the
+  `@cosyte/bench` readings and the base against head comparison for constant-factor ones, the noise
+  of each and how it was measured, what each cannot detect, how a repository adopts both, and a
+  proposal for keeping results over time. Its numbers come from
+  [`experiments/bench-calibration/`](experiments/bench-calibration).
 
 ## Versioning
 

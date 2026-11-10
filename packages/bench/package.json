@@ -1,0 +1,78 @@
+{
+  "name": "@cosyte/bench",
+  "version": "0.1.0",
+  "description": "Benchmarks for the @cosyte/* packages: throughput, latency percentiles, memory, cold import time and loaded bytes, as versioned JSON, and a base against head comparison interleaved on one machine.",
+  "keywords": [
+    "benchmark",
+    "performance",
+    "regression",
+    "latency",
+    "memory",
+    "cosyte"
+  ],
+  "homepage": "https://github.com/cosyte/config/tree/main/packages/bench#readme",
+  "bugs": {
+    "url": "https://github.com/cosyte/config/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cosyte/config.git",
+    "directory": "packages/bench"
+  },
+  "license": "MIT",
+  "author": "Cosyte <hello@cosyte.com> (https://cosyte.com)",
+  "type": "module",
+  "engines": {
+    "node": ">=22.15.0"
+  },
+  "packageManager": "pnpm@10.0.0",
+  "main": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.mjs"
+    },
+    "./schema/results-v1.schema.json": "./schema/results-v1.schema.json",
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "cosyte-bench": "./dist/cli.mjs"
+  },
+  "files": [
+    "dist",
+    "schema",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "prettier": "@cosyte/prettier-config",
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\" --max-warnings=0",
+    "lint:fix": "eslint \"src/**/*.ts\" \"test/**/*.ts\" --fix",
+    "format": "prettier --write \"src/**/*.{ts,md}\" \"test/**/*.{ts,mjs}\" \"*.{json,md,yml}\" \"schema/*.json\"",
+    "format:check": "prettier --check \"src/**/*.{ts,md}\" \"test/**/*.{ts,mjs}\" \"*.{json,md,yml}\" \"schema/*.json\"",
+    "test": "tsup --silent && vitest run --coverage",
+    "test:watch": "vitest",
+    "clean": "rm -rf dist coverage"
+  },
+  "devDependencies": {
+    "@cosyte/eslint-config": "workspace:^",
+    "@cosyte/prettier-config": "workspace:^",
+    "@cosyte/test-utils": "workspace:^",
+    "@cosyte/tsconfig": "workspace:^",
+    "@cosyte/tsup-config": "workspace:^",
+    "@types/node": "^22.0.0",
+    "@vitest/coverage-v8": "5.1.0",
+    "eslint": "10.14.0",
+    "prettier": "3.9.10",
+    "tsup": "9.0.0",
+    "typescript": "5.9.3",
+    "vitest": "5.1.0"
+  }
+}

@@ -1,7 +1,7 @@
 # cosyte/config
 
 The pnpm workspace that publishes the toolchain every `@cosyte/*` repo builds, lints and tests
-with: eight packages under `packages/`, the PHI-scan engine in `script-utils` among them. It
+with: nine packages under `packages/`, the PHI-scan engine in `script-utils` among them. It
 also holds the estate baseline, `drift-manifest.json`, which `scripts/drift-check.js` checks.
 
 @AGENTS.md

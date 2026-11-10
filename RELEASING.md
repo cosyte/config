@@ -1,11 +1,12 @@
 # Releasing `@cosyte/*` config packages
 
-How the eight published toolchain packages get to npm, who is waiting on whom at each step, what to
+How the nine published toolchain packages get to npm, who is waiting on whom at each step, what to
 do when a step does not finish, and the gotchas worth not rediscovering.
 
-**The eight packages this repository publishes**, all public `@cosyte/*` scoped:
-`@cosyte/eslint-config`, `@cosyte/prettier-config`, `@cosyte/process`, `@cosyte/script-utils`,
-`@cosyte/test-utils`, `@cosyte/tsconfig`, `@cosyte/tsup-config`, `@cosyte/vitest-config`.
+**The nine packages this repository publishes**, all public `@cosyte/*` scoped:
+`@cosyte/bench`, `@cosyte/eslint-config`, `@cosyte/prettier-config`, `@cosyte/process`,
+`@cosyte/script-utils`, `@cosyte/test-utils`, `@cosyte/tsconfig`, `@cosyte/tsup-config`,
+`@cosyte/vitest-config`.
 
 The root manifest `cosyte-config` is `private: true` and is never published and never versioned. That
 flag is about npm publishability and says nothing about repository visibility: **this repository is
@@ -316,7 +317,7 @@ anything: the registry has already been written.
    on a version commit. If it is not one, and the tag step finished, read the release bodies it
    created; the state is terminal. Otherwise go on.
 2. Find what actually reached the registry:
-   `npm view <pkg> versions --json` for each of the eight packages, compared against
+   `npm view <pkg> versions --json` for each of the published packages, compared against
    `git show HEAD:packages/<pkg>/package.json`.
 3. For every package published on that commit that still has no tag and release, create both by hand:
    `gh release create '<pkg>@<version>' --target <sha> --title '<pkg>@<version>' --notes-file <file>`,
@@ -533,7 +534,7 @@ release-notes gate. This one cannot, measured 2026-08-04 and re-measured 2026-08
    `publish:` only when that is `true`. That is a strictly worse instance of the silent-withholding
    class the changeset guard exists to close.
 2. **It tags `v<version>`.** Its own comment states the assumption: "Every caller of this workflow is
-   a single-package repo." This repository publishes eight.
+   a single-package repo." This repository publishes nine.
 
 `config/.github/workflows/ci.yml` used to carry a NOTE saying Phase C would replace the hand-rolled
 workflow with a thin caller. That NOTE was stale and is corrected: Phase C was measured against this
@@ -633,7 +634,7 @@ requests the ID token itself, and the exchanged token lives in npm's memory for 
 procedure below is about the two things that **can** be issued and revoked: the `id-token: write`
 grant in `release.yml`, and each package's **trusted publisher** on npm.
 
-- **Issue.** The owner registers a trusted publisher on each of the eight packages, once, at the first
+- **Issue.** The owner registers a trusted publisher on each of the published packages, once, at the first
   release that needs it: see
   [npm trusted publishing](#npm-trusted-publishing-the-owners-step-per-package) for the commands. The
   workflow side is already issued: `id-token: write` on the `publish` job, declared in
@@ -654,7 +655,7 @@ grant in `release.yml`, and each package's **trusted publisher** on npm.
   repository at once, remove `id-token: write` from the `publish` job and from the declaration in one
   commit; the preflight then refuses every release before the build.
 - **Compensating action.** If a trusted publisher is believed misused, revoke it first, then audit
-  recent versions of all eight packages (`npm view <pkg> versions --json`) against this repository's
+  recent versions of all the published packages (`npm view <pkg> versions --json`) against this repository's
   tags and the `Release` runs that published them; every trusted publish carries a provenance
   statement naming the run. A version that reached the registry cannot be pulled back by revoking the
   publisher: if the bytes are wrong, publish a corrected **new** version and, only if the content is
@@ -790,7 +791,7 @@ child**, in both copies of the wrapper, so every scaffolded parser inherits it.
 ## npm trusted publishing: the owner's step, per package
 
 The workflow side is done: no npm token in `release.yml`, `id-token: write` on the `publish` job, npm
-11.21.0 on its PATH. What is left is on npm, and it is the owner's: **each of the eight packages
+11.21.0 on its PATH. What is left is on npm, and it is the owner's: **each published package
 publishes this way only once it has a trusted publisher**, registered at the first release that needs
 it. Until then a publish of that package fails at the registry with an authentication error and
 publishes nothing, and the accounting step names it.
@@ -799,7 +800,7 @@ publishes nothing, and the accounting step names it.
 access to the package (npm's `npm-trust` command page, read 2026-10-19). For each package:
 
 ```bash
-for pkg in eslint-config prettier-config process script-utils test-utils tsconfig tsup-config vitest-config; do
+for pkg in bench eslint-config prettier-config process script-utils test-utils tsconfig tsup-config vitest-config; do
   npm trust github "@cosyte/$pkg" --repo cosyte/config --file release.yml --env release --allow-publish --yes
   sleep 2
 done

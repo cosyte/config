@@ -1,9 +1,9 @@
 # AGENTS.md
 
-`cosyte/config` is our shared toolchain: a pnpm workspace that publishes eight `@cosyte/*` packages
+`cosyte/config` is our shared toolchain: a pnpm workspace that publishes nine `@cosyte/*` packages
 to npm under MIT from `packages/` (the ESLint, Prettier, TypeScript, tsup and Vitest configs,
-`test-utils`, `process`, and `script-utils`, which carries the PHI-scan engine and the shared
-gates). It also holds the parser template, `scripts/parser-template/`, that
+`test-utils`, `process`, `bench`, and `script-utils`, which carries the PHI-scan engine and the
+shared gates). It also holds the parser template, `scripts/parser-template/`, that
 `scripts/scaffold-parser.mjs` copies into every new parser repository.
 
 ## Build and test
