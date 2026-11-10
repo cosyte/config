@@ -14,6 +14,9 @@ import { defineConfig } from "vitest/config";
  * the two estimators, the warmup stability rule, corpus construction, the fixture-size verdict and
  * the PHI rule on diagnostics: is clock-free and stays in this run, so `scripts/verify.sh config`
  * still exercises it.
+ *
+ * Coverage runs with every `pnpm test` and writes the json-summary and lcov reports the
+ * repository's floor file (`quality-floor.json`) is checked against.
  */
 export default defineConfig({
   test: {
@@ -21,5 +24,11 @@ export default defineConfig({
     environment: "node",
     include: ["test/**/*.test.ts"],
     exclude: ["test/perf/timed/**"],
+    coverage: {
+      provider: "v8",
+      include: ["src/**/*.ts"],
+      exclude: ["src/**/index.ts"],
+      reporter: ["text-summary", "json-summary", "lcov"],
+    },
   },
 });

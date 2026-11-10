@@ -14,7 +14,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/cosyte/config/blob/main/LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D22.14-brightgreen.svg)](https://nodejs.org)
 
-Shared Vitest config (v8 coverage, per-directory >=90 gates) for @cosyte/\* packages.
+Shared Vitest config (v8 coverage, per-directory >=90 gates) and StrykerJS mutation testing config for @cosyte/\* packages.
 
 ## Why this exists
 
@@ -27,6 +27,10 @@ The nearest alternative is a hand-written `vitest.config.ts` per repository with
 copied in. That is the drift this removes, and it is also where the second half of this package comes
 from: nothing in that alternative proves the examples in your documentation still work.
 
+The third half is mutation testing. Coverage says a line ran; it does not say a test would notice
+if the line were wrong. `@cosyte/vitest-config/stryker` runs the same Vitest suites under StrykerJS,
+which changes the code one small way at a time and counts the changes no test noticed.
+
 ## Status
 
 `@cosyte/vitest-config` is on the Cosyte 0.1.x line: the public API is settled and bump types follow ordinary semver.
@@ -35,6 +39,10 @@ Still moving: the coverage exclude list and the snippet-suite options (`runnable
 `requireSnippet`), which have changed shape as the first consumers adopted them. The 90 threshold and
 the `cosyteVitest(options)` signature are the settled parts, and a change to either is recorded with
 the bump type it deserves rather than absorbed into a patch.
+
+The mutation-testing entry points, `/stryker`, `/mutate` and the `cosyte-mutate` bin, are new and
+the least settled part. In particular, the changed-files run mutates each changed file whole;
+whether it should mutate only the changed lines, which is faster on a large file, is open.
 
 ## Install
 
@@ -45,6 +53,12 @@ pnpm add -D @cosyte/vitest-config vitest @vitest/coverage-v8 vite
 `vitest` (4 or 5), `@vitest/coverage-v8` (the same major) and `vite` are peer dependencies.
 Install `vite` explicitly: Vitest 4 and 5 require major version 6 or later, and without a direct
 declaration the resolver will happily keep an incompatible vite 5. Node `>=22.14`. ESM only.
+
+For mutation testing, also install the two optional peers, StrykerJS 10 and its Vitest runner:
+
+```sh
+pnpm add -D @stryker-mutator/core @stryker-mutator/vitest-runner
+```
 
 ## Usage
 
@@ -67,6 +81,9 @@ gate, which is what stops a well-covered helper directory paying for an untested
 | -------------------------------- | ------------------------------------------------------------------- |
 | `@cosyte/vitest-config`          | the `cosyteVitest(opts?)` factory, returning a Vitest config object |
 | `@cosyte/vitest-config/snippets` | the doc/code-agreement harness described under the API below        |
+| `@cosyte/vitest-config/stryker`  | `cosyteStryker(options?)`, the shared StrykerJS config              |
+| `@cosyte/vitest-config/mutate`   | `runMutate`, the body of the `cosyte-mutate` bin, and its parts     |
+| `cosyte-mutate` (bin)            | `full`, and `changed --base <ref>`                                  |
 
 They are separate subpaths because they are separately adoptable, and importing the config never
 loads the harness. `extractRunnableSnippets` is the primitive that decides what runs, and it reports
@@ -92,15 +109,110 @@ consumer cannot reach:
 - `docSnippetSuite` takes `docsDir` or `files`, `include` (default `.md` and `.mdx`), `resolve`,
   `runnableTag` (default `"runnable"`), `name`, `requireSnippet` and `tmpDir`.
 
+`cosyteStryker` takes `mutate`, `vitestConfig` and `stryker` (any other Stryker option, merged
+last); its defaults and the reason for each are tabled under the mutation section below.
+
 A package with no runnable snippets yields an empty, passing suite unless `requireSnippet` is set:
 absence degrades quietly, a _wrong_ snippet fails loudly. Lowering a coverage threshold is the
 override worth arguing about in review, because unlike the others it changes what CI will let
 through.
 
+## Mutation testing: `/stryker` and `cosyte-mutate`
+
+A `stryker.config.mjs` at the package root exports what the factory returns:
+
+```ts runnable
+import { cosyteStryker } from "@cosyte/vitest-config/stryker";
+
+const config = cosyteStryker();
+config.testRunner; // => "vitest"
+config.ignoreStatic; // => false
+config.jsonReporter; // => { fileName: "reports/mutation/mutation.json" }
+```
+
+Then, from the same directory:
+
+```sh
+pnpm exec cosyte-mutate full                          # every file the config names
+pnpm exec cosyte-mutate changed --base origin/main    # only what this change touched
+pnpm exec cosyte-ratchet check --skip coverage --base origin/main
+```
+
+`full` writes `reports/mutation/mutation.json`, the report the floor file's mutation score is read
+from. `changed` writes `reports/mutation/changed.json` beside it, so a run over a few files is never
+read as the whole package's score. A change with no changed source file starts no run: it writes an
+empty report, so the ratchet can tell "ran, nothing to mutate" from "never ran", and exits 0.
+`cosyte-mutate` exits 0 when the run finished and 2 when it could not run; it does not judge the
+score.
+
+The `/mutate` entry point is the bin's body and the pieces it is built of, for a caller that runs
+it from its own script. `selectChangedFiles` is the rule a changed run picks its files by:
+
+```ts runnable
+import { selectChangedFiles } from "@cosyte/vitest-config/mutate";
+
+const picked = selectChangedFiles({
+  changed: ["src/a.ts", "src/a.test.ts", "README.md"],
+  root: "/repo",
+  cwd: "/repo",
+  patterns: ["src/**/*.ts", "!src/**/*.test.ts"],
+});
+picked; // => ["src/a.ts"]
+```
+
+### What the Stryker config sets, and why
+
+`cosyteStryker({ mutate, vitestConfig, stryker })` takes the file list, the Vitest config file, and
+any other Stryker option, merged last, so a package can change anything below. What each default is
+and why:
+
+| setting            | default                                     | why                                                                          |
+| ------------------ | ------------------------------------------- | ---------------------------------------------------------------------------- |
+| `testRunner`       | `vitest`, resolved from this package        | Stryker cannot find a plugin by name under pnpm                              |
+| `vitest.pool`      | `forks`                                     | Vitest's own default; Stryker's is threads, where `process.chdir()` throws   |
+| `coverageAnalysis` | `perTest`                                   | each mutant runs only the tests that reach it                                |
+| `mutate`           | `src/**/*.ts` without tests, barrels, types | the same files `@cosyte/vitest-config` measures coverage over                |
+| `ignoreStatic`     | `false`                                     | static mutants are module-level tables, such as a scanner's patterns: kept   |
+| `thresholds.break` | `null`                                      | the floor file decides a drop, not Stryker                                   |
+| reports            | JSON and HTML under `reports/mutation/`     | JSON for the ratchet and CI, HTML for a person reading the surviving mutants |
+
+Setting `ignoreStatic: true` makes a run faster and is the override worth arguing about in review: it
+drops every mutant in module-level code from the score without an inline reason for any of them.
+
+### An exception, and why it needs two comments
+
+A mutant that cannot be killed (an equivalent mutant, or a line only a child process reaches) gets
+an inline exception that names its reason:
+
+```js
+// Stryker disable next-line ConditionalExpression: both branches return the same value here
+```
+
+Mutation testing does not read coverage's ignore hints, so a line excluded from coverage with
+`/* v8 ignore next -- reason */` still has its mutants, and they show as not covered. Such a line
+needs both comments, each with its reason. `cosyte-ratchet check --base` lists every exception in
+changed code, so the pull request can carry the list.
+
+## The 90 gates and the floor file
+
+The 90 thresholds are one fixed minimum for every package, and they fail the test run itself. The
+floor file, `quality-floor.json`, held by `cosyte-ratchet` in `@cosyte/script-utils`, is each
+repository's own record of what it measured, and it only rises. The two do different jobs:
+
+- A package above 90 on a metric is held by its floor, which sits at what it measured; the 90 gate
+  is a backstop that does not fire.
+- A package below 90 on a metric lowers that one key with `coverageThresholds`, and its floor still
+  holds the measured value, so the number can only rise from there.
+- A pull request's own changed lines are held to 100 by the ratchet, whatever either number says.
+
+The `json-summary` and `lcov` reports this config writes are the two the ratchet reads.
+
 ## PHI and safety
 
 This package is test configuration. It processes no patient data: it configures a test runner and,
-through `/snippets`, compiles and executes the code blocks you point it at.
+through `/snippets`, compiles and executes the code blocks you point it at. Through `/stryker` it
+runs your own tests against altered copies of your own source, in a sandbox directory
+(`.stryker-tmp/`) inside your project; add it and `reports/mutation/` to `.gitignore`.
 
 Two consequences worth stating plainly, because `/snippets` does run code. It executes the snippets
 in your own documentation, in your own process, so a documentation example must never contain real
@@ -112,7 +224,7 @@ a test fixture's would. Use synthetic data in documentation, as in tests.
 
 ### `cosyteVitest(options)`
 
-The baseline config: v8 coverage with `text` / `html` / `lcov` reporters, the standard excludes
+The baseline config: v8 coverage with `text` / `html` / `lcov` / `json-summary` reporters, the standard excludes
 (barrels, fixtures, generated code, declarations), and **enabled, gating** per-directory thresholds
 at **>= 90**.
 

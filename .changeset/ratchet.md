@@ -1,0 +1,5 @@
+---
+"@cosyte/script-utils": patch
+---
+
+Adds the coverage and mutation ratchet: the `cosyte-ratchet` bin (also `script-utils ratchet`) and the `./ratchet` entry point. `cosyte-ratchet check` reads a floor file, `quality-floor.json`, holding each package's coverage (lines, branches, functions, statements) and mutation score, compares what was measured, prints each metric with its floor and its gap to 100, and exits 1 on any drop. With `--base <ref>` it also requires every changed line coverage counts to have run and every mutant in changed code to be killed, unless an inline comment names a reason (`/* v8 ignore next -- reason */`, `// Stryker disable next-line all: reason`), and lists each such exception in changed code; an exception with no reason fails. `cosyte-ratchet raise` moves floors up to what was measured and never lowers one. Exit 2 means an input could not be read. Also adds `./changes`, `readChanges({ base })`: the lines a change touched against a base ref, read from git, which the ratchet and `@cosyte/vitest-config/mutate` share.

@@ -18,5 +18,13 @@ export default defineConfig({
     exclude: ["test/fixtures/**", "test/floor/**"],
     testTimeout: 120_000,
     hookTimeout: 120_000,
+    // Coverage runs with every `pnpm test` and writes the json-summary and lcov reports the
+    // repository's floor file (`quality-floor.json`) is checked against.
+    coverage: {
+      provider: "v8",
+      include: ["src/**/*.ts"],
+      exclude: ["src/**/index.ts"],
+      reporter: ["text-summary", "json-summary", "lcov"],
+    },
   },
 });

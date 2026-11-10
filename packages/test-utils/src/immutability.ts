@@ -29,14 +29,14 @@ import assert from "node:assert/strict";
 import type { Arbitrary } from "fast-check";
 import fc from "fast-check";
 
-import { DEFAULT_NUM_RUNS } from "./internal/config.js";
+import { assertProperty, type PropertyRunOptions } from "./property.js";
 
 /**
  * Options for {@link immutabilityProperty}.
  *
  * @template T - The parsed model type returned by `parse`.
  */
-export interface ImmutabilityOptions<T> {
+export interface ImmutabilityOptions<T> extends PropertyRunOptions {
   /** Generator of inputs that parse cleanly into a model (the parser's own arbitrary). */
   readonly arbitrary: Arbitrary<string>;
   /** Parse an input string into the model under test. */
@@ -54,8 +54,6 @@ export interface ImmutabilityOptions<T> {
    * deep-equality, so this must not return a live reference into the model.
    */
   readonly getSnapshot: (parsed: T) => unknown;
-  /** Number of generated cases. Defaults to {@link DEFAULT_NUM_RUNS}. */
-  readonly numRuns?: number;
 }
 
 /**
@@ -87,9 +85,10 @@ export interface ImmutabilityOptions<T> {
  * ```
  */
 export function immutabilityProperty<T>(options: ImmutabilityOptions<T>): void {
-  const { arbitrary, parse, mutate, getSnapshot, numRuns = DEFAULT_NUM_RUNS } = options;
+  const { arbitrary, parse, mutate, getSnapshot } = options;
 
-  fc.assert(
+  assertProperty(
+    "immutability",
     fc.property(arbitrary, (raw) => {
       const parsed = parse(raw);
       const before = getSnapshot(parsed);
@@ -110,9 +109,6 @@ export function immutabilityProperty<T>(options: ImmutabilityOptions<T>): void {
         "immutability: the original model's snapshot changed after a mutation attempt. Mutation must throw or return a new instance, never edit in place",
       );
     }),
-    // The failing check's own message goes in the thrown error's message. fast-check 4 otherwise
-    // moves it to `cause`, which a runner may not print; fast-check 3 ignores the flag and puts it
-    // in the message already.
-    { numRuns, includeErrorInReport: true },
+    options,
   );
 }

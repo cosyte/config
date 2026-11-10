@@ -200,6 +200,8 @@ CATALOG.engine.displayName; // => "Pathways"
 | `@cosyte/script-utils/claude-card`   | `runClaudeCardGate(options)` and `checkClaudeCard(text)`, the CLAUDE.md card checker         |
 | `@cosyte/script-utils/catalog`       | `CATALOG`, `catalogEntry(name)` and `runCatalogCheck(options)`, the catalog of our libraries |
 | `@cosyte/script-utils/agent-notes`   | deprecated (D62): `runAgentNotesCheck(options)` and `checkAgentNotes(input)`                 |
+| `@cosyte/script-utils/ratchet`       | `runRatchet(options)` and its parts, the coverage and mutation ratchet                       |
+| `@cosyte/script-utils/changes`       | `readChanges({ base })`, the lines a change touched against a base ref, read from git        |
 
 They are separate subpaths because they are separately adoptable: a repo can take the entry-point
 guard without taking a position on PHI scanning, a repo can take the internal-reference gate without
@@ -259,6 +261,7 @@ npx -y -p @cosyte/script-utils@0.1 cosyte-readme   # or one gate's own bin
 | `cosyte-claude-card`   | `claude-card`          | the CLAUDE.md card checker                        |
 | `cosyte-agent-notes`   | `agent-notes`          | deprecated (D62): the retired agent-notes checker |
 | `cosyte-catalog`       | `catalog`              | the catalog check                                 |
+| `cosyte-ratchet`       | `ratchet`              | the coverage and mutation ratchet                 |
 
 Each runs over the working directory, takes the arguments its gate takes, exits with the gate's own
 code, and prints what it does with `--help`. `script-utils` with no command prints the list and exits 2.
@@ -389,6 +392,51 @@ release, because config's check against npm picks the change up once the library
 2 means the check could not run (no package.json, or an argument it does not accept). `--strict`
 restores the gate: 1 for a disagreement, 2 for an unlisted package.
 
+### The coverage and mutation ratchet
+
+`cosyte-ratchet` holds a repository to a floor file at its root, `quality-floor.json`: each package
+directory, relative to the file, with its coverage (lines, branches, functions, statements) and its
+mutation score. A floor only rises.
+
+```sh
+cosyte-ratchet check --skip mutation                     # coverage against its floor, every run
+cosyte-ratchet check --skip mutation --base origin/main  # and a pull request's changed lines
+cosyte-ratchet check --skip coverage --base origin/main  # the mutants in a pull request's changed code
+cosyte-ratchet raise                                     # move floors up to what was measured
+```
+
+`check` prints each metric, its floor and its gap to 100, and exits 1 on any drop. With `--base` it
+also holds the change's own code to 100: every changed line coverage counts must have run, and
+every mutant in changed code must be killed, unless an inline comment names its reason
+(`/* v8 ignore next -- reason */` for coverage, `// Stryker disable next-line all: reason` for a
+mutant). It lists every exception it finds in changed code, so the pull request can carry the list,
+and an exception with no reason fails. `raise` never lowers a floor. Exit 2 means an input could not
+be read: the floor file, a report a floor needs, or git.
+
+It reads Istanbul's `coverage/coverage-summary.json` and `coverage/lcov.info` (which
+`@cosyte/vitest-config` writes), and StrykerJS's `reports/mutation/mutation.json` and `changed.json`
+(which `@cosyte/vitest-config/stryker` writes), from each package directory. A changed line any package's
+suite ran counts as run.
+
+`@cosyte/script-utils/changes` is how both the ratchet and `@cosyte/vitest-config/mutate` read what a
+change touched: the diff from the merge base of the base ref and HEAD to the working tree, plus
+untracked files, as each file's changed lines.
+
+```ts runnable
+import { parseUnifiedDiff } from "@cosyte/script-utils/changes";
+
+const diff = ["+++ b/src/a.ts", "@@ -3 +3,2 @@"].join("\n");
+[...(parseUnifiedDiff(diff).get("src/a.ts") ?? [])]; // => [3, 4]
+```
+
+```ts runnable
+import { parseFloor, toFloor } from "@cosyte/script-utils/ratchet";
+
+toFloor(98.056); // => 98.05
+const floor = parseFloor({ packages: { ".": { coverage: { lines: 98.05 }, mutation: 81.2 } } });
+floor.packages["."].mutation; // => 81.2
+```
+
 ### The agent-notes checker, deprecated
 
 `@cosyte/script-utils/agent-notes` and its bin, `cosyte-agent-notes`, are deprecated. They check a
@@ -446,6 +494,11 @@ evasion per round: each of `--quiet`, `-q`, `--format json`, `-fjson`, `-qP`, `-
 `--help` and `--version` was measured making attw exit 0 with nothing for the gate to read.
 Widening that set is a deliberate one-line edit in this package, reviewed here, and not something a
 caller can do. No net can be switched off.
+
+`cosyte-ratchet` takes the floor file's path, the base ref, and `--skip coverage` or
+`--skip mutation` for a run that does not make that report; a skipped metric is printed as skipped,
+never as passed. It has no way to lower a floor, and a floor file with a key it does not know is
+refused rather than read around: a misspelled metric would be a floor nobody checks.
 
 ## PHI and safety
 

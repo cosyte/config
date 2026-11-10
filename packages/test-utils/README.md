@@ -14,7 +14,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/cosyte/config/blob/main/LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D22.0.0-brightgreen.svg)](https://nodejs.org)
 
-Framework-agnostic conformance test kit for the @cosyte/\* parsers: generic round-trip, lenient-mode, immutability, warning-code, and PHI-leak invariant runners.
+Framework-agnostic conformance test kit for the @cosyte/\* parsers: generic round-trip, idempotent-normalize, lenient-mode, immutability, warning-code, and PHI-leak invariant runners, at a depth one environment variable sets.
 
 ## Why this exists
 
@@ -69,10 +69,10 @@ first.
 
 ## Entry points
 
-| entry point               | what it is                                                                |
-| ------------------------- | ------------------------------------------------------------------------- |
-| `@cosyte/test-utils`      | the conformance runners: round-trip, lenient-mode, immutability, PHI leak |
-| `@cosyte/test-utils/perf` | the performance kit: the scaling gate and its self-check                  |
+| entry point               | what it is                                                                                                                      |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `@cosyte/test-utils`      | the conformance runners: round-trip, idempotent normalize, lenient-mode, immutability, PHI leak, and the run options they share |
+| `@cosyte/test-utils/perf` | the performance kit: the scaling gate and its self-check                                                                        |
 
 They are separate subpaths because they run under different conditions: the conformance runners are
 clock-free and coverage-safe, and the perf kit must not be measured under coverage instrumentation.
@@ -96,6 +96,7 @@ function: there is no config file, no global registration and nothing to switch 
 | Surface                                                | Overridable?                                                              |
 | ------------------------------------------------------ | ------------------------------------------------------------------------- |
 | Arbitraries, parse/serialize functions, equality       | Yours entirely. The kit ships none.                                       |
+| Depth, seed and path (`numRuns`, `seed`, `path`)       | Per runner; `COSYTE_PROPERTY_RUNS`, `_SEED` and `_PATH` win over them.    |
 | `getDiagnostics`, `getModelIdentifiers`, `parseStrict` | **Required, no defaults.** `() => []` is an answer; silence is not.       |
 | `expectCode` on a PHI slot                             | **Required per slot.** A slot that names no code cannot be proven read.   |
 | `checkLengthInvariance`                                | Opt-in. Read that option's docs before enabling it.                       |
@@ -108,13 +109,20 @@ reports whatever that package needed it to report.
 
 ## Adopting it in a parser
 
-Bring your own format-specific `fast-check` arbitraries; feed them to the runners. For `@cosyte/hl7`:
+Bring your own format-specific `fast-check` arbitraries, from your package's `/arbitraries` subpath
+(below), and feed them to the runners. Every parser proves three properties: round trip, idempotent
+normalize, and never throws in lenient mode. For `@cosyte/hl7`:
 
 ```ts
 import { describe, it, expect } from "vitest";
-import { roundTripProperty, lenientNeverThrowsProperty, sortedCodeSet } from "@cosyte/test-utils";
+import {
+  roundTripProperty,
+  idempotentNormalizeProperty,
+  lenientNeverThrowsProperty,
+  sortedCodeSet,
+} from "@cosyte/test-utils";
 import { parseHL7, Hl7ParseError, FATAL_CODES, WARNING_CODES } from "@cosyte/hl7";
-import { specCleanMessage, hostileInput } from "./property/_arbitraries.js"; // the parser's own
+import { message, messageText, hostileInput } from "@cosyte/hl7/arbitraries";
 
 const fatal = new Set(Object.values(FATAL_CODES));
 const known = new Set(Object.values(WARNING_CODES));
@@ -126,6 +134,12 @@ describe("hl7 conformance", () => {
       serialize: (m) => m.toString(),
       parse: (raw) => parseHL7(raw),
       equals: (a, b) => a.toString() === b.toString(),
+    }));
+
+  it("normalizes idempotently", () =>
+    idempotentNormalizeProperty({
+      arbitrary: messageText(),
+      normalize: (raw) => parseHL7(raw).toString(),
     }));
 
   it("is lenient", () =>
@@ -143,6 +157,66 @@ describe("hl7 conformance", () => {
   });
 });
 ```
+
+### Depth, seeds and replay
+
+Every property runner runs 100 cases by default (`DEFAULT_NUM_RUNS`), fast enough for every pull
+request. One environment variable sets the depth of every property in the run, over each runner's
+own `numRuns`; a nightly job sets it to 10,000 or more:
+
+```sh
+COSYTE_PROPERTY_RUNS=10000 pnpm test
+```
+
+A failure names the property and prints the seed and path that replay it, before fast-check's own
+report (the counterexample, the shrinks, and the failing check's message):
+
+```text
+round trip: property failed after 52 case(s), shrunk 4 time(s).
+Replay exactly: COSYTE_PROPERTY_SEED=791784642 COSYTE_PROPERTY_PATH=51:1:0:0:6
+(or pass { seed: 791784642, path: "51:1:0:0:6" } to the runner)
+
+Property failed after 52 tests
+{ seed: 791784642, path: "51:1:0:0:6", endOnFailure: true }
+Counterexample: [";"]
+Shrunk 4 time(s)
+Got AssertionError [ERR_ASSERTION]: round-trip: parse(serialize(x)) is not deep-equal to x
+```
+
+That is a real run, of a serializer that drops `;`.
+
+Setting those two variables (or passing `seed` and `path` to the runner) runs that one case again,
+already shrunk, so a nightly failure becomes a local one. A value that is set but malformed throws
+rather than being ignored, so a nightly job that typed its depth wrong cannot quietly run the
+pull-request depth. `assertProperty(name, property, options)` is the same machinery for a parser's
+own properties, and `resolvePropertyRun` shows what a run will use:
+
+```ts runnable
+import { resolvePropertyRun } from "@cosyte/test-utils";
+
+resolvePropertyRun({}, {}).numRuns; // => 100
+resolvePropertyRun({ numRuns: 50 }, { COSYTE_PROPERTY_RUNS: "10000" }).numRuns; // => 10000
+resolvePropertyRun({}, { COSYTE_PROPERTY_SEED: "-7", COSYTE_PROPERTY_PATH: "3:0" }).path; // => "3:0"
+```
+
+### The `/arbitraries` subpath every package exports
+
+The kit ships no format knowledge, so each package exports the generators for its own formats, for
+its own tests and for its users' tests of code built on it:
+
+- **Where.** An optional subpath, `@cosyte/<package>/arbitraries`, in the `exports` map. The root
+  entry never imports it, so a user without fast-check never loads it.
+- **fast-check is an optional peer.** `peerDependencies` names `fast-check` (`^4`) and
+  `peerDependenciesMeta` marks it `optional`; the subpath is the only file that imports it.
+- **What it exports.** Factory functions named for what they generate, each returning a fast-check
+  `Arbitrary` and taking an optional options object: a value the serializer can emit (for round
+  trip), raw text the parser accepts, messy on purpose (for idempotent normalize), and hostile
+  input (for never throws). For example `message()`, `messageText()` and `hostileInput()`.
+- **Synthetic only.** Generated values are random, never drawn from real records, and the
+  subpath carries no fixture copied from one.
+
+The kit's runners take `Arbitrary<T>` directly, so no adapter sits between a package's arbitraries
+and the runners.
 
 ## PHI and safety
 
@@ -170,14 +244,17 @@ this configuration looked for was found, which is not the same as no leak.
 
 ### The runners
 
-| Export                       | Proves                                                                                                                                                      |
-| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `roundTripProperty`          | `parse(serialize(x))` equals `x`, and serialization is idempotent.                                                                                          |
-| `lenientNeverThrowsProperty` | `parse` throws only on sanctioned fatals; every recovered warning has a registered code (plus position).                                                    |
-| `immutabilityProperty`       | a mutation attempt throws or returns a new instance. It never edits the original in place.                                                                  |
-| `sortedCodeSet`              | the sorted warning/fatal code values, ready for a `toMatchSnapshot` stability tripwire.                                                                     |
-| `assertNoSecretLeak`         | a `Secret<T>`-style wrapper never leaks through `JSON.stringify` / `String()` / `` `${}` `` / `util.inspect`.                                               |
-| `assertNoDiagnosticPhiLeak`  | a declared slot's input does not echo into a diagnostic `message`, a position object, a thrown value, `err.stack`, or a structural identifier on the model. |
+| Export                        | Proves                                                                                                                                                      |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `roundTripProperty`           | `parse(serialize(x))` equals `x`, and serialization is idempotent.                                                                                          |
+| `idempotentNormalizeProperty` | `normalize(normalize(x))` equals `normalize(x)`.                                                                                                            |
+| `lenientNeverThrowsProperty`  | `parse` throws only on sanctioned fatals; every recovered warning has a registered code (plus position).                                                    |
+| `immutabilityProperty`        | a mutation attempt throws or returns a new instance. It never edits the original in place.                                                                  |
+| `sortedCodeSet`               | the sorted warning/fatal code values, ready for a `toMatchSnapshot` stability tripwire.                                                                     |
+| `assertNoSecretLeak`          | a `Secret<T>`-style wrapper never leaks through `JSON.stringify` / `String()` / `` `${}` `` / `util.inspect`.                                               |
+| `assertNoDiagnosticPhiLeak`   | a declared slot's input does not echo into a diagnostic `message`, a position object, a thrown value, `err.stack`, or a structural identifier on the model. |
+| `assertProperty`              | runs any fast-check property at the shared depth, and throws a failure that replays exactly.                                                                |
+| `resolvePropertyRun`          | the depth, seed and path a run will use, from a runner's options and the environment.                                                                       |
 
 **The two PHI runners answer different questions and neither substitutes for the other.**
 `assertNoSecretLeak` is about a wrapper resisting stringification. `assertNoDiagnosticPhiLeak` is

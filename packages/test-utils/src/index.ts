@@ -3,8 +3,9 @@
  * healthcare-standard parsers.
  *
  * Every parser (`hl7`, `mllp`, `dicom`, `x12`, `ccda`, `ncpdp`, …) proves the
- * **same** archetype invariants (round-trip fidelity, lenient-mode robustness,
- * model immutability, warning-code stability, and PHI-leak resistance) against
+ * **same** archetype invariants (round-trip fidelity, idempotent normalize,
+ * lenient-mode robustness, model immutability, warning-code stability, and
+ * PHI-leak resistance) against
  * one contract instead of reinventing them. This kit ships those invariants as
  * **generic, parameterized runners**; the **format-specific arbitraries stay in
  * each parser** (the kit contains no HL7/DICOM/X12 generators).
@@ -27,6 +28,10 @@
  *   **no** runtime dependency on Vitest.
  * - **Strict types, no `any`.** Generics carry the parser's own model type
  *   through each runner.
+ * - **Fast on a pull request, deep at night, replayable.** Each property runs
+ *   {@link DEFAULT_NUM_RUNS} cases unless `COSYTE_PROPERTY_RUNS` says otherwise,
+ *   and a failure prints the seed and path that replay it exactly
+ *   ({@link PROPERTY_ENV}).
  *
  * @example
  * ```ts
@@ -43,7 +48,20 @@
  * @packageDocumentation
  */
 
+export {
+  assertProperty,
+  DEFAULT_NUM_RUNS,
+  PROPERTY_ENV,
+  propertyFailureMessage,
+  resolvePropertyRun,
+  type PropertyRunOptions,
+  type ResolvedPropertyRun,
+} from "./property.js";
 export { roundTripProperty, type RoundTripOptions } from "./round-trip.js";
+export {
+  idempotentNormalizeProperty,
+  type IdempotentNormalizeOptions,
+} from "./idempotent-normalize.js";
 export { lenientNeverThrowsProperty, type LenientOptions, type LenientWarning } from "./lenient.js";
 export { immutabilityProperty, type ImmutabilityOptions } from "./immutability.js";
 export { sortedCodeSet } from "./warning-codes.js";

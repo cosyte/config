@@ -147,6 +147,20 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm test
+      # THE COVERAGE RATCHET. `pnpm test` just wrote each package's coverage report; this compares
+      # it with quality-floor.json and fails on any drop below a floor. On a pull request it also
+      # requires every changed line that coverage counts to have run, unless an inline exception
+      # names its reason, and lists each exception (documentation/decisions/0004-the-testing-standard.md).
+      # Mutation is judged in the `mutation` job below, so it is skipped here.
+      - name: Coverage ratchet
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ -n "${BASE_REF}" ]; then
+            pnpm quality:check --base "origin/${BASE_REF}"
+          else
+            pnpm quality:check
+          fi
       # NOTE: `pnpm test:perf` is deliberately NOT run here. It holds the only tests that read a real
       # clock, and PERF-P2's own false-alarm sweeps measured this class of runner firing on a LINEAR
       # workload 4 times in 600 runs and failing to reach steady state in another ~1%, so as a
@@ -160,6 +174,43 @@ jobs:
       # their published types resolve under every module mode.
       - run: pnpm build
       - run: pnpm attw
+
+  # MUTATION TESTING OF A PULL REQUEST'S OWN CODE. Each package's changed source files are mutated
+  # with @cosyte/vitest-config/stryker, and the ratchet then requires every mutant in changed code to be
+  # killed, unless an inline exception names its reason. It runs beside `verify` rather than in it,
+  # because a large changed file takes minutes to mutate. Not yet a required check; the weekly full
+  # run, which reports each package's whole score, belongs to the shared workflows.
+  mutation:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The base branch's history, for the merge base the changed files are measured against.
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Mutate the changed files
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          base="origin/${BASE_REF}"
+          for dir in packages/vitest-config packages/test-utils packages/process; do
+            (cd "${dir}" && pnpm exec cosyte-mutate changed --base "${base}")
+          done
+          pnpm exec cosyte-mutate changed --base "${base}" --config packages/script-utils/stryker.config.mjs
+      - name: Mutation ratchet
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: pnpm exec cosyte-ratchet check --skip coverage --base "origin/${BASE_REF}"
 
   # Lints every workflow here with the official actionlint, installed the way the shared cosyte/.github
   # CI installs it (EN6 in the umbrella's plans/standards.md): rhysd/actionlint's release binary at the

@@ -24,7 +24,7 @@ import { inspect } from "node:util";
 import type { Arbitrary } from "fast-check";
 import fc from "fast-check";
 
-import { DEFAULT_NUM_RUNS } from "./internal/config.js";
+import { assertProperty, type PropertyRunOptions } from "./property.js";
 
 /**
  * The minimal shape every parser's warning must expose for this runner: a string
@@ -43,7 +43,7 @@ export interface LenientWarning {
  *
  * @template TArb - The generated input type (typically `string` or `Uint8Array`).
  */
-export interface LenientOptions<TArb> {
+export interface LenientOptions<TArb> extends PropertyRunOptions {
   /** Generator of hostile / quirky / malformed inputs (the parser's own arbitrary). */
   readonly arbitrary: Arbitrary<TArb>;
   /** The parser under test, called in its lenient (default) mode. */
@@ -63,8 +63,6 @@ export interface LenientOptions<TArb> {
    * supplied, every emitted warning must satisfy it.
    */
   readonly hasPositionalContext?: (warning: LenientWarning) => boolean;
-  /** Number of generated cases. Defaults to {@link DEFAULT_NUM_RUNS}. */
-  readonly numRuns?: number;
 }
 
 /**
@@ -101,17 +99,10 @@ export interface LenientOptions<TArb> {
  * ```
  */
 export function lenientNeverThrowsProperty<TArb>(options: LenientOptions<TArb>): void {
-  const {
-    arbitrary,
-    parse,
-    isFatal,
-    getWarnings,
-    isKnownCode,
-    hasPositionalContext,
-    numRuns = DEFAULT_NUM_RUNS,
-  } = options;
+  const { arbitrary, parse, isFatal, getWarnings, isKnownCode, hasPositionalContext } = options;
 
-  fc.assert(
+  assertProperty(
+    "never throws in lenient mode",
     fc.property(arbitrary, (raw) => {
       let parsed: unknown;
       try {
@@ -138,10 +129,7 @@ export function lenientNeverThrowsProperty<TArb>(options: LenientOptions<TArb>):
         }
       }
     }),
-    // The failing check's own message goes in the thrown error's message. fast-check 4 otherwise
-    // moves it to `cause`, which a runner may not print; fast-check 3 ignores the flag and puts it
-    // in the message already.
-    { numRuns, includeErrorInReport: true },
+    options,
   );
 }
 
