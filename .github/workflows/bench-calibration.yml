@@ -18,7 +18,11 @@ name: Benchmark comparison calibration
 # - `inject`: comparisons with a planted slowdown of a nominal 5%, 10% and 20% on the head side. The
 #   change a comparison measures under it is not exactly that fraction, so each result reports the
 #   change it observed per case, and a detection rate is read against that.
-# - `readings`: a reading of the PHI scan suite and the long run's leak calibration.
+# - `large`: A/A comparisons of the large-case suite (`experiments/bench-calibration/large.bench.mjs`),
+#   whose compared case runs on the large-case plan, six runners at once.
+# - `readings`: a reading of the PHI scan suite, the long run's leak calibration, and a reading of the
+#   large-case suite with the base branch's runner and with this one, so a change to the method shows
+#   what it changes on one machine.
 # - `summary`: every table in the standard's section 5, from the artifacts above, in the job summary.
 on:
   pull_request:
@@ -28,6 +32,8 @@ on:
       - "packages/bench/src/**"
       - "experiments/bench-calibration/calibrate.sh"
       - "experiments/bench-calibration/long-run.sh"
+      - "experiments/bench-calibration/large.bench.mjs"
+      - "experiments/bench-calibration/large-target.mjs"
       - ".github/workflows/bench-calibration.yml"
   workflow_dispatch:
     inputs:
@@ -48,7 +54,7 @@ env:
 
 jobs:
   calibrate:
-    name: calibrate (${{ matrix.inject }}, ${{ matrix.shard }})
+    name: calibrate (${{ matrix.suite || 'phi-scan' }}, ${{ matrix.inject }}, ${{ matrix.shard }})
     runs-on: ubuntu-latest
     timeout-minutes: 120
     strategy:
@@ -64,6 +70,12 @@ jobs:
           - { inject: "0.05", shard: "1" }
           - { inject: "0.10", shard: "1" }
           - { inject: "0.20", shard: "1" }
+          - { inject: "0", shard: "1", suite: large }
+          - { inject: "0", shard: "2", suite: large }
+          - { inject: "0", shard: "3", suite: large }
+          - { inject: "0", shard: "4", suite: large }
+          - { inject: "0", shard: "5", suite: large }
+          - { inject: "0", shard: "6", suite: large }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -79,21 +91,26 @@ jobs:
         env:
           INJECT: ${{ matrix.inject }}
           SHARD: ${{ matrix.shard }}
+          SUITE_NAME: ${{ matrix.suite || 'phi-scan' }}
         # One comparison per results file, so a job stopped by its timeout keeps every finished one.
         run: |
+          if [ "$SUITE_NAME" = "large" ]; then
+            export SUITE="$PWD/experiments/bench-calibration/large.bench.mjs"
+            export TARGET="$PWD/experiments/bench-calibration/large-target.mjs"
+          fi
           DEADLINE=$(( $(date +%s) + MINUTES * 60 )) \
             experiments/bench-calibration/calibrate.sh "$INJECT" 1000 1 none 1 \
-            "$RUNNER_TEMP/calibration/inject-$INJECT/shard-$SHARD"
+            "$RUNNER_TEMP/calibration/$SUITE_NAME/inject-$INJECT/shard-$SHARD"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
-          name: bench-calibration-inject-${{ matrix.inject }}-shard-${{ matrix.shard }}
+          name: bench-calibration-${{ matrix.suite == 'large' && 'large-' || '' }}inject-${{ matrix.inject }}-shard-${{ matrix.shard }}
           path: ${{ runner.temp }}/calibration/
           if-no-files-found: error
 
   readings:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -114,6 +131,27 @@ jobs:
           cat "$RUNNER_TEMP/readings/phi-scan-reading.md" >> "$GITHUB_STEP_SUMMARY"
       - name: Calibrate the long run
         run: experiments/bench-calibration/long-run.sh 10 none "$RUNNER_TEMP/readings/long-run"
+      # The base branch's runner, built beside this one, for a reading of the large-case suite with
+      # each: what a change to the method changes, on one machine.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.event.repository.default_branch }}
+          path: base
+          persist-credentials: false
+      - run: pnpm -C base install --frozen-lockfile
+      - run: pnpm -C base --filter @cosyte/bench run build
+      - name: Read the large-case suite with the base's runner and with this one
+        run: |
+          for side in base head; do
+            cli=packages/bench/dist/cli.mjs
+            if [ "$side" = "base" ]; then cli=base/packages/bench/dist/cli.mjs; fi
+            node "$cli" run --suite experiments/bench-calibration/large.bench.mjs \
+              --target experiments/bench-calibration/large-target.mjs --no-import \
+              --out "$RUNNER_TEMP/readings/large-reading-$side.json" \
+              --summary "$RUNNER_TEMP/readings/large-reading-$side.md"
+            { echo "#### The large-case suite, read with the $side runner"; echo
+              cat "$RUNNER_TEMP/readings/large-reading-$side.md"; } >> "$GITHUB_STEP_SUMMARY"
+          done
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
@@ -144,7 +182,10 @@ jobs:
         run: |
           {
             echo "## Comparison calibration"
-            node experiments/bench-calibration/analyze.mjs compare "$RUNNER_TEMP/artifacts"
+            node experiments/bench-calibration/analyze.mjs compare "$RUNNER_TEMP"/artifacts/bench-calibration-inject-*
+            echo
+            echo "## Large-case comparison calibration"
+            node experiments/bench-calibration/analyze.mjs compare "$RUNNER_TEMP"/artifacts/bench-calibration-large-*
             echo
             echo "## Long run"
             node experiments/bench-calibration/analyze.mjs long-run "$RUNNER_TEMP/artifacts/bench-readings/long-run"

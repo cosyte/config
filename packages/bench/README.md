@@ -131,21 +131,35 @@ the command line:
 
 - the sizes, and which of them a pull request's comparison runs (`compare: false` leaves a slow size
   to the readings);
-- `weigh`, the number a result is reduced to, and `longRun`, the size the long run uses;
+- `weigh`, the number a result is reduced to, and `longRun`, the size the long run uses besides the
+  largest size whose long run fits in 60 s;
 - `--only <benchmark or case>`, `--processes <n>`, `--no-memory` and `--no-import` on `run`.
 
 ## What it measures
 
-| Measure                                | How                                                                                                                                                                              | What it cannot see                                                                                                 |
-| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| Throughput, small to very large inputs | Per size, fresh processes; a warmup by the scaling gate's rule; 5 samples of whole passes of at least 50 ms; the median of the processes' medians                                | Anything the suite's sizes do not cover; numbers from another machine                                              |
-| Latency p50, p95, p99                  | One call at a time on a nanosecond clock, up to 2 s or 5,000 calls; a percentile is reported only with at least 10 calls above it                                                | Calls shorter than 20 clock reads (skipped, typed); the tail of a size with few calls                              |
-| Allocations per operation              | Heap growth over windows of `n` and `2n` operations in which no collection ran, in a process with a 64 MiB young generation; the difference cancels the cost of reading the heap | A window that always collects (skipped, typed)                                                                     |
-| Peak heap                              | Per call, the higher of the heap just before any collection during the call and at its end, above the settled heap before it                                                     | Memory outside the V8 heap                                                                                         |
-| Heap flat over a long run              | 30 rounds, the heap settled after each; a Theil-Sen slope over the last 24; growing when the fitted growth reaches 64 KiB                                                        | A leak too small to reach 64 KiB over the run (each result says the smallest it could see, `detectableBytesPerOp`) |
-| Cold import and loaded bytes           | 20 fresh processes import the target, 20 import an empty module, interleaved; one more records every file the import loads, with its gzip size                                   | What a bundler keeps after tree shaking                                                                            |
+| Measure                                | How                                                                                                                                                                                                                                                                                                                     | What it cannot see                                                                                                                  |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Throughput, small to very large inputs | Per size, fresh processes; a warmup by the scaling gate's rule, or by the large-case plan below when every warmup batch is one long pass; 5 samples of whole passes of at least 50 ms; the median of the processes' medians                                                                                             | Anything the suite's sizes do not cover; numbers from another machine                                                               |
+| Latency p50, p95, p99                  | One call at a time on a nanosecond clock, up to 2 s or 5,000 calls; a percentile is reported only with at least 10 calls above it                                                                                                                                                                                       | Calls shorter than 20 clock reads (skipped, typed); the tail of a size with few calls                                               |
+| Allocations per operation              | Heap growth over windows of `n` and `2n` operations in which no collection ran, in a process with a 64 MiB young generation; the difference cancels the cost of reading the heap. When every window collects, the largest pair is counted with what its collections reclaimed (`method: "gc-accounted"`)                | Native memory a library allocates outside V8's accounting                                                                           |
+| Peak memory                            | Per call, the higher of what was in use just before any collection during the call and at its end, above what was in use before it: the V8 heap (`peakHeapBytes`), external memory such as Buffers and ArrayBuffers (`peakExternalBytes`), and the two together (`peakTotalBytes`), which is what a memory budget reads | Native memory a library allocates outside V8's accounting                                                                           |
+| Heap flat over a long run              | 30 rounds, the heap settled after each; a Theil-Sen slope over the last 24; growing when the fitted growth reaches 64 KiB. On the long-run size and on the largest size whose 30 rounds fit in 60 s                                                                                                                     | A leak too small to reach 64 KiB over the run (each result says the smallest it could see, `detectableBytesPerOp`); external memory |
+| Cold import and loaded bytes           | 20 fresh processes import the target, 20 import an empty module, interleaved; one more records every file the import loads, with its gzip size                                                                                                                                                                          | What a bundler keeps after tree shaking                                                                                             |
 
-Memory measurements need `gc()`; the runner starts those processes with `--expose-gc` itself.
+Memory measurements need `gc()`; the runner starts those processes with `--expose-gc` itself, and
+with `--no-concurrent-array-buffer-sweeping`, so a collection frees the ArrayBuffers it found dead
+before it ends and the external memory it reports before and after is exact.
+
+### Large cases
+
+A case whose single call takes longer than a warmup batch (50 ms) cannot settle by the scaling
+gate's warmup rule on a shared runner: every batch is one call, and one call's jitter is what the
+batch was there to average away. When 500 ms of warmup have passed, the rule has not settled, and
+the last three batches were each one call of at least 50 ms, the warmup moves to the large-case
+plan: one call at a time until the median of the last 5 calls is within 5% of the median of the 5
+before them, at most 30 s from the start. Its samples are the same 5, each one call at that size.
+Each process records the plan it ended on (`plan`), and a reading marks such a case. A case that
+settles by the standard rule never moves, so small cases are measured exactly as before.
 
 ## The comparison
 

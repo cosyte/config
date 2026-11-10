@@ -3,7 +3,13 @@ import type { CaseComparison } from "../../src/compare.js";
 import type { Environment } from "../../src/environment.js";
 import type { ImportCostReport } from "../../src/import-cost.js";
 
-export const warmup = { stable: true, elapsedMs: 500, passes: 50, batches: [10, 10, 10] };
+export const warmup = {
+  stable: true,
+  elapsedMs: 500,
+  passes: 50,
+  batches: [10, 10, 10],
+  plan: "standard",
+} as const;
 
 export const env: Environment = {
   node: "v24.0.0",
@@ -40,7 +46,15 @@ export const importCost: ImportCostReport = {
 };
 
 /** A runner that answers every job with fixed, plausible numbers, and records the jobs. */
-export function fixedRunner(options: { skipTiming?: (call: number) => boolean } = {}) {
+export function fixedRunner(
+  options: {
+    skipTiming?: (call: number) => boolean;
+    /** Milliseconds per operation for a timing job; 0.5, a little more each call, by default. */
+    msPerOp?: (job: Job, call: number) => number;
+    /** The warmup plan a timing job reports. */
+    plan?: (job: Job) => "standard" | "large";
+  } = {},
+) {
   const jobs: Job[] = [];
   const runJob = (job: Job): Promise<JobResult> => {
     const call = jobs.length;
@@ -59,10 +73,10 @@ export function fixedRunner(options: { skipTiming?: (call: number) => boolean } 
       return Promise.resolve({
         mode: "timing",
         ...shape,
-        warmup,
+        warmup: { ...warmup, plan: options.plan?.(job) ?? "standard" },
         status: "measured",
         samplesMsPerOp: [0.5, 0.5, 0.5],
-        medianMsPerOp: 0.5 + call / 1000,
+        medianMsPerOp: options.msPerOp?.(job, call) ?? 0.5 + call / 1000,
         latency: job.latency
           ? {
               status: "measured",

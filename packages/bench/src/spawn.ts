@@ -117,16 +117,19 @@ export function runNode(
 }
 
 /**
- * The flags a job's process starts with. Memory jobs need `gc()`; the allocation job also gets a
+ * The flags a job's process starts with. Memory jobs need `gc()`, and free the ArrayBuffers a
+ * collection finds dead within that collection rather than on a background thread after it, so the
+ * external memory a collection reports before and after it is exact; the allocation job also gets a
  * young generation large enough that a window of operations rarely collects.
  *
  * @internal
  */
 export function flagsFor(job: Job): string[] {
   if (job.mode === "timing") return [];
-  if (job.mode === "heap") return ["--expose-gc"];
+  const memory = ["--expose-gc", "--no-concurrent-array-buffer-sweeping"];
+  if (job.mode === "heap") return memory;
   const mib = String(BENCH_CONTRACT.ALLOC_SEMI_SPACE_MIB);
-  return ["--expose-gc", `--min-semi-space-size=${mib}`, `--max-semi-space-size=${mib}`];
+  return [...memory, `--min-semi-space-size=${mib}`, `--max-semi-space-size=${mib}`];
 }
 
 function describe(job: Job): string {

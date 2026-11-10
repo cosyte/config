@@ -10,7 +10,8 @@
 import type { JobResult, MemoryResult, TimingResult } from "./child.js";
 import type { JobRunner } from "./compare.js";
 import type { ImportCostReport } from "./import-cost.js";
-import type { LatencyReport } from "./measure.js";
+import { BENCH_CONTRACT } from "./contract.js";
+import type { LatencyReport, WarmupPlan } from "./measure.js";
 import type { AllocationReport, LongRunReport, PeakReport } from "./memory.js";
 import { median, round } from "./stats.js";
 import { findCase, listCases, type BenchSize, type BenchSuite, type CaseRef } from "./suite.js";
@@ -23,6 +24,8 @@ export type Throughput =
       readonly processes: readonly {
         readonly samplesMsPerOp: readonly number[];
         readonly medianMsPerOp: number;
+        /** The warmup rule the process ended on. Absent in a document written before it was recorded. */
+        readonly plan?: WarmupPlan;
       }[];
       /** The median of the process medians. */
       readonly medianMsPerOp: number;
@@ -103,6 +106,7 @@ export function summarizeThroughput(
   const per = measured.map((t) => ({
     samplesMsPerOp: t.samplesMsPerOp,
     medianMsPerOp: t.medianMsPerOp,
+    plan: t.warmup.plan,
   }));
   const mid = median(per.map((x) => x.medianMsPerOp));
   const perOpBytes = first.bytesPerPass === null ? null : first.bytesPerPass / first.inputsPerPass;
@@ -115,10 +119,36 @@ export function summarizeThroughput(
   };
 }
 
+/** One case's timing, before its memory is read. */
+interface Timed {
+  readonly c: CaseRef;
+  readonly first: TimingResult;
+  readonly throughput: Throughput;
+}
+
 /**
- * Take a reading of one build: per case, throughput from `processes` fresh processes (latency from
- * the first), allocations from one more, peak heap and (for the benchmark's long-run size) the long
- * run from another; then the build's cold import cost.
+ * Whether a case's long run fits `LONG_RUN_MAX_MS`: `LONG_RUN_ROUNDS` rounds, each at least
+ * `LONG_RUN_ROUND_MS` and at least one pass, at the pass time its throughput measured. A case whose
+ * throughput was skipped has no pass time, so it does not fit.
+ *
+ * @internal
+ */
+export function longRunFits(throughput: Throughput, inputsPerPass: number): boolean {
+  if (throughput.status !== "measured") return false;
+  const roundMs = Math.max(
+    BENCH_CONTRACT.LONG_RUN_ROUND_MS,
+    throughput.medianMsPerOp * inputsPerPass,
+  );
+  return BENCH_CONTRACT.LONG_RUN_ROUNDS * roundMs <= BENCH_CONTRACT.LONG_RUN_MAX_MS;
+}
+
+/**
+ * Take a reading of one build, a benchmark at a time: each of its sizes timed in `processes` fresh
+ * processes (latency from the first); then per size, allocations from one more process, and the
+ * peak from another, which also runs the long run on the benchmark's long-run size (the one it
+ * names, or its first) and on its largest size whose long run fits `LONG_RUN_MAX_MS`; then the
+ * build's cold import cost. Timing every size first is what lets the long run pick its largest size
+ * from measured pass times.
  *
  * @internal
  */
@@ -129,40 +159,52 @@ export async function readBuild(options: ReadOptions): Promise<ReadingBody> {
     throw new TypeError("@cosyte/bench: processes must be a positive integer");
   }
   const base = { suite: options.suiteFile, target: options.target };
+  const listed = listCases(options.suite, options.only);
   const cases: CaseReading[] = [];
-  for (const c of listCases(options.suite, options.only)) {
-    const timing = async (latency: boolean) =>
-      expectTiming(await runJob({ mode: "timing", ...base, case: c, latency, inject: 0 }));
-    const first = await timing(true);
-    const rest: TimingResult[] = [];
-    for (let p = 1; p < processes; p++) rest.push(await timing(false));
-    const throughput = summarizeThroughput(first, rest);
-    const latency = first.status === "measured" ? first.latency : null;
-    let allocations: AllocationReport | null = null;
-    let peak: PeakReport | null = null;
-    let longRun: LongRunReport | null = null;
-    if (options.memory ?? true) {
-      allocations = expectMemory(await runJob({ mode: "alloc", ...base, case: c })).allocations;
-      const { benchmark } = findCase(options.suite, c);
-      // A suite has at least one size per benchmark (checkSuite), so the first one exists.
-      const longRunSize = benchmark.longRun ?? (benchmark.sizes[0] as BenchSize<unknown>).label;
-      const heap = expectMemory(
-        await runJob({ mode: "heap", ...base, case: c, longRun: c.size === longRunSize }),
-      );
-      peak = heap.peak;
-      longRun = heap.longRun;
+  for (const name of new Set(listed.map((c) => c.benchmark))) {
+    const timed: Timed[] = [];
+    for (const c of listed.filter((l) => l.benchmark === name)) {
+      const timing = async (latency: boolean) =>
+        expectTiming(await runJob({ mode: "timing", ...base, case: c, latency, inject: 0 }));
+      const first = await timing(true);
+      const rest: TimingResult[] = [];
+      for (let p = 1; p < processes; p++) rest.push(await timing(false));
+      timed.push({ c, first, throughput: summarizeThroughput(first, rest) });
     }
-    cases.push({
-      ...c,
-      inputsPerPass: first.inputsPerPass,
-      bytesPerPass: first.bytesPerPass,
-      throughput,
-      latency,
-      allocations,
-      peak,
-      longRun,
-    });
-    options.onProgress?.(`read ${c.benchmark} @ ${c.size}`);
+    // Sizes run smallest first, so the last that fits is the largest.
+    const largest = timed.filter((t) => longRunFits(t.throughput, t.first.inputsPerPass)).pop();
+    for (const { c, first, throughput } of timed) {
+      let allocations: AllocationReport | null = null;
+      let peak: PeakReport | null = null;
+      let longRun: LongRunReport | null = null;
+      if (options.memory ?? true) {
+        allocations = expectMemory(await runJob({ mode: "alloc", ...base, case: c })).allocations;
+        const { benchmark } = findCase(options.suite, c);
+        // A suite has at least one size per benchmark (checkSuite), so the first one exists.
+        const longRunSize = benchmark.longRun ?? (benchmark.sizes[0] as BenchSize<unknown>).label;
+        const heap = expectMemory(
+          await runJob({
+            mode: "heap",
+            ...base,
+            case: c,
+            longRun: c.size === longRunSize || c.size === largest?.c.size,
+          }),
+        );
+        peak = heap.peak;
+        longRun = heap.longRun;
+      }
+      cases.push({
+        ...c,
+        inputsPerPass: first.inputsPerPass,
+        bytesPerPass: first.bytesPerPass,
+        throughput,
+        latency: first.status === "measured" ? first.latency : null,
+        allocations,
+        peak,
+        longRun,
+      });
+      options.onProgress?.(`read ${c.benchmark} @ ${c.size}`);
+    }
   }
   const importCost =
     (options.importCost ?? true) ? await options.measureImport(options.target) : null;

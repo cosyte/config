@@ -5,7 +5,9 @@
  *
  * They read the heap through a {@link HeapProbe}, so their tests can drive them with a scripted heap.
  * The real probe follows ADR 0001 section 8: a zero-argument `gc()` only, settled by rule rather than
- * by a count.
+ * by a count. The measuring process also runs with `--no-concurrent-array-buffer-sweeping`, so a
+ * collection frees the ArrayBuffers it found dead before it ends, and the external memory a
+ * collection reports before and after is what it held and what it kept.
  *
  * @packageDocumentation
  */
@@ -32,7 +34,26 @@ export interface HeapProbe {
    * Run `fn` and report the collections that ran during it, and the most heap in use just before any
    * of them. The heap only shrinks at a collection, so its high point is either there or at the end.
    */
-  readonly profile: (fn: () => void) => { readonly gcs: number; readonly peakBeforeGc: number };
+  readonly profile: (fn: () => void) => ProfileReport;
+}
+
+/**
+ * The collections that ran during a profiled call.
+ *
+ * @internal
+ */
+export interface ProfileReport {
+  readonly gcs: number;
+  /** The most V8 heap in use just before any of them; 0 with none. */
+  readonly peakBeforeGc: number;
+  /** The most external memory (Buffers, ArrayBuffers) just before any of them; 0 with none. */
+  readonly peakExternalBeforeGc: number;
+  /** The most of the two together just before any of them; 0 with none. */
+  readonly peakTotalBeforeGc: number;
+  /** V8 heap bytes the collections reclaimed: in use before each, less in use after it, summed. */
+  readonly reclaimedHeap: number;
+  /** External bytes the collections reclaimed, the same way. */
+  readonly reclaimedExternal: number;
 }
 
 /**
@@ -54,9 +75,27 @@ export function realProbe(): HeapProbe | null {
       profiler.start();
       fn();
       const stats = profiler.stop().statistics;
-      let peak = 0;
-      for (const s of stats) peak = Math.max(peak, s.beforeGC.heapStatistics.usedHeapSize);
-      return { gcs: stats.length, peakBeforeGc: peak };
+      const report = {
+        gcs: stats.length,
+        peakBeforeGc: 0,
+        peakExternalBeforeGc: 0,
+        peakTotalBeforeGc: 0,
+        reclaimedHeap: 0,
+        reclaimedExternal: 0,
+      };
+      for (const s of stats) {
+        const before = s.beforeGC.heapStatistics;
+        const after = s.afterGC.heapStatistics;
+        report.peakBeforeGc = Math.max(report.peakBeforeGc, before.usedHeapSize);
+        report.peakExternalBeforeGc = Math.max(report.peakExternalBeforeGc, before.externalMemory);
+        report.peakTotalBeforeGc = Math.max(
+          report.peakTotalBeforeGc,
+          before.usedHeapSize + before.externalMemory,
+        );
+        report.reclaimedHeap += before.usedHeapSize - after.usedHeapSize;
+        report.reclaimedExternal += before.externalMemory - after.externalMemory;
+      }
+      return report;
     },
   };
 }
@@ -88,13 +127,28 @@ export function settle(probe: HeapProbe): SettleResult {
   return { settled: false, rounds: BENCH_CONTRACT.GC_MAX_ROUNDS, heap: before };
 }
 
-/** Why a memory measurement has no number. */
+/**
+ * Why a memory measurement has no number. `allocation-window-gc` is no longer written: a case whose
+ * every window collects is now counted with its collections. It stays here because documents
+ * written before carry it.
+ */
 export type MemorySkipReason = "gc-unavailable" | "gc-unsettled" | "allocation-window-gc";
+
+/**
+ * How allocations were counted. `no-gc-window`: the heap's growth over windows in which no
+ * collection ran. `gc-accounted`: every window collected, so the growth over each window plus what
+ * its collections reclaimed.
+ */
+export type AllocationMethod = "no-gc-window" | "gc-accounted";
 
 /** Allocations per operation. */
 export type AllocationReport =
   | {
       readonly status: "measured";
+      /** How they were counted. Absent in a document written before it was recorded: `no-gc-window`. */
+      readonly method?: AllocationMethod;
+      /** Collections that ran in the two windows counted: 0 for `no-gc-window`. */
+      readonly collections?: number;
       /** The smaller of the two windows, in operations. */
       readonly windowOps: number;
       /** Bytes allocated on the V8 heap per operation. */
@@ -111,6 +165,12 @@ export type AllocationReport =
  * `ALLOC_WINDOW_OPS`. A collection in either window halves `n` and tries again. The process runs with a large
  * young generation (`ALLOC_SEMI_SPACE_MIB`) so that a window rarely collects.
  *
+ * When a collection lands in every window, as it does when one call allocates more than the young
+ * generation holds, the first and largest pair of windows is counted with its collections instead
+ * (`gc-accounted`): what a window allocated is its growth plus what its collections reclaimed, read
+ * from each collection's heap before and after it. No further calls are made. On a case whose windows
+ * do not collect the two counts are the same number, since nothing was reclaimed.
+ *
  * @internal
  */
 export function measureAllocations(
@@ -122,63 +182,107 @@ export function measureAllocations(
     const s = settle(probe);
     const h0 = probe.usedHeap();
     const e0 = probe.external();
-    const { gcs } = probe.profile(() => {
+    const p = probe.profile(() => {
       for (let i = 0; i < ops; i++) call(i);
     });
-    return { settled: s.settled, gcs, heap: probe.usedHeap() - h0, ext: probe.external() - e0 };
+    return {
+      settled: s.settled,
+      gcs: p.gcs,
+      heap: probe.usedHeap() - h0 + p.reclaimedHeap,
+      ext: probe.external() - e0 + p.reclaimedExternal,
+    };
   };
+  const perOp = (
+    method: AllocationMethod,
+    n: number,
+    a: ReturnType<typeof window>,
+    b: ReturnType<typeof window>,
+  ): AllocationReport => ({
+    status: "measured",
+    method,
+    collections: a.gcs + b.gcs,
+    windowOps: n,
+    heapBytesPerOp: round((b.heap - a.heap) / n, 1),
+    externalBytesPerOp: round((b.ext - a.ext) / n, 1),
+  });
   const paced = Math.floor(BENCH_CONTRACT.ALLOC_WINDOW_MS / msPerOp);
   const first = Math.max(1, Math.min(BENCH_CONTRACT.ALLOC_WINDOW_OPS, paced));
+  let largest: [ReturnType<typeof window>, ReturnType<typeof window>] | null = null;
   for (let n = first; n >= 1; n = Math.floor(n / 2)) {
     const a = window(n);
     const b = window(2 * n);
     if (!a.settled || !b.settled) return { status: "skipped", reason: "gc-unsettled" };
-    if (a.gcs === 0 && b.gcs === 0) {
-      return {
-        status: "measured",
-        windowOps: n,
-        heapBytesPerOp: round((b.heap - a.heap) / n, 1),
-        externalBytesPerOp: round((b.ext - a.ext) / n, 1),
-      };
-    }
+    if (a.gcs === 0 && b.gcs === 0) return perOp("no-gc-window", n, a, b);
+    largest ??= [a, b];
   }
-  return { status: "skipped", reason: "allocation-window-gc" };
+  // The loop ran at least once (`first` is at least 1) and every pass that reached here collected.
+  const [a, b] = largest as [ReturnType<typeof window>, ReturnType<typeof window>];
+  return perOp("gc-accounted", first, a, b);
 }
 
-/** Peak heap per call. */
+/** Peak memory per call: the V8 heap, external memory, and the two together. */
 export type PeakReport =
   | {
       readonly status: "measured";
       readonly calls: number;
-      /** The highest peak of any call, in bytes above the settled heap before it. */
+      /** The highest V8 heap peak of any call, in bytes above the settled heap before it. */
       readonly peakHeapBytes: number;
-      /** The median call's peak. */
+      /** The median call's V8 heap peak. */
       readonly medianPeakHeapBytes: number;
+      /**
+       * The highest external peak of any call (Buffers, ArrayBuffers), above the external memory
+       * held before it. Absent in a document written before external memory was read.
+       */
+      readonly peakExternalBytes?: number;
+      /** The median call's external peak. */
+      readonly medianPeakExternalBytes?: number;
+      /**
+       * The highest peak of the V8 heap and external memory together, above the two before the call:
+       * the figure a memory budget reads. Not the sum of the two peaks above, which need not come at
+       * one moment.
+       */
+      readonly peakTotalBytes?: number;
+      /** The median call's peak of the two together. */
+      readonly medianPeakTotalBytes?: number;
     }
   | { readonly status: "skipped"; readonly reason: MemorySkipReason };
 
 /**
- * The peak heap of single calls: settle, call once, and take the higher of the heap just before any
- * collection during the call and the heap at its end, less the settled heap before it. Run with
- * V8's default heap sizing, so the collections that shape the peak are the ones a user's process has.
+ * The peak memory of single calls: settle, call once, and take the higher of the memory in use just
+ * before any collection during the call and at its end, less what was in use before it, for the V8
+ * heap, for external memory, and for the two together. Each only shrinks at a collection (the
+ * process frees dead ArrayBuffers within the collection), so its high point is at one of those
+ * moments. Run with V8's default heap sizing, so the collections that shape the peak are the ones a
+ * user's process has.
  *
  * @internal
  */
 export function measurePeak(call: (i: number) => void, probe: HeapProbe): PeakReport {
-  const peaks: number[] = [];
+  const heap: number[] = [];
+  const external: number[] = [];
+  const total: number[] = [];
   for (let i = 0; i < BENCH_CONTRACT.PEAK_CALLS; i++) {
     const s = settle(probe);
     if (!s.settled) return { status: "skipped", reason: "gc-unsettled" };
-    const { peakBeforeGc } = probe.profile(() => {
+    const e0 = probe.external();
+    const p = probe.profile(() => {
       call(i);
     });
-    peaks.push(Math.max(peakBeforeGc, probe.usedHeap()) - s.heap);
+    const h1 = probe.usedHeap();
+    const e1 = probe.external();
+    heap.push(Math.max(p.peakBeforeGc, h1) - s.heap);
+    external.push(Math.max(p.peakExternalBeforeGc, e1) - e0);
+    total.push(Math.max(p.peakTotalBeforeGc, h1 + e1) - (s.heap + e0));
   }
   return {
     status: "measured",
-    calls: peaks.length,
-    peakHeapBytes: Math.max(...peaks),
-    medianPeakHeapBytes: median(peaks),
+    calls: heap.length,
+    peakHeapBytes: Math.max(...heap),
+    medianPeakHeapBytes: median(heap),
+    peakExternalBytes: Math.max(...external),
+    medianPeakExternalBytes: median(external),
+    peakTotalBytes: Math.max(...total),
+    medianPeakTotalBytes: median(total),
   };
 }
 

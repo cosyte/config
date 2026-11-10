@@ -113,6 +113,7 @@ const skipped = {
   properties: { status: { const: "skipped" }, reason: str },
 } as const;
 const measuredOrSkipped = (measured: Schema): Schema => ({ oneOf: [measured, skipped] });
+const plan = { enum: ["standard", "large"] } as const;
 const orNull = (s: Schema): Schema => ({ oneOf: [{ type: "null" }, s] });
 
 /**
@@ -241,6 +242,9 @@ export const RESULTS_SCHEMA = {
         headMsPerOp: nums,
         ratios: nums,
         medianRatio: numOrNull,
+        // Added within version 1, so not required: a document written before them is still valid.
+        basePlans: { type: "array", items: plan },
+        headPlans: { type: "array", items: plan },
         interval: { $ref: "#/$defs/interval" },
         verdict: {
           enum: ["regression", "improvement", "no-regression", "inconclusive", "skipped"],
@@ -370,7 +374,8 @@ export const RESULTS_SCHEMA = {
               items: {
                 type: "object",
                 required: ["samplesMsPerOp", "medianMsPerOp"],
-                properties: { samplesMsPerOp: nums, medianMsPerOp: num },
+                // `plan` was added within version 1, so it is not required.
+                properties: { samplesMsPerOp: nums, medianMsPerOp: num, plan },
               },
             },
             medianMsPerOp: num,
@@ -397,6 +402,9 @@ export const RESULTS_SCHEMA = {
             required: ["status", "windowOps", "heapBytesPerOp", "externalBytesPerOp"],
             properties: {
               status: { const: "measured" },
+              // Added within version 1, so not required.
+              method: { enum: ["no-gc-window", "gc-accounted"] },
+              collections: int,
               windowOps: int,
               heapBytesPerOp: num,
               externalBytesPerOp: num,
@@ -412,6 +420,11 @@ export const RESULTS_SCHEMA = {
               calls: int,
               peakHeapBytes: num,
               medianPeakHeapBytes: num,
+              // Added within version 1, so not required.
+              peakExternalBytes: num,
+              medianPeakExternalBytes: num,
+              peakTotalBytes: num,
+              medianPeakTotalBytes: num,
             },
           }),
         ),

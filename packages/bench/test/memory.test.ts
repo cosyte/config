@@ -14,16 +14,26 @@ import { fakeClock } from "./support/clock.js";
 
 /**
  * A scripted heap. `heap` and `external` are what the probe reads; `gc` reclaims `garbage`, or
- * whatever `reclaim` says for this round; `profile` reports the collections `gcsFor` says ran.
+ * whatever `reclaim` says for this round; `profile` reports the collections `gcsFor` says ran, and
+ * when one ran, it reclaimed the window's `garbage` and `externalGarbage` and says how much.
  */
 function scripted(
   options: {
     reclaim?: (round: number) => number;
     gcsFor?: (call: number) => number;
     peakFor?: (call: number) => number;
+    peakExternalFor?: (call: number) => number;
+    peakTotalFor?: (call: number) => number;
   } = {},
 ) {
-  const state = { heap: 1_000_000, external: 0, garbage: 0, rounds: 0, profiles: 0 };
+  const state = {
+    heap: 1_000_000,
+    external: 0,
+    garbage: 0,
+    externalGarbage: 0,
+    rounds: 0,
+    profiles: 0,
+  };
   const probe: HeapProbe = {
     gc: () => {
       const r = options.reclaim?.(state.rounds) ?? state.garbage;
@@ -36,7 +46,25 @@ function scripted(
     profile: (fn) => {
       const call = state.profiles++;
       fn();
-      return { gcs: options.gcsFor?.(call) ?? 0, peakBeforeGc: options.peakFor?.(call) ?? 0 };
+      const gcs = options.gcsFor?.(call) ?? 0;
+      const reclaimedHeap = gcs > 0 ? state.garbage : 0;
+      const reclaimedExternal = gcs > 0 ? state.externalGarbage : 0;
+      state.heap -= reclaimedHeap;
+      state.external -= reclaimedExternal;
+      if (gcs > 0) {
+        state.garbage = 0;
+        state.externalGarbage = 0;
+      }
+      return {
+        gcs,
+        peakBeforeGc: options.peakFor?.(call) ?? 0,
+        peakExternalBeforeGc: options.peakExternalFor?.(call) ?? 0,
+        peakTotalBeforeGc:
+          options.peakTotalFor?.(call) ??
+          (options.peakFor?.(call) ?? 0) + (options.peakExternalFor?.(call) ?? 0),
+        reclaimedHeap,
+        reclaimedExternal,
+      };
     },
   };
   return { state, probe };
@@ -90,6 +118,8 @@ describe("measureAllocations", () => {
     };
     expect(measureAllocations(call, withOverhead, 1)).toEqual({
       status: "measured",
+      method: "no-gc-window",
+      collections: 0,
       windowOps: 100,
       heapBytesPerOp: 100,
       externalBytesPerOp: 8,
@@ -134,12 +164,49 @@ describe("measureAllocations", () => {
     expect(measureAllocations(() => undefined, second.probe, 1)).toMatchObject({ windowOps: 50 });
   });
 
-  it("skips, typed, when every window collects", () => {
-    const { probe } = scripted({ gcsFor: () => 1 });
-    expect(measureAllocations(() => undefined, probe, 1)).toEqual({
-      status: "skipped",
-      reason: "allocation-window-gc",
+  it("counts what the collections reclaimed when every window collects", () => {
+    const { state, probe } = scripted({ gcsFor: () => 1 });
+    // Each call allocates 100 heap bytes and 8 external, all garbage, and every window collects:
+    // the heap ends each window where it began, and only the reclaimed bytes show the allocation.
+    const call = () => {
+      state.heap += 100;
+      state.garbage += 100;
+      state.external += 8;
+      state.externalGarbage += 8;
+    };
+    expect(measureAllocations(call, probe, 1)).toEqual({
+      status: "measured",
+      method: "gc-accounted",
+      collections: 2,
+      windowOps: 100,
+      heapBytesPerOp: 100,
+      externalBytesPerOp: 8,
     });
+  });
+
+  it("counts the growth a collection left as well as what it reclaimed", () => {
+    const { state, probe } = scripted({ gcsFor: () => 1 });
+    // 100 bytes a call, 10 of them kept past the collection.
+    const call = () => {
+      state.heap += 100;
+      state.garbage += 90;
+    };
+    expect(measureAllocations(call, probe, 1000)).toMatchObject({
+      method: "gc-accounted",
+      windowOps: 1,
+      heapBytesPerOp: 100,
+    });
+  });
+
+  it("accounts the first, largest pair of windows, and tries no more after the halving", () => {
+    const { probe } = scripted({ gcsFor: () => 1 });
+    let calls = 0;
+    measureAllocations(() => calls++, probe, 25);
+    // Pairs of 4 and 8, 2 and 4, 1 and 2 operations: 21 calls, then the first pair is accounted.
+    expect(calls).toBe(21);
+    expect(
+      measureAllocations(() => undefined, scripted({ gcsFor: () => 1 }).probe, 25),
+    ).toMatchObject({ windowOps: 4, collections: 2 });
   });
 
   it("skips, typed, when the heap will not settle", () => {
@@ -168,6 +235,43 @@ describe("measurePeak", () => {
       calls: BENCH_CONTRACT.PEAK_CALLS,
       peakHeapBytes: 5_000,
       medianPeakHeapBytes: 1_000,
+      peakExternalBytes: 0,
+      medianPeakExternalBytes: 0,
+      peakTotalBytes: 5_000,
+      medianPeakTotalBytes: 1_000,
+    });
+  });
+
+  it("reports external memory beside the heap, and their sum at its own high point", () => {
+    const { state, probe } = scripted({
+      // Call 2 held 9,000 external bytes just before a collection; call 4 held the most in all.
+      peakExternalFor: (call) => (call === 2 ? 9_000 : 0),
+      peakTotalFor: (call) => (call === 4 ? 1_000_000 + 20_000 : 0),
+    });
+    // Each call leaves 1,000 heap bytes and 4,000 external ones held at its end.
+    const call = () => {
+      state.heap += 1_000;
+      state.garbage += 1_000;
+      state.external += 4_000;
+      state.externalGarbage += 4_000;
+    };
+    const free: HeapProbe = {
+      ...probe,
+      gc: () => {
+        probe.gc();
+        state.external -= state.externalGarbage;
+        state.externalGarbage = 0;
+      },
+    };
+    expect(measurePeak(call, free)).toEqual({
+      status: "measured",
+      calls: BENCH_CONTRACT.PEAK_CALLS,
+      peakHeapBytes: 1_000,
+      medianPeakHeapBytes: 1_000,
+      peakExternalBytes: 9_000,
+      medianPeakExternalBytes: 4_000,
+      peakTotalBytes: 20_000,
+      medianPeakTotalBytes: 5_000,
     });
   });
 
@@ -333,7 +437,14 @@ describe("realProbe", () => {
     expect(probe?.usedHeap()).toBeGreaterThan(0);
     expect(probe?.external()).toBeGreaterThanOrEqual(0);
     const quiet = probe?.profile(() => undefined);
-    expect(quiet).toEqual({ gcs: 0, peakBeforeGc: 0 });
+    expect(quiet).toEqual({
+      gcs: 0,
+      peakBeforeGc: 0,
+      peakExternalBeforeGc: 0,
+      peakTotalBeforeGc: 0,
+      reclaimedHeap: 0,
+      reclaimedExternal: 0,
+    });
     let kept: unknown[] = [];
     const busy = probe?.profile(() => {
       for (let i = 0; i < 200_000; i++) kept.push({ i, s: `x${String(i)}` });
@@ -341,6 +452,8 @@ describe("realProbe", () => {
     kept = [];
     expect(busy?.gcs).toBeGreaterThan(0);
     expect(busy?.peakBeforeGc).toBeGreaterThan(0);
+    expect(busy?.peakTotalBeforeGc).toBeGreaterThan(busy?.peakBeforeGc ?? 0);
+    expect(busy?.reclaimedHeap).toBeGreaterThan(0);
     expect(kept).toEqual([]);
   });
 });
