@@ -161,7 +161,7 @@ The constants, and where each comes from:
 | `ALLOC_WINDOW_OPS`, `ALLOC_WINDOW_MS`, `ALLOC_SEMI_SPACE_MIB`          | 256, 100 ms, 64 MiB | **Judgement.** Windows short enough that a 64 MiB young generation rarely collects inside one; a window in which a collection ran is halved and taken again, and a case whose windows always collect is skipped, typed. The two-window difference cancels the fixed cost of reading the heap |
 | `PEAK_CALLS`                                                           | 20                  | **Judgement.** The peak is a maximum; 20 calls report it and their median                                                                                                                                                                                                                    |
 | `LONG_RUN_ROUNDS`, `LONG_RUN_SETTLE_ROUNDS`, `LONG_RUN_ROUND_MS`       | 30, 5, 100 ms       | **Judgement.** 3 s of a case; the first 5 rounds left out while caches and compiled code settle                                                                                                                                                                                              |
-| `LONG_RUN_GROWTH_BYTES`                                                | 64 KiB              | **Judgement, pending a check.** Meant to sit above the fitted growth of a run that retains nothing and to be reached by a retained 40-byte object every 64 calls over a 1 KiB decode's long run; section 5's long-run calibration checks both                                                |
+| `LONG_RUN_GROWTH_BYTES`                                                | 64 KiB              | **Measured** (section 5): about 40 times the fitted growth of a run that retains nothing on a GitHub-hosted runner, and passed in every run by a retained 40-byte object every 64 calls over a 1 KiB decode's long run                                                                       |
 | `GC_SETTLE_BYTES`, `GC_SETTLE_ROUNDS`, `GC_MAX_ROUNDS`                 | 64 KiB, 2, 7        | **Shared.** ADR 0001 section 8                                                                                                                                                                                                                                                               |
 | `IMPORT_RUNS`                                                          | 20                  | **Judgement.** Enough for a median and a p95 that is not the maximum                                                                                                                                                                                                                         |
 
@@ -173,10 +173,53 @@ GitHub-hosted runners (`ubuntu-latest`, one comparison per runner at a time) by
 `.github/workflows/bench-calibration.yml`, which runs on a pull request that changes the comparison
 and can be run by hand. A developer machine's numbers describe that machine and are not used here.
 
-**The comparison's false alarms and detections.** Pending. The runner calibration started by the
-pull request that adds this standard had not finished when this was written, so this standard
-states no false alarm rate and no detection rate yet. Until it does, the comparison is advisory, as
-it would be anyway until the rule in section 4 is met.
+**The comparison's false alarms and detections.** Taken by the calibration workflow's run on the
+pull request that added this standard: nine `ubuntu-latest` runners (4 logical CPUs each; the
+runners drew four CPU models, AMD EPYC 7763, 9V74 and 9V45 and Intel Xeon Platinum 8370C, on the
+`ubuntu26` image, Node 24.22.2), each running whole comparisons one at a time for 80 minutes, about
+two minutes a comparison. The base and the head were two copies of the PHI scan engine in two
+directories, over the suite's six compared cases. Six runners ran A/A comparisons; one each ran a
+planted slowdown of a nominal 5%, 10% and 20% on the head side.
+
+| Planted (nominal) | Comparisons | With a skip | Regression verdicts (comparisons) | Upper 95% | Measured cases | Regression verdicts (cases) | Upper 95% |
+| ----------------- | ----------- | ----------- | --------------------------------- | --------- | -------------- | --------------------------- | --------- |
+| none (A/A)        | 225         | 0           | 0                                 | 1.32%     | 1,350          | 0                           | 0.22%     |
+| 5%                | 36          | 0           | 36                                | 100%      | 216            | 126 (58.3%)                 |           |
+| 10%               | 39          | 0           | 39                                | 100%      | 234            | 234 (100%)                  |           |
+| 20%               | 39          | 0           | 39                                | 100%      | 234            | 234 (100%)                  |           |
+
+By case, with the change each case was observed at (the median of every measured round's head over
+base) and its detections:
+
+| Case                          | Observed at a nominal 5% | Found | At 10% | Found | At 20% | Found |
+| ----------------------------- | ------------------------ | ----- | ------ | ----- | ------ | ----- |
+| runPhiScan, one file @ 1 KiB  | +5.4%                    | 14/36 | +10.3% | 39/39 | +20.7% | 39/39 |
+| runPhiScan, one file @ 32 KiB | +4.4%                    | 31/36 | +10.6% | 39/39 | +20.8% | 39/39 |
+| runPhiScan, one file @ 1 MiB  | +4.0%                    | 29/36 | +7.9%  | 39/39 | +16.1% | 39/39 |
+| decodeSourceLiterals @ 1 KiB  | +5.1%                    | 22/36 | +9.9%  | 39/39 | +19.8% | 39/39 |
+| decodeSourceLiterals @ 32 KiB | +3.3%                    | 0/36  | +11.9% | 39/39 | +22.2% | 39/39 |
+| decodeSourceLiterals @ 1 MiB  | +4.2%                    | 29/36 | +7.0%  | 39/39 | +17.0% | 39/39 |
+
+What that does and does not show:
+
+- **No false alarm and no skip in 225 A/A comparisons.** Both per-comparison rates are therefore
+  under 1.32% with 95% confidence on this runner class. That is not under 1%: the rule in section 4
+  needs at least 299 such comparisons. The comparison stays advisory. A further run of the same
+  workflow adds to the count.
+- **One round's noise on this runner class is small.** With nothing changed, a round's 5th and 95th
+  percentile ratios were 0.914 to 0.981 and 1.019 to 1.095, by case (`analyze.mjs` prints each).
+- **A slowdown observed at about 7% or more was found every time; one observed at 3.3% to 5.4% was
+  found in 0 to 86% of comparisons, by case.** The threshold is 3%, and the interval has to clear it
+  whole, so a change near it is found only some of the time. That is the size this method finds on
+  this runner class for this suite; a suite with noisier cases finds less.
+- **The planted slowdown is not the observed one.** A nominal 10% was observed at 7.0% to 11.9% by
+  case, which is why every detection here is stated against the observed change.
+- **The estimator and the threshold, judged on the same runs.** On the A/A runs, the median sample
+  instead of the fastest, and a 2% or a 5% threshold, also raised no false alarm in 1,350 cases. At
+  a nominal 5%, a 2% threshold found 184 of 216 cases and the median sample at 3% found 183, against
+  126 for the shipped rule; a 5% threshold found 4. The shipped rule is not the most sensitive on
+  this runner class; changing it is review trigger 3, and the rule for making it required would be
+  judged again on new runs.
 
 **What the planted slowdown is.** `cosyte-bench calibrate --inject <f>` does one thing: on the head
 side, after each timed pass over the corpus, it reads the clock until `f` times that pass's own
@@ -187,10 +230,26 @@ by workload and machine. Every calibration therefore reports, for each case, the
 (the median of every measured round's head over base), and a detection rate in this standard is
 stated against that observed change, never against `f`.
 
-**The long run.** Pending, from the same workflow: ten readings each of `decodeSourceLiterals` on
-1 KiB sources through a wrapper that retains nothing, or one small object (about 40 bytes) every 64
-calls, every 16 calls, or every call. The `LONG_RUN_GROWTH_BYTES` line of 64 KiB is checked against
-them when they land.
+**The long run.** Ten readings each of `decodeSourceLiterals` on 1 KiB sources through a wrapper
+that retains nothing, or one small object (about 40 bytes) every 64 calls, every 16 calls, or every
+call, on one GitHub-hosted runner (AMD EPYC 9V45, 4 logical CPUs, the `ubuntu26` image, Node
+24.22.2), from the calibration workflow's `readings` job:
+
+| Retained                  | Runs | Slope, bytes per operation | Fitted growth              | Called growing |
+| ------------------------- | ---- | -------------------------- | -------------------------- | -------------- |
+| nothing                   | 10   | 0.0028 to 0.0031           | 1,617 B                    | 0 of 10        |
+| one object every 64 calls | 10   | 0.6573 to 0.6693           | 337,368 to 371,380 B       | 10 of 10       |
+| one object every 16 calls | 10   | 2.4677 to 2.5808           | 1,216,272 to 1,391,213 B   | 10 of 10       |
+| one object every call     | 10   | 41.1879 to 42.0756         | 19,095,795 to 21,889,576 B | 10 of 10       |
+
+A run that retains nothing fits about 1.6 KB of growth over its fitted span: the heap's own noise
+(ADR 0001 measured about 1 KiB), not a leak. The 64 KiB line sits about 40 times above it, and a
+retained object every 64 calls (about 0.66 bytes per operation) passes it about five times over in
+every run. The runs did 19,200 to 23,744 operations a round, so the smallest leak this case's long
+run can call growing there (`detectableBytesPerOp`, which every result reports for its own case) is
+0.115 to 0.142 bytes per operation. A case with fewer, slower operations sees less: a long run of
+30 calls of a 300 ms operation fits 24 of them, so it cannot call a leak under about 2.7 KB a call
+growing, and says so in that number.
 
 ### 6. What it cannot detect
 
@@ -240,8 +299,30 @@ stronger:
 parser's commit gate: `packages/script-utils/bench/phi-scan.bench.mjs` measures the whole engine on
 one file (`runPhiScan` with a path, the way `cosyte-phi-scan <path>` runs) and the escape decoder
 alone (`decodeSourceLiterals`), each at 1 KiB, 32 KiB, 1 MiB and 4 MiB of synthetic TypeScript.
-`pnpm bench:phi-scan` takes a reading. The first reading on a GitHub-hosted runner is pending, from
-the `readings` job of the same calibration workflow.
+`pnpm bench:phi-scan` takes a reading. The first one, on one GitHub-hosted runner (AMD EPYC 9V45, 4
+logical CPUs, the `ubuntu26` image, Node 24.22.2), from the calibration workflow's `readings` job
+(`experiments/bench-calibration/data/phi-scan-reading.json`):
+
+| Benchmark            | Size   | Per op   | Bytes/s    | p50      | p95     | p99     | Alloc/op | Peak heap  | Long run |
+| -------------------- | ------ | -------- | ---------- | -------- | ------- | ------- | -------- | ---------- | -------- |
+| runPhiScan, one file | 1 KiB  | 31.2 us  | 33.2 MiB/s | 30.1 us  | 37.5 us | 84.4 us | 56.6 KiB | 84.2 KiB   | flat     |
+| runPhiScan, one file | 32 KiB | 425 us   | 73.6 MiB/s | 403 us   | 443 us  | 791 us  | 1.27 MiB | 1.25 MiB   |          |
+| runPhiScan, one file | 1 MiB  | 23.1 ms  | 43.3 MiB/s | 23.1 ms  | n/a     | n/a     | skipped  | 37.4 MiB   |          |
+| runPhiScan, one file | 4 MiB  | 126.3 ms | 31.7 MiB/s | 119.8 ms | n/a     | n/a     | skipped  | 130.56 MiB |          |
+| decodeSourceLiterals | 1 KiB  | 4.44 us  | 233 MiB/s  | 4.19 us  | 4.50 us | 9.61 us | 33.1 KiB | 39.4 KiB   | flat     |
+| decodeSourceLiterals | 32 KiB | 132 us   | 237 MiB/s  | 129 us   | 138 us  | 358 us  | 1000 KiB | 1 MiB      |          |
+| decodeSourceLiterals | 1 MiB  | 4.46 ms  | 224 MiB/s  | 4.76 ms  | 5.00 ms | n/a     | 31.2 MiB | 31.43 MiB  |          |
+| decodeSourceLiterals | 4 MiB  | 71.1 ms  | 56.3 MiB/s | 71.6 ms  | n/a     | n/a     | skipped  | 120.41 MiB |          |
+
+Cold import of `phi-scan.js`: median 5.43 ms, p95 5.63 ms over 20 fresh processes (an empty module:
+0.25 ms); one file, 112.3 KiB, 36.2 KiB gzipped. "n/a" for a percentile means fewer than 10 calls lay
+above it; "skipped" is a typed refusal, never a number (here `allocation-window-gc`: every window
+of a very large call collected).
+
+One thing in it is a finding rather than a number. The escape decoder's cost per byte rises above
+about 1 MiB: from 1 MiB to 4 MiB its time per operation goes from 4.46 ms to 71.1 ms, 16 times the
+time for four times the input, which at those sizes the scaling gate's ceiling of 8 would flag. We
+have not changed the engine here.
 
 ### 8. Keeping results over time (a proposal)
 

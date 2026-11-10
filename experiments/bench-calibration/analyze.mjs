@@ -61,11 +61,13 @@ function jsonFiles(dir) {
 function compare(dirs) {
   const byInject = new Map();
   let environment;
+  const cpus = new Set();
   for (const dir of dirs) {
     for (const file of jsonFiles(dir)) {
       const doc = readResults(readFileSync(file, "utf8"));
       if (doc.kind !== "calibration") continue;
       environment ??= doc.environment;
+      cpus.add(doc.environment.cpuModel ?? "unknown");
       const list = byInject.get(doc.calibration.inject) ?? [];
       list.push(...doc.calibration.runs);
       byInject.set(doc.calibration.inject, list);
@@ -82,7 +84,7 @@ function compare(dirs) {
     { name: "median sample, 3%", estimator: median, threshold: BENCH_CONTRACT.THRESHOLD },
   ];
   const lines = [
-    `Machine: ${environment?.cpuModel ?? "unknown"}, ${String(environment?.logicalCpus ?? "?")} logical CPUs, Node ${environment?.node ?? "?"}, ${environment?.runner.class ?? "?"}.`,
+    `Machines: ${[...cpus].sort().join("; ")}; ${String(environment?.logicalCpus ?? "?")} logical CPUs, Node ${environment?.node ?? "?"}, ${environment?.runner.class ?? "?"}.`,
     "",
     "| Injected | Rule | Comparisons | With a skip | With an outcome | Regression (comparison) | Upper 95% | Measured cases | Regression (case) | Upper 95% |",
     "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
