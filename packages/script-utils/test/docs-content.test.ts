@@ -769,6 +769,18 @@ describe("headingAnchors", () => {
     ]);
   });
 
+  it("keeps an alphabetic symbol, such as a circled or squared letter, as the slugger does", () => {
+    // Circled Latin letters (U+24B6 to U+24E9) and squared, negative circled and negative squared
+    // ones (in U+1F130 to U+1F189) are symbols, not letters, but alphabetic, and github-slugger
+    // keeps them.
+    expect(anchors(["## Ⓐ grade", "## Status ⓧ", "## 🄰 and 🅐", "## ① ☺"].join("\n"))).toEqual([
+      "ⓐ-grade",
+      "status-ⓧ",
+      "🄰-and-🅐",
+      "-",
+    ]);
+  });
+
   it("numbers a repeated slug in page order, skipping one already taken", () => {
     expect(
       anchors(

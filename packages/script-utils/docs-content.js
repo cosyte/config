@@ -467,11 +467,14 @@ const ESCAPABLE = /[!-/:-@[-`{-~]/;
 
 /**
  * What a character the docs site's slugger drops matches: anything that is not a letter, a mark,
- * a decimal or letter number, a connector such as `_`, a space or a hyphen. This is github-slugger's
- * rule, which the site's markdown loader slugs headings with, for every character assigned in the
- * Unicode version that slugger was built from.
+ * a decimal or letter number, a connector such as `_`, another alphabetic character (a circled or
+ * squared letter is a symbol, but alphabetic), a space or a hyphen. The site's markdown loader
+ * slugs headings with github-slugger 1.5.0, whose class was built from Unicode 13.0. Compared over
+ * every code point under Unicode 17.0 (Node.js 26), the two agree on every character except 14,802
+ * that Unicode assigned in 14.0 to 17.0 (letters, marks, digits and letter numbers): slugger drops
+ * them and this keeps them. Every character that slugger keeps, this keeps.
  */
-const SLUG_DROPS = /[^\p{L}\p{M}\p{Nd}\p{Nl}\p{Pc} -]/gu;
+const SLUG_DROPS = /[^\p{L}\p{M}\p{Nd}\p{Nl}\p{Pc}\p{Alphabetic} -]/gu;
 
 /**
  * The text of a heading as the docs site reads it before slugging: the closing run of `#` dropped,
