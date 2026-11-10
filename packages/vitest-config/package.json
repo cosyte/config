@@ -63,10 +63,8 @@
   "scripts": {
     "test": "vitest run --coverage"
   },
-  "dependencies": {
-    "@cosyte/script-utils": "workspace:^"
-  },
   "peerDependencies": {
+    "@cosyte/script-utils": "workspace:^",
     "@stryker-mutator/core": "^10.0.0",
     "@stryker-mutator/vitest-runner": "^10.0.0",
     "@vitest/coverage-v8": "^4.0.0 || ^5.0.0",
@@ -74,6 +72,9 @@
     "vitest": "^4.0.0 || ^5.0.0"
   },
   "peerDependenciesMeta": {
+    "@cosyte/script-utils": {
+      "optional": true
+    },
     "@stryker-mutator/core": {
       "optional": true
     },
@@ -82,6 +83,7 @@
     }
   },
   "devDependencies": {
+    "@cosyte/script-utils": "workspace:^",
     "@stryker-mutator/core": "10.1.1",
     "@stryker-mutator/vitest-runner": "10.1.1",
     "@vitest/coverage-v8": "5.1.0",

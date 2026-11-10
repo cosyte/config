@@ -7,7 +7,8 @@
 //
 // What a change touched is read from git by @cosyte/script-utils/changes, the same reading the
 // ratchet judges changed lines with, so the two cannot disagree about which files a pull request
-// changed. A changed run with no changed source file starts no mutation run: it writes an empty
+// changed. It is an optional peer dependency, imported only when a changed run starts, so a package
+// that uses only the Vitest config installs nothing for it. A changed run with no changed source file starts no mutation run: it writes an empty
 // report, so the ratchet can tell "ran, nothing to mutate" from "never ran", and exits 0.
 //
 // Exit codes: 0 the run finished (the score is judged by cosyte-ratchet, not here); 2 it could not
@@ -16,8 +17,6 @@
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, matchesGlob, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
-
-import { ChangesUnreadable, readChanges } from "@cosyte/script-utils/changes";
 
 import { FULL_REPORT, htmlReportFor } from "./stryker.js";
 
@@ -169,6 +168,25 @@ export async function loadConfig(path) {
 }
 
 /**
+ * Load the change reader from @cosyte/script-utils, the optional peer dependency a changed run needs.
+ *
+ * @param {(specifier: string) => Promise<any>} [load] Imports a module; replaced in tests.
+ * @returns {Promise<(opts: { base: string, cwd?: string }) => { root: string, files: Map<string, Set<number>> }>}
+ *   Its `readChanges`.
+ */
+export async function loadChangeReader(load = (specifier) => import(specifier)) {
+  try {
+    const { readChanges } = await load("@cosyte/script-utils/changes");
+    return readChanges;
+  } catch (cause) {
+    throw new MutateUnreadable(
+      "a changed run reads what a change touched with @cosyte/script-utils, an optional peer " +
+        `dependency of @cosyte/vitest-config; install it beside this package (${cause.message})`,
+    );
+  }
+}
+
+/**
  * Start StrykerJS with these options and wait for it to finish.
  *
  * @param {Record<string, unknown>} options Stryker options; `configFile` names the config, and
@@ -188,18 +206,13 @@ export async function runStryker(options) {
  * @param {string} opts.cwd The directory Stryker runs in.
  * @param {(text: string) => void} opts.out Writes to stdout.
  * @param {(text: string) => void} opts.err Writes to stderr.
- * @param {typeof readChanges} [opts.changes] Reads what a change touched; replaced in tests.
+ * @param {(opts: { base: string, cwd: string }) => { root: string, files: Map<string, Set<number>> }} [opts.changes]
+ *   Reads what a change touched; replaced in tests. Left out, a changed run loads it from
+ *   @cosyte/script-utils.
  * @param {typeof runStryker} [opts.stryker] Starts Stryker; replaced in tests.
  * @returns {Promise<number>} The exit code.
  */
-export async function runMutate({
-  argv,
-  cwd,
-  out,
-  err,
-  changes = readChanges,
-  stryker = runStryker,
-}) {
+export async function runMutate({ argv, cwd, out, err, changes, stryker = runStryker }) {
   if (argv.includes("--help") || argv.includes("-h")) {
     out(HELP);
     return 0;
@@ -215,7 +228,8 @@ export async function runMutate({
       await stryker({ configFile });
       return 0;
     }
-    const change = changes({ base: options.base, cwd });
+    const readChanges = changes ?? (await loadChangeReader());
+    const change = readChanges({ base: options.base, cwd });
     const files = selectChangedFiles({
       changed: change.files.keys(),
       root: change.root,
@@ -242,7 +256,8 @@ export async function runMutate({
     });
     return 0;
   } catch (error) {
-    const known = error instanceof MutateUnreadable || error instanceof ChangesUnreadable;
+    // The change reader's own refusal is known by name: its class lives in the optional peer.
+    const known = error instanceof MutateUnreadable || error?.name === "ChangesUnreadable";
     err(`cosyte-mutate: could not run: ${known ? error.message : String(error?.stack ?? error)}\n`);
     return 2;
   }

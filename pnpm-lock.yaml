@@ -190,11 +190,10 @@ importers:
         version: 9.0.0(postcss@8.5.23)(typescript@5.9.3)
 
   packages/vitest-config:
-    dependencies:
+    devDependencies:
       '@cosyte/script-utils':
         specifier: workspace:^
         version: link:../script-utils
-    devDependencies:
       '@stryker-mutator/core':
         specifier: 10.1.1
         version: 10.1.1(@types/node@22.20.0)

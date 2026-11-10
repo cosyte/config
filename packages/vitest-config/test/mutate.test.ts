@@ -8,7 +8,15 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -20,6 +28,7 @@ import {
   changedReportPath,
   emptyReport,
   fullReportPath,
+  loadChangeReader,
   loadConfig,
   parseMutateArgs,
   runMutate,
@@ -375,6 +384,69 @@ describe("runMutate", () => {
         /^cosyte-mutate: run StrykerJS with the shared config, over everything or over a change\./,
       );
       expect(r.out).toContain("default stryker.config.mjs, relative");
+    }
+  });
+});
+
+describe("@cosyte/script-utils is an optional peer, loaded only by a changed run", () => {
+  it("is declared an optional peer, not a dependency", () => {
+    const pkg = JSON.parse(readFileSync(join(PACKAGE_DIR, "package.json"), "utf8"));
+    expect(pkg.dependencies?.["@cosyte/script-utils"]).toBeUndefined();
+    expect(pkg.peerDependencies["@cosyte/script-utils"]).toBe("workspace:^");
+    expect(pkg.peerDependenciesMeta["@cosyte/script-utils"]).toEqual({ optional: true });
+  });
+
+  it("loads readChanges from @cosyte/script-utils/changes, and names the package when it is missing", async () => {
+    const asked: string[] = [];
+    const readChanges = () => ({ root: "/", files: new Map() });
+    expect(
+      await loadChangeReader(async (specifier) => {
+        asked.push(specifier);
+        return { readChanges };
+      }),
+    ).toBe(readChanges);
+    expect(asked).toEqual(["@cosyte/script-utils/changes"]);
+    expect(typeof (await loadChangeReader())).toBe("function");
+    await expect(
+      loadChangeReader(async () => {
+        throw new Error("Cannot find package");
+      }),
+    ).rejects.toThrow(
+      new MutateUnreadable(
+        "a changed run reads what a change touched with @cosyte/script-utils, an optional peer dependency of @cosyte/vitest-config; install it beside this package (Cannot find package)",
+      ),
+    );
+  });
+
+  it("loads and runs a full run without it, and refuses a changed run, naming it", () => {
+    // A copy of the two modules outside this workspace, where @cosyte/script-utils cannot resolve.
+    const d = mkdtempSync(join(tmpdir(), "vitest-config-no-peer-"));
+    try {
+      for (const file of ["mutate.js", "stryker.js"]) {
+        copyFileSync(join(PACKAGE_DIR, file), join(d, file));
+      }
+      write(d, {
+        "package.json": '{ "type": "module" }\n',
+        [DEFAULT_CONFIG]: CONFIG,
+      });
+      const script = [
+        'import { runMutate } from "./mutate.js";',
+        "const io = { cwd: process.cwd(), out: (t) => process.stdout.write(t), err: (t) => process.stderr.write(t) };",
+        'const full = await runMutate({ ...io, argv: ["full"], stryker: async () => {} });',
+        'const changed = await runMutate({ ...io, argv: ["changed", "--base", "main"] });',
+        "process.stdout.write(`\\nexit ${full} ${changed}\\n`);",
+      ].join("\n");
+      const r = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
+        cwd: d,
+        encoding: "utf8",
+      });
+      expect(r.status, r.stderr).toBe(0);
+      expect(r.stdout).toContain("\nexit 0 2\n");
+      expect(r.stderr).toMatch(
+        /^cosyte-mutate: could not run: a changed run reads what a change touched with @cosyte\/script-utils, an optional peer dependency of @cosyte\/vitest-config; install it beside this package \(.+\)\n$/,
+      );
+    } finally {
+      rmSync(d, { recursive: true, force: true });
     }
   });
 });

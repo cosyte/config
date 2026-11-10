@@ -54,10 +54,13 @@ pnpm add -D @cosyte/vitest-config vitest @vitest/coverage-v8 vite
 Install `vite` explicitly: Vitest 4 and 5 require major version 6 or later, and without a direct
 declaration the resolver will happily keep an incompatible vite 5. Node `>=22.14`. ESM only.
 
-For mutation testing, also install the two optional peers, StrykerJS 10 and its Vitest runner:
+For mutation testing, also install the optional peers: StrykerJS 10 and its Vitest runner, and
+`@cosyte/script-utils`, which `cosyte-mutate changed` reads a change with. A package that uses only
+the Vitest config installs none of them; `cosyte-mutate changed` without `@cosyte/script-utils`
+exits 2 and names it.
 
 ```sh
-pnpm add -D @stryker-mutator/core @stryker-mutator/vitest-runner
+pnpm add -D @stryker-mutator/core @stryker-mutator/vitest-runner @cosyte/script-utils
 ```
 
 ## Usage

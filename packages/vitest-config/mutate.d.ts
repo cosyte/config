@@ -1,4 +1,11 @@
-import type { readChanges } from "@cosyte/script-utils/changes";
+/**
+ * Reads what a change touched: `readChanges` from `@cosyte/script-utils/changes`, an optional peer
+ * dependency. Declared here so these types do not need that package installed.
+ */
+export type ChangeReader = (opts: { base: string; cwd: string }) => {
+  root: string;
+  files: Map<string, Set<number>>;
+};
 
 /** The config file a run reads when `--config` names none. */
 export declare const DEFAULT_CONFIG: "stryker.config.mjs";
@@ -37,6 +44,14 @@ export declare function loadConfig(
   path: string,
 ): Promise<Record<string, unknown> & { mutate: string[] }>;
 
+/**
+ * Load `readChanges` from `@cosyte/script-utils/changes`, the optional peer dependency a changed run
+ * needs; rejects, naming the package, when it is not installed.
+ */
+export declare function loadChangeReader(
+  load?: (specifier: string) => Promise<unknown>,
+): Promise<ChangeReader>;
+
 /** Start StrykerJS with these options and wait for it to finish. */
 export declare function runStryker(options: Record<string, unknown>): Promise<void>;
 
@@ -59,6 +74,6 @@ export declare function runMutate(opts: {
   cwd: string;
   out: (text: string) => void;
   err: (text: string) => void;
-  changes?: typeof readChanges;
+  changes?: ChangeReader;
   stryker?: (options: Record<string, unknown>) => Promise<void>;
 }): Promise<number>;
