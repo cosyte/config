@@ -174,6 +174,18 @@ describe("each bin reaches its gate and returns the gate's verdict", () => {
     expect(r.out).not.toContain(ssn);
   });
 
+  it("cosyte-phi-scan: scans a repository with no allow list against the one --allow-list names", () => {
+    const ssn = ["123", "45", "6789"].join("-");
+    const dir = fixture("phi-bare", { "a.txt": `id ${ssn}\n` }, true);
+    const list = join(root, "phi-empty-allow-list.txt");
+    writeFileSync(list, "");
+    expect(run("cosyte-phi-scan", [], dir).code).toBe(2);
+    const r = run("cosyte-phi-scan", ["--allow-list", list], dir);
+    expect(r.code, r.out).toBe(1);
+    expect(r.out).toContain("a.txt");
+    expect(r.out).not.toContain(ssn);
+  });
+
   it("cosyte-internal-refs: exits 2 with no axes file, so a missing config is not read as clean", () => {
     const r = run("cosyte-internal-refs", [], fixture("irefs", { "README.md": "# x\n" }, true));
     expect(r.code).toBe(2);

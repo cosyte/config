@@ -226,9 +226,14 @@ Each shared gate runs from a repository's package script with no file of its own
   whole repository as the scan root; `--staged` reading everything but Markdown; the allow-list at
   `scripts/phi-allow-list.txt` and the override log at `phi-scan-overrides.md`. Each line of
   `scripts/phi-scan.exclude` is one literal tracked path (`#` lines are comments); a directory, a
-  pattern, a repeat or a path git does not track is refused at exit 2. It carries the
-  cross-cutting floor only, so a repository whose standard needs field-level detectors keeps a
-  caller passing `detect` until the per-standard detectors ship here.
+  pattern, a repeat or a path git does not track is refused at exit 2. `--allow-list <path>`,
+  with `--staged`, with paths or alone, uses that allow list instead of
+  `scripts/phi-allow-list.txt` (a relative path is read from the working directory, and the
+  repository's own list is not read). A tool scanning a repository that keeps no allow list passes
+  an empty file, and the floor then has no exceptions; without the option that repository refuses
+  at exit 2. A path the option names that does not exist or cannot be read is refused at exit 2. It
+  carries the cross-cutting floor only, so a repository whose standard needs field-level detectors
+  keeps a caller passing `detect` until the per-standard detectors ship here.
 - **Internal refs** reads its axes from `scripts/internal-refs.json` (keys starting with `$` are
   notes), with exit codes 0 clean, 1 hits, 2 the gate could not run. The file may not set
   `exitCodes`, `repoRoot` or `write`, which the command-line form owns.

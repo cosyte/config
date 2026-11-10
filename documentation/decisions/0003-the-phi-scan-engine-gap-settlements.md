@@ -1,6 +1,6 @@
 # 0003: How the shared phi-scan engine settles the eight gaps its first consumer found
 
-- **Status:** Accepted (2026-09-19)
+- **Status:** Accepted (2026-09-19); N3 added 2026-11-09
 - **Scope:** the `./phi-scan` export of `@cosyte/script-utils`, and every repository that consumes
   it. It does not reach the per-repo axes (`exitCodes`, `scanRoots`, `isStagedReadable`, the
   per-standard `detect`, the allow-list and override-log files), which stay each repository's own.
@@ -93,8 +93,9 @@ withdraw it, then report a clean whole run over a corpus it never touched.
 ## What this narrows, and what still refuses it (AC-8)
 
 `phi-safety` P1 is blocking, so a settlement that makes a commit gate refuse LESS is recorded here
-with its compensating control rather than left in a diff. Both narrowings below are pinned by a case
-in the engine's own suite that names AC-8.
+with its compensating control rather than left in a diff. N1 and N2 below are pinned by a case in
+the engine's own suite that names AC-8; N3 by the command-line cases in the root suite
+(`test/phi-scan-cli.test.ts`).
 
 ### N1. The `--staged` route keys on `isStagedReadable`, not on the root half of scope (AC-16)
 
@@ -132,6 +133,41 @@ away. What covers the corpus is the index route: every TRACKED file that lived u
 still read, from the bytes git carries, because that route is no longer narrowed by `scanRoots`
 (decision 2 above). What is lost is UNTRACKED content under the old root, which git carries nothing
 for and which no scan of the repository can vouch for anyway.
+
+### N3. The command-line form takes `--allow-list <path>`
+
+The command-line form (`cosyte-phi-scan`, `script-utils phi-scan`, `node phi-scan.js`) used to read
+`scripts/phi-allow-list.txt` and nothing else, so a repository that keeps no allow list was refused
+at exit 2 for the missing file, every time. A tool that scans such a repository before a push had
+two choices, both bad: refuse every push from it, or not scan it. `--allow-list <path>` names the
+allow list to use instead, usually an empty file, and the repository is then scanned with no
+exceptions. `runPhiScan` is unchanged: its `allowListPath` setting already let a caller script do
+this, and the option only exposes it on the command line.
+
+**What is given up:** the missing-list refusal is no longer unconditional on the command line. With
+the option, a repository with no list of its own is scanned rather than refused, and the list that
+decides what the floor lets through can be a file outside the repository, which no review in that
+repository has seen. The named file REPLACES the repository's list rather than adding to it.
+
+**What still refuses:**
+
+- Without the option, nothing changed: a missing `scripts/phi-allow-list.txt` still refuses at exit
+  2, and a repository's own commit gate and CI, which do not pass the option, still read its own
+  list.
+- A path the option names that does not exist, or that exists and cannot be read (a directory, no
+  read permission), refuses at exit 2 before anything is scanned, and says which. So do the option
+  with no path, an empty path, and the option given twice. The unreadable case is closed for this
+  form only: the engine itself still lets an unreadable `allowListPath` escape to node's exit 1, as
+  its own source discloses.
+- An empty list declares nothing, so the floor is at its strictest: every dashed SSN shape, and an
+  email at ANY domain (the reserved ones a repository list usually declares included), is a hit.
+  The root suite pins both with an empty list given this way, and pins that the option replaces a
+  repository list that declares the same shapes.
+- Every other refusal in this record is untouched: the option changes which declarations the floor
+  reads and nothing about what is enumerated, read or refused.
+
+**What would reverse it:** removing the option from `runPhiScanCli`. A caller that wants the
+unconditional refusal back does not pass it.
 
 ## Consequences
 
