@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # The comparison's calibration: many full base against head comparisons of the PHI scan engine
-# against a copy of itself, in parallel lanes.
+# against a copy of itself, in parallel lanes. SUITE and TARGET point it at another suite and the
+# module it measures, for example `large.bench.mjs` and `large-target.mjs` here for the large-case
+# plan; the target is copied into the two directories under its own name.
 #
 #   experiments/bench-calibration/calibrate.sh <inject> <batches> <comparisons per batch> <first cpu> <lanes> <out dir>
 #
@@ -16,6 +18,9 @@
 set -euo pipefail
 
 root=${COSYTE_ROOT:-$(git rev-parse --show-toplevel)}
+suite=${SUITE:-$root/packages/script-utils/bench/phi-scan.bench.mjs}
+target=${TARGET:-$root/packages/script-utils/phi-scan.js}
+name=$(basename "$target")
 inject=$1
 batches=$2
 per=$3
@@ -28,8 +33,8 @@ mkdir -p "$out"
 work=$(mktemp -d "${TMPDIR:-/tmp}/cosyte-bench-calibrate-XXXXXX")
 trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/base" "$work/head"
-cp "$root/packages/script-utils/phi-scan.js" "$work/base/phi-scan.js"
-cp "$root/packages/script-utils/phi-scan.js" "$work/head/phi-scan.js"
+cp "$target" "$work/base/$name"
+cp "$target" "$work/head/$name"
 
 for lane in $(seq 0 $((lanes - 1))); do
   pin=()
@@ -38,8 +43,8 @@ for lane in $(seq 0 $((lanes - 1))); do
     for batch in $(seq 1 "$batches"); do
       if [ -n "$deadline" ] && [ "$(date +%s)" -ge "$deadline" ]; then break; fi
       "${pin[@]}" node "$root/packages/bench/dist/cli.mjs" calibrate \
-        --suite "$root/packages/script-utils/bench/phi-scan.bench.mjs" \
-        --base "$work/base/phi-scan.js" --head "$work/head/phi-scan.js" \
+        --suite "$suite" \
+        --base "$work/base/$name" --head "$work/head/$name" \
         --comparisons "$per" --inject "$inject" \
         --out "$out/lane-$lane-batch-$batch.json" >/dev/null 2>>"$out/lane-$lane.log"
     done

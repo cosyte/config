@@ -135,6 +135,90 @@ describe("the results schema", () => {
     },
   );
 
+  it("accepts the fields added within version 1, and checks their types", () => {
+    const first = reading.cases[0];
+    if (first === undefined) throw new Error("a case");
+    const added = {
+      ...first,
+      throughput: {
+        status: "measured",
+        processes: [{ samplesMsPerOp: [1, 1], medianMsPerOp: 1, plan: "large" }],
+        medianMsPerOp: 1,
+        opsPerSecond: 1000,
+        bytesPerSecond: 1_024_000,
+      },
+      allocations: {
+        status: "measured",
+        method: "gc-accounted",
+        collections: 2,
+        windowOps: 1,
+        heapBytesPerOp: 100,
+        externalBytesPerOp: 0,
+      },
+      peak: {
+        status: "measured",
+        calls: 20,
+        peakHeapBytes: 10,
+        medianPeakHeapBytes: 5,
+        peakExternalBytes: 20,
+        medianPeakExternalBytes: 10,
+        peakTotalBytes: 30,
+        medianPeakTotalBytes: 15,
+      },
+    };
+    const doc = { ...docs[0], reading: { ...reading, cases: [added] } };
+    expect(validate(JSON.parse(JSON.stringify(doc)), RESULTS_SCHEMA)).toEqual([]);
+    const compared = {
+      ...docs[1],
+      comparison: {
+        ...comparison,
+        cases: [{ ...caseComparison(), basePlans: ["standard"], headPlans: ["large"] }],
+      },
+    };
+    expect(validate(JSON.parse(JSON.stringify(compared)), RESULTS_SCHEMA)).toEqual([]);
+    const wrong = (field: "peak" | "allocations", change: Record<string, unknown>) =>
+      validate(
+        JSON.parse(
+          JSON.stringify({
+            ...doc,
+            reading: { ...reading, cases: [{ ...added, [field]: { ...added[field], ...change } }] },
+          }),
+        ),
+        RESULTS_SCHEMA,
+      );
+    const shapes = (field: string) =>
+      `/reading/cases/0/${field}: must match exactly one of 2 shapes, matches 0`;
+    expect(wrong("peak", { peakTotalBytes: "30" })).toContain(shapes("peak"));
+    expect(wrong("peak", { medianPeakExternalBytes: null })).toContain(shapes("peak"));
+    expect(wrong("allocations", { method: "guessed" })).toContain(shapes("allocations"));
+    expect(wrong("allocations", { collections: -1 })).toContain(shapes("allocations"));
+    const badProcess = {
+      ...doc,
+      reading: {
+        ...reading,
+        cases: [
+          {
+            ...added,
+            throughput: {
+              ...added.throughput,
+              processes: [{ ...added.throughput.processes[0], plan: "fast" }],
+            },
+          },
+        ],
+      },
+    };
+    expect(validate(JSON.parse(JSON.stringify(badProcess)), RESULTS_SCHEMA)).toContain(
+      '/reading/cases/0/throughput/processes/0/plan: must be one of "standard", "large"',
+    );
+    const badPlan = {
+      ...compared,
+      comparison: { ...comparison, cases: [{ ...caseComparison(), headPlans: ["fast"] }] },
+    };
+    expect(validate(JSON.parse(JSON.stringify(badPlan)), RESULTS_SCHEMA)).toContain(
+      '/comparison/cases/0/headPlans/0: must be one of "standard", "large"',
+    );
+  });
+
   it("records the tool, its version, the time and the constants", () => {
     expect(base).toMatchObject({
       schemaVersion: SCHEMA_VERSION,

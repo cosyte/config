@@ -112,14 +112,19 @@ export function renderMarkdown(doc: ResultsDocument): string {
     const r = doc.reading;
     lines.push(...header(doc, "Reading"));
     lines.push(
-      `Throughput is the median of ${String(r.processes)} fresh processes. Latency is per call, nearest rank. Memory: allocations per operation, the peak heap of one call above the settled heap, and whether the settled heap stays flat over a long run.`,
+      `Throughput is the median of ${String(r.processes)} fresh processes. "Large-case plan" marks a case whose calls each outlast a warmup batch. Latency is per call, nearest rank. Memory: allocations per operation ("collections counted" when every window collected), the peak of one call above what was in use before it (the V8 heap, external memory such as Buffers, and the two together, which a memory budget reads), and whether the settled heap stays flat over a long run.`,
       "",
-      "| Benchmark | Size | Per op | Ops/s | Bytes/s | p50 | p95 | p99 | Alloc/op | Peak heap | Long run |",
-      "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+      "| Benchmark | Size | Per op | Ops/s | Bytes/s | p50 | p95 | p99 | Alloc/op | Peak heap | Peak external | Peak total | Long run |",
+      "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     );
     for (const c of r.cases) {
       const t = c.throughput;
-      const perOp = t.status === "measured" ? time(t.medianMsPerOp) : `skipped (${t.reason})`;
+      const large =
+        t.status === "measured" && t.processes.some((p) => p.plan === "large")
+          ? " (large-case plan)"
+          : "";
+      const perOp =
+        t.status === "measured" ? `${time(t.medianMsPerOp)}${large}` : `skipped (${t.reason})`;
       const ops = t.status === "measured" ? String(t.opsPerSecond) : "n/a";
       const bps =
         t.status === "measured" && t.bytesPerSecond !== null
@@ -137,15 +142,16 @@ export function renderMarkdown(doc: ResultsDocument): string {
         a === null
           ? "n/a"
           : a.status === "measured"
-            ? bytes(a.heapBytesPerOp + a.externalBytesPerOp)
+            ? `${bytes(a.heapBytesPerOp + a.externalBytesPerOp)}${a.method === "gc-accounted" ? " (collections counted)" : ""}`
             : `skipped (${a.reason})`;
       const p = c.peak;
+      const optional = (n: number | undefined) => (n === undefined ? "n/a" : bytes(n));
       const peak =
         p === null
-          ? "n/a"
+          ? ["n/a", "n/a", "n/a"]
           : p.status === "measured"
-            ? bytes(p.peakHeapBytes)
-            : `skipped (${p.reason})`;
+            ? [bytes(p.peakHeapBytes), optional(p.peakExternalBytes), optional(p.peakTotalBytes)]
+            : Array.from({ length: 3 }, () => `skipped (${p.reason})`);
       const lr = c.longRun;
       const long =
         lr === null
@@ -154,7 +160,7 @@ export function renderMarkdown(doc: ResultsDocument): string {
             ? `${lr.verdict} (${bytes(lr.growthBytes)} over ${String(lr.ops)} ops, ${String(lr.slopeBytesPerOp)} B/op)`
             : `skipped (${lr.reason})`;
       lines.push(
-        `| ${c.benchmark} | ${c.size} | ${perOp} | ${ops} | ${bps} | ${lat.join(" | ")} | ${alloc} | ${peak} | ${long} |`,
+        `| ${c.benchmark} | ${c.size} | ${perOp} | ${ops} | ${bps} | ${lat.join(" | ")} | ${alloc} | ${peak.join(" | ")} | ${long} |`,
       );
     }
     if (r.importCost !== null) {

@@ -63,6 +63,52 @@ describe("a real measuring process", () => {
     });
   });
 
+  const memory = (benchmark: string, size: string, mode: "alloc" | "heap") =>
+    run(
+      mode === "alloc"
+        ? { mode, suite: FIXTURES.memorySuite, target: FIXTURES.target, case: { benchmark, size } }
+        : {
+            mode,
+            suite: FIXTURES.memorySuite,
+            target: FIXTURES.target,
+            case: { benchmark, size },
+            longRun: false,
+          },
+    );
+
+  it("counts allocations through the collections when every window collects", async () => {
+    const small = await memory("arrays", "64", "alloc");
+    const large = await memory("arrays", "16384", "alloc");
+    if (small.mode === "timing" || small.allocations?.status !== "measured")
+      throw new Error(`not measured: ${JSON.stringify(small)}`);
+    if (large.mode === "timing" || large.allocations?.status !== "measured")
+      throw new Error(`not measured: ${JSON.stringify(large)}`);
+    expect(small.allocations.method).toBe("no-gc-window");
+    expect(large.allocations.method).toBe("gc-accounted");
+    expect(large.allocations.collections).toBeGreaterThan(0);
+    // 256 times the arrays: 256 times the bytes, to within 5%, by two different methods.
+    const ratio = large.allocations.heapBytesPerOp / small.allocations.heapBytesPerOp;
+    expect(ratio).toBeGreaterThan(256 * 0.95);
+    expect(ratio).toBeLessThan(256 * 1.05);
+  });
+
+  it("counts a Buffer's bytes outside the heap, in allocations and in the peak", async () => {
+    const bytes = 8 * 1024 * 1024;
+    const alloc = await memory("buffer", "8 MiB", "alloc");
+    if (alloc.mode === "timing" || alloc.allocations?.status !== "measured")
+      throw new Error(`not measured: ${JSON.stringify(alloc)}`);
+    expect(alloc.allocations.externalBytesPerOp).toBeGreaterThan(bytes * 0.95);
+    expect(alloc.allocations.externalBytesPerOp).toBeLessThan(bytes * 1.05);
+    const heap = await memory("buffer", "8 MiB", "heap");
+    if (heap.mode === "timing" || heap.peak?.status !== "measured")
+      throw new Error(`not measured: ${JSON.stringify(heap)}`);
+    expect(heap.peak.peakHeapBytes).toBeLessThan(bytes / 8);
+    expect(heap.peak.peakExternalBytes).toBeGreaterThanOrEqual(bytes);
+    expect(heap.peak.medianPeakExternalBytes).toBeGreaterThanOrEqual(bytes);
+    expect(heap.peak.peakTotalBytes).toBeGreaterThanOrEqual(bytes);
+    expect(heap.peak.peakTotalBytes).toBeLessThan(bytes * 1.5);
+  });
+
   it("skips memory, typed, without --expose-gc", async () => {
     const result = await run(
       { mode: "heap", ...base, case: { benchmark: "length", size: "small" }, longRun: true },

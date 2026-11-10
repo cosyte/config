@@ -60,6 +60,20 @@ export interface BenchContractShape {
   readonly GC_MAX_ROUNDS: number;
   /** Fresh processes timed for the cold import, for the target and for an empty module each. */
   readonly IMPORT_RUNS: number;
+  /**
+   * A case whose last three warmup batches each took at least this many milliseconds a pass runs on
+   * the large-case plan: every batch is one pass, so the warmup rule's aggregation cannot happen.
+   */
+  readonly LARGE_PASS_MS: number;
+  /** Passes in each of the two windows whose medians the large-case warmup compares. */
+  readonly LARGE_WARMUP_WINDOW: number;
+  /** Hard cap on the large-case warmup, in milliseconds, from the start of the warmup. */
+  readonly LARGE_WARMUP_MAX_MS: number;
+  /**
+   * The long run also runs on a benchmark's largest size whose rounds fit in this many milliseconds,
+   * a round being at least one pass.
+   */
+  readonly LONG_RUN_MAX_MS: number;
   /** The timing comparison may become a required check when A/A false alarms are under this rate. */
   readonly REQUIRED_FALSE_ALARM_RATE: number;
   /** The confidence that the false alarm rate is under the line, for the rule above. */
@@ -100,6 +114,10 @@ export const BENCH_CONTRACT: BenchContractShape = Object.freeze({
   GC_SETTLE_ROUNDS: 2,
   GC_MAX_ROUNDS: 7,
   IMPORT_RUNS: 20,
+  LARGE_PASS_MS: 50,
+  LARGE_WARMUP_WINDOW: 5,
+  LARGE_WARMUP_MAX_MS: 30_000,
+  LONG_RUN_MAX_MS: 60_000,
   REQUIRED_FALSE_ALARM_RATE: 0.01,
   REQUIRED_CONFIDENCE: 0.95,
 });

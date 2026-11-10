@@ -42,16 +42,28 @@ export type Clock = () => number;
  */
 export type NsClock = () => bigint;
 
+/**
+ * Which warmup rule a process ended on. `standard` is ADR 0001 section 2's. `large` is the
+ * large-case plan, for a case whose every batch is a single pass: see {@link warmUp}.
+ */
+export type WarmupPlan = "standard" | "large";
+
 /** What the warmup did. */
 export interface WarmupReport {
-  /** Whether three batches in a row came within 5% of their median before 5 s ran out. */
+  /**
+   * Whether the warmup settled: on the standard plan, three batches in a row within 5% of their
+   * median before 5 s ran out; on the large-case plan, two windows of passes with medians within 5%
+   * of each other before 30 s ran out.
+   */
   readonly stable: boolean;
   /** Wall time spent warming, in milliseconds. */
   readonly elapsedMs: number;
   /** Passes over the corpus. */
   readonly passes: number;
-  /** Each batch's milliseconds per pass. */
+  /** Each batch's milliseconds per pass. On the large-case plan every batch after the switch is one pass. */
   readonly batches: readonly number[];
+  /** The rule the warmup ended on. */
+  readonly plan: WarmupPlan;
 }
 
 /**
@@ -68,9 +80,45 @@ export function batchesAreStable(batches: readonly number[]): boolean {
 }
 
 /**
+ * Whether a case is large: its last `STABLE_BATCHES` batches each took at least `LARGE_PASS_MS` a
+ * pass. A batch ends on the pass that reaches 50 ms, so such a batch is a single pass, and the
+ * aggregation that ADR 0001 measured as what brings batch-to-batch jitter inside 5% cannot happen.
+ *
+ * @internal
+ */
+export function isLargeCase(batches: readonly number[]): boolean {
+  if (batches.length < WARMUP.STABLE_BATCHES) return false;
+  return batches.slice(-WARMUP.STABLE_BATCHES).every((b) => b >= BENCH_CONTRACT.LARGE_PASS_MS);
+}
+
+/**
+ * The large-case plan's stability test: the median of the last `LARGE_WARMUP_WINDOW` passes lies
+ * within `STABLE_TOL` of the median of the window before it. A median of 5 passes is moved by
+ * neither of up to two stalled passes, where the standard rule needs every one of three to agree.
+ *
+ * @internal
+ */
+export function windowsAreStable(passes: readonly number[]): boolean {
+  const w = BENCH_CONTRACT.LARGE_WARMUP_WINDOW;
+  if (passes.length < 2 * w) return false;
+  const last = median(passes.slice(-w));
+  const before = median(passes.slice(-2 * w, -w));
+  // A zero median makes the relative distance `NaN`, which no tolerance accepts: refused.
+  return Math.abs(last - before) / before <= WARMUP.STABLE_TOL;
+}
+
+/**
  * Warm up by time, with a stability rule, never by a fixed count (ADR 0001 section 2): batches of
  * whole passes of at least 50 ms, at least 500 ms in all, until three batches in a row lie within
  * 5% of their median, or 5 s pass without that.
+ *
+ * A case whose passes are too long for that rule moves to the large-case plan: when 500 ms have
+ * passed, the standard rule has not settled, and the last three batches were each a single pass of
+ * at least `LARGE_PASS_MS` ({@link isLargeCase}). From there the warmup runs one pass at a time
+ * until the median of the last `LARGE_WARMUP_WINDOW` passes is within 5% of the median of the
+ * window before it ({@link windowsAreStable}), which takes at least twice the window in passes, or
+ * until `LARGE_WARMUP_MAX_MS` from the start pass without that. A case that settles by the standard
+ * rule never moves, so every case whose batches hold several passes warms up exactly as before.
  *
  * @internal
  */
@@ -90,10 +138,39 @@ export function warmUp(pass: () => void, clock: Clock): WarmupReport {
     passes += inBatch;
     batches.push(batchMs / inBatch);
     const elapsedMs = clock() - start;
-    if (elapsedMs >= WARMUP.MIN_MS && batchesAreStable(batches)) {
-      return { stable: true, elapsedMs, passes, batches };
+    if (elapsedMs >= WARMUP.MIN_MS) {
+      if (batchesAreStable(batches)) {
+        return { stable: true, elapsedMs, passes, batches, plan: "standard" };
+      }
+      if (isLargeCase(batches)) return warmUpLarge(pass, clock, start, batches, passes);
     }
-    if (elapsedMs >= WARMUP.MAX_MS) return { stable: false, elapsedMs, passes, batches };
+    if (elapsedMs >= WARMUP.MAX_MS) {
+      return { stable: false, elapsedMs, passes, batches, plan: "standard" };
+    }
+  }
+}
+
+/** The large-case plan, continued from the standard warmup's batches. See {@link warmUp}. */
+function warmUpLarge(
+  pass: () => void,
+  clock: Clock,
+  start: number,
+  batches: number[],
+  passesSoFar: number,
+): WarmupReport {
+  let passes = passesSoFar;
+  for (;;) {
+    const p0 = clock();
+    pass();
+    const t = clock();
+    passes++;
+    batches.push(t - p0);
+    const elapsedMs = t - start;
+    if (windowsAreStable(batches))
+      return { stable: true, elapsedMs, passes, batches, plan: "large" };
+    if (elapsedMs >= BENCH_CONTRACT.LARGE_WARMUP_MAX_MS) {
+      return { stable: false, elapsedMs, passes, batches, plan: "large" };
+    }
   }
 }
 

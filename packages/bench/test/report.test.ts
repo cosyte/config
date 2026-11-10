@@ -70,7 +70,7 @@ describe("renderMarkdown", () => {
       },
     };
     expect(renderMarkdown(reading)).toContain(
-      "| scan | 1 MiB | 1 ms | 1000 | 1 MiB/s | n/a | n/a | n/a | 1 KiB | n/a |  |",
+      "| scan | 1 MiB | 1 ms | 1000 | 1 MiB/s | n/a | n/a | n/a | 1 KiB | n/a | n/a | n/a |  |",
     );
   });
 
@@ -223,7 +223,16 @@ describe("renderMarkdown", () => {
               heapBytesPerOp: 1000,
               externalBytesPerOp: 24,
             },
-            peak: { status: "measured", calls: 20, peakHeapBytes: 2048, medianPeakHeapBytes: 1024 },
+            peak: {
+              status: "measured",
+              calls: 20,
+              peakHeapBytes: 2048,
+              medianPeakHeapBytes: 1024,
+              peakExternalBytes: 3 * 1024 * 1024,
+              medianPeakExternalBytes: 1024,
+              peakTotalBytes: 3 * 1024 * 1024 + 1024,
+              medianPeakTotalBytes: 2048,
+            },
             longRun: {
               status: "measured",
               verdict: "flat",
@@ -259,14 +268,24 @@ describe("renderMarkdown", () => {
             bytesPerPass: null,
             throughput: {
               status: "measured",
-              processes: [],
+              processes: [
+                { samplesMsPerOp: [2], medianMsPerOp: 2, plan: "large" },
+                { samplesMsPerOp: [2], medianMsPerOp: 2, plan: "standard" },
+              ],
               medianMsPerOp: 2,
               opsPerSecond: 500,
               bytesPerSecond: null,
             },
             latency: null,
-            allocations: null,
-            peak: null,
+            allocations: {
+              status: "measured",
+              method: "gc-accounted",
+              collections: 3,
+              windowOps: 1,
+              heapBytesPerOp: 2048,
+              externalBytesPerOp: 0,
+            },
+            peak: { status: "measured", calls: 20, peakHeapBytes: 4096, medianPeakHeapBytes: 1024 },
             longRun: null,
           },
         ],
@@ -278,13 +297,13 @@ describe("renderMarkdown", () => {
 
       Node v24.0.0 on github-actions-github-hosted-ubuntu24-x64 (unknown CPU, 4 logical CPUs), @cosyte/bench 9.9.9, 2026-11-10T00:00:00.000Z.
 
-      Throughput is the median of 3 fresh processes. Latency is per call, nearest rank. Memory: allocations per operation, the peak heap of one call above the settled heap, and whether the settled heap stays flat over a long run.
+      Throughput is the median of 3 fresh processes. "Large-case plan" marks a case whose calls each outlast a warmup batch. Latency is per call, nearest rank. Memory: allocations per operation ("collections counted" when every window collected), the peak of one call above what was in use before it (the V8 heap, external memory such as Buffers, and the two together, which a memory budget reads), and whether the settled heap stays flat over a long run.
 
-      | Benchmark | Size | Per op | Ops/s | Bytes/s | p50 | p95 | p99 | Alloc/op | Peak heap | Long run |
-      | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-      | scan | 1 KiB | 500 us | 2000 | 3 MiB/s | 500 ns | 2.5 ms | n/a | 1 KiB | 2 KiB | flat (512 B over 3000 ops, 0.01 B/op) |
-      | scan | 4 MiB | skipped (warmup-unstable) | n/a | n/a | skipped (latency-below-timer-resolution) | n/a | n/a | skipped (allocation-window-gc) | skipped (gc-unsettled) | skipped (gc-unavailable) |
-      | decode | 1 KiB | 2 ms | 500 | n/a | n/a | n/a | n/a | n/a | n/a |  |
+      | Benchmark | Size | Per op | Ops/s | Bytes/s | p50 | p95 | p99 | Alloc/op | Peak heap | Peak external | Peak total | Long run |
+      | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+      | scan | 1 KiB | 500 us | 2000 | 3 MiB/s | 500 ns | 2.5 ms | n/a | 1 KiB | 2 KiB | 3 MiB | 3 MiB | flat (512 B over 3000 ops, 0.01 B/op) |
+      | scan | 4 MiB | skipped (warmup-unstable) | n/a | n/a | skipped (latency-below-timer-resolution) | n/a | n/a | skipped (allocation-window-gc) | skipped (gc-unsettled) | skipped (gc-unsettled) | skipped (gc-unsettled) | skipped (gc-unavailable) |
+      | decode | 1 KiB | 2 ms (large-case plan) | 500 | n/a | n/a | n/a | n/a | 2 KiB (collections counted) | 4 KiB | n/a | n/a |  |
 
       Cold import: median 2.5 ms, p95 3 ms over 2 fresh processes (an empty module: median 250 us). Loaded: 1 file(s), 2 KiB, 900 B gzipped.
       "
@@ -294,13 +313,17 @@ describe("renderMarkdown", () => {
     );
     expect(text).toContain("Throughput is the median of 3 fresh processes.");
     expect(text).toContain(
-      "| scan | 1 KiB | 500 us | 2000 | 3 MiB/s | 500 ns | 2.5 ms | n/a | 1 KiB | 2 KiB | flat (512 B over 3000 ops, 0.01 B/op) |",
+      "| Benchmark | Size | Per op | Ops/s | Bytes/s | p50 | p95 | p99 | Alloc/op | Peak heap | Peak external | Peak total | Long run |",
     );
     expect(text).toContain(
-      "| scan | 4 MiB | skipped (warmup-unstable) | n/a | n/a | skipped (latency-below-timer-resolution) | n/a | n/a | skipped (allocation-window-gc) | skipped (gc-unsettled) | skipped (gc-unavailable) |",
+      "| scan | 1 KiB | 500 us | 2000 | 3 MiB/s | 500 ns | 2.5 ms | n/a | 1 KiB | 2 KiB | 3 MiB | 3 MiB | flat (512 B over 3000 ops, 0.01 B/op) |",
     );
     expect(text).toContain(
-      "| decode | 1 KiB | 2 ms | 500 | n/a | n/a | n/a | n/a | n/a | n/a |  |",
+      "| scan | 4 MiB | skipped (warmup-unstable) | n/a | n/a | skipped (latency-below-timer-resolution) | n/a | n/a | skipped (allocation-window-gc) | skipped (gc-unsettled) | skipped (gc-unsettled) | skipped (gc-unsettled) | skipped (gc-unavailable) |",
+    );
+    // A document written before external memory was read has no external or total peak.
+    expect(text).toContain(
+      "| decode | 1 KiB | 2 ms (large-case plan) | 500 | n/a | n/a | n/a | n/a | 2 KiB (collections counted) | 4 KiB | n/a | n/a |  |",
     );
     expect(text).toContain(
       "Cold import: median 2.5 ms, p95 3 ms over 2 fresh processes (an empty module: median 250 us). Loaded: 1 file(s), 2 KiB, 900 B gzipped.",

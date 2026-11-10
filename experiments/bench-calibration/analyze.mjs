@@ -11,7 +11,8 @@
 // case is never a trial. A comparison is a trial when its outcome is known: every case measured, or
 // a regression was called. Under a planted slowdown it also prints the change each case was
 // observed at, because that, not the nominal fraction, is what a detection rate is read against. It
-// needs a build (`pnpm build`), because it judges with the package's own `judge`.
+// needs a build (`pnpm build`), because it judges with the package's own `judge`. It also counts
+// the warmup plan every measured process ended on, when the results record it.
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -83,8 +84,27 @@ function compare(dirs) {
     { name: "fastest sample, 5%", estimator: (xs) => Math.min(...xs), threshold: 0.05 },
     { name: "median sample, 3%", estimator: median, threshold: BENCH_CONTRACT.THRESHOLD },
   ];
+  const plans = new Map();
+  for (const runs of byInject.values()) {
+    for (const run of runs) {
+      for (const c of run) {
+        for (const p of [...(c.basePlans ?? []), ...(c.headPlans ?? [])]) {
+          plans.set(p, (plans.get(p) ?? 0) + 1);
+        }
+      }
+    }
+  }
+  const planLine =
+    plans.size === 0
+      ? "Warmup plans: not recorded in these results."
+      : `Warmup plans of the measured processes: ${[...plans]
+          .sort()
+          .map(([p, n]) => `${p} ${String(n)}`)
+          .join(", ")}.`;
   const lines = [
     `Machines: ${[...cpus].sort().join("; ")}; ${String(environment?.logicalCpus ?? "?")} logical CPUs, Node ${environment?.node ?? "?"}, ${environment?.runner.class ?? "?"}.`,
+    "",
+    planLine,
     "",
     "| Injected | Rule | Comparisons | With a skip | With an outcome | Regression (comparison) | Upper 95% | Measured cases | Regression (case) | Upper 95% |",
     "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",

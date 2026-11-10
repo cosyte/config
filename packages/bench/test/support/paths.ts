@@ -12,6 +12,7 @@ export const entry = (name: string): string => here(`fixtures/entries/${name}.mj
 
 export const FIXTURES = {
   suite: here("fixtures/suite.mjs"),
+  memorySuite: here("fixtures/memory-suite.mjs"),
   target: here("fixtures/target.mjs"),
   notASuite: here("fixtures/not-a-suite.mjs"),
   throwsOnImport: here("fixtures/throws-on-import.mjs"),

@@ -19,6 +19,7 @@
 
 import type { Job, JobResult } from "./child.js";
 import { BENCH_CONTRACT } from "./contract.js";
+import type { WarmupPlan } from "./measure.js";
 import {
   median,
   rateUpperBound,
@@ -78,6 +79,13 @@ export interface CaseComparison extends CaseRef {
   readonly baseSamples: readonly (readonly number[])[];
   /** Each round's head samples, whole. */
   readonly headSamples: readonly (readonly number[])[];
+  /**
+   * Each round's base process: the warmup rule it ended on. Absent in a document written before it
+   * was recorded.
+   */
+  readonly basePlans?: readonly WarmupPlan[];
+  /** Each round's head process: the warmup rule it ended on. */
+  readonly headPlans?: readonly WarmupPlan[];
   /** Each round's `head / base`. */
   readonly ratios: readonly number[];
   readonly medianRatio: number | null;
@@ -135,14 +143,19 @@ export async function compareBuilds(options: CompareOptions): Promise<Comparison
   const cases = listCases(options.suite, options.only, true);
   const state = cases.map((c) => ({
     c,
-    rounds: [] as { base: readonly number[]; head: readonly number[] }[],
+    rounds: [] as {
+      base: readonly number[];
+      head: readonly number[];
+      basePlan: WarmupPlan;
+      headPlan: WarmupPlan;
+    }[],
     skip: null as string | null,
   }));
   for (let r = 0; r < BENCH_CONTRACT.ROUNDS; r++) {
     for (const s of state) {
       if (s.skip !== null) continue;
       const sides: ("base" | "head")[] = r % 2 === 0 ? ["base", "head"] : ["head", "base"];
-      const got = new Map<"base" | "head", readonly number[]>();
+      const got = new Map<"base" | "head", { samples: readonly number[]; plan: WarmupPlan }>();
       for (const side of sides) {
         const result = await runJob({
           mode: "timing",
@@ -158,12 +171,19 @@ export async function compareBuilds(options: CompareOptions): Promise<Comparison
           s.skip = `${side}: ${result.reason}`;
           break;
         }
-        got.set(side, result.samplesMsPerOp);
+        got.set(side, { samples: result.samplesMsPerOp, plan: result.warmup.plan });
       }
       const base = got.get("base");
       const head = got.get("head");
       // Both sides or neither: a round that skipped half way is not a round.
-      if (base !== undefined && head !== undefined) s.rounds.push({ base, head });
+      if (base !== undefined && head !== undefined) {
+        s.rounds.push({
+          base: base.samples,
+          head: head.samples,
+          basePlan: base.plan,
+          headPlan: head.plan,
+        });
+      }
     }
     options.onProgress?.(`round ${String(r + 1)} of ${String(BENCH_CONTRACT.ROUNDS)} done`);
   }
@@ -178,6 +198,8 @@ export async function compareBuilds(options: CompareOptions): Promise<Comparison
         headMsPerOp: rounds.map((p) => Math.min(...p.head)),
         baseSamples: rounds.map((p) => p.base),
         headSamples: rounds.map((p) => p.head),
+        basePlans: rounds.map((p) => p.basePlan),
+        headPlans: rounds.map((p) => p.headPlan),
       };
       if (skip !== null) {
         return {

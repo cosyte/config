@@ -36,7 +36,7 @@ const options = {
 };
 
 describe("readBuild", () => {
-  it("times each case in fresh processes, latency from the first, then memory, then the import", async () => {
+  it("times each size of a benchmark in fresh processes, latency from the first, then its memory, then the import", async () => {
     const { jobs, runJob } = fixedRunner();
     const progress: string[] = [];
     const body = await readBuild({ ...options, runJob, onProgress: (l) => progress.push(l) });
@@ -50,11 +50,23 @@ describe("readBuild", () => {
     ]);
     expect(
       jobs
-        .slice(0, 5)
-        .map((j) =>
-          j.mode === "timing" ? `timing ${String(j.latency)} ${String(j.inject)}` : j.mode,
+        .slice(0, 10)
+        .map(
+          (j) =>
+            `${j.case.size} ${j.mode === "timing" ? `timing ${String(j.latency)} ${String(j.inject)}` : j.mode}`,
         ),
-    ).toEqual(["timing true 0", "timing false 0", "timing false 0", "alloc", "heap"]);
+    ).toEqual([
+      "small timing true 0",
+      "small timing false 0",
+      "small timing false 0",
+      "large timing true 0",
+      "large timing false 0",
+      "large timing false 0",
+      "small alloc",
+      "small heap",
+      "large alloc",
+      "large heap",
+    ]);
     expect(jobs.every((j) => j.suite === "/s.mjs" && j.target === "/t.mjs")).toBe(true);
     expect(progress).toEqual([
       "read scan @ small",
@@ -80,18 +92,66 @@ describe("readBuild", () => {
     expect(first.throughput.processes.map((p) => p.medianMsPerOp)).toEqual([0.5, 0.501, 0.502]);
   });
 
-  it("runs the long run on the size the benchmark names, or its first size", async () => {
-    const { jobs, runJob } = fixedRunner();
-    const body = await readBuild({ ...options, runJob, processes: 1 });
-    const longRuns = jobs
+  const longRuns = (jobs: readonly Parameters<ReturnType<typeof fixedRunner>["runJob"]>[0][]) =>
+    jobs
       .filter((j) => j.mode === "heap" && j.longRun)
       .map((j) => `${j.case.benchmark} @ ${j.case.size}`);
-    expect(longRuns).toEqual(["scan @ small", "decode @ large"]);
+
+  it("runs the long run on the size the benchmark names, or its first size, and on its largest size that fits", async () => {
+    const { jobs, runJob } = fixedRunner();
+    const body = await readBuild({ ...options, runJob, processes: 1 });
+    expect(longRuns(jobs)).toEqual(["scan @ small", "scan @ large", "decode @ large"]);
     expect(body.cases.map((c) => c.longRun?.status ?? null)).toEqual([
       "measured",
-      null,
+      "measured",
       null,
       "measured",
+    ]);
+  });
+
+  it("leaves the long run off a large size whose rounds would not fit in 60 s", async () => {
+    // Four inputs a pass: 500 ms an operation is a 2 s pass, 30 rounds of it exactly 60 s.
+    const at = (ms: number) =>
+      fixedRunner({ msPerOp: (job) => (job.case.size === "large" ? ms : 0.5) });
+    const fits = at(500);
+    await readBuild({ ...options, runJob: fits.runJob, processes: 1, only: ["scan"] });
+    expect(longRuns(fits.jobs)).toEqual(["scan @ small", "scan @ large"]);
+    const over = at(500.01);
+    await readBuild({ ...options, runJob: over.runJob, processes: 1, only: ["scan"] });
+    expect(longRuns(over.jobs)).toEqual(["scan @ small"]);
+  });
+
+  it("takes the next largest size that fits, and never a size whose throughput was skipped", async () => {
+    const threeSizes = checkSuite({
+      name: "three",
+      benchmarks: [
+        {
+          name: "parse",
+          sizes: ["a", "b", "c"].map((label) => ({ label, build: () => ({ inputs: [1] }) })),
+          bind: () => (x: unknown) => x,
+        },
+      ],
+    });
+    const slowC = fixedRunner({ msPerOp: (job) => (job.case.size === "c" ? 1_000 : 0.5) });
+    await readBuild({ ...options, suite: threeSizes, runJob: slowC.runJob, processes: 1 });
+    expect(longRuns(slowC.jobs)).toEqual(["parse @ a", "parse @ b"]);
+    // Calls 1 and 2 are the timing processes of sizes b and c: neither is measured.
+    const skipped = fixedRunner({ skipTiming: (call) => call > 0 });
+    await readBuild({ ...options, suite: threeSizes, runJob: skipped.runJob, processes: 1 });
+    expect(longRuns(skipped.jobs)).toEqual(["parse @ a"]);
+  });
+
+  it("records the warmup plan each timing process ran", async () => {
+    const { runJob } = fixedRunner({
+      plan: (job) => (job.case.size === "large" ? "large" : "standard"),
+    });
+    const body = await readBuild({ ...options, runJob, only: ["scan"], memory: false });
+    const plans = body.cases.map((c) =>
+      c.throughput.status === "measured" ? c.throughput.processes.map((p) => p.plan) : [],
+    );
+    expect(plans).toEqual([
+      ["standard", "standard", "standard"],
+      ["large", "large", "large"],
     ]);
   });
 
@@ -180,9 +240,9 @@ describe("summarizeThroughput", () => {
     expect(summarizeThroughput(measured(2, 1000), [measured(4, 1000), measured(3, 1000)])).toEqual({
       status: "measured",
       processes: [
-        { samplesMsPerOp: [2], medianMsPerOp: 2 },
-        { samplesMsPerOp: [4], medianMsPerOp: 4 },
-        { samplesMsPerOp: [3], medianMsPerOp: 3 },
+        { samplesMsPerOp: [2], medianMsPerOp: 2, plan: "standard" },
+        { samplesMsPerOp: [4], medianMsPerOp: 4, plan: "standard" },
+        { samplesMsPerOp: [3], medianMsPerOp: 3, plan: "standard" },
       ],
       medianMsPerOp: 3,
       opsPerSecond: 333.33,

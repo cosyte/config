@@ -4,6 +4,8 @@ import { BENCH_CONTRACT } from "../src/contract.js";
 import {
   WARMUP,
   batchesAreStable,
+  isLargeCase,
+  windowsAreStable,
   measureLatency,
   sampleThroughput,
   tailPercentile,
@@ -34,12 +36,44 @@ describe("batchesAreStable", () => {
   });
 });
 
+describe("isLargeCase", () => {
+  it("needs the last three batches each at least 50 ms a pass", () => {
+    expect(isLargeCase([50, 50])).toBe(false);
+    expect(isLargeCase([50, 50, 50])).toBe(true);
+    expect(isLargeCase([10, 60, 50, 400])).toBe(true);
+    expect(isLargeCase([60, 49.9, 60])).toBe(false);
+    expect(isLargeCase([60, 60, 60, 49.9])).toBe(false);
+  });
+});
+
+describe("windowsAreStable", () => {
+  it("needs two whole windows of 5 passes", () => {
+    expect(windowsAreStable(Array.from({ length: 9 }, () => 100))).toBe(false);
+    expect(windowsAreStable(Array.from({ length: 10 }, () => 100))).toBe(true);
+  });
+
+  it("holds the last window's median within 5% of the window's before it", () => {
+    const prev = [100, 100, 100, 100, 100];
+    expect(windowsAreStable([...prev, 105, 105, 105, 1, 1000])).toBe(true);
+    expect(windowsAreStable([...prev, 95, 95, 95, 1, 1000])).toBe(true);
+    expect(windowsAreStable([...prev, 105.1, 105.1, 105.1, 1, 1])).toBe(false);
+    expect(windowsAreStable([...prev, 94.9, 94.9, 94.9, 1000, 1000])).toBe(false);
+    // Only the last two windows count.
+    expect(windowsAreStable([1, 1, 1, 1, 1, ...prev, 100, 100, 100, 100, 100])).toBe(true);
+  });
+
+  it("refuses a zero median rather than dividing by it", () => {
+    expect(windowsAreStable(Array.from({ length: 10 }, () => 0))).toBe(false);
+  });
+});
+
 describe("warmUp", () => {
   it("stops once three batches agree after 500 ms, never before", () => {
     // The clock starts far from zero, as `performance.now` does in a process that has run a while.
     const clock = fakeClock(0, 1_000_000);
     const report = warmUp(() => clock.advance(10), clock.now);
     expect(report.stable).toBe(true);
+    expect(report.plan).toBe("standard");
     expect(report.elapsedMs).toBe(WARMUP.MIN_MS);
     expect(report.passes).toBe(50);
     expect(report.batches).toEqual(Array.from({ length: 10 }, () => 10));
@@ -48,11 +82,48 @@ describe("warmUp", () => {
   it("gives up after 5 s when the batches never agree", () => {
     const clock = fakeClock();
     let calls = 0;
-    const report = warmUp(() => clock.advance(calls++ % 2 === 0 ? 50 : 100), clock.now);
+    // Passes of 26 ms in one batch and 40 ms in the next: two passes a batch, never in agreement.
+    const report = warmUp(
+      () => clock.advance(Math.floor(calls++ / 2) % 2 === 0 ? 26 : 40),
+      clock.now,
+    );
     expect(report.stable).toBe(false);
+    expect(report.plan).toBe("standard");
     expect(report.elapsedMs).toBeGreaterThanOrEqual(WARMUP.MAX_MS);
     expect(report.elapsedMs).toBeLessThan(WARMUP.MAX_MS + 100);
-    expect(report.batches.slice(0, 4)).toEqual([50, 100, 50, 100]);
+    expect(report.batches.slice(0, 4)).toEqual([26, 40, 26, 40]);
+  });
+
+  it("keeps the standard rule for a case whose single-pass batches settle by 500 ms", () => {
+    const clock = fakeClock();
+    const report = warmUp(() => clock.advance(100), clock.now);
+    expect(report).toMatchObject({ stable: true, plan: "standard", passes: 5, elapsedMs: 500 });
+  });
+
+  it("moves a case whose every batch is one long pass to the large-case plan, which settles on window medians", () => {
+    const clock = fakeClock(0, 1_000_000);
+    // A 5-pass cycle in which no three passes in a row agree within 5%, so the standard rule never
+    // settles, but every 5 passes in a row have the same median.
+    const cycle = [200, 260, 200, 200, 260];
+    let calls = 0;
+    const report = warmUp(() => clock.advance(cycle[calls++ % 5] ?? 0), clock.now);
+    expect(report.stable).toBe(true);
+    expect(report.plan).toBe("large");
+    expect(report.passes).toBe(2 * BENCH_CONTRACT.LARGE_WARMUP_WINDOW);
+    expect(report.batches).toEqual([...cycle, ...cycle]);
+    expect(report.elapsedMs).toBe(2 * 1120);
+  });
+
+  it("gives up the large-case plan after 30 s when the window medians never agree", () => {
+    const clock = fakeClock();
+    let calls = 0;
+    // Passes of 100 and 200 ms in turn: windows of 5 have medians of 100 and 200 in turn.
+    const report = warmUp(() => clock.advance(calls++ % 2 === 0 ? 100 : 200), clock.now);
+    expect(report.stable).toBe(false);
+    expect(report.plan).toBe("large");
+    expect(report.elapsedMs).toBeGreaterThanOrEqual(BENCH_CONTRACT.LARGE_WARMUP_MAX_MS);
+    expect(report.elapsedMs).toBeLessThanOrEqual(BENCH_CONTRACT.LARGE_WARMUP_MAX_MS + 200);
+    expect(report.passes).toBe(report.batches.length);
   });
 
   it("keeps a batch to whole passes of at least 50 ms", () => {

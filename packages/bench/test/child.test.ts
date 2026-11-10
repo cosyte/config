@@ -24,7 +24,14 @@ const stillHeap: HeapProbe = {
   external: () => 0,
   profile: (fn) => {
     fn();
-    return { gcs: 0, peakBeforeGc: 0 };
+    return {
+      gcs: 0,
+      peakBeforeGc: 0,
+      peakExternalBeforeGc: 0,
+      peakTotalBeforeGc: 0,
+      reclaimedHeap: 0,
+      reclaimedExternal: 0,
+    };
   },
 };
 
@@ -243,7 +250,7 @@ describe("runJob: refusals", () => {
 
 describe("guard, msPerOp and measuredSomething", () => {
   const shape = { case: { benchmark: "a", size: "b" }, inputsPerPass: 1, bytesPerPass: null };
-  const warm = { stable: true, elapsedMs: 0, passes: 0, batches: [] };
+  const warm = { stable: true, elapsedMs: 0, passes: 0, batches: [], plan: "standard" } as const;
 
   it("says whether a job measured anything", () => {
     expect(
@@ -321,13 +328,13 @@ describe("guard, msPerOp and measuredSomething", () => {
   it("reads the warmup's last pace per operation", () => {
     expect(
       msPerOp(
-        { stable: true, elapsedMs: 0, passes: 0, batches: [9, 8, 6] },
+        { stable: true, elapsedMs: 0, passes: 0, batches: [9, 8, 6], plan: "standard" },
         { inputsPerPass: 3, bytesPerPass: null },
       ),
     ).toBe(2);
     expect(
       msPerOp(
-        { stable: true, elapsedMs: 0, passes: 0, batches: [] },
+        { stable: true, elapsedMs: 0, passes: 0, batches: [], plan: "standard" },
         { inputsPerPass: 3, bytesPerPass: null },
       ),
     ).toBe(0);
