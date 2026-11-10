@@ -1,3 +1,15 @@
+/**
+ * Whether a source holds nothing but re-exports: every statement an import that binds names or an
+ * export of names, and at least one export. Anything else, or anything unread, is real code.
+ */
+export declare function isBarrel(source: string): boolean;
+
+/**
+ * The barrels under `<root>/src` (default: the working directory), by {@link isBarrel}: each `.ts`
+ * file but a declaration file, relative to `root` with forward slashes, sorted.
+ */
+export declare function findBarrels(root?: string): string[];
+
 /** The directory every run writes its reports under, relative to the directory Stryker runs in. */
 export declare const REPORT_DIR: "reports/mutation";
 
@@ -7,7 +19,10 @@ export declare const FULL_REPORT: "reports/mutation/mutation.json";
 /** The changed-files run's JSON report, separate so a partial run is never read as the score. */
 export declare const CHANGED_REPORT: "reports/mutation/changed.json";
 
-/** The files a run mutates by default: `src/**\/*.ts` without tests, barrels, declarations, fixtures and generated code. */
+/**
+ * The files a run mutates by default, by name: `src/**\/*.ts` without tests, declarations, fixtures
+ * and generated code. `cosyteStryker` also leaves out the barrels it finds by reading `src/`.
+ */
 export declare const DEFAULT_MUTATE: readonly string[];
 
 /**
@@ -30,8 +45,13 @@ export declare function resolveVitestRunner(resolve?: (specifier: string) => str
 
 /** Options for {@link cosyteStryker}. */
 export interface CosyteStrykerOptions {
-  /** The files to mutate, in Stryker's glob form. Defaults to {@link DEFAULT_MUTATE}. */
+  /**
+   * The files to mutate, in Stryker's glob form. Defaults to {@link DEFAULT_MUTATE} without the
+   * barrels (files that hold nothing but re-exports) under `<root>/src`.
+   */
   mutate?: readonly string[];
+  /** The directory Stryker runs in, read for barrels when `mutate` is left out; the working directory by default. */
+  root?: string;
   /** The Vitest config file the runner loads. */
   vitestConfig?: string;
   /** Any other Stryker option, merged last. */
@@ -39,7 +59,7 @@ export interface CosyteStrykerOptions {
 }
 
 /**
- * The shared StrykerJS config: the Vitest runner with per-test coverage, static mutants kept,
+ * The shared StrykerJS config: the Vitest runner with per-test coverage, static mutants ignored,
  * the JSON report at {@link FULL_REPORT}, and no score threshold of its own.
  *
  * @param opts Options.
