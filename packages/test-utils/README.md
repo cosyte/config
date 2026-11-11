@@ -354,6 +354,7 @@ import { scalingGate, assertScalingGateFires, PERF_CONTRACT } from "@cosyte/test
 | `assertScalingGateFires` | the self-check: proves _your_ fixtures are big enough for the gate to be able to fail       |
 | `PERF_CONTRACT`          | the frozen constants, readable but not overridable                                          |
 | `perfSink`               | the accumulator the measured loop sums into, so it cannot be optimized away                 |
+| `SELF_SIZE_TARGET_MS`    | the base phase duration a self-sizing gate aims for: 20 ms                                  |
 
 **You need both.** `scalingGate` on its own is a gate whose sensitivity is unknown.
 
@@ -380,6 +381,41 @@ it("has fixtures large enough for that gate to fail", () => {
 `count` scales the _number_ of inputs at fixed length; `size` scales each input's _length_ at fixed
 count. An O(n²)-in-length tokenizer is invisible to the count axis **by construction**: at fixed
 message size a quadratic parser still scores about 4 there. There is no way to ask for one axis.
+
+#### Self-sizing: no more growing a fixture for the floor
+
+A base phase under `MIN_PHASE_MS` (4 ms) skips `phase-too-short`, and a skip is not a pass. A
+fixture sized by hand to clear the floor on one runner reads under it on a faster one, and every
+parser speedup shrinks it again. Pass `selfSize: true` and the gate sizes its own phases instead:
+
+```ts
+const options = {
+  name: "@cosyte/hl7 parseHL7",
+  parse: (raw: string) => parseHL7(raw),
+  count: { n: 100, generate: (i) => adtMessage(i) },
+  size: { inputs: 1, size: 500, generate: (i, size) => oruMessage(i, size) },
+  selfSize: true, // or { targetMs: 40 }
+};
+```
+
+After the warmup it counts how many passes over the base corpus one timed rep needs to take at
+least 20 ms (`SELF_SIZE_TARGET_MS`, or your own `targetMs`, which may not be under the floor), then
+times **both** phases at that many passes per rep. The ratio is the ratio one pass against one pass
+would give, so the floor, the ceiling and the self-check are unchanged. The count it chose is
+`passes` on each phase's report and a `self-sized:` line in the diagnostic, and the self-check
+reports its own as `passes` and `cleanPasses`. A phase that is still under the floor at the most
+passes the gate will try (65,536 a rep) skips `phase-too-short`, as before, and the self-check fails
+on it.
+
+The gate measures warm, steady-state cost only: each phase's figure is the fastest of several reps
+over the same inputs, taken after the warmup. A first-call cost, or a cost that only shows with cold
+caches, is not seen, with or without self-sizing; repeating the same inputs keeps them warmer still.
+
+It is off by default: a gate that does not ask runs one pass a rep, exactly as before. Adopting it
+is one line, and the fixture can then shrink back to the size the **self-check** needs, since
+repetition lifts a phase over the floor but not a signal over the ceiling: a real quadratic's signal
+climbs only with the size of each input, so `assertScalingGateFires` still fails a size axis too
+small to show one.
 
 #### What it will not tell you: read this before quoting it
 

@@ -1,0 +1,52 @@
+name: Perf self-sizing
+
+# The scaling gate's self-sizing, measured on GitHub-hosted runners: five separate jobs, so five
+# separate runners, each run `packages/test-utils/test/perf/timed/self-sizing.test.ts` once. A tiny
+# fixture must be skipped by the unsized gate and measured by the self-sized one, and a quadratic
+# parser must still fail it. Each job's log carries the `self-sizing:` lines with the counts chosen,
+# the base phase before and after, and the ratios.
+#
+# Not a required check, and it runs only when the perf kit or its tests change: it reads a real
+# clock, and the reasons `pnpm test:perf` stays out of the required `verify` job (ci.yml) apply here
+# too. Five green jobs on one pull request are the evidence that a change to the perf kit did not
+# break self-sizing on the runner class the libraries' gates run on.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "packages/test-utils/src/perf/**"
+      - "packages/test-utils/test/perf/**"
+      - ".github/workflows/perf-self-sizing.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  timed:
+    runs-on: ubuntu-latest
+    # About a minute of measuring; the margin covers a cold pnpm cache.
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        run: [1, 2, 3, 4, 5]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      # Node 22, the floor every @cosyte/* package publishes for and the line the perf contract was
+      # calibrated on.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Self-sizing on a real clock, run ${{ matrix.run }} of 5
+        working-directory: packages/test-utils
+        run: pnpm exec vitest run --config vitest.perf.config.ts test/perf/timed/self-sizing.test.ts

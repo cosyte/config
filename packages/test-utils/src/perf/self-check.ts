@@ -51,6 +51,7 @@ import { AssertionError } from "node:assert/strict";
 
 import { PERF_CONTRACT } from "./contract.js";
 import {
+  choosePasses,
   defaultWeigh,
   medianOf,
   minOf,
@@ -63,6 +64,8 @@ import {
 import {
   buildAxisBaseCorpus,
   buildAxisCorpora,
+  selfSizeLine,
+  selfSizeTarget,
   type PerfAxis,
   type ScalingGateOptions,
 } from "./scaling-gate.js";
@@ -115,6 +118,17 @@ export interface ScalingSelfCheckReport {
    * skipping `phase-too-short` on one of them.
    */
   readonly cleanBaseMinMs: { readonly count: number; readonly size: number };
+  /**
+   * Passes per rep the clean precondition was timed at, per axis: 1 unless the options ask the
+   * gate to size itself (`selfSize`), and then the count chosen for the clean parse, which is what
+   * the real gate will choose.
+   */
+  readonly cleanPasses: { readonly count: number; readonly size: number };
+  /**
+   * Passes per rep the regressed phases were timed at: 1 unless `selfSize`, and then the count
+   * chosen for the regressed parse's base phase, the same on its scaled phase.
+   */
+  readonly passes: number;
   /** Full sample vectors, milliseconds, retained and never pre-reduced. */
   readonly samples: { readonly base: readonly number[]; readonly scaled: readonly number[] };
   /** The whole diagnostic, as emitted. */
@@ -213,6 +227,9 @@ export function assertScalingGateFires<TInput, TResult>(
   const weigh = options.weigh ?? defaultWeigh;
   const report = options.report ?? toStderr;
   const { regressedParse } = injection;
+  const targetMs = selfSizeTarget(options.selfSize);
+  const atPasses = (passes: number): string =>
+    targetMs === null ? "" : ` even at ${String(passes)} passes per rep`;
 
   const { base, scaled, baseSize, scaledSize } = buildAxisCorpora(axis, options);
   const label = `[@cosyte/test-utils/perf] ${options.name}: self-check on the ${axis} axis`;
@@ -253,6 +270,7 @@ export function assertScalingGateFires<TInput, TResult>(
   // which is exactly what ADR 0001 §2 claims the self-check makes structurally impossible. It only
   // is if the clean side of every axis the gate will assert is checked here.
   const cleanBaseMinMs = { count: 0, size: 0 };
+  const cleanPassesByAxis = new Map<PerfAxis, number>();
   for (const preAxis of ["count", "size"] as const) {
     // Base corpus only: the precondition never times a scaled phase, and holding a 4x corpus live
     // across this measurement would inflate it: the direction that lets a knife-edge fixture pass
@@ -273,10 +291,13 @@ export function assertScalingGateFires<TInput, TResult>(
           "gate reads green while blind. This is a build failure on purpose.",
       );
     }
-    const min = minOf(timePhase(corpus.base, options.parse, weigh));
+    // Sized the way the real gate will size it, so the precondition answers for the gate as run.
+    const prePasses = choosePasses(corpus.base, options.parse, weigh, targetMs);
+    const min = minOf(timePhase(corpus.base, options.parse, weigh, prePasses));
     if (min < PERF_CONTRACT.MIN_PHASE_MS) {
       fail(
-        `${preLabel}: FAILED, the CLEAN base phase measured ${String(round4(min))} ms, under ` +
+        `${preLabel}: FAILED, the CLEAN base phase measured ${String(round4(min))} ms` +
+          `${atPasses(prePasses)}, under ` +
           `MIN_PHASE_MS ${String(PERF_CONTRACT.MIN_PHASE_MS)} ms (fixture: ${preFixture}). The real ` +
           `gate asserts BOTH axes, so a ${preAxis} axis below the calibrated regime skips on every ` +
           "run however healthy the other axis is. Grow this axis's fixture.",
@@ -284,7 +305,14 @@ export function assertScalingGateFires<TInput, TResult>(
       );
     }
     cleanBaseMinMs[preAxis] = round4(min);
+    cleanPassesByAxis.set(preAxis, prePasses);
   }
+  // Both axes were set above: the loop runs over both or throws. The fallback only satisfies the
+  // type checker.
+  const cleanPasses = {
+    count: cleanPassesByAxis.get("count") ?? 1,
+    size: cleanPassesByAxis.get("size") ?? 1,
+  };
 
   const warmup = warmUp(base, regressedParse, weigh);
   if (!warmup.stable) {
@@ -296,9 +324,10 @@ export function assertScalingGateFires<TInput, TResult>(
     );
   }
 
+  const passes = choosePasses(base, regressedParse, weigh, targetMs);
   const sinkBefore = perfSink.value;
-  const baseSamples = timePhase(base, regressedParse, weigh);
-  const scaledSamples = timePhase(scaled, regressedParse, weigh);
+  const baseSamples = timePhase(base, regressedParse, weigh, passes);
+  const scaledSamples = timePhase(scaled, regressedParse, weigh, passes);
   if (perfSink.value === sinkBefore) {
     fail(
       `${label}: FAILED, the sink never moved, so the measured loop may have been eliminated. ` +
@@ -310,7 +339,8 @@ export function assertScalingGateFires<TInput, TResult>(
   const scaledMin = minOf(scaledSamples);
   if (baseMin < PERF_CONTRACT.MIN_PHASE_MS) {
     fail(
-      `${label}: FAILED, the regressed base phase measured ${String(round4(baseMin))} ms, under ` +
+      `${label}: FAILED, the regressed base phase measured ${String(round4(baseMin))} ms` +
+        `${atPasses(passes)}, under ` +
         `MIN_PHASE_MS ${String(PERF_CONTRACT.MIN_PHASE_MS)} ms (fixture: ${fixture}). The real gate ` +
         "would skip, so this fixture cannot demonstrate anything. Grow it.",
     );
@@ -318,7 +348,7 @@ export function assertScalingGateFires<TInput, TResult>(
 
   const signal = scaledMin / baseMin;
   const verdict = signalVerdict(signal);
-  const diagnostic = [
+  const lines = [
     `${label}: signal ${String(round4(signal))} vs RATIO_CEILING ` +
       `${String(PERF_CONTRACT.RATIO_CEILING)} (margin ${String(verdict.margin)}x)`,
     `  fixture: ${fixture}, the sizes this package's real gate uses`,
@@ -330,7 +360,15 @@ export function assertScalingGateFires<TInput, TResult>(
     `  clean:   base min ${String(cleanBaseMinMs.count)} ms (count) / ${String(cleanBaseMinMs.size)} ms ` +
       `(size), both >= MIN_PHASE_MS ${String(PERF_CONTRACT.MIN_PHASE_MS)} ms: the real gate can ` +
       "produce a ratio on both axes, not skip",
-  ].join("\n");
+  ];
+  if (targetMs !== null) {
+    lines.push(
+      selfSizeLine(passes, targetMs),
+      `  clean self-sized: ${String(cleanPasses.count)} (count) / ${String(cleanPasses.size)} (size) ` +
+        "passes per rep",
+    );
+  }
+  const diagnostic = lines.join("\n");
 
   if (!verdict.clears) {
     fail(
@@ -351,6 +389,8 @@ export function assertScalingGateFires<TInput, TResult>(
     signal: round4(signal),
     margin: verdict.margin,
     cleanBaseMinMs,
+    cleanPasses,
+    passes,
     samples: { base: baseSamples.map(round4), scaled: scaledSamples.map(round4) },
     diagnostic,
   };

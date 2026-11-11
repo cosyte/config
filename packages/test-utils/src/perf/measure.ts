@@ -102,9 +102,13 @@ export function toStderr(line: string): void {
 }
 
 /**
- * One timed phase: `reps` full passes over `corpus`, returning the **full** sample vector in
- * milliseconds. Never pre-reduced: W2's one surviving remedy is that the whole vector is available
- * to whoever reads the diagnostic.
+ * One timed phase: `REPS` timed reps, each `passes` full passes over `corpus`, returning the
+ * **full** sample vector in milliseconds. Never pre-reduced: W2's one surviving remedy is that the
+ * whole vector is available to whoever reads the diagnostic.
+ *
+ * `passes` is 1 unless the gate was asked to size itself (see {@link choosePasses}). Both phases of
+ * one axis always run the same number of passes, so the ratio of their `min` samples is the ratio
+ * one pass against one pass would give, measured over a longer and therefore steadier interval.
  *
  * The corpus is built by the caller *outside* every timed region. `parse` and `weigh` are local
  * bindings here, so the loop calls them directly rather than through a Vite-SSR namespace getter:
@@ -116,16 +120,66 @@ export function timePhase<TInput, TResult>(
   corpus: readonly TInput[],
   parse: (input: TInput) => TResult,
   weigh: (result: TResult) => number,
+  passes = 1,
 ): number[] {
   const samples: number[] = [];
   for (let r = 0; r < PERF_CONTRACT.REPS; r++) {
     let local = 0;
     const t0 = performance.now();
-    for (const input of corpus) local += weigh(parse(input));
+    for (let p = 0; p < passes; p++) for (const input of corpus) local += weigh(parse(input));
     samples.push(performance.now() - t0);
     perfSink.value += local;
   }
   return samples;
+}
+
+/**
+ * The most passes per rep {@link choosePasses} will choose: 65,536. It bounds the cost of a parse
+ * that takes no measurable time at all, which no count of passes lifts over the floor; at this cap a
+ * pass of 0.3 microseconds still reaches a 20 ms target. A base phase that is still under
+ * `MIN_PHASE_MS` at the cap skips `phase-too-short`, as an unsized one does.
+ *
+ * @internal
+ */
+export const MAX_PHASE_PASSES = 1 << 16;
+
+/**
+ * How many passes over `corpus` one timed rep needs for its duration to reach `targetMs`, or 1,
+ * without timing anything, when `targetMs` is `null` (the gate was not asked to size itself).
+ *
+ * Runs after the warmup, so the runtime is already settled: it times one pass, estimates the count
+ * from it, and times again at that count until a rep reaches the target or the count reaches
+ * {@link MAX_PHASE_PASSES}. Each round grows the count by at least one pass, and a round that
+ * measures no time at all doubles it, so it always ends. Every result is summed into the sink, like
+ * every other measured loop.
+ *
+ * It sizes from the **base** corpus only, and the caller runs the scaled phase the same number of
+ * times. Sizing each phase on its own would make the two phases' durations equal and the ratio
+ * meaningless.
+ *
+ * @internal
+ */
+export function choosePasses<TInput, TResult>(
+  corpus: readonly TInput[],
+  parse: (input: TInput) => TResult,
+  weigh: (result: TResult) => number,
+  targetMs: number | null,
+): number {
+  let passes = 1;
+  if (targetMs === null) return passes;
+  for (;;) {
+    let local = 0;
+    const t0 = performance.now();
+    for (let p = 0; p < passes; p++) for (const input of corpus) local += weigh(parse(input));
+    const elapsedMs = performance.now() - t0;
+    perfSink.value += local;
+    if (elapsedMs >= targetMs || passes >= MAX_PHASE_PASSES) return passes;
+    const estimate = elapsedMs > 0 ? Math.ceil((passes * targetMs) / elapsedMs) : passes * 2;
+    // The `passes + 1` floor matters when floating point rounds an estimate made from a rep just
+    // under the target down to `passes` itself (43 passes reading 7.299999999999999 ms against a
+    // 7.3 ms target): without it the count would never grow and the loop would never end.
+    passes = Math.min(MAX_PHASE_PASSES, Math.max(passes + 1, estimate));
+  }
 }
 
 /** The outcome of one axis's warmup. @internal */

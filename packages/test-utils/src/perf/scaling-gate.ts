@@ -47,6 +47,7 @@ import { AssertionError } from "node:assert/strict";
 
 import { PERF_CONTRACT, type PerfContractShape } from "./contract.js";
 import {
+  choosePasses,
   defaultWeigh,
   medianOf,
   minOf,
@@ -57,6 +58,22 @@ import {
   warmUp,
   type WarmupReport,
 } from "./measure.js";
+
+/**
+ * The base phase duration a self-sizing gate aims for, in milliseconds: **20**, five times
+ * `MIN_PHASE_MS`. Judgement, not a calibrated constant: it is far enough above the floor that a
+ * runner twice as fast as the one the count was chosen on still clears it, and short enough that a
+ * quadratic scaled phase (8 to 16 times the base) stays well under a second a rep. A caller may
+ * aim higher, or lower down to the floor, with `selfSize: { targetMs }`.
+ *
+ * @example
+ * ```ts
+ * import { SELF_SIZE_TARGET_MS } from "@cosyte/test-utils/perf";
+ *
+ * SELF_SIZE_TARGET_MS; // => 20
+ * ```
+ */
+export const SELF_SIZE_TARGET_MS = 20;
 
 /**
  * The two scaling axes. `count` scales the number of inputs; `size` scales each input's length.
@@ -133,14 +150,36 @@ export interface ScalingGateOptions<TInput, TResult> {
    * rather than warn on a skip should inspect the returned report instead of replacing this.
    */
   readonly report?: (line: string) => void;
+  /**
+   * Size each phase by repetition, so a fixture too fast for `MIN_PHASE_MS` on a fast runner is
+   * still measured. **Off by default**: a gate that does not ask times one pass per rep, exactly as
+   * before.
+   *
+   * With `true` (or `{ targetMs }`), after the warmup the gate counts how many passes over the base
+   * corpus one rep needs to take at least `targetMs` (default {@link SELF_SIZE_TARGET_MS}, 20 ms),
+   * then times **both** phases at that many passes per rep. The ratio is the ratio one pass against
+   * one pass would give; the floor, the ceiling and the skip on a phase under `MIN_PHASE_MS` are
+   * unchanged. The count it chose is `PhaseReport.passes` and a line of the diagnostic.
+   *
+   * What it does not do: raise the signal of a real quadratic. That climbs only with the size of
+   * each input, so `assertScalingGateFires` still fails a size axis too small to show one, sized or
+   * not. Self-sizing removes the need to grow a fixture for the *floor*; the self-check still says
+   * whether it is large enough for the *ceiling*.
+   */
+  readonly selfSize?: boolean | { readonly targetMs: number };
 }
 
 /** One phase's measurement. The **full** sample vector is always retained, never pre-reduced. */
 export interface PhaseReport {
   /** `"base"` (the `N` / `S` phase) or `"scaled"` (the `4N` / `4S` phase). */
   readonly phase: "base" | "scaled";
-  /** Inputs in this phase's corpus. */
+  /** Inputs in this phase's corpus: one pass. */
   readonly inputs: number;
+  /**
+   * Passes over the corpus in each timed rep: 1 unless the gate sized itself (`selfSize`), and then
+   * the count it chose, the same on both phases of an axis.
+   */
+  readonly passes: number;
   /** The size knob for this phase, or `null` on the count axis where size is held constant. */
   readonly size: number | null;
   /** Every timed rep, in milliseconds, in the order taken. */
@@ -192,15 +231,52 @@ function requirePositiveInt(value: number, label: string): void {
   }
 }
 
+/**
+ * The target a gate's `selfSize` option asks for, or `null` when they do not ask it to size itself. Throws on
+ * a target that is not a finite number of milliseconds at or above `MIN_PHASE_MS`: a target under
+ * the floor would choose a count that skips.
+ *
+ * @internal
+ */
+export function selfSizeTarget(
+  selfSize: ScalingGateOptions<unknown, unknown>["selfSize"],
+): number | null {
+  if (selfSize === undefined || selfSize === false) return null;
+  if (selfSize === true) return SELF_SIZE_TARGET_MS;
+  const { targetMs } = selfSize;
+  if (!Number.isFinite(targetMs) || targetMs < PERF_CONTRACT.MIN_PHASE_MS) {
+    throw new TypeError(
+      "scalingGate: selfSize.targetMs must be a finite number of milliseconds of at least " +
+        `MIN_PHASE_MS ${String(PERF_CONTRACT.MIN_PHASE_MS)}, got ${String(targetMs)}`,
+    );
+  }
+  return targetMs;
+}
+
+/**
+ * The diagnostic line naming the count a self-sizing gate chose. Shared with the self-check, so the
+ * two describe it the same way.
+ *
+ * @internal
+ */
+export function selfSizeLine(passes: number, targetMs: number): string {
+  return (
+    `  self-sized: ${String(passes)} passes per rep (target ${String(targetMs)} ms on the base ` +
+    "phase; the scaled phase runs the same count, so the ratio is unchanged)"
+  );
+}
+
 function phaseReport(
   phase: "base" | "scaled",
   inputs: number,
+  passes: number,
   size: number | null,
   samples: readonly number[],
 ): PhaseReport {
   return {
     phase,
     inputs,
+    passes,
     size,
     samples: samples.map(round4),
     min: round4(minOf(samples)),
@@ -216,6 +292,7 @@ function describe(
   scaled: PhaseReport | null,
   ratio: number | null,
   headline: string,
+  sizing: string | null = null,
 ): string {
   const lines = [
     `[@cosyte/test-utils/perf] ${name}: ${axis} axis: ${headline}`,
@@ -226,6 +303,7 @@ function describe(
       `${String(warmup.passes)} passes, ${String(warmup.batches.length)} batches ` +
       `(ms/pass: ${warmup.batches.map(round4).join(", ")})`,
   ];
+  if (sizing !== null) lines.push(sizing);
   for (const p of [base, scaled]) {
     if (p === null) continue;
     lines.push(
@@ -259,6 +337,7 @@ function runAxis<TInput, TResult, A extends PerfAxis>(
     scaledSize,
   } = buildAxisCorpora(axis, options);
 
+  const targetMs = selfSizeTarget(options.selfSize);
   const warmup = warmUp(baseCorpus, parse, weigh);
   if (!warmup.stable) {
     const diagnostic = describe(
@@ -284,9 +363,10 @@ function runAxis<TInput, TResult, A extends PerfAxis>(
     };
   }
 
+  const passes = choosePasses(baseCorpus, parse, weigh, targetMs);
   const sinkBefore = perfSink.value;
-  const baseSamples = timePhase(baseCorpus, parse, weigh);
-  const scaledSamples = timePhase(scaledCorpus, parse, weigh);
+  const baseSamples = timePhase(baseCorpus, parse, weigh, passes);
+  const scaledSamples = timePhase(scaledCorpus, parse, weigh, passes);
   if (perfSink.value === sinkBefore) {
     throw new AssertionError({
       message:
@@ -297,8 +377,9 @@ function runAxis<TInput, TResult, A extends PerfAxis>(
     });
   }
 
-  const base = phaseReport("base", baseCorpus.length, baseSize, baseSamples);
-  const scaled = phaseReport("scaled", scaledCorpus.length, scaledSize, scaledSamples);
+  const base = phaseReport("base", baseCorpus.length, passes, baseSize, baseSamples);
+  const sizing = targetMs === null ? null : selfSizeLine(passes, targetMs);
+  const scaled = phaseReport("scaled", scaledCorpus.length, passes, scaledSize, scaledSamples);
 
   if (base.min < PERF_CONTRACT.MIN_PHASE_MS) {
     const diagnostic = describe(
@@ -309,8 +390,11 @@ function runAxis<TInput, TResult, A extends PerfAxis>(
       scaled,
       null,
       `SKIPPED (phase-too-short): base min ${String(base.min)} ms is under MIN_PHASE_MS ` +
-        `${String(PERF_CONTRACT.MIN_PHASE_MS)} ms, so the ceiling would be extrapolation. ` +
+        `${String(PERF_CONTRACT.MIN_PHASE_MS)} ms` +
+        (sizing === null ? "" : ` even at ${String(passes)} passes per rep`) +
+        ", so the ceiling would be extrapolation. " +
         "This fixture is below the calibrated regime: grow it. A skip is NOT a pass.",
+      sizing,
     );
     report(diagnostic);
     return {
@@ -325,7 +409,7 @@ function runAxis<TInput, TResult, A extends PerfAxis>(
   }
 
   const ratio = scaled.min / base.min;
-  const measured = describe(name, axis, warmup, base, scaled, ratio, "measured");
+  const measured = describe(name, axis, warmup, base, scaled, ratio, "measured", sizing);
 
   if (ratio > PERF_CONTRACT.RATIO_CEILING) {
     throw new AssertionError({
