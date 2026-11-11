@@ -130,7 +130,7 @@
       "name": "@cosyte/transform",
       "slug": "transform",
       "description": "HL7 v2 → FHIR R4 transformation library for Node.js and TypeScript: IG-grounded, fail-safe, value-free diagnostics; never a confident wrong FHIR value.",
-      "line": "0.1",
+      "line": "0.2",
       "engines": {
         "node": ">=22.0.0"
       },
@@ -143,7 +143,7 @@
       "name": "@cosyte/deid",
       "slug": "deid",
       "description": "Healthcare de-identification for Node.js and TypeScript: applies a HIPAA Safe Harbor policy to HL7 v2, C-CDA, FHIR R4, X12, NCPDP Telecom, and DICOM, fails closed, and emits a value-free manifest.",
-      "line": "0.1",
+      "line": "0.2",
       "engines": {
         "node": ">=22.0.0"
       },

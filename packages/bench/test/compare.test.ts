@@ -31,10 +31,19 @@ const suite = checkSuite({
   ],
 });
 
-const warmup = { stable: true, elapsedMs: 500, passes: 50, batches: [10, 10, 10] };
+const warmup = {
+  stable: true,
+  elapsedMs: 500,
+  passes: 50,
+  batches: [10, 10, 10],
+  plan: "standard",
+} as const;
 
 /** A fake process runner: each side's time comes from `msFor`, and every job is recorded. */
-function fakeRunner(msFor: (job: Job, call: number) => number | "skip") {
+function fakeRunner(
+  msFor: (job: Job, call: number) => number | "skip",
+  planFor: (job: Job, call: number) => "standard" | "large" = () => "standard",
+) {
   const jobs: Job[] = [];
   const runJob = (job: Job): Promise<JobResult> => {
     const call = jobs.length;
@@ -46,7 +55,7 @@ function fakeRunner(msFor: (job: Job, call: number) => number | "skip") {
       case: job.case,
       inputsPerPass: 1,
       bytesPerPass: null,
-      warmup,
+      warmup: { ...warmup, plan: planFor(job, call) },
     };
     if (ms === "skip")
       return Promise.resolve({ ...shape, status: "skipped", reason: "warmup-unstable" });
@@ -246,6 +255,25 @@ describe("compareBuilds", () => {
     expect(progress[0]).toBe("round 1 of 12 done");
   });
 
+  it("records the warmup plan of every measured round on each side", async () => {
+    // Every head process of case a after the first round runs the large-case plan.
+    const { runJob } = fakeRunner(
+      () => 1,
+      (job, call) =>
+        job.case.benchmark === "a" &&
+        job.mode === "timing" &&
+        job.target === "/head.mjs" &&
+        call > 3
+          ? "large"
+          : "standard",
+    );
+    const body = await compareBuilds({ ...options, runJob });
+    const [a, b] = body.cases;
+    expect(a?.basePlans).toEqual(Array.from({ length: 12 }, () => "standard"));
+    expect(a?.headPlans).toEqual(["standard", ...Array.from({ length: 11 }, () => "large")]);
+    expect(b?.headPlans).toEqual(Array.from({ length: 12 }, () => "standard"));
+  });
+
   it("drops a round whose second side skipped, whichever side went first", async () => {
     // Round 3 runs the head first; its base then skips. The head's half round is not kept.
     const { runJob } = fakeRunner((job, call) =>
@@ -258,6 +286,7 @@ describe("compareBuilds", () => {
     expect(b).toMatchObject({ verdict: "skipped", skipReason: "base: warmup-unstable" });
     expect(b?.headMsPerOp).toEqual([1, 1, 1]);
     expect(b?.baseSamples).toHaveLength(3);
+    expect(b?.headPlans).toHaveLength(3);
   });
 
   it("refuses a runner that answers a timing job with something else", async () => {

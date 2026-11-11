@@ -900,13 +900,16 @@ describe("runStryker, for real", () => {
     try {
       write(d, {
         "package.json": '{ "type": "module" }\n',
+        // StrykerJS loads the config outside Vitest. A copy of the module keeps that load off the
+        // instrumented stryker.js, whose coverage would otherwise be merged with it, line for line.
+        "stryker-copy.js": readFileSync(join(PACKAGE_DIR, "stryker.js"), "utf8"),
         "src/sum.ts": "export function sum(a: number, b: number): number {\n  return a + b;\n}\n",
         "test/sum.test.ts":
           'import { expect, it } from "vitest";\nimport { sum } from "../src/sum.js";\nit("adds", () => expect(sum(2, 3)).toBe(5));\n',
         "vitest.config.ts":
           'import { defineConfig } from "vitest/config";\nexport default defineConfig({ test: { include: ["test/**/*.test.ts"] } });\n',
         "stryker.config.mjs":
-          'import { cosyteStryker } from "../stryker.js";\nexport default cosyteStryker({ stryker: { concurrency: 1, reporters: ["json"] } });\n',
+          'import { cosyteStryker } from "./stryker-copy.js";\nexport default cosyteStryker({ stryker: { concurrency: 1, reporters: ["json"] } });\n',
       });
       const config = join(d, "stryker.config.mjs");
       const cwd = process.cwd();
@@ -937,13 +940,16 @@ describe("runStryker, for real", () => {
     try {
       write(d, {
         "package.json": '{ "type": "module" }\n',
+        // StrykerJS loads the config outside Vitest. A copy of the module keeps that load off the
+        // instrumented stryker.js, whose coverage would otherwise be merged with it, line for line.
+        "stryker-copy.js": readFileSync(join(PACKAGE_DIR, "stryker.js"), "utf8"),
         "src/sum.ts": "export function sum(a: number, b: number): number {\n  return a + b;\n}\n",
         "test/sum.test.ts":
           'import { expect, it } from "vitest";\nimport { sum } from "../src/sum.js";\nit("adds", () => expect(sum(2, 3)).toBe(5));\n',
         "vitest.config.ts":
           'import { defineConfig } from "vitest/config";\nexport default defineConfig({ test: { include: ["test/**/*.test.ts"] } });\n',
         "stryker.config.mjs":
-          'import { cosyteStryker } from "../stryker.js";\nexport default cosyteStryker({ stryker: { concurrency: 1, reporters: ["json"] } });\n',
+          'import { cosyteStryker } from "./stryker-copy.js";\nexport default cosyteStryker({ stryker: { concurrency: 1, reporters: ["json"] } });\n',
       });
       const cwd = process.cwd();
       process.chdir(d);

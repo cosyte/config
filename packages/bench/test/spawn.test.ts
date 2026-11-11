@@ -33,13 +33,14 @@ describe("childEnv", () => {
 });
 
 describe("flagsFor", () => {
-  it("gives timing jobs no flags, memory jobs gc, and the alloc job a large young generation", () => {
+  it("gives timing jobs no flags, memory jobs gc and array buffers freed at the collection, and the alloc job a large young generation", () => {
     expect(flagsFor(job)).toEqual([]);
     expect(
       flagsFor({ mode: "heap", suite: "", target: "", case: job.case, longRun: false }),
-    ).toEqual(["--expose-gc"]);
+    ).toEqual(["--expose-gc", "--no-concurrent-array-buffer-sweeping"]);
     expect(flagsFor({ mode: "alloc", suite: "", target: "", case: job.case })).toEqual([
       "--expose-gc",
+      "--no-concurrent-array-buffer-sweeping",
       "--min-semi-space-size=64",
       "--max-semi-space-size=64",
     ]);
@@ -64,7 +65,7 @@ describe("runInChild", () => {
       case: unknown;
     };
     expect(result.case).toEqual(job.case);
-    expect(result.execArgv).toEqual(["--expose-gc"]);
+    expect(result.execArgv).toEqual(["--expose-gc", "--no-concurrent-array-buffer-sweeping"]);
     expect(result.coverage).toBeNull();
   });
 

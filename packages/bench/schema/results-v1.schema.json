@@ -251,6 +251,18 @@
         "medianRatio": {
           "type": ["number", "null"]
         },
+        "basePlans": {
+          "type": "array",
+          "items": {
+            "enum": ["standard", "large"]
+          }
+        },
+        "headPlans": {
+          "type": "array",
+          "items": {
+            "enum": ["standard", "large"]
+          }
+        },
         "interval": {
           "$ref": "#/$defs/interval"
         },
@@ -534,6 +546,9 @@
                       },
                       "medianMsPerOp": {
                         "type": "number"
+                      },
+                      "plan": {
+                        "enum": ["standard", "large"]
                       }
                     }
                   }
@@ -612,6 +627,13 @@
                     "status": {
                       "const": "measured"
                     },
+                    "method": {
+                      "enum": ["no-gc-window", "gc-accounted"]
+                    },
+                    "collections": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
                     "windowOps": {
                       "type": "integer",
                       "minimum": 0
@@ -662,6 +684,18 @@
                       "type": "number"
                     },
                     "medianPeakHeapBytes": {
+                      "type": "number"
+                    },
+                    "peakExternalBytes": {
+                      "type": "number"
+                    },
+                    "medianPeakExternalBytes": {
+                      "type": "number"
+                    },
+                    "peakTotalBytes": {
+                      "type": "number"
+                    },
+                    "medianPeakTotalBytes": {
                       "type": "number"
                     }
                   }

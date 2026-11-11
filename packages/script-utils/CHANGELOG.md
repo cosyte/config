@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.10
+
+### Patch Changes
+
+- a926e03: The catalog now records the 0.2 line for @cosyte/transform and @cosyte/deid, matching their latest npm releases, so the release preflight passes again.
+
 ## 0.1.9
 
 ### Patch Changes

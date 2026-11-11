@@ -130,10 +130,48 @@ config it runs (StrykerJS is an optional peer, so a package that does not mutate
 - per-test coverage analysis, so each mutant runs only the tests that reach it;
 - Vitest's forks pool (Vitest's own default; StrykerJS's runner defaults to threads, where a test
   that calls `process.chdir()` fails before any mutant runs);
-- every mutant kept, static ones included. A static mutant is one in module-level code, such as a
-  scanner's table of patterns, which is exactly the code a PHI scanner is made of;
+- static mutants ignored (`ignoreStatic: true`), with the numbers and the exception below;
 - no score threshold of its own (`break: null`): the floor decides;
-- the JSON report at `reports/mutation/mutation.json`, and HTML beside it.
+- the JSON report at `reports/mutation/mutation.json`, and HTML beside it;
+- the same files coverage measures: `src/**/*.ts` without tests, declarations, fixtures, generated
+  code and barrels.
+
+**Barrels are read, not named.** Coverage and mutation testing leave out a barrel, a file that
+holds nothing but re-exports. Both configs used to leave out every `index.ts` by name, and the HL7
+parser's `src/parser/index.ts` is 688 lines that hold `parseHL7`: the parser's own entry point was
+outside a 100% coverage floor and outside mutation testing. Mutated for the first time, it scored
+84.29%, with 11 mutants no test reaches. Now each `.ts` file under `src/` (but declaration files)
+is read, and it is a barrel only when every statement is an import that binds names or an export
+of names, with at least one export. One statement of real code (a declaration, a call, a
+side-effect import, a type alias), or anything the reading does not understand, makes it real code.
+The two mistakes are not equal: a file wrongly called a barrel hides code from both gates, and a
+barrel wrongly measured adds a few export lines to the coverage count, so when in doubt the file is
+measured. A library adopting this measures every `index.ts` that holds code, so its coverage and
+mutation scores can fall below its floor on the first run: the code was always there, and now it
+is counted. How such a library records its floor is decided when the first one adopts this, in
+that library's own change.
+
+**Static mutants are ignored, with one exception.** A static mutant is one in code that runs once,
+when a module loads: a table of patterns, a frozen map. Per-test coverage cannot tie it to the
+tests that reach it, so Stryker tests each one by running every test again. On the HL7 library,
+5,328 of 12,280 mutants (43%) were static, and Stryker estimated them at 94% of a full run's time;
+with them ignored, the run the floor holds (the parser and the serializers, 3,328 mutants) took
+33 min 41 s on 15 workers. The weekly full run is not affordable with them, and a pull request that
+touches a table would mutate it whole against every test, past the 15-minute budget.
+
+What is given up: a changed entry in a module-level table is no longer checked by a mutant. What
+still holds it: coverage, which counts every such line and holds a change's own lines to 100, and
+the unit tests that read each table through the functions that use it. An ignored mutant in a pull
+request's changed lines is not silent: `cosyte-ratchet check --base` lists it as an exception, with
+Stryker's reason ("Static mutant (and "ignoreStatic" was enabled)"), so the pull request carries
+it. Ignored mutants are not in the score, so the score of a package that adopts this can move
+either way on its next full run.
+
+The exception: a package whose module-level tables are the thing it checks keeps them, with
+`stryker: { ignoreStatic: false }`. The PHI-scan engine is one: its patterns are module-level code,
+and they are what it is made of, so `packages/script-utils/stryker.config.mjs` keeps every static
+mutant, and the engine's numbers below are unchanged by this. `@cosyte/vitest-config`'s own run
+keeps them too, since its barrel reading is a set of module-level patterns.
 
 `cosyte-mutate full` mutates everything the config names, and its score can raise the floor. Today
 it runs by hand: no CI job runs it yet. A weekly run and a run before each release are future work

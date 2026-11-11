@@ -130,7 +130,7 @@ import { cosyteStryker } from "@cosyte/vitest-config/stryker";
 
 const config = cosyteStryker();
 config.testRunner; // => "vitest"
-config.ignoreStatic; // => false
+config.ignoreStatic; // => true
 config.jsonReporter; // => { fileName: "reports/mutation/mutation.json" }
 ```
 
@@ -201,8 +201,9 @@ picked; // => ["src/a.ts"]
 
 ### What the Stryker config sets, and why
 
-`cosyteStryker({ mutate, vitestConfig, stryker })` takes the file list, the Vitest config file, and
-any other Stryker option, merged last, so a package can change anything below. What each default is
+`cosyteStryker({ mutate, root, vitestConfig, stryker })` takes the file list, the directory read for
+barrels, the Vitest config file, and any other Stryker option, merged last, so a package can change
+anything below. What each default is
 and why:
 
 | setting            | default                                     | why                                                                          |
@@ -211,12 +212,29 @@ and why:
 | `vitest.pool`      | `forks`                                     | Vitest's own default; Stryker's is threads, where `process.chdir()` throws   |
 | `coverageAnalysis` | `perTest`                                   | each mutant runs only the tests that reach it                                |
 | `mutate`           | `src/**/*.ts` without tests, barrels, types | the same files `@cosyte/vitest-config` measures coverage over                |
-| `ignoreStatic`     | `false`                                     | static mutants are module-level tables, such as a scanner's patterns: kept   |
+| `ignoreStatic`     | `true`                                      | a static mutant reruns every test; on a library they are most of a run       |
 | `thresholds.break` | `null`                                      | the floor file decides a drop, not Stryker                                   |
 | reports            | JSON and HTML under `reports/mutation/`     | JSON for the ratchet and CI, HTML for a person reading the surviving mutants |
 
-Setting `ignoreStatic: true` makes a run faster and is the override worth arguing about in review: it
-drops every mutant in module-level code from the score without an inline reason for any of them.
+A static mutant is one in code that runs once, when a module loads: a table of patterns, a frozen
+map. Stryker can test one only by running every test again, so on a library they take most of a
+run's time: on our HL7 parser, 5,328 of 12,280 mutants were static, and Stryker estimated them at 94%
+of the run. With `ignoreStatic: true` they are left out of the score; coverage still holds every such
+line to having run, and the ratchet lists an ignored mutant in a pull request's changed lines with
+Stryker's reason, so a reviewer sees it. A package whose module-level tables are the thing it checks,
+such as a PHI scanner's patterns, passes `stryker: { ignoreStatic: false }`, and that is the override
+worth arguing about in review.
+
+### Which files are barrels
+
+A barrel is a file that holds nothing but re-exports: every statement an import that binds names, or
+an export of names, and at least one export. Coverage and the default mutate list leave barrels out,
+and the rule reads each `.ts` file under `src/` (but declaration files), never its name: an `index.ts`
+that holds a parser is measured, and a file of re-exports with any other name is left out. One
+statement of real code (a declaration, a call, a side-effect import, a type alias) makes a file real
+code, and so does anything the reading does not understand, because a file wrongly called a barrel
+hides code from both gates. Both configs read `src/` under the working directory, or under `root`
+when it is given.
 
 ### An exception, and why it needs two comments
 
@@ -264,7 +282,8 @@ a test fixture's would. Use synthetic data in documentation, as in tests.
 ### `cosyteVitest(options)`
 
 The baseline config: v8 coverage with `text` / `html` / `lcov` / `json-summary` reporters, the standard excludes
-(barrels, fixtures, generated code, declarations), and **enabled, gating** per-directory thresholds
+(tests, fixtures, generated code, declarations, and the barrels it finds by reading `src/` under
+`options.root`, the working directory by default), and **enabled, gating** per-directory thresholds
 at **>= 90**.
 
 ### Doc/code agreement: `@cosyte/vitest-config/snippets`

@@ -1,0 +1,11 @@
+# scripts/phi-allow-list.txt
+#
+# PHI-scan allow-list for config, read by the shared scanner (@cosyte/script-utils phi-scan).
+# Format: `<TAG> <value>` per line. `#` comments and blank lines are ignored.
+#   EMAILDOMAIN <domain> an email domain that is allowed to appear
+#
+# config holds no patient data. Its package manifests and docs name our own company addresses,
+# so the cosyte.com domain is declared here, as in iac and x12.
+# Adding a line is a reviewed, intentional act.
+
+EMAILDOMAIN cosyte.com
