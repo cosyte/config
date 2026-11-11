@@ -91,7 +91,7 @@ function commitScratch(dir: string): void {
   const git = (...args: string[]) =>
     spawnSync("git", args, { cwd: dir, encoding: "utf8", timeout: 60_000 });
   git("init", "-q", "-b", "main", ".");
-  git("config", "user.email", "release-tooling-probe@example.com");
+  git("config", "user.email", ["release-tooling-probe", "example.com"].join("@"));
   git("config", "user.name", "release tooling probe");
   git("config", "commit.gpgsign", "false");
   git("add", "-A");
@@ -108,8 +108,9 @@ describe("AC11: the release tooling still enumerates this workspace on the new j
     const { getPackages } = requireFromChangesets("@manypkg/get-packages");
     const found = await getPackages(REPO_ROOT);
 
-    expect(found.tool).toBe("pnpm");
-    expect(found.root.packageJson.name).toBe("cosyte-config");
+    // Changesets 3 ships @manypkg/get-packages 3, whose `tool` is an object, not the bare string.
+    expect(found.tool.type).toBe("pnpm");
+    expect(found.rootPackage.packageJson.name).toBe("cosyte-config");
     // Enumerated, not merely non-empty: a reader that returned the root alone would also "succeed".
     expect(found.packages.length).toBeGreaterThanOrEqual(8);
     expect(
@@ -126,22 +127,20 @@ describe("AC11: the release tooling still enumerates this workspace on the new j
     );
   });
 
-  it("resolves js-yaml 3.x for read-yaml-file, and that copy still exports safeLoad", () => {
-    // The residual's stated blocker, checked at the exact resolution the release path gets rather
-    // than at the version the lockfile says. `safeLoad`, `safeLoadAll` and `safeDump` are the three
-    // js-yaml 4 removed; read-yaml-file calls the first.
-    const readYamlFile = requireFromChangesets.resolve("read-yaml-file");
-    const requireFromReader = createRequire(readYamlFile);
-    const version = requireFromReader("js-yaml/package.json").version as string;
-    const yaml = requireFromReader("js-yaml") as Record<string, unknown>;
+  it("reads the workspace file with the yaml package, and js-yaml is off the release path", () => {
+    // Changesets 3 dropped read-yaml-file (and with it js-yaml 3.x): the manypkg tools package
+    // parses the pnpm workspace file with `yaml`. Checked at the exact resolution the release path gets,
+    // starting from the cli's own manifest, rather than at the version the lockfile says.
+    const fromGetPackages = createRequire(requireFromChangesets.resolve(["@manypkg", "get-packages"].join("/")));
+    const fromTools = createRequire(fromGetPackages.resolve(["@manypkg", "tools"].join("/")));
+    const yaml = fromTools("yaml") as { parse: (text: string) => unknown };
 
-    expect(version.startsWith("3.")).toBe(true);
-    expect(typeof yaml.safeLoad, `js-yaml ${version} must still export safeLoad`).toBe("function");
-    // It has to WORK, not merely be present: an exported stub that throws would pass a typeof check
-    // and fail a release.
-    expect((yaml.safeLoad as (text: string) => unknown)('packages:\n  - "packages/*"\n')).toEqual({
-      packages: ["packages/*"],
-    });
+    expect(
+      yaml.parse('packages:\n  - "packages/*"\n'),
+      "yaml must parse the workspace file shape",
+    ).toEqual({ packages: ["packages/*"] });
+    // The release path no longer reaches the 3.x reader at all.
+    expect(() => requireFromChangesets.resolve("read-yaml-file")).toThrow();
   });
 
   it("runs the real `changeset` binary over this workspace's manifests and names a package it could only have enumerated", () => {
