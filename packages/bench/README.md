@@ -128,6 +128,16 @@ import schema from "@cosyte/bench/schema/results-v1.schema.json" with { type: "j
 schema.properties.schemaVersion.const; // => 1
 ```
 
+The budgets and floor schemas are plain JSON too:
+
+```ts runnable
+import budgets from "@cosyte/bench/schema/budgets-v1.schema.json" with { type: "json" };
+import floor from "@cosyte/bench/schema/floor-v1.schema.json" with { type: "json" };
+
+budgets.properties.kind.const; // => "budgets"
+floor.properties.kind.const; // => "floor"
+```
+
 ```ts runnable
 import { BENCH_CONTRACT, judge } from "@cosyte/bench";
 
