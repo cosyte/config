@@ -14,6 +14,11 @@ skips `phase-too-short`, and the self-check still fails a fixture too small for 
 the ceiling.
 
 The count chosen is reported: `passes` on each `PhaseReport`, a `self-sized:` line in the
-diagnostic, and `passes` and `cleanPasses` on the self-check's report. Off by default: a gate that
-does not set `selfSize` runs one pass a rep and prints the same diagnostic as before. Callers change
-nothing; to adopt it, add `selfSize: true` to the gate's options.
+diagnostic, and `passes` and `cleanPasses` on the self-check's report. The reports gain these fields
+even when `selfSize` is unset: `passes: 1` on each phase, `passes: 1` and `cleanPasses: { count: 1,
+size: 1 }` on the self-check's report. Off by default otherwise: a gate that does not set `selfSize`
+runs one pass a rep and prints the same diagnostic as before. Callers change nothing; to adopt it,
+add `selfSize: true` to the gate's options.
+
+The gate measures warm, steady-state cost only (the fastest of several reps over the same inputs),
+so a first-call or cold-cache cost is not seen, with or without self-sizing.

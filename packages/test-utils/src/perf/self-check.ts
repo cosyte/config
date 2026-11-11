@@ -270,8 +270,7 @@ export function assertScalingGateFires<TInput, TResult>(
   // which is exactly what ADR 0001 §2 claims the self-check makes structurally impossible. It only
   // is if the clean side of every axis the gate will assert is checked here.
   const cleanBaseMinMs = { count: 0, size: 0 };
-  // Stryker disable next-line ObjectLiteral: the loop below writes both keys before anything reads them.
-  const cleanPasses = { count: 1, size: 1 };
+  const cleanPassesByAxis = new Map<PerfAxis, number>();
   for (const preAxis of ["count", "size"] as const) {
     // Base corpus only: the precondition never times a scaled phase, and holding a 4x corpus live
     // across this measurement would inflate it: the direction that lets a knife-edge fixture pass
@@ -306,8 +305,14 @@ export function assertScalingGateFires<TInput, TResult>(
       );
     }
     cleanBaseMinMs[preAxis] = round4(min);
-    cleanPasses[preAxis] = prePasses;
+    cleanPassesByAxis.set(preAxis, prePasses);
   }
+  // Both axes were set above: the loop runs over both or throws. The fallback only satisfies the
+  // type checker.
+  const cleanPasses = {
+    count: cleanPassesByAxis.get("count") ?? 1,
+    size: cleanPassesByAxis.get("size") ?? 1,
+  };
 
   const warmup = warmUp(base, regressedParse, weigh);
   if (!warmup.stable) {

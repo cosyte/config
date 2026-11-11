@@ -407,6 +407,10 @@ reports its own as `passes` and `cleanPasses`. A phase that is still under the f
 passes the gate will try (65,536 a rep) skips `phase-too-short`, as before, and the self-check fails
 on it.
 
+The gate measures warm, steady-state cost only: each phase's figure is the fastest of several reps
+over the same inputs, taken after the warmup. A first-call cost, or a cost that only shows with cold
+caches, is not seen, with or without self-sizing; repeating the same inputs keeps them warmer still.
+
 It is off by default: a gate that does not ask runs one pass a rep, exactly as before. Adopting it
 is one line, and the fixture can then shrink back to the size the **self-check** needs, since
 repetition lifts a phase over the floor but not a signal over the ceiling: a real quadratic's signal

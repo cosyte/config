@@ -271,6 +271,25 @@ describe("choosePasses", () => {
     expect(choosePasses([0], parse, () => 1, 20)).toBe(MAX_PHASE_PASSES);
   });
 
+  it("grows past an estimate that floating point rounds down to the current count", () => {
+    // Target 7.3 ms. Round 1: one pass of 0.171875 ms, so the estimate is ceil(7.3 / 0.171875) = 43.
+    // Round 2: 43 passes read 7.299999999999999 ms, just under the target, and
+    // ceil(43 * 7.3 / 7.299999999999999) is 43 itself. Only the one-pass floor moves the count on,
+    // to 44. Round 3: the 44th pass is the one that costs time, so 44 reaches the target and 43
+    // would not. Without the floor the count stays at 43 and never reaches the target.
+    const clock = installFakeClock(-0.171875);
+    let calls = 0;
+    const parse = costingParse(clock, () => {
+      const call = calls++;
+      if (call === 0) return 0.171875;
+      if (call === 1) return 7.299999999999999;
+      return call === 1 + 43 + 43 ? 8 : 0;
+    });
+    expect(Math.ceil((43 * 7.3) / 7.299999999999999)).toBe(43);
+    expect(choosePasses([0], parse, () => 1, 7.3)).toBe(44);
+    expect(calls).toBe(1 + 43 + 44);
+  });
+
   it("returns 1 without timing anything when there is no target", () => {
     const clock = installFakeClock();
     let calls = 0;

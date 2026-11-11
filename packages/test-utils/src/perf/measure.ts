@@ -175,9 +175,9 @@ export function choosePasses<TInput, TResult>(
     perfSink.value += local;
     if (elapsedMs >= targetMs || passes >= MAX_PHASE_PASSES) return passes;
     const estimate = elapsedMs > 0 ? Math.ceil((passes * targetMs) / elapsedMs) : passes * 2;
-    // The `passes + 1` floor only matters when floating point rounds an estimate made from a rep
-    // just under the target down to `passes` itself, which would loop forever without it.
-    // Stryker disable next-line ArithmeticOperator: that rounding is not reachable from a test; any measured rep under the target makes the estimate exceed `passes`.
+    // The `passes + 1` floor matters when floating point rounds an estimate made from a rep just
+    // under the target down to `passes` itself (43 passes reading 7.299999999999999 ms against a
+    // 7.3 ms target): without it the count would never grow and the loop would never end.
     passes = Math.min(MAX_PHASE_PASSES, Math.max(passes + 1, estimate));
   }
 }
