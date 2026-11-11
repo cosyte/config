@@ -863,6 +863,20 @@ export function attwBinaryPath(callerUrl, platform = process.platform) {
 }
 
 /**
+ * How many backslashes end `text`. Counted by hand rather than by a regular
+ * expression anchored at the end, which backtracks over every run of backslashes
+ * that does not end the string and is slow on a long one.
+ *
+ * @param {string} text
+ * @returns {number}
+ */
+function trailingBackslashes(text) {
+  let end = text.length;
+  while (end > 0 && text[end - 1] === "\\") end--;
+  return text.length - end;
+}
+
+/**
  * How to start one of the three tools this gate runs (attw, npm and pnpm), on the
  * platform given, with no shell wherever a shell is not needed.
  *
@@ -909,7 +923,10 @@ export function toolCommand(file, args, platform = process.platform) {
   // its command line by the Microsoft C rules, where backslashes before a quote are halved and an
   // odd one makes the quote literal. Unescaped, `node16\` would arrive as `node16" --format json`,
   // one argument where three were sent. A backslash anywhere else is literal and left alone.
-  const line = [command, ...args.map((arg) => `"${arg.replace(/\\+$/, "$&$&")}"`)].join(" ");
+  const line = [
+    command,
+    ...args.map((arg) => `"${arg}${"\\".repeat(trailingBackslashes(arg))}"`),
+  ].join(" ");
   return { file: line, args: [], shell: true };
 }
 

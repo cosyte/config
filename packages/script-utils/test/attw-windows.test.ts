@@ -113,6 +113,12 @@ describe("toolCommand", () => {
     expect(toolCommand("attw.cmd", ["C:\\a\\ b\\c"], "win32").file).toBe('attw.cmd "C:\\a\\ b\\c"');
   });
 
+  it("handles a long run of backslashes in linear time, ended or not", () => {
+    const run = "\\".repeat(200_000);
+    expect(toolCommand("attw.cmd", [`${run}x`], "win32").file).toBe(`attw.cmd "${run}x"`);
+    expect(toolCommand("attw.cmd", [run], "win32").file).toBe(`attw.cmd "${run}${run}"`);
+  });
+
   it("leaves those characters alone off Windows, where no shell reads them", () => {
     expect(toolCommand("attw", ['a"b%c'], "linux").args).toEqual(['a"b%c']);
   });
