@@ -52,3 +52,29 @@ export declare function readAttwExclusions(text: string): {
  * `scripts/attw.exclude`, with no caller file. `node node_modules/@cosyte/script-utils/attw.js`.
  */
 export declare function runAttwCli(argv: string[]): number;
+
+/**
+ * The consuming package's own attw binary, resolved as `../node_modules/.bin/attw` from
+ * `callerUrl`, or `../node_modules/.bin/attw.cmd` on Windows, where the extensionless file is a
+ * POSIX shell script that Windows cannot start.
+ *
+ * @param callerUrl The caller's `import.meta.url`.
+ * @param platform Defaults to `process.platform`.
+ */
+export declare function attwBinaryPath(callerUrl: string, platform?: string): string;
+
+/**
+ * How the gate starts attw, npm and pnpm. Off Windows: the file and its arguments as they are,
+ * with no shell. On Windows, where all three are `.cmd` files that Node will not start without
+ * one: a single command line, every part in double quotes, run through `cmd.exe`. A part carrying
+ * a double quote, a percent sign or a line break throws there rather than being escaped.
+ *
+ * @param file The tool: a path, or a name found on PATH.
+ * @param args Its arguments.
+ * @param platform Defaults to `process.platform`.
+ */
+export declare function toolCommand(
+  file: string,
+  args: string[],
+  platform?: string,
+): { file: string; args: string[]; shell: boolean };

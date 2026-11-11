@@ -165,9 +165,11 @@ through the same probe (`memoryFloor`), and gives each peak figure both raw and 
 median, never below zero (`peakTotalAboveFloorBytes`, `medianPeakTotalAboveFloorBytes`, and the same
 for the heap and external memory).
 
-On a GitHub-hosted runner the floor's median call is about 3.3 KiB and its highest about 28 KiB (one
-call, the first). That highest call is the probe's, and it lands in a case's highest peak too, which
-is why a few hundred bytes of input could not read under 20 times its size whatever the code did.
+On a GitHub-hosted runner the floor's median call is stable, about 3.4 KiB. Its highest call is not:
+usually about 29 KiB (one call, the first), and once 369,888 bytes. That highest call is the
+probe's, and it lands in a case's highest peak too, which is why a few hundred bytes of input could
+not read under 20 times its size whatever the code did. Read the floor's median as the probe's cost;
+its highest is not a fixed figure.
 
 A memory budget reads `budgetPeakBytes(caseReading)`: for a case whose inputs average under
 `BENCH_CONTRACT.FLOOR_INPUT_BYTES` (64 KiB) it is the median call's total above the floor's median,
@@ -175,6 +177,16 @@ the code's typical call without the probe; for any other case, or one whose suit
 count, it is the highest raw `peakTotalBytes`. At 64 KiB even the probe's highest call is about 2%
 of a 20 times budget, so a large input keeps the raw highest figure, which needs nothing from
 another process. A suite that added its own empty "floor" case can drop it.
+
+What the small-input rule gives up:
+
+- **A cost in fewer than half the calls is not bounded.** Under 64 KiB the budget reads the median
+  of the case's 20 calls, so a cost that shows in fewer than half of them does not move it. In one
+  reading a small case's highest call was 292,784 bytes against a median of 38,672: the budget read
+  the median. The highest raw peak is still in the reading (`peakTotalBytes`) for anyone who looks.
+- **The switch is a hard edge at 64 KiB.** A case whose inputs average 64 KiB or more reads its
+  highest raw total, and one a byte under reads its median call above the floor. Two sizes either
+  side of the edge can therefore read very different budgets for the same code.
 
 ### Large cases
 
