@@ -19,9 +19,12 @@ import { fileURLToPath } from "node:url";
 // wrongly called a barrel hides real code, and a barrel wrongly measured costs one line. The
 // coverage config in index.js reads barrels with the same function.
 
-// Whitespace and comments. A block comment ends at its first `*/`, so no backtracking can stretch
-// one over the code between two comments.
-const GAP = String.raw`(?:\s|//[^\n]*|/\*(?:[^*]|\*(?!/))*\*/)*`;
+// Whitespace and comments, each read one way only, so a token that fails after them is retried in
+// linear time. A line comment runs to the end of its line: the lookahead stops backtracking from
+// ending it early, where the next repetition would start a new `//` and every split of a run of
+// slashes would be tried. A block comment ends at its first `*/`, so it can neither stretch over
+// the code between two comments nor end anywhere else.
+const GAP = String.raw`(?:\s|//[^\n]*(?![^\n])|/\*(?:[^*]|\*(?!/))*\*/)*`;
 const STRING = String.raw`(?:"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*')`;
 const IDENT = String.raw`[A-Za-z_$][\w$]*`;
 const NAME = `(?:${IDENT}|${STRING})`;

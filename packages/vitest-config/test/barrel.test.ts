@@ -4,6 +4,7 @@
  * by its name, and anything it is unsure of is measured. Every file here is synthetic.
  */
 
+import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -200,6 +201,46 @@ describe("isBarrel", () => {
     expect(isBarrel('export * from "./a.js"; /* a */ /* b */')).toBe(true);
     expect(isBarrel('export * from "./a.js"; /* a * b ** c */')).toBe(true);
     expect(isBarrel('export * from "./a.js"; /* a */ * /')).toBe(false);
+  });
+});
+
+describe("isBarrel on comments that could backtrack", () => {
+  // Each input is read in a child process with a time limit, so a reading that backtracks without
+  // end fails this test instead of hanging the suite. Before line comments ran to the end of their
+  // line, a run of 40 slashes took over a second and each two more slashes doubled it.
+  const STRYKER = join(import.meta.dirname, "..", "stryker.js");
+
+  function readInChild(texts: string[]): { status: number | null; results: boolean[] } {
+    const script = [
+      `import { isBarrel } from ${JSON.stringify(STRYKER)};`,
+      "const texts = JSON.parse(process.argv[1]);",
+      "process.stdout.write(JSON.stringify(texts.map((text) => isBarrel(text))));",
+    ].join("\n");
+    const r = spawnSync(
+      process.execPath,
+      ["--input-type=module", "-e", script, JSON.stringify(texts)],
+      { encoding: "utf8", timeout: 20_000 },
+    );
+    return { status: r.status, results: r.status === 0 ? JSON.parse(r.stdout) : [] };
+  }
+
+  it("reads a banner of slashes in linear time, wherever a later token fails", () => {
+    const banner = "/".repeat(200);
+    const texts = [
+      `export * from "./a"\n${banner}\nexport * from "./b"\n`,
+      `export * from "./a"\n${banner}\nconst hidden = 1;\n`,
+      `export ${"//".repeat(100)}\nfoo`,
+      `import ${"//".repeat(100)}\nfoo`,
+      `export { a ${banner}\n} from "./a";\nfoo();`,
+      `export { a } ${banner}\nfrom "./a" ${banner}\nwith { ${banner}\n x: "y" };`,
+      `export * from "./a" ${banner}\nwithout`,
+      `/*${"*".repeat(5000)}${"/* ".repeat(5000)}*/\nexport * from "./a";\nfoo();`,
+      `/*${" * //".repeat(5000)}\nexport * from "./a";`,
+    ];
+    expect(readInChild(texts)).toEqual({
+      status: 0,
+      results: [true, false, false, false, false, true, false, false, false],
+    });
   });
 });
 
