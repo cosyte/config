@@ -87,8 +87,12 @@ export function documentBase(
   };
 }
 
-/** The JSON Schema keywords the results schema uses. */
-interface Schema {
+/**
+ * The JSON Schema keywords the results, budgets and floor schemas use.
+ *
+ * @internal
+ */
+export interface Schema {
   readonly $ref?: string;
   readonly $defs?: Readonly<Record<string, Schema>>;
   readonly const?: unknown;
@@ -99,6 +103,8 @@ interface Schema {
   readonly properties?: Readonly<Record<string, Schema>>;
   readonly items?: Schema;
   readonly oneOf?: readonly Schema[];
+  /** Only `false`: a key not in `properties` is a problem. */
+  readonly additionalProperties?: false;
 }
 
 const num = { type: "number" } as const;
@@ -484,8 +490,9 @@ function resolveRef(ref: string, root: Schema): Schema {
 }
 
 /**
- * Check a value against the subset of JSON Schema the results schema uses (`type`, `const`, `enum`,
- * `required`, `properties`, `items`, `minimum`, `oneOf`, `$ref` into `$defs`) and return every
+ * Check a value against the subset of JSON Schema the results, budgets and floor schemas use
+ * (`type`, `const`, `enum`, `required`, `properties`, `additionalProperties: false`, `items`,
+ * `minimum`, `oneOf`, `$ref` into `$defs`) and return every
  * problem, each with its JSON pointer. An empty list means the value conforms.
  *
  * @internal
@@ -519,6 +526,12 @@ export function validate(value: unknown, schema: Schema, root: Schema = schema, 
     }
     for (const [key, sub] of Object.entries(schema.properties ?? {})) {
       if (key in record) problems.push(...validate(record[key], sub, root, `${at}/${key}`));
+    }
+    if (schema.additionalProperties === false) {
+      const known = schema.properties ?? {};
+      for (const key of Object.keys(record)) {
+        if (!(key in known)) problems.push(`${here}: has "${key}", which is not a known field`);
+      }
     }
   }
   if (Array.isArray(value) && schema.items !== undefined) {

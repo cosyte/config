@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/cosyte/config/blob/main/packages/bench/schema/budgets-v1.schema.json",
+  "title": "@cosyte/bench budgets, version 1",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "rules"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "schemaVersion": {
+      "const": 1
+    },
+    "kind": {
+      "const": "budgets"
+    },
+    "description": {
+      "type": "string"
+    },
+    "rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "benchmark": {
+            "type": "string"
+          },
+          "size": {
+            "type": "string"
+          },
+          "peakMultiple": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "small": {
+                "type": "number",
+                "minimum": 0
+              },
+              "medium": {
+                "type": "number",
+                "minimum": 0
+              },
+              "large": {
+                "type": "number",
+                "minimum": 0
+              }
+            }
+          },
+          "allocBytesPerOp": {
+            "type": "number",
+            "minimum": 0
+          },
+          "minBytesPerSecond": {
+            "type": "number",
+            "minimum": 0
+          },
+          "minOpsPerSecond": {
+            "type": "number",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "import": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "maxColdImportMs": {
+          "type": "number",
+          "minimum": 0
+        },
+        "maxGzipBytes": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

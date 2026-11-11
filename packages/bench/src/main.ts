@@ -10,8 +10,17 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { checkBudgets, readBudgets } from "./budgets.js";
 import { calibrateComparison, compareBuilds, comparisonExitCode } from "./compare.js";
 import type { Environment } from "./environment.js";
+import { checkFloor, loosenedFloor, readFloor, recordFloor } from "./floor.js";
+import {
+  gateExitCode,
+  notJudgeable,
+  renderFindings,
+  type GateFinding,
+  type ReadingDocument,
+} from "./gate.js";
 import type { ImportCostReport } from "./import-cost.js";
 import { readBuild, type ReadRunner } from "./reading.js";
 import { renderMarkdown } from "./report.js";
@@ -46,10 +55,15 @@ export const USAGE = `Usage:
   cosyte-bench calibrate --suite <file> --base <file> --head <file> --comparisons <n>
                    [--inject <fraction>] [--only <name>]... [--out <file.json>] [--summary <file.md>]
   cosyte-bench check <results.json>
+  cosyte-bench gate <reading.json> [--budgets <file>]
+                   [--floor <file> (--base-floor <file> | --no-base-floor)] [--summary <file.md>]
+  cosyte-bench floor <reading.json>... --out <floor.json> [--from <floor.json>]
 
-Exit codes: 0 clean, 1 a finding (a regression, or results that do not match the schema),
-2 could not measure or could not read its input. A run that could not measure a case still
-writes every other case, lists what failed, and exits 2.
+Exit codes: 0 clean, 1 a finding (a regression, results that do not match the schema, a budget
+broken, a measure worse than the floor beyond its noise, or a floor loosened), 2 could not measure,
+could not read its input, or could not judge it. A run that could not measure a case still
+writes every other case, lists what failed, and exits 2. gate and floor read only readings taken
+on a GitHub-hosted runner.
 `;
 
 /** A bad command line. */
@@ -69,11 +83,17 @@ const VALUE_FLAGS = new Set([
   "--comparisons",
   "--inject",
   "--only",
+  "--budgets",
+  "--floor",
+  "--base-floor",
+  "--from",
 ]);
-const BOOLEAN_FLAGS = new Set(["--no-memory", "--no-import"]);
+const BOOLEAN_FLAGS = new Set(["--no-memory", "--no-import", "--no-base-floor"]);
 
 /** The flags each command takes. Any other is refused rather than quietly ignored. */
-const FLAGS_FOR: Readonly<Record<"run" | "compare" | "calibrate", readonly string[]>> = {
+const FLAGS_FOR: Readonly<
+  Record<"run" | "compare" | "calibrate" | "gate" | "floor", readonly string[]>
+> = {
   run: [
     "--suite",
     "--target",
@@ -105,6 +125,8 @@ const FLAGS_FOR: Readonly<Record<"run" | "compare" | "calibrate", readonly strin
     "--out",
     "--summary",
   ],
+  gate: ["--budgets", "--floor", "--base-floor", "--no-base-floor", "--summary"],
+  floor: ["--out", "--from"],
 };
 
 /**
@@ -181,6 +203,141 @@ async function loadSuite(file: string): Promise<BenchSuite<unknown>> {
   return checkSuite(module.default);
 }
 
+/** An input `gate` or `floor` could not read: the message names the file, and the exit is 2. */
+class Unreadable extends Error {}
+
+function readText(file: string, abs: (p: string) => string, rel: (p: string) => string): string {
+  try {
+    return String(readFileSync(abs(file)));
+  } catch {
+    throw new Unreadable(`cannot read ${rel(file)}`);
+  }
+}
+
+function parsed<T>(
+  file: string,
+  text: string,
+  read: (text: string) => T,
+  rel: (p: string) => string,
+): T {
+  try {
+    return read(text);
+  } catch (error) {
+    throw new Unreadable(`${rel(file)}: ${(error as Error).message}`);
+  }
+}
+
+/**
+ * `gate`: judge one reading against a budgets file, a floor, and the base branch's floor. `floor`:
+ * record a floor from an A/A set of readings, or tighten one.
+ */
+function judgeOrRecord(
+  command: "gate" | "floor",
+  args: ParsedArgs,
+  io: MainIo,
+  abs: (p: string) => string,
+  rel: (p: string) => string,
+): number {
+  try {
+    if (args.positional.length === 0) throw new UsageError(`${command} needs a reading`);
+    const readings = args.positional.map((file) =>
+      parsed(file, readText(file, abs, rel), readResults, rel),
+    );
+    if (command === "floor") {
+      const out = required(args, "--out");
+      const fromFile = one(args, "--from");
+      const from =
+        fromFile === undefined
+          ? undefined
+          : parsed(fromFile, readText(fromFile, abs, rel), readFloor, rel);
+      for (const [i, doc] of readings.entries()) {
+        const why = notJudgeable(doc);
+        if (why !== null) throw new Unreadable(`${rel(args.positional[i] as string)}: ${why}`);
+      }
+      const floor = parsed(
+        out,
+        "",
+        () => recordFloor(readings as ReadingDocument[], from),
+        () => "the readings",
+      );
+      writeFileSync(abs(out), `${JSON.stringify(floor, null, 2)}\n`);
+      io.stdout(
+        `${rel(out)}: a floor of ${String(floor.cases.length)} case(s) from ${String(floor.readings)} readings on ${floor.runnerClass}, Node ${String(floor.nodeMajor)}\n`,
+      );
+      return 0;
+    }
+    if (args.positional.length > 1) throw new UsageError("gate judges one reading");
+    const budgetsFile = one(args, "--budgets");
+    const floorFile = one(args, "--floor");
+    const baseFloorFile = one(args, "--base-floor");
+    if (budgetsFile === undefined && floorFile === undefined)
+      throw new UsageError("gate needs --budgets, --floor or both");
+    const noBaseFloor = args.flags.has("--no-base-floor");
+    if ((baseFloorFile !== undefined || noBaseFloor) && floorFile === undefined)
+      throw new UsageError("--base-floor and --no-base-floor need --floor");
+    if (floorFile !== undefined && (baseFloorFile === undefined) === !noBaseFloor)
+      throw new UsageError(
+        "--floor needs exactly one of --base-floor <the base branch's floor> and --no-base-floor (the base branch has no floor file yet)",
+      );
+    const file = args.positional[0] as string;
+    const doc = readings[0] as ResultsDocument;
+    const why = notJudgeable(doc);
+    if (why !== null) throw new Unreadable(`${rel(file)}: ${why}`);
+    const reading = doc as ReadingDocument;
+    const budgets =
+      budgetsFile === undefined
+        ? undefined
+        : parsed(budgetsFile, readText(budgetsFile, abs, rel), readBudgets, rel);
+    const floor =
+      floorFile === undefined
+        ? undefined
+        : parsed(floorFile, readText(floorFile, abs, rel), readFloor, rel);
+    const baseFloor =
+      baseFloorFile === undefined
+        ? undefined
+        : parsed(baseFloorFile, readText(baseFloorFile, abs, rel), readFloor, rel);
+    const all: GateFinding[] = [];
+    const parts: string[] = [];
+    if (budgets !== undefined) {
+      const r = checkBudgets(reading, budgets);
+      all.push(...r.findings);
+      parts.push(renderFindings(`Budgets (${rel(budgetsFile as string)})`, r.findings, r.checked));
+    }
+    if (floor !== undefined) {
+      const r = checkFloor(reading, floor);
+      all.push(...r.findings);
+      parts.push(renderFindings(`Floor (${rel(floorFile as string)})`, r.findings, r.checked));
+    }
+    if (floor !== undefined && baseFloor !== undefined) {
+      const loosened = loosenedFloor(baseFloor, floor);
+      all.push(...loosened);
+      parts.push(
+        renderFindings(
+          `The floor against the base branch's (${rel(baseFloorFile as string)})`,
+          loosened,
+          1,
+        ),
+      );
+    }
+    if (noBaseFloor) {
+      parts.push(
+        "### The floor against the base branch's\n\nNot compared: `--no-base-floor` says the base branch has no floor file, so this is a first floor, approved in review.\n",
+      );
+    }
+    const markdown = parts.join("\n");
+    const summary = one(args, "--summary");
+    if (summary !== undefined) writeFileSync(abs(summary), markdown);
+    io.stdout(markdown);
+    return gateExitCode(all);
+  } catch (error) {
+    if (error instanceof Unreadable) {
+      io.stderr(`[cosyte-bench] ${error.message}\n`);
+      return 2;
+    }
+    throw error;
+  }
+}
+
 /**
  * Run the command line. Returns the exit code.
  *
@@ -233,12 +390,21 @@ export async function main(argv: readonly string[], io: MainIo): Promise<number>
       }
     }
 
-    if (command !== "run" && command !== "compare" && command !== "calibrate") {
+    if (
+      command !== "run" &&
+      command !== "compare" &&
+      command !== "calibrate" &&
+      command !== "gate" &&
+      command !== "floor"
+    ) {
       throw new UsageError(`unknown command ${command}`);
     }
     for (const flag of [...args.values.keys(), ...args.flags]) {
       if (!FLAGS_FOR[command].includes(flag))
         throw new UsageError(`${flag} does not apply to ${command}`);
+    }
+    if (command === "gate" || command === "floor") {
+      return judgeOrRecord(command, args, io, abs, rel);
     }
     if (args.positional.length > 0)
       throw new UsageError(`unexpected argument ${String(args.positional[0])}`);

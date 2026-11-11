@@ -1,7 +1,7 @@
 {
   "name": "@cosyte/bench",
   "version": "0.1.4",
-  "description": "Benchmarks for the @cosyte/* packages: throughput, latency percentiles, memory, cold import time and loaded bytes, as versioned JSON, and a base against head comparison interleaved on one machine.",
+  "description": "Benchmarks for the @cosyte/* packages: throughput, latency percentiles, memory, cold import time and loaded bytes, as versioned JSON; a base against head comparison interleaved on one machine; and a check of a reading against a package's budgets and its floor.",
   "keywords": [
     "benchmark",
     "performance",
@@ -34,6 +34,8 @@
       "default": "./dist/index.mjs"
     },
     "./schema/results-v1.schema.json": "./schema/results-v1.schema.json",
+    "./schema/budgets-v1.schema.json": "./schema/budgets-v1.schema.json",
+    "./schema/floor-v1.schema.json": "./schema/floor-v1.schema.json",
     "./package.json": "./package.json"
   },
   "bin": {

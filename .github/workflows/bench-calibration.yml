@@ -30,6 +30,10 @@ on:
     branches: [main]
     paths:
       - "packages/bench/src/**"
+      # The budgets and floor check read readings and never run the comparison.
+      - "!packages/bench/src/budgets.ts"
+      - "!packages/bench/src/floor.ts"
+      - "!packages/bench/src/gate.ts"
       - "experiments/bench-calibration/calibrate.sh"
       - "experiments/bench-calibration/long-run.sh"
       - "experiments/bench-calibration/large.bench.mjs"

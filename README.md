@@ -181,6 +181,10 @@ only `config` binds.
   of each and how it was measured, what each cannot detect, how a repository adopts both, and a
   proposal for keeping results over time. Its numbers come from
   [`experiments/bench-calibration/`](experiments/bench-calibration).
+- [`0007: The performance budgets standard`](documentation/decisions/0007-the-performance-budgets-standard.md)
+  covers the limits a package holds its build to: a budgets file and a floor that only improves,
+  checked by `cosyte-bench gate` on a reading from a GitHub-hosted runner, with the defaults the
+  audit of every package proposed.
 
 ## Versioning
 

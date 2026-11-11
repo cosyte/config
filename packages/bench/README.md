@@ -14,7 +14,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/cosyte/config/blob/main/LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D22.15.0-brightgreen.svg)](https://nodejs.org)
 
-Benchmarks for the @cosyte/\* packages: throughput, latency percentiles, memory, cold import time and loaded bytes, as versioned JSON, and a base against head comparison interleaved on one machine.
+Benchmarks for the @cosyte/\* packages: throughput, latency percentiles, memory, cold import time and loaded bytes, as versioned JSON; a base against head comparison interleaved on one machine; and a check of a reading against a package's budgets and its floor.
 
 ## Why this exists
 
@@ -93,10 +93,14 @@ cosyte-bench compare --suite bench/parse.bench.ts \
 
 # Check that a results file matches the schema.
 cosyte-bench check bench.json
+
+# Judge a reading taken on a GitHub-hosted runner against the package's budgets and its floor.
+cosyte-bench gate bench.json --budgets bench/budgets.json --floor bench/floor.json
 ```
 
-Exit codes: 0 clean, 1 a finding (a regression, or a results file that does not match the schema),
-2 could not measure (a skip, a process that died, an input it could not read). A skip is not a pass.
+Exit codes: 0 clean, 1 a finding (a regression, a results file that does not match the schema, or a
+limit not held), 2 could not measure or judge (a skip, a process that died, an input it could not
+read). A skip is not a pass.
 
 A `run` whose measuring process fails for one case still measures and writes every other case. The
 reading lists what failed in `failures` (the phase, `timing`, `memory` or `floor`, the case, and the
@@ -109,9 +113,11 @@ the reason `warmup-unstable`.
 
 | entry point                                   | what it is                                                                                                                                                               |
 | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `cosyte-bench`                                | the bin: `run`, `compare`, `calibrate` and `check`                                                                                                                       |
+| `cosyte-bench`                                | the bin: `run`, `compare`, `calibrate`, `check`, `gate` and `floor`                                                                                                      |
 | `@cosyte/bench`                               | writing a suite (`defineSuite`, `defineBenchmark`), judging ratios (`judge`), reading results (`readResults`, `RESULTS_SCHEMA`, `budgetPeakBytes`), and `BENCH_CONTRACT` |
 | `@cosyte/bench/schema/results-v1.schema.json` | the results schema as JSON Schema, for a tool in another language                                                                                                        |
+| `@cosyte/bench/schema/budgets-v1.schema.json` | the budgets file's schema                                                                                                                                                |
+| `@cosyte/bench/schema/floor-v1.schema.json`   | the floor file's schema                                                                                                                                                  |
 | `@cosyte/bench/package.json`                  | the manifest                                                                                                                                                             |
 
 The module entry point has no side effects: importing it starts no process. The schema is plain JSON:
@@ -120,6 +126,16 @@ The module entry point has no side effects: importing it starts no process. The 
 import schema from "@cosyte/bench/schema/results-v1.schema.json" with { type: "json" };
 
 schema.properties.schemaVersion.const; // => 1
+```
+
+The budgets and floor schemas are plain JSON too:
+
+```ts runnable
+import budgets from "@cosyte/bench/schema/budgets-v1.schema.json" with { type: "json" };
+import floor from "@cosyte/bench/schema/floor-v1.schema.json" with { type: "json" };
+
+budgets.properties.kind.const; // => "budgets"
+floor.properties.kind.const; // => "floor"
 ```
 
 ```ts runnable
@@ -228,6 +244,108 @@ the clock until that fraction of the pass's own time has passed. The change a co
 measures is not exactly that fraction, and differs by workload and machine, so a calibration
 reports the change it observed for each case, and a detection rate is read against that.
 
+## Budgets and the floor
+
+A package holds its build to two files beside its suite. `cosyte-bench gate` reads one reading
+against both and exits 1 on any finding, 2 when something a limit names was not measured or a file
+holds no limit at all (a skip is not a pass), and 0 when every limit held. It reads only a reading
+taken on a GitHub-hosted runner (`environment.runner`): a developer machine's numbers describe that
+machine, so they are refused with exit 2.
+
+That runner check reads what the reading says about itself, from the environment variables of the
+process that took it. It is trustworthy only when the CI job that runs `gate` took the reading
+itself, in the same job; a reading file committed to the repository or handed over from elsewhere
+can say anything.
+
+[ADR 0007](https://github.com/cosyte/config/blob/main/documentation/decisions/0007-the-performance-budgets-standard.md)
+is the standard, with the proposed defaults.
+
+**The budgets file** (`bench/budgets.json`, `schema/budgets-v1.schema.json`) is the limits a
+package commits to. A package's first budgets are approved by a person in review; the tool only
+reads them. Each rule names a benchmark, a size, both or neither, and every rule that matches a
+case applies to it:
+
+```json
+{
+  "schemaVersion": 1,
+  "kind": "budgets",
+  "rules": [
+    { "peakMultiple": { "small": 20, "medium": 20, "large": 20 } },
+    { "benchmark": "parse: base64 document", "size": "4 MiB", "peakMultiple": { "large": 3 } },
+    {
+      "benchmark": "parse: dense",
+      "size": "1 KiB",
+      "allocBytesPerOp": 65536,
+      "minOpsPerSecond": 20000
+    }
+  ],
+  "import": { "maxColdImportMs": 15, "maxGzipBytes": 40960 }
+}
+```
+
+- `peakMultiple`: the most `budgetPeakBytes` may be, over the average bytes of one input, by size
+  class: `small` under 64 KiB, `medium` under 1 MiB, `large` from 1 MiB. A rule with a
+  `peakMultiple` must name a limit for the class of every case it matches: a matched case whose
+  class it leaves out cannot be judged (exit 2).
+- `allocBytesPerOp`: heap and external bytes allocated by one operation (one input).
+- `minBytesPerSecond`, `minOpsPerSecond`: the least throughput.
+- `import.maxColdImportMs`, `import.maxGzipBytes`: the median cold import and the gzipped bytes the
+  import loads.
+
+A limit holds at exactly its value. A key the schema does not know is refused, a rule that matches
+no case in the reading cannot be judged (exit 2), and neither can a file with no limit in it, so a
+typo or a renamed case is never a limit nobody checks.
+
+The check has no base branch to hold the budgets file to: a pull request can loosen its own
+budgets file, and only review catches that. A change to `bench/budgets.json` is the owner's to
+approve.
+
+**The floor file** (`bench/floor.json`, `schema/floor-v1.schema.json`) is what the default branch
+measured, case by case: milliseconds an operation, the budget's peak, bytes allocated an
+operation, the median cold import and the gzipped bytes. `cosyte-bench floor` records it from an
+A/A set, at least seven readings of one commit, each on a GitHub-hosted runner of one runner class
+and Node line. For each measure it keeps the highest of them (`value`) and the highest less the
+lowest (`noise`). A reading is a regression when a measure is above its limit, `value` plus three
+times `noise`. A case the floor does not keep yet is not judged, and a floor that keeps no measure
+cannot judge anything (exit 2).
+
+```sh
+cosyte-bench floor aa-1.json aa-2.json ... aa-7.json --out bench/floor.json
+cosyte-bench floor next-1.json ... next-7.json --from bench/floor.json --out bench/floor.json
+```
+
+With `--from` a measure takes the new set's value and noise only when the new set's whole limit is
+below the old set's lowest reading (`value - noise`), an improvement the old noise cannot explain;
+otherwise it keeps the old value and noise. Taking the lower of the two would ratchet the limit down
+on a lucky set, and unchanged code would fail more often with every recording.
+
+`gate --base-floor <the base branch's floor>` finds a floor file that is looser than its base: a
+limit raised, a measure or a case dropped, or a floor for another runner class or Node line.
+`gate --floor` needs exactly one of `--base-floor` and `--no-base-floor`; `--no-base-floor` says the
+base branch has no floor file yet, a package's first floor, and the summary says it was not
+compared.
+
+What the floor gives up:
+
+- **One measure of unchanged code fails now and then.** The rate depends on the shape of the noise.
+  In a simulation of seven readings and the limit above, one measure failed unchanged code about
+  0.01% of the time under normal noise, 0.2% under log-normal noise (sigma 0.5), 0.4% under
+  exponential noise and 1.2% under very heavy log-normal noise (sigma 1), and the rate did not move
+  over 30 recordings with `--from`. Across a suite each measure is a separate chance: with `k`
+  measures the chance that any one fails is at most `k` times the rate of one.
+- **It catches only large regressions.** The limit sits about 3.4 spreads above the measure's true
+  median (in a simulation of normal noise), so a real regression of 1 spread is caught under 1% of
+  the time, 2 spreads about 7 to 9%, about 3.5 spreads about half the time, and about 5.2 spreads
+  about 92%. For a measure whose seven readings spread 5% of its value, a 10% regression is caught
+  about 7 to 9% of the time, 17% about half the time, and 95% detection needs about 27%. The floor
+  is a backstop against large regressions; small ones are the base against head comparison's job.
+  For the same reason `floor --from` tightens only after an improvement of about four spreads, so a
+  floor rarely moves.
+- **A reading is only compared within its runner class and Node line.** A new runner image is a
+  new class, and the floor cannot judge it (exit 2) until it is recorded afresh.
+- **A floor that measured no noise holds exactly.** The gzipped bytes the import loads are the same
+  in every reading, so any growth of them is a regression.
+
 ## PHI and safety
 
 This package processes no patient data. Inputs come from the suite's own code, never from a file
@@ -246,6 +364,9 @@ CI runner image, never by host name, user or absolute path.
   problem. `RESULTS_SCHEMA` is the schema, also shipped as `schema/results-v1.schema.json`.
 - `budgetPeakBytes(caseReading)`: the peak a memory budget reads for a case: the median call above
   the empty-call floor for an input under 64 KiB, the highest raw total for any other.
+- `readBudgets(text)`, `BUDGETS_SCHEMA`: parse and check a budgets file; throws a `TypeError`
+  listing every problem.
+- `readFloor(text)`, `FLOOR_SCHEMA`: parse and check a floor file, the same way.
 - `BENCH_CONTRACT`: the frozen constants.
 - `BenchError`: what a run that could not measure throws.
 
