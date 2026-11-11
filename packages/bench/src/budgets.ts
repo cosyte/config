@@ -19,6 +19,7 @@ import {
   type SizeClass,
 } from "./gate.js";
 import type { ImportCostReport } from "./import-cost.js";
+import { allocationFell } from "./memory.js";
 import { budgetPeakBytes, type CaseReading } from "./reading.js";
 
 /** One budget rule: which cases it covers, and the limits each of them must hold. */
@@ -171,8 +172,11 @@ function checkCase(rule: BudgetRule, c: CaseReading, out: GateFinding[]): number
   if (rule.allocBytesPerOp !== undefined) {
     checked++;
     const a = c.allocations;
+    const fell = a === null || a.status !== "measured" ? null : allocationFell(a);
     if (a === null || a.status !== "measured") {
       unjudged(`its allocations were not measured${a === null ? "" : ` (${a.reason})`}`);
+    } else if (fell !== null) {
+      unjudged(`its allocations were not a count: ${fell}`);
     } else {
       const per = a.heapBytesPerOp + a.externalBytesPerOp;
       if (per > rule.allocBytesPerOp) {

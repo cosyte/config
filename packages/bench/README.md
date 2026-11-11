@@ -160,14 +160,14 @@ the command line:
 
 ## What it measures
 
-| Measure                                | How                                                                                                                                                                                                                                                                                                                                                                             | What it cannot see                                                                                                                  |
-| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Throughput, small to very large inputs | Per size, fresh processes; a warmup by the scaling gate's rule, or by the large-case plan below when every warmup batch is one long pass; 5 samples of whole passes of at least 50 ms; the median of the processes' medians                                                                                                                                                     | Anything the suite's sizes do not cover; numbers from another machine                                                               |
-| Latency p50, p95, p99                  | One call at a time on a nanosecond clock, up to 2 s or 5,000 calls; a percentile is reported only with at least 10 calls above it                                                                                                                                                                                                                                               | Calls shorter than 20 clock reads (skipped, typed); the tail of a size with few calls                                               |
-| Allocations per operation              | Heap growth over windows of `n` and `2n` operations in which no collection ran, in a process with a 64 MiB young generation; the difference cancels the cost of reading the heap. When every window collects, the largest pair is counted with what its collections reclaimed (`method: "gc-accounted"`)                                                                        | Native memory a library allocates outside V8's accounting                                                                           |
-| Peak memory                            | Per call, the higher of what was in use just before any collection during the call and at its end, above what was in use before it: the V8 heap (`peakHeapBytes`), external memory such as Buffers and ArrayBuffers (`peakExternalBytes`), and the two together (`peakTotalBytes`); each also above the run's empty-call floor (`peakTotalAboveFloorBytes` and the like), below | Native memory a library allocates outside V8's accounting                                                                           |
-| Heap flat over a long run              | 30 rounds, the heap settled after each; a Theil-Sen slope over the last 24; growing when the fitted growth reaches 64 KiB. On the long-run size and on the largest size whose 30 rounds fit in 60 s                                                                                                                                                                             | A leak too small to reach 64 KiB over the run (each result says the smallest it could see, `detectableBytesPerOp`); external memory |
-| Cold import and loaded bytes           | 20 fresh processes import the target, 20 import an empty module, interleaved; one more records every file the import loads, with its gzip size                                                                                                                                                                                                                                  | What a bundler keeps after tree shaking                                                                                             |
+| Measure                                | How                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | What it cannot see                                                                                                                  |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Throughput, small to very large inputs | Per size, fresh processes; a warmup by the scaling gate's rule, or by the large-case plan below when every warmup batch is one long pass; 5 samples of whole passes of at least 50 ms; the median of the processes' medians                                                                                                                                                                                                                                                                                | Anything the suite's sizes do not cover; numbers from another machine                                                               |
+| Latency p50, p95, p99                  | One call at a time on a nanosecond clock, up to 2 s or 5,000 calls; a percentile is reported only with at least 10 calls above it                                                                                                                                                                                                                                                                                                                                                                          | Calls shorter than 20 clock reads (skipped, typed); the tail of a size with few calls                                               |
+| Allocations per operation              | Heap growth over windows of `n` and `2n` operations in which no collection ran, in a process with a 64 MiB young generation; the difference cancels the cost of reading the heap. When every window collects, the largest pair is counted with what its collections reclaimed (`method: "gc-accounted"`). A pair whose `2n` window counted more than 64 KiB fewer than its `n` window is no count and is measured again at half the window; when every pair does, the count is skipped (`allocation-fell`) | Native memory a library allocates outside V8's accounting                                                                           |
+| Peak memory                            | Per call, the higher of what was in use just before any collection during the call and at its end, above what was in use before it: the V8 heap (`peakHeapBytes`), external memory such as Buffers and ArrayBuffers (`peakExternalBytes`), and the two together (`peakTotalBytes`); each also above the run's empty-call floor (`peakTotalAboveFloorBytes` and the like), below                                                                                                                            | Native memory a library allocates outside V8's accounting                                                                           |
+| Heap flat over a long run              | 30 rounds, the heap settled after each; a Theil-Sen slope over the last 24; growing when the fitted growth reaches 64 KiB. On the long-run size and on the largest size whose 30 rounds fit in 60 s                                                                                                                                                                                                                                                                                                        | A leak too small to reach 64 KiB over the run (each result says the smallest it could see, `detectableBytesPerOp`); external memory |
+| Cold import and loaded bytes           | 20 fresh processes import the target, 20 import an empty module, interleaved; one more records every file the import loads, with its gzip size                                                                                                                                                                                                                                                                                                                                                             | What a bundler keeps after tree shaking                                                                                             |
 
 Memory measurements need `gc()`; the runner starts those processes with `--expose-gc` itself, and
 with `--no-concurrent-array-buffer-sweeping`, so a collection frees the ArrayBuffers it found dead
@@ -306,8 +306,16 @@ operation, the median cold import and the gzipped bytes. `cosyte-bench floor` re
 A/A set, at least seven readings of one commit, each on a GitHub-hosted runner of one runner class
 and Node line. For each measure it keeps the highest of them (`value`) and the highest less the
 lowest (`noise`). A reading is a regression when a measure is above its limit, `value` plus three
-times `noise`. A case the floor does not keep yet is not judged, and a floor that keeps no measure
-cannot judge anything (exit 2).
+times `noise`. For a memory measure (the peak and bytes allocated an operation) the limit is at
+least 5% above `value` (`BENCH_CONTRACT.FLOOR_MEMORY_MARGIN`), whatever the spread: see "Memory moves
+between levels" below. Time keeps its spread alone, and the gzipped bytes stay exact. A case the
+floor does not keep yet is not judged, and a floor that keeps no measure cannot judge anything
+(exit 2).
+
+`floor` refuses a set holding an allocation count whose `2n` window counted more than 64 KiB fewer
+than its `n` window (no code allocates fewer bytes by running more), and `gate` calls such a count
+`unjudged` against a budget or a floor: take that reading again. Since 0.1.6 a reading never
+writes one; a reading taken with an earlier version can hold one.
 
 ```sh
 cosyte-bench floor aa-1.json aa-2.json ... aa-7.json --out bench/floor.json
@@ -345,6 +353,38 @@ What the floor gives up:
   new class, and the floor cannot judge it (exit 2) until it is recorded afresh.
 - **A floor that measured no noise holds exactly.** The gzipped bytes the import loads are the same
   in every reading, so any growth of them is a regression.
+- **Memory moves between levels, so a memory measure keeps 5% of room.** V8 compiles on a
+  background thread, and when that compile finishes decides which code a process runs, so one
+  process of unchanged code allocates on one of two or three levels. In 82 readings of one
+  unchanged `@cosyte/dicom` source on GitHub-hosted runners (Bench floor runs 43109166865,
+  43110461726, 43113425128, 43114865620 and 43116547990, 7, 7, 21, 21 and 21 readings, and Budgets
+  runs 43110461576, 43113425069, 43114865841 twice and 43116548037), the higher allocation levels sat
+  3.4% to 4.7% above the median reading, and one peak level 11.2% to 11.4% above the highest reading
+  of a set that missed it. A set that landed on one level measures almost no spread: the peak of
+  `parseDicom: CT @ single frame` read 74,616 bytes in all 7 readings of run 43109166865, and
+  74,880 in 3 other readings, with nothing between. With the limit at three spreads alone, a floor recorded from one set
+  failed 3 to 38 of the other readings of that source (out of 61 for a 21-reading set, 75 for a
+  7-reading one); with the 5% margin, 0 to 5. We tried margins of 0.5% to 5%: below 5% the 4.7%
+  allocation level still failed. Resampling the 82 readings (5,000 trials), a reading failed any
+  memory measure of a 21-reading floor 13.2% of the time with three spreads alone and 2.8% with the
+  margin, and of a 7-reading floor 44.8% and 5.5%.
+- **What the margin gives up.** A memory measure whose seven or more readings spread less than 5%
+  of its value, divided by three, is held to 5% above its highest reading, not less: any growth of
+  more than 5% fails, however still the set was, and a smaller one passes. In the same resampling, a
+  5% regression of one memory measure was caught 41.3% of the time with three spreads alone and
+  2.3% with the margin, a 10% one 55.6% and 57.5%, and a 25% one 83.4% and 85.2% (the last two
+  differ by the resampling alone). A measure whose three spreads come to more than 5% keeps the
+  limit it had. A level more than 5% up still fails unchanged code when no reading of the set
+  landed on it: the dicom readings above show one peak level 11.2% to 11.4% up in 4 of 82.
+
+**Recording a floor again with 0.1.6.** The margin applies to a floor file as it is: nothing needs
+recording for it. A floor whose set held an allocation count that fell (in `bench/floor.json`, an
+`allocBytesPerOp` whose `noise` is larger than its `value`: its lowest reading was below zero) has a
+limit far too loose for that measure. Take a fresh A/A set with 0.1.6 and record it with `--from`:
+the new set replaces a measure whose lowest reading was below zero whenever its limit is lower, and
+the floor is not reported as loosened. A floor not yet on the default branch is recorded afresh,
+without `--from`. A reading taken with an earlier version that holds such a count is `unjudged`
+(exit 2): take it again with 0.1.6.
 
 ## PHI and safety
 

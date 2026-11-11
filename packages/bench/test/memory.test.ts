@@ -227,7 +227,13 @@ describe("measureAllocations", () => {
       state.heap += 100;
       state.garbage += 100;
     };
-    expect(measureAllocations(call, falls((p) => p === 1, 1_000_000), 1)).toEqual({
+    expect(
+      measureAllocations(
+        call,
+        falls((p) => p === 1, 1_000_000),
+        1,
+      ),
+    ).toEqual({
       status: "measured",
       method: "no-gc-window",
       collections: 0,
@@ -239,11 +245,19 @@ describe("measureAllocations", () => {
     const quiet = () => undefined;
     profiles = 0;
     expect(
-      measureAllocations(quiet, falls((p) => p === 1, BENCH_CONTRACT.GC_SETTLE_BYTES), 1),
+      measureAllocations(
+        quiet,
+        falls((p) => p === 1, BENCH_CONTRACT.GC_SETTLE_BYTES),
+        1,
+      ),
     ).toMatchObject({ windowOps: 100, heapBytesPerOp: -655.4 });
     profiles = 0;
     expect(
-      measureAllocations(quiet, falls((p) => p === 1, BENCH_CONTRACT.GC_SETTLE_BYTES + 1), 1),
+      measureAllocations(
+        quiet,
+        falls((p) => p === 1, BENCH_CONTRACT.GC_SETTLE_BYTES + 1),
+        1,
+      ),
     ).toMatchObject({ windowOps: 50, heapBytesPerOp: 0 });
     // External memory that falls is no count either.
     const external = scripted();

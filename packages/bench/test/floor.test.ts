@@ -321,11 +321,23 @@ describe("recordFloor", () => {
     const broken: Floor = {
       ...old,
       // Recorded from a set whose lowest reading was -14,057,504: a limit of about 98 MB.
-      cases: [{ ...(old.cases[0] as FloorCase), allocBytesPerOp: { value: 14_000_000, noise: 28_057_504 } }],
+      cases: [
+        {
+          ...(old.cases[0] as FloorCase),
+          allocBytesPerOp: { value: 14_000_000, noise: 28_057_504 },
+        },
+      ],
     };
     const next = recordFloor(aa(), broken);
     expect(next.cases[0]?.allocBytesPerOp).toEqual({ value: 2100, noise: 100 });
     expect(loosenedFloor(broken, next)).toEqual([]);
+    // Never for a looser limit: a lowest reading of -0.5 bytes is a quiet heap's jitter around
+    // nothing allocated, and a set at 2,000 to 2,100 bytes would raise its limit of 9.5.
+    const nearZero: Floor = {
+      ...old,
+      cases: [{ ...(old.cases[0] as FloorCase), allocBytesPerOp: { value: 2, noise: 2.5 } }],
+    };
+    expect(recordFloor(aa(), nearZero).cases[0]?.allocBytesPerOp).toEqual({ value: 2, noise: 2.5 });
   });
 
   it("refuses to tighten a floor of another suite, runner class or Node line", () => {
@@ -410,17 +422,16 @@ describe("checkFloor", () => {
 
   it("passes a second compiler level 3.4% up and catches a regression of more than 5%", () => {
     // Every reading of the set landed on the lower of two levels, 100,000 bytes an operation; the
-    // other level, 3.4% up, is the same code. A regression of 5% and one byte is caught however
-    // still the set was; one of 3 spreads is caught when the spreads come to more than 5%.
+    // other level, 3.4% up, is the same code. Anything more than 5% above the highest reading is
+    // caught however still the set was. Where 3 spreads come to more than 5% (here 3 x 4,000 on
+    // 100,000), the spreads set the limit, as before.
     const still = recordFloor(seven(() => readingDoc([at(0.5, 100_000)])));
     const judged = (alloc: number, f: Floor = still) =>
       checkFloor(readingDoc([at(0.5, alloc)]), f).findings.map((x) => x.kind);
     expect(judged(103_400)).toEqual([]);
     expect(judged(105_000)).toEqual([]);
     expect(judged(105_001)).toEqual(["regression"]);
-    const spread = recordFloor(
-      seven((i) => readingDoc([at(0.5, i === 0 ? 96_000 : 100_000)])),
-    );
+    const spread = recordFloor(seven((i) => readingDoc([at(0.5, i === 0 ? 96_000 : 100_000)])));
     expect(judged(112_000, spread)).toEqual([]);
     expect(judged(112_001, spread)).toEqual(["regression"]);
   });
