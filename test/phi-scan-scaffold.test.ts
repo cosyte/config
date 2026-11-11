@@ -432,8 +432,11 @@ describe("controls: the suite is exercising the emitted scanner, and it can stil
 
   it("NEGATIVE CONTROL: pointed at the wrong package it refuses rather than reporting clean", () => {
     // Every green below has to come from the scaffolded package's own corpus and
-    // its own allow-list. Run the same scanner against this repo's root, which is
-    // not that package, and it must refuse rather than sweep nothing and say so.
+    // its own allow-list. Run the same scanner from an empty directory, which is
+    // not that package and holds no allow-list, and it must refuse rather than
+    // sweep nothing and say so. (This repo's root served until it gained its own
+    // scripts/phi-allow-list.txt.)
+    const elsewhere = mkdtempSync(join(tmpdir(), "phi-scan-wrong-"));
     //
     // The code is 2, the invocation-error code, and the exact value is the
     // assertion rather than "not 0". `loadAllowList()` used to sit OUTSIDE
@@ -441,7 +444,7 @@ describe("controls: the suite is exercising the emitted scanner, and it can stil
     // throw and took node's exit 1: the code this contract reserves for HITS
     // FOUND. A caller that branches on the code, and CI is one, read "this
     // corpus contains PHI" off a run that never opened a file.
-    const wrong = scan("scripts/phi-scan.ts", [], REPO_ROOT);
+    const wrong = scan("scripts/phi-scan.ts", [], elsewhere);
     expect(wrong.code).toBe(2);
     expect(wrong.out).toMatch(/allow-list not found/);
     // ...and it is a REFUSAL, not a report: no hit line, so the 2 cannot be
@@ -458,7 +461,7 @@ describe("controls: the suite is exercising the emitted scanner, and it can stil
       "    let allow;\n",
       "    let allow = this.loadAllowList();\n",
     );
-    const before = scan(unhandled, [], REPO_ROOT);
+    const before = scan(unhandled, [], elsewhere);
     expect(before.code).toBe(1);
     expect(before.out).toMatch(/allow-list not found/);
   });
