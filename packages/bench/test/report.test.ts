@@ -293,7 +293,7 @@ describe("renderMarkdown", () => {
     };
     const text = renderMarkdown(doc);
     expect(text).toContain(
-      "the total above the empty-call floor, the peak a memory budget reads (the total above the floor for an input under 64 KiB, the raw total for any other)",
+      "the total above the empty-call floor, the peak a memory budget reads (the median call's total above the floor for an input under 64 KiB, the highest raw total for any other)",
     );
     expect(text).toContain(
       "Node v24.0.0 on github-actions-github-hosted-ubuntu24-x64 (unknown CPU, 4 logical CPUs)",
@@ -329,7 +329,16 @@ describe("renderMarkdown", () => {
       ...doc,
       reading: {
         ...doc.reading,
-        cases: [{ ...first, peak: { ...first.peak, peakTotalAboveFloorBytes: 2048 } }],
+        cases: [
+          {
+            ...first,
+            peak: {
+              ...first.peak,
+              peakTotalAboveFloorBytes: 2048,
+              medianPeakTotalAboveFloorBytes: 512,
+            },
+          },
+        ],
         memoryFloor: {
           status: "measured",
           calls: 20,
@@ -352,8 +361,8 @@ describe("renderMarkdown", () => {
     expect(floored).toContain(
       "Empty-call floor, what the peak probe itself costs: 24 KiB heap, 25 KiB total (the median of 20 calls).",
     );
-    // 1 KiB an input is under the stated size, so the budget reads the figure above the floor.
-    expect(floored).toContain("| 3 MiB | 3 MiB | 2 KiB | 2 KiB | flat");
+    // 1 KiB an input is under the stated size, so the budget reads the median call above the floor.
+    expect(floored).toContain("| 3 MiB | 3 MiB | 2 KiB | 512 B | flat");
     expect(floored).toContain(
       "Could not measure 2 part(s) of the run; every other case above was measured and written:\n\n- timing of scan @ 4 MiB: the timing job timed out\n- the empty-call floor: the floor job timed out\n",
     );

@@ -45,11 +45,12 @@ export interface BenchContractShape {
   /** Calls measured one by one for the peak heap. */
   readonly PEAK_CALLS: number;
   /**
-   * An input under this many bytes, on average, is budgeted on its peak above the empty-call floor
-   * rather than its raw peak. The peak probe costs about 21 to 24 KiB with nothing to measure, so a
-   * budget of 20 times a 1 KiB input is spent before the code runs. At 64 KiB the floor is under 2%
-   * of a 20 times budget, less than the spread between one case's own calls, so above it the raw
-   * peak, which needs no figure from another process, is read as before.
+   * An input under this many bytes, on average, is budgeted on its median call's total peak above
+   * the empty-call floor's median, rather than its highest raw peak. On a GitHub-hosted runner the
+   * peak probe costs about 3.3 KiB on a typical empty call and 28 KiB on its highest (one call, the
+   * first), so the highest of a small input's calls reads the probe more than the code: 20 times a
+   * 1 KiB input is spent before the code runs. At 64 KiB even the probe's highest call is about 2%
+   * of a 20 times budget, so above it the raw highest peak is read as before.
    */
   readonly FLOOR_INPUT_BYTES: number;
   /** Rounds in the long run that checks the heap stays flat. */

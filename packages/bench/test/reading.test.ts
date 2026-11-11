@@ -393,7 +393,8 @@ describe("budgetPeakBytes", () => {
     medianPeakHeapBytes: 29_000,
     peakTotalBytes: 31_000,
     medianPeakTotalBytes: 30_000,
-    peakTotalAboveFloorBytes: 6_000,
+    peakTotalAboveFloorBytes: 27_600,
+    medianPeakTotalAboveFloorBytes: 6_000,
     ...over,
   });
   const reading = (bytesPerPass: number | null, p: PeakReport | null, inputs = 2): CaseReading => ({
@@ -408,7 +409,7 @@ describe("budgetPeakBytes", () => {
   });
   const limit = BENCH_CONTRACT.FLOOR_INPUT_BYTES;
 
-  it("reads the total above the floor for an input under the stated size, and the raw total at it", () => {
+  it("reads the median call's total above the floor for an input under the stated size, and the highest raw total at it", () => {
     expect(limit).toBe(64 * 1024);
     // Two inputs a pass: the size is per input.
     expect(budgetPeakBytes(reading(2 * (limit - 1), peak()))).toBe(6_000);
@@ -419,7 +420,7 @@ describe("budgetPeakBytes", () => {
   it("reads raw when the suite gave no bytes, the corpus is empty, or there is no floor figure", () => {
     expect(budgetPeakBytes(reading(null, peak()))).toBe(31_000);
     expect(budgetPeakBytes(reading(100, peak(), 0))).toBe(31_000);
-    const { peakTotalAboveFloorBytes: _dropped, ...unfloored } = peak() as Extract<
+    const { medianPeakTotalAboveFloorBytes: _dropped, ...unfloored } = peak() as Extract<
       PeakReport,
       { status: "measured" }
     >;

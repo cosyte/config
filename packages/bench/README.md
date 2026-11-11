@@ -160,19 +160,21 @@ before it ends and the external memory it reports before and after is exact.
 ### The empty-call floor and small inputs
 
 Reading the peak costs memory of its own: settling the heap, the profiler that records each
-collection, the record itself. Four of our packages measured it at about 21 to 24 KiB with nothing to
-measure, so a budget of 20 times a 1 KiB input is spent before the code under test runs. A reading
-therefore measures an empty call once, in a fresh process through the same probe (`memoryFloor`), and
-gives each peak figure both raw and above the floor's median, never below zero
-(`peakTotalAboveFloorBytes`, `medianPeakTotalAboveFloorBytes`, and the same for the heap and external
-memory).
+collection, the record itself. A reading therefore measures an empty call once, in a fresh process
+through the same probe (`memoryFloor`), and gives each peak figure both raw and above the floor's
+median, never below zero (`peakTotalAboveFloorBytes`, `medianPeakTotalAboveFloorBytes`, and the same
+for the heap and external memory).
+
+On a GitHub-hosted runner the floor's median call is about 3.3 KiB and its highest about 28 KiB (one
+call, the first). That highest call is the probe's, and it lands in a case's highest peak too, which
+is why a few hundred bytes of input could not read under 20 times its size whatever the code did.
 
 A memory budget reads `budgetPeakBytes(caseReading)`: for a case whose inputs average under
-`BENCH_CONTRACT.FLOOR_INPUT_BYTES` (64 KiB) it is the highest total peak above the floor, and for any
-other case, or one whose suite gave no byte count, the raw `peakTotalBytes`. At 64 KiB the floor is
-under 2% of a 20 times budget, less than the spread between one case's own calls, so a large input
-keeps the raw figure, which needs nothing from another process. A suite that added its own empty
-"floor" case can drop it.
+`BENCH_CONTRACT.FLOOR_INPUT_BYTES` (64 KiB) it is the median call's total above the floor's median,
+the code's typical call without the probe; for any other case, or one whose suite gave no byte
+count, it is the highest raw `peakTotalBytes`. At 64 KiB even the probe's highest call is about 2%
+of a 20 times budget, so a large input keeps the raw highest figure, which needs nothing from
+another process. A suite that added its own empty "floor" case can drop it.
 
 ### Large cases
 
@@ -227,8 +229,8 @@ CI runner image, never by host name, user or absolute path.
 - `judge(ratios, threshold?, alpha?)`: the comparison's verdict for one case from its per-round ratios.
 - `readResults(text)`: parse and check a results document; throws a `TypeError` listing every
   problem. `RESULTS_SCHEMA` is the schema, also shipped as `schema/results-v1.schema.json`.
-- `budgetPeakBytes(caseReading)`: the peak a memory budget reads for a case, above the empty-call
-  floor for an input under 64 KiB and raw for any other.
+- `budgetPeakBytes(caseReading)`: the peak a memory budget reads for a case: the median call above
+  the empty-call floor for an input under 64 KiB, the highest raw total for any other.
 - `BENCH_CONTRACT`: the frozen constants.
 - `BenchError`: what a run that could not measure throws.
 

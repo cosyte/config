@@ -141,17 +141,19 @@ function firstLine(error: unknown): string {
 
 /**
  * The peak, in bytes, a memory budget reads for a case, or `null` when the case has none. A case
- * whose inputs average under `FLOOR_INPUT_BYTES` (its bytes a pass over its inputs a pass) reads
- * its highest total peak above the run's empty-call floor; any other case, and one whose suite gave
- * no byte count, reads the raw total peak (the V8 heap and external memory together). The probe
- * costs a fixed 21 to 24 KiB, which is most of the budget of a small input and nothing the code
- * under test did, and a rounding error on a large one. A document without a floor reads raw.
+ * whose inputs average under `FLOOR_INPUT_BYTES` (its bytes a pass over its inputs a pass) reads its
+ * median call's total peak above the run's empty-call floor (`medianPeakTotalAboveFloorBytes`); any
+ * other case, and one whose suite gave no byte count, reads the highest raw total peak (the V8 heap
+ * and external memory together). The probe costs a few KiB on a typical call and tens of KiB on its
+ * highest, which is most of the budget of a small input and nothing the code under test did, and a
+ * rounding error on a large one. A document without a floor reads the raw highest.
  *
  * @example
  * ```ts
  * import { budgetPeakBytes } from "@cosyte/bench";
  *
- * // 300 bytes an input: 30,000 bytes raw, 24,000 of them the probe's own floor.
+ * // 300 bytes an input, and a floor whose median call is 3,400 bytes: the highest call read
+ * // 30,000 bytes, most of it the probe, and the median call 6,000 above the floor.
  * budgetPeakBytes({
  *   benchmark: "parse",
  *   size: "300 B",
@@ -164,10 +166,11 @@ function firstLine(error: unknown): string {
  *     status: "measured",
  *     calls: 20,
  *     peakHeapBytes: 30_000,
- *     medianPeakHeapBytes: 29_000,
+ *     medianPeakHeapBytes: 9_400,
  *     peakTotalBytes: 30_000,
- *     medianPeakTotalBytes: 29_000,
- *     peakTotalAboveFloorBytes: 6_000,
+ *     medianPeakTotalBytes: 9_400,
+ *     peakTotalAboveFloorBytes: 26_600,
+ *     medianPeakTotalAboveFloorBytes: 6_000,
  *   },
  *   longRun: null,
  * }); // => 6000
@@ -192,7 +195,7 @@ export function budgetOf(
   // A corpus is never empty (the measuring process refuses one); were it, the size reads infinite.
   const perInput = c.bytesPerPass / c.inputsPerPass;
   if (perInput >= BENCH_CONTRACT.FLOOR_INPUT_BYTES) return raw;
-  return p.peakTotalAboveFloorBytes ?? raw;
+  return p.medianPeakTotalAboveFloorBytes ?? raw;
 }
 
 type Measured = Extract<TimingResult, { status: "measured" }>;

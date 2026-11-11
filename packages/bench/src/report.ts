@@ -114,7 +114,7 @@ export function renderMarkdown(doc: ResultsDocument): string {
     const r = doc.reading;
     lines.push(...header(doc, "Reading"));
     lines.push(
-      `Throughput is the median of ${String(r.processes)} fresh processes. "Large-case plan" marks a case whose calls each outlast a warmup batch. Latency is per call, nearest rank. Memory: allocations per operation ("collections counted" when every window collected), the peak of one call above what was in use before it (the V8 heap, external memory such as Buffers, and the two together), the total above the empty-call floor, the peak a memory budget reads (the total above the floor for an input under ${bytes(BENCH_CONTRACT.FLOOR_INPUT_BYTES)}, the raw total for any other), and whether the settled heap stays flat over a long run.`,
+      `Throughput is the median of ${String(r.processes)} fresh processes. "Large-case plan" marks a case whose calls each outlast a warmup batch. Latency is per call, nearest rank. Memory: allocations per operation ("collections counted" when every window collected), the peak of one call above what was in use before it (the V8 heap, external memory such as Buffers, and the two together), the total above the empty-call floor, the peak a memory budget reads (the median call's total above the floor for an input under ${bytes(BENCH_CONTRACT.FLOOR_INPUT_BYTES)}, the highest raw total for any other), and whether the settled heap stays flat over a long run.`,
       "",
     );
     const f = r.memoryFloor;
