@@ -66,7 +66,7 @@ export declare function attwBinaryPath(callerUrl: string, platform?: string): st
 /**
  * How the gate starts attw, npm and pnpm. Off Windows: the file and its arguments as they are,
  * with no shell. On Windows, where all three are `.cmd` files that Node will not start without
- * one: a single command line, every part in double quotes, run through `cmd.exe`. A part carrying
+ * one: a single command line, every part but a bare tool name in double quotes, run through `cmd.exe`. A part carrying
  * a double quote, a percent sign or a line break throws there rather than being escaped.
  *
  * @param file The tool: a path, or a name found on PATH.

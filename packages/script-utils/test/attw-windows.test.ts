@@ -64,7 +64,7 @@ describe("toolCommand", () => {
     });
   });
 
-  it("hands cmd.exe one line on Windows, every part in double quotes", () => {
+  it("hands cmd.exe one line on Windows, every part but a bare name in double quotes", () => {
     expect(
       toolCommand(
         "C:\\a b\\node_modules\\.bin\\attw.cmd",
@@ -77,7 +77,7 @@ describe("toolCommand", () => {
       shell: true,
     });
     expect(toolCommand("npm", ["pack", "--dry-run", "--json"], "win32")).toEqual({
-      file: '"npm" "pack" "--dry-run" "--json"',
+      file: 'npm "pack" "--dry-run" "--json"',
       args: [],
       shell: true,
     });
@@ -85,7 +85,7 @@ describe("toolCommand", () => {
 
   it("takes cmd.exe's other special characters literally inside the quotes", () => {
     expect(toolCommand("pnpm", ["C:\\x&y|z<w>v^u (1)"], "win32").file).toBe(
-      '"pnpm" "C:\\x&y|z<w>v^u (1)"',
+      'pnpm "C:\\x&y|z<w>v^u (1)"',
     );
   });
 
@@ -127,6 +127,8 @@ beforeAll(() => {
         main: "./index.js",
         types: "./index.d.ts",
         files: ["index.js", "index.d.ts"],
+        // A `publishConfig` object turns on the net that runs `pnpm pack`, so all three tools start.
+        publishConfig: { access: "public" },
       },
       null,
       2,

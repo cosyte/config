@@ -869,7 +869,8 @@ export function attwBinaryPath(callerUrl, platform = process.platform) {
  * Off Windows it is the file and its arguments, as they are. ON WINDOWS a `.cmd`
  * file cannot be started without `cmd.exe`: Node refuses it (EINVAL) since the
  * April 2024 security releases, and npm and pnpm are `.cmd` files there too. So
- * the command line is built here, every part in double quotes, and handed to the
+ * the command line is built here, every part in double quotes (but one, below),
+ * and handed to the
  * shell whole, with no separate arguments for Node to join. Inside double quotes
  * `cmd.exe` takes `&`, `|`, `<`, `>`, `^` and spaces literally. It does not take
  * `"` (which ends the quoting) or `%` (which expands a variable) literally, and a
@@ -878,6 +879,14 @@ export function attwBinaryPath(callerUrl, platform = process.platform) {
  * gate passes carries one, because `forwardable()` refuses them in a caller's
  * arguments on every platform, so a throw here is a defect in this file and is
  * left to propagate.
+ *
+ * A BARE NAME FOUND ON PATH IS THE ONE PART LEFT UNQUOTED. `cmd.exe` starts a
+ * quoted batch file found through PATH with `%~dp0` pointing at the working
+ * directory instead of the file's own, and `npm.cmd` finds `npm-cli.js` through
+ * `%~dp0`. Measured on `windows-latest` with every part quoted: npm looked for
+ * `<package>\node_modules\npm\bin\npm-cli.js` and exited 1. A name made only of
+ * letters, digits, `.`, `_` and `-` needs no quotes; a path is quoted, and a
+ * batch file named by its full path gets the right `%~dp0` either way.
  *
  * @param {string} file The tool: a path, or a name found on PATH.
  * @param {string[]} args Its arguments.
@@ -894,7 +903,9 @@ export function toolCommand(file, args, platform = process.platform) {
         `double quote, a percent sign or a line break.`,
     );
   }
-  return { file: parts.map((part) => `"${part}"`).join(" "), args: [], shell: true };
+  const command = /^[\w.-]+$/.test(file) ? file : `"${file}"`;
+  const line = [command, ...args.map((arg) => `"${arg}"`)].join(" ");
+  return { file: line, args: [], shell: true };
 }
 
 /**
