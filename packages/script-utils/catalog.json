@@ -158,7 +158,7 @@
       "description": "Deterministic, seedable synthetic healthcare test fixtures for Node.js and TypeScript: HL7 v2, FHIR R4 and US Core, C-CDA, X12, NCPDP, and ASTM, spec-clean by construction and never real PHI.",
       "line": "0.1",
       "engines": {
-        "node": ">=22.0.0"
+        "node": ">=22.12.0"
       },
       "repository": "https://github.com/cosyte/synth",
       "docs": "https://docs.cosyte.com/synth",
