@@ -493,7 +493,9 @@ describe("AC3: a RESOLVED dependency inside a cited range is reported, not excus
     const resolved = readLockfilePackages(
       readFileSync(join(REPO_ROOT, "pnpm-lock.yaml"), "utf8"),
     ) as Map<string, Set<string>>;
-    expect([...(resolved.get("js-yaml") ?? [])].sort()).toEqual(["3.15.2", "4.3.2"]);
+    // Changesets 3 dropped read-yaml-file, so no js-yaml copy is resolved at all; the two
+    // overrides stay as the baseline pins and nothing sits inside a cited range.
+    expect([...(resolved.get("js-yaml") ?? [])].sort()).toEqual([]);
     // One copy: tsup 9 depends on esbuild ^0.28.2, and the override pins every range reaching below
     // 0.28.2 (vite's and bundle-require's esbuild peers among them) to that same 0.28.2.
     expect([...(resolved.get("esbuild") ?? [])].sort()).toEqual(["0.28.2"]);

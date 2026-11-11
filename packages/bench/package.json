@@ -67,7 +67,7 @@
     "@cosyte/test-utils": "workspace:^",
     "@cosyte/tsconfig": "workspace:^",
     "@cosyte/tsup-config": "workspace:^",
-    "@types/node": "^22.0.0",
+    "@types/node": "^22.20.5",
     "@vitest/coverage-v8": "5.1.0",
     "eslint": "10.14.0",
     "prettier": "3.9.10",
