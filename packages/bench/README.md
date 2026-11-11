@@ -333,6 +333,14 @@ What the floor gives up:
   exponential noise and 1.2% under very heavy log-normal noise (sigma 1), and the rate did not move
   over 30 recordings with `--from`. Across a suite each measure is a separate chance: with `k`
   measures the chance that any one fails is at most `k` times the rate of one.
+- **It catches only large regressions.** The limit sits about 3.4 spreads above the measure's true
+  median (in a simulation of normal noise), so a real regression of 1 spread is caught under 1% of
+  the time, 2 spreads about 7 to 9%, about 3.5 spreads about half the time, and about 5.2 spreads
+  about 92%. For a measure whose seven readings spread 5% of its value, a 10% regression is caught
+  about 7 to 9% of the time, 17% about half the time, and 95% detection needs about 27%. The floor
+  is a backstop against large regressions; small ones are the base against head comparison's job.
+  For the same reason `floor --from` tightens only after an improvement of about four spreads, so a
+  floor rarely moves.
 - **A reading is only compared within its runner class and Node line.** A new runner image is a
   new class, and the floor cannot judge it (exit 2) until it is recorded afresh.
 - **A floor that measured no noise holds exactly.** The gzipped bytes the import loads are the same

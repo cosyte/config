@@ -2,7 +2,8 @@
 
 - **Status:** Proposed (2026-11-11). Sections 1 to 5 decide the mechanism. The defaults in section 2
   are proposals: no package is held to a number until its own budgets file is approved by the
-  repository's owner in review, and nothing here sets one.
+  repository's owner in review, and nothing here sets one. The floor's rule is an open question for
+  the owner (section 8).
 - **Scope:** the limits every `@cosyte/*` package holds its own build to, written in two files
   beside its benchmark suite, and the check that fails a pull request on them: what the files say,
   where the numbers come from, which readings count, and what the check gives up.
@@ -52,11 +53,11 @@ cosyte-bench gate reading.json --budgets bench/budgets.json --floor bench/floor.
   --base-floor <the base branch's bench/floor.json> --summary gate.md
 ```
 
-| Exit | When                                                                                                                                                                   |
-| ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0    | Every limit held                                                                                                                                                       |
-| 1    | A case is over a budget (`breach`), a measure is above its floor by more than the floor's noise (`regression`), or the floor file is looser than its base (`loosened`) |
-| 2    | A limit names something the reading did not measure, a file could not be read, or the reading was not taken on a GitHub-hosted runner (`unjudged`)                     |
+| Exit | When                                                                                                                                                                                                 |
+| ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0    | Every limit held                                                                                                                                                                                     |
+| 1    | A case is over a budget (`breach`), a measure is above the highest of the floor's recorded readings plus 3 times their spread (`regression`), or the floor file is looser than its base (`loosened`) |
+| 2    | A limit names something the reading did not measure, a file could not be read, or the reading was not taken on a GitHub-hosted runner (`unjudged`)                                                   |
 
 A skip is not a pass, as in ADR 0005: a budget on a case whose throughput skipped, a rule that
 matches no case, a peak budget on a matched case whose size class the rule's `peakMultiple` leaves
@@ -115,7 +116,7 @@ bytes the import loads.
   Node major version, each from a GitHub-hosted runner, and refuses anything else. For each measure
   it keeps the highest of them (`value`) and the highest less the lowest (`noise`): the spread the
   set measured with nothing changed. A measure any reading of the set did not measure gets no floor.
-- **A regression is beyond that noise.** A reading's measure above its limit, `value` plus
+- **A regression is past the limit.** A reading's measure above its limit, `value` plus
   `FLOOR_NOISE_MULTIPLE` (3) times `noise`, is a `regression`. The highest alone would not do: the
   next reading of unchanged code lands above the highest of `n` about one time in `n + 1`, whatever
   the distribution. Section 7 gives the rate the limit allows.
@@ -159,7 +160,10 @@ The check runs as a job of the shared workflow in `cosyte/.github`, off by defau
 input, so a package opts in, and with a stable job id so it can be a required check. On a pull
 request the job builds the head, takes a reading of it on its `ubuntu-latest` runner at the lowest
 Node line, and runs `cosyte-bench gate` with the package's two files and the base branch's floor,
-failing on exit 1 or 2. A second job, on the default branch after a merge or by hand, takes the A/A
+failing on exit 1 or 2. It takes the reading itself, in the same job (section 4), and reads the base
+floor from the base branch's commit (`git show <base sha>:bench/floor.json`), never from the pull
+request's tree, which the pull request can change; it passes `--no-base-floor` only when the base
+commit has no floor file. A second job, on the default branch after a merge or by hand, takes the A/A
 set on separate runners and opens a pull request with `cosyte-bench floor --from` when the floor
 improved. That job is to be built in `cosyte/.github`; this record decides what it runs.
 
@@ -208,9 +212,24 @@ measured yet: a package's A/A set is the first measure of it.
   of sigma 0.5, 12% under exponential noise, if every measure were that noisy. Most are not (the
   gzipped bytes do not move at all), but a suite with many noisy time measures will fail unchanged
   code now and then, and each such failure is review trigger 1.
-- **See a regression within the floor's noise.** A floor whose set spread 10% on time does not see a
-  10% slowdown. The base against head comparison (ADR 0005 section 4) is the finer instrument for
-  time.
+- **Catch a small regression.** The limit is the highest of seven readings plus three spreads. In
+  a simulation of normal noise it sits about 3.4 spreads above the true median of the measure
+  (about 9.2 standard deviations), so a real regression is caught:
+
+  | Regression, in spreads | Caught        |
+  | ---------------------- | ------------- |
+  | 1                      | under 1%      |
+  | 2                      | about 7 to 9% |
+  | about 3.5              | about half    |
+  | about 5.2              | about 92%     |
+
+  For a measure whose seven readings spread 5% of its value, a 10% regression is caught about 7 to
+  9% of the time, a 17% one about half the time, and 95% detection needs about 27%. The floor is a
+  backstop against large regressions; small ones are the base against head comparison's job (ADR
+  0005 section 4), which reads both builds on one runner. The same margin makes the floor slow to
+  move: `floor --from` takes a new set only after an improvement of about four spreads, so a floor
+  rarely tightens.
+
 - **Allow any growth of a measure that measured no noise.** The gzipped bytes are the same in every
   reading of one commit, so the floor holds them exactly: a pull request that adds code adds bytes,
   and is a `regression` until the floor is loosened with the owner's words or the budget alone is
@@ -223,11 +242,29 @@ measured yet: a package's A/A set is the first measure of it.
   `bench/budgets.json`, and only review catches that: a change to it is the owner's to approve.
 - Everything ADR 0005 section 6 says each measure cannot see.
 
+### 8. The open question: how strict the floor is
+
+The floor's rule trades false failures against sensitivity, and the owner chooses between:
+
+1. **This rule** (seven readings, the highest plus three spreads, tightening only beyond the old
+   noise): unchanged code fails one measure rarely (section 7: well under 1% for most noise
+   shapes, about 1.2% for the heaviest simulated), and a regression is caught reliably only from
+   about five spreads. Small regressions are left to the base against head comparison.
+2. **A tighter rule** (fewer spreads, or the highest alone): smaller regressions caught, more false
+   failures. The first version of this record, the highest plus one spread over three readings,
+   failed one measure of unchanged code 6.3% of the time under normal noise.
+3. **Time out of the failing floor check.** Milliseconds an operation stay in the floor file and
+   the summary, and never fail a pull request; the floor fails only on the peak, allocations, the
+   cold import and the gzipped bytes, and time is the comparison's alone. Time is the measure that
+   moves most between hosted runners (ADR 0005 section 5).
+
+We recommend 1 until packages' A/A sets show how much each measure moves, then revisit 3 for time.
+
 ## Consequences
 
 **Positive.** Every package can hold its memory, allocations, throughput, import time and size to
-written numbers, and a pull request that breaks one, or that is worse than the default branch by more
-than that branch's own spread, fails. The limits live in files a reader can check, in one format, and
+written numbers, and a pull request that breaks one, or that measures above the highest of the
+default branch's recorded readings plus three times their spread, fails. The limits live in files a reader can check, in one format, and
 a looser file is itself a finding.
 
 **Negative.** Each package needs its own approved budgets and an A/A set of readings before the check

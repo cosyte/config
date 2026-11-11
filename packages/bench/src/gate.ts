@@ -15,7 +15,8 @@ import { validate, type Schema } from "./results.js";
  * One thing a check found.
  *
  * - `breach`: a reading is over a budget.
- * - `regression`: a reading is worse than the floor by more than the noise its readings measured.
+ * - `regression`: a reading is above the highest of the floor's recorded readings plus
+ *   `FLOOR_NOISE_MULTIPLE` times their spread.
  * - `loosened`: a floor file is looser than the base branch's floor.
  * - `unjudged`: a budget or a floor names something the reading did not measure, or the reading
  *   cannot be judged at all. A skip is not a pass.

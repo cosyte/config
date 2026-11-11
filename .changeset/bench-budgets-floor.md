@@ -7,8 +7,8 @@
 - `cosyte-bench gate <reading.json> --budgets <file> --floor <file> [--base-floor <file>]` exits 1
   when a case is over a budget (peak as a multiple of its input by size class, bytes allocated an
   operation, the least bytes or operations a second, the median cold import, the gzipped bytes the
-  import loads), when a measure is above its floor by more than the noise the floor's A/A readings
-  measured, or when the floor file is looser than the base branch's. It exits 2 when a limit names
+  import loads), when a measure is above the highest of the floor's recorded readings plus 3 times
+  their spread, or when the floor file is looser than the base branch's. It exits 2 when a limit names
   something the reading did not measure or a file holds no limit, and on any reading not taken on a
   GitHub-hosted runner.
 - `cosyte-bench floor <reading.json>... --out <file> [--from <file>]` records a floor from at least
