@@ -247,10 +247,15 @@ reports the change it observed for each case, and a detection rate is read again
 ## Budgets and the floor
 
 A package holds its build to two files beside its suite. `cosyte-bench gate` reads one reading
-against both and exits 1 on any finding, 2 when something a limit names was not measured (a skip
-is not a pass), and 0 when every limit held. It reads only a reading taken on a GitHub-hosted
-runner (`environment.runner`): a developer machine's numbers describe that machine, so they are
-refused with exit 2.
+against both and exits 1 on any finding, 2 when something a limit names was not measured or a file
+holds no limit at all (a skip is not a pass), and 0 when every limit held. It reads only a reading
+taken on a GitHub-hosted runner (`environment.runner`): a developer machine's numbers describe that
+machine, so they are refused with exit 2.
+
+That runner check reads what the reading says about itself, from the environment variables of the
+process that took it. It is trustworthy only when the CI job that runs `gate` took the reading
+itself, in the same job; a reading file committed to the repository or handed over from elsewhere
+can say anything.
 
 [ADR 0007](https://github.com/cosyte/config/blob/main/documentation/decisions/0007-the-performance-budgets-standard.md)
 is the standard, with the proposed defaults.
@@ -266,7 +271,7 @@ case applies to it:
   "kind": "budgets",
   "rules": [
     { "peakMultiple": { "small": 20, "medium": 20, "large": 20 } },
-    { "benchmark": "parse: base64 document", "peakMultiple": { "large": 3 } },
+    { "benchmark": "parse: base64 document", "size": "4 MiB", "peakMultiple": { "large": 3 } },
     {
       "benchmark": "parse: dense",
       "size": "1 KiB",
@@ -279,40 +284,55 @@ case applies to it:
 ```
 
 - `peakMultiple`: the most `budgetPeakBytes` may be, over the average bytes of one input, by size
-  class: `small` under 64 KiB, `medium` under 1 MiB, `large` from 1 MiB.
+  class: `small` under 64 KiB, `medium` under 1 MiB, `large` from 1 MiB. A rule with a
+  `peakMultiple` must name a limit for the class of every case it matches: a matched case whose
+  class it leaves out cannot be judged (exit 2).
 - `allocBytesPerOp`: heap and external bytes allocated by one operation (one input).
 - `minBytesPerSecond`, `minOpsPerSecond`: the least throughput.
 - `import.maxColdImportMs`, `import.maxGzipBytes`: the median cold import and the gzipped bytes the
   import loads.
 
-A limit holds at exactly its value. A key the schema does not know is refused, and a rule that
-matches no case in the reading cannot be judged (exit 2), so a typo or a renamed case is never a
-limit nobody checks.
+A limit holds at exactly its value. A key the schema does not know is refused, a rule that matches
+no case in the reading cannot be judged (exit 2), and neither can a file with no limit in it, so a
+typo or a renamed case is never a limit nobody checks.
+
+The check has no base branch to hold the budgets file to: a pull request can loosen its own
+budgets file, and only review catches that. A change to `bench/budgets.json` is the owner's to
+approve.
 
 **The floor file** (`bench/floor.json`, `schema/floor-v1.schema.json`) is what the default branch
 measured, case by case: milliseconds an operation, the budget's peak, bytes allocated an
 operation, the median cold import and the gzipped bytes. `cosyte-bench floor` records it from an
-A/A set, at least three readings of one commit, each on a GitHub-hosted runner of one runner class
+A/A set, at least seven readings of one commit, each on a GitHub-hosted runner of one runner class
 and Node line. For each measure it keeps the highest of them (`value`) and the highest less the
-lowest (`noise`). A reading is a regression when a measure is above `value + noise`: beyond the
-spread the A/A set measured with nothing changed. A case the floor does not keep yet is not judged.
+lowest (`noise`). A reading is a regression when a measure is above its limit, `value` plus three
+times `noise`. A case the floor does not keep yet is not judged, and a floor that keeps no measure
+cannot judge anything (exit 2).
 
 ```sh
-cosyte-bench floor aa-1.json aa-2.json aa-3.json --out bench/floor.json
-cosyte-bench floor next-1.json next-2.json next-3.json --from bench/floor.json --out bench/floor.json
+cosyte-bench floor aa-1.json aa-2.json ... aa-7.json --out bench/floor.json
+cosyte-bench floor next-1.json ... next-7.json --from bench/floor.json --out bench/floor.json
 ```
 
-With `--from` each value becomes the lower of the old and the new and the noise stays the floor's
-own, so a floor only improves. `gate --base-floor <the base branch's floor>` finds a floor file that
-is looser than its base: a value or a noise raised, a measure or a case dropped, or a floor for
-another runner class or Node line.
+With `--from` a measure takes the new set's value and noise only when the new set's whole limit is
+below the old set's lowest reading (`value - noise`), an improvement the old noise cannot explain;
+otherwise it keeps the old value and noise. Taking the lower of the two would ratchet the limit down
+on a lucky set, and unchanged code would fail more often with every recording.
+
+`gate --base-floor <the base branch's floor>` finds a floor file that is looser than its base: a
+limit raised, a measure or a case dropped, or a floor for another runner class or Node line.
+`gate --floor` needs exactly one of `--base-floor` and `--no-base-floor`; `--no-base-floor` says the
+base branch has no floor file yet, a package's first floor, and the summary says it was not
+compared.
 
 What the floor gives up:
 
-- **Its noise is the spread of a few readings, not a false alarm rate.** Three readings bound
-  nothing with confidence; the next one lands above all three about a quarter of the time with
-  nothing changed, which is why the limit is the highest plus the whole spread rather than the
-  highest. A floor recorded from more readings measures its noise better.
+- **One measure of unchanged code fails now and then.** The rate depends on the shape of the noise.
+  In a simulation of seven readings and the limit above, one measure failed unchanged code about
+  0.01% of the time under normal noise, 0.2% under log-normal noise (sigma 0.5), 0.4% under
+  exponential noise and 1.2% under very heavy log-normal noise (sigma 1), and the rate did not move
+  over 30 recordings with `--from`. Across a suite each measure is a separate chance: with `k`
+  measures the chance that any one fails is at most `k` times the rate of one.
 - **A reading is only compared within its runner class and Node line.** A new runner image is a
   new class, and the floor cannot judge it (exit 2) until it is recorded afresh.
 - **A floor that measured no noise holds exactly.** The gzipped bytes the import loads are the same

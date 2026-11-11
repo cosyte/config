@@ -59,7 +59,9 @@ cosyte-bench gate reading.json --budgets bench/budgets.json --floor bench/floor.
 | 2    | A limit names something the reading did not measure, a file could not be read, or the reading was not taken on a GitHub-hosted runner (`unjudged`)                     |
 
 A skip is not a pass, as in ADR 0005: a budget on a case whose throughput skipped, a rule that
-matches no case, a floor case the reading lacks, each exits 2. A key either file's schema does not
+matches no case, a peak budget on a matched case whose size class the rule's `peakMultiple` leaves
+out, a floor case the reading lacks, and a budgets file or a floor that holds no limit at all, each
+exits 2. A key either file's schema does not
 know is refused, so a mistyped limit is an error, never a limit nobody checks.
 
 ### 2. The budgets file
@@ -109,20 +111,30 @@ peak (`budgetPeakBytes`), bytes allocated an operation, the median cold import a
 bytes the import loads.
 
 - **Recorded from an A/A set.** `cosyte-bench floor <reading>... --out bench/floor.json` takes at
-  least `FLOOR_MIN_READINGS` (3) readings of one commit, of one suite, on one runner class and one
+  least `FLOOR_MIN_READINGS` (7) readings of one commit, of one suite, on one runner class and one
   Node major version, each from a GitHub-hosted runner, and refuses anything else. For each measure
   it keeps the highest of them (`value`) and the highest less the lowest (`noise`): the spread the
   set measured with nothing changed. A measure any reading of the set did not measure gets no floor.
-- **A regression is beyond that noise.** A reading's measure above `value + noise` is a
-  `regression`. The limit is the highest plus the whole spread, not the highest, because the next
-  reading of unchanged code lands above the highest of three about a quarter of the time (one in
-  `n + 1` for `n` readings, whatever the distribution).
-- **It only improves.** `cosyte-bench floor <reading>... --from bench/floor.json` records a new set
-  into the old floor: each value becomes the lower of the old and the new, each noise stays the
-  floor's own, and no case or measure is dropped. `gate --base-floor` compares a pull request's floor
-  file with its base branch's and finds a value or a noise raised, a case or a measure gone, or a
-  floor for another suite, runner class or Node line: each is `loosened`, exit 1. A floor is loosened
-  only with the owner's words, on a pull request whose check says so.
+- **A regression is beyond that noise.** A reading's measure above its limit, `value` plus
+  `FLOOR_NOISE_MULTIPLE` (3) times `noise`, is a `regression`. The highest alone would not do: the
+  next reading of unchanged code lands above the highest of `n` about one time in `n + 1`, whatever
+  the distribution. Section 7 gives the rate the limit allows.
+- **It only improves, and not on luck.** `cosyte-bench floor <reading>... --from bench/floor.json`
+  records a new set into the old floor. A measure takes the new set's value and noise only when the
+  new set's whole limit is below the old set's lowest reading (`value - noise`): an improvement the
+  old set's own noise cannot explain. Otherwise it keeps the old value and noise, and no case or
+  measure is dropped. A first version of this rule took the lower of the old and the new value and
+  kept the old noise; on unchanged code that lowers the limit whenever a set happens to read low,
+  so the floor drifted down and failed unchanged code more often with every recording. The rule
+  here almost never fires on unchanged code (section 7), so the limit does not drift, and it can
+  never rise.
+- **A looser floor file is a finding.** `gate --base-floor` compares a pull request's floor file with
+  its base branch's and finds a limit raised, a case or a measure gone, or a floor for another
+  suite, runner class or Node line: each is `loosened`, exit 1. A floor is loosened only with the
+  owner's words, on a pull request whose check says so. `gate --floor` needs exactly one of
+  `--base-floor` and `--no-base-floor`: the shared job passes `--no-base-floor` only when the base
+  branch has no floor file, a package's first floor, and the summary says the floor was not compared.
+- **A floor that keeps no measure** judges nothing, and exits 2 rather than passing.
 - **Compared like with like.** A reading of another suite, runner class or Node major version is not
   compared with the floor (exit 2), as ADR 0005 section 6 says no reading is portable. A runner image
   change is a new runner class; its floor is recorded afresh and approved as a loosening.
@@ -134,6 +146,12 @@ bytes the import loads.
 `github-hosted` runner. A developer machine's numbers describe that machine, and a self-hosted
 runner is not the runner class ADR 0005 measured its noise on; either is refused with exit 2.
 `cosyte-bench run` still measures anywhere: the refusal is in what a budget or a floor will read.
+
+The check reads what the reading says about itself (`environment.runner`, from the environment
+variables of the process that took it). It is trustworthy only when the job that runs `gate` took
+the reading itself, in the same job; a reading committed to the repository or handed in from
+anywhere else can claim any runner. The shared job therefore takes its reading and judges it in one
+job, and reads no reading file from the pull request.
 
 ### 5. In the shared CI
 
@@ -153,16 +171,43 @@ measured yet: a package's A/A set is the first measure of it.
 
 ### 6. Constants
 
-| Constant             | Value | Basis                                                                                                                                               |
-| -------------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `LARGE_INPUT_BYTES`  | 1 MiB | **Judgement.** Where ADR 0005's large-case plan starts to matter (a 1 MiB call takes tens of milliseconds) and where the audit's large inputs begin |
-| `FLOOR_MIN_READINGS` | 3     | **Judgement.** The fewest that measure a spread beside a highest; more measure it better, and a package may record from more                        |
+| Constant               | Value | Basis                                                                                                                                                                   |
+| ---------------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `LARGE_INPUT_BYTES`    | 1 MiB | **Judgement.** Where ADR 0005's large-case plan starts to matter (a 1 MiB call takes tens of milliseconds) and where the audit's large inputs begin                     |
+| `FLOOR_MIN_READINGS`   | 7     | **Measured by simulation** (section 7). With five, exponential noise failed one measure 1.2% of the time; a package may record from more                                |
+| `FLOOR_NOISE_MULTIPLE` | 3     | **Measured by simulation** (section 7). The margin above the highest reading, in spreads, that keeps one measure's rate near or under 1% for the noise shapes simulated |
 
 ### 7. What it cannot do
 
-- **Bound a false failure rate on the floor.** The noise is the spread of a few readings, not a
-  calibrated rate as ADR 0005's comparison has. A floor recorded from more readings is less likely
-  to fail unchanged code; none is certain not to.
+- **Bound a false failure rate on the floor for every noise shape.** The limit is a spread of seven
+  readings, not a calibrated rate as ADR 0005's comparison has, so the rate depends on the shape of
+  the noise. We simulated it: seven readings, the limit above, then 30 recordings with `--from`, each
+  of seven fresh readings of the same code, 40,000 trials a shape (the package's own test repeats
+  the exponential case with a seeded generator and holds it under 1% with no drift). The chance that
+  one more reading of unchanged code fails one measure:
+
+  | Noise                 | Fresh floor | After 1 recording | After 10 | After 30 |
+  | --------------------- | ----------- | ----------------- | -------- | -------- |
+  | normal                | 0.00%       | 0.01%             | 0.01%    | 0.01%    |
+  | log-normal, sigma 0.5 | 0.17%       | 0.21%             | 0.19%    | 0.21%    |
+  | exponential           | 0.40%       | 0.44%             | 0.39%    | 0.41%    |
+  | log-normal, sigma 1   | 1.24%       | 1.25%             | 1.28%    | 1.12%    |
+
+  The first rule (three readings, the limit the highest plus one spread, the lower value kept on
+  each recording) failed one measure under normal noise 6.3% of the time fresh and 22% after 30
+  recordings in the same simulation; five readings and three spreads still failed exponential noise
+  1.2% of the time. Under very heavy noise (log-normal, sigma 1, where the 95th
+  percentile is about five times the median) one measure still fails about 1.2% of the time; we
+  chose seven readings and three spreads as the rule that keeps the other shapes well under 1% at
+  a cost of seven readings a recording, and say plainly that the heaviest shape is just over it.
+
+- **Bound the rate across a suite.** Each case's three measures and the import's two are separate
+  chances. With `k` measures the chance that unchanged code fails any one is at most `k` times the
+  rate of one, and `1 - (1 - p)^k` if they are independent: for a suite of `N` cases that is
+  `k = 3N + 2`. Ten cases make 32 measures: about 0.3% under normal noise, 6% under log-normal noise
+  of sigma 0.5, 12% under exponential noise, if every measure were that noisy. Most are not (the
+  gzipped bytes do not move at all), but a suite with many noisy time measures will fail unchanged
+  code now and then, and each such failure is review trigger 1.
 - **See a regression within the floor's noise.** A floor whose set spread 10% on time does not see a
   10% slowdown. The base against head comparison (ADR 0005 section 4) is the finer instrument for
   time.
@@ -172,6 +217,10 @@ measured yet: a package's A/A set is the first measure of it.
   used for size.
 - **Judge a reading of another runner class.** Until a floor is recorded on a new class, the check
   exits 2 there.
+- **Trust a reading it did not watch being taken.** The runner check reads what the reading says
+  about itself (section 4).
+- **Hold the budgets file to its base branch.** A pull request can loosen its own
+  `bench/budgets.json`, and only review catches that: a change to it is the owner's to approve.
 - Everything ADR 0005 section 6 says each measure cannot see.
 
 ## Consequences

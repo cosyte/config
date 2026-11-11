@@ -2,14 +2,17 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import { BENCH_CONTRACT } from "../src/contract.js";
 import {
   FLOOR_SCHEMA,
   checkFloor,
+  floorLimit,
   loosenedFloor,
   readFloor,
   recordFloor,
   type Floor,
   type FloorCase,
+  type FloorValue,
 } from "../src/floor.js";
 import { importCost } from "./support/bodies.js";
 import { here } from "./support/paths.js";
@@ -40,12 +43,21 @@ const withImport = (medianMs: number, gzip = 900) => ({
   totalGzipBytes: gzip,
 });
 
-/** An A/A set: three readings of one commit, 0.50, 0.55 and 0.52 ms an operation. */
-const aa = () => [
-  readingDoc([at(0.5, 2000)], { importCost: withImport(2.5) }),
-  readingDoc([at(0.55, 2100)], { importCost: withImport(3) }),
-  readingDoc([at(0.52, 2050)], { importCost: withImport(2.7) }),
-];
+/**
+ * An A/A set: seven readings of one commit. Milliseconds an operation 0.50 to 0.55, allocations
+ * 2,000 to 2,100 bytes, the cold import 2.5 to 3 ms, the gzipped bytes 900 in each.
+ */
+const MS = [0.5, 0.55, 0.52, 0.51, 0.53, 0.54, 0.5];
+const ALLOC = [2000, 2100, 2050, 2000, 2000, 2000, 2000];
+const IMPORT_MS = [2.5, 3, 2.7, 2.5, 2.5, 2.5, 2.5];
+const aa = () =>
+  MS.map((ms, i) =>
+    readingDoc([at(ms, ALLOC[i])], { importCost: withImport(IMPORT_MS[i] as number) }),
+  );
+
+/** Seven readings, each built by `make`. */
+const seven = (make: (i: number) => ReturnType<typeof readingDoc>) =>
+  Array.from({ length: 7 }, (_, i) => make(i));
 
 const floor = (): Floor => recordFloor(aa());
 
@@ -87,7 +99,7 @@ describe("recordFloor", () => {
       runnerClass: "github-actions-github-hosted-ubuntu24-x64",
       nodeMajor: 24,
       commit: "abc123",
-      readings: 3,
+      readings: 7,
       cases: [
         {
           benchmark: "parse",
@@ -132,8 +144,8 @@ describe("recordFloor", () => {
   });
 
   it("refuses fewer readings than the standard's minimum", () => {
-    expect(() => recordFloor(aa().slice(0, 2))).toThrow(
-      "a floor is recorded from at least 3 readings of one commit, and 2 were given",
+    expect(() => recordFloor(aa().slice(0, 6))).toThrow(
+      "a floor is recorded from at least 7 readings of one commit, and 6 were given",
     );
   });
 
@@ -163,28 +175,24 @@ describe("recordFloor", () => {
     differ({ node: "v22.15.0" }, "nodeMajor");
   });
 
-  it("tightens an existing floor and never loosens it", () => {
+  it("takes a new set only where its whole limit is below the old set's lowest reading", () => {
     const old = floor();
-    const faster = [
-      readingDoc([at(0.4, 2500), caseReading({ size: "32 KiB" })], {
+    // Old limits: 0.55 + 3 x 0.05 = 0.70 ms, lowest 0.50; allocations 2,100 + 300, lowest 2,000;
+    // the import 3 + 1.5 ms, lowest 2.5; the gzipped bytes 900 exactly.
+    const faster = seven((i) =>
+      readingDoc([at(0.3 + (i % 3) / 100, 2500), caseReading({ size: "32 KiB" })], {
         importCost: withImport(4, 800),
       }),
-      readingDoc([at(0.45, 2600), caseReading({ size: "32 KiB" })], {
-        importCost: withImport(4, 800),
-      }),
-      readingDoc([at(0.42, 2550), caseReading({ size: "32 KiB" })], {
-        importCost: withImport(4, 800),
-      }),
-    ];
+    );
     const next = recordFloor(faster, old);
     expect(next.cases).toEqual([
       {
         benchmark: "parse",
         size: "1 KiB",
-        // Faster: the value falls to the new set's highest; the noise stays the floor's own.
-        msPerOp: { value: 0.45, noise: 0.05 },
+        // Much faster: 0.32 + 3 x 0.02 = 0.38 is below 0.50, so the new set replaces the old.
+        msPerOp: { value: 0.32, noise: 0.02 },
         peakBytes: { value: 6144, noise: 0 },
-        // More allocation: the floor keeps its lower value.
+        // More allocation: the old measure stays.
         allocBytesPerOp: { value: 2100, noise: 100 },
       },
       {
@@ -202,9 +210,63 @@ describe("recordFloor", () => {
     expect(loosenedFloor(old, next)).toEqual([]);
   });
 
+  it("keeps the old measure, value and noise, when a new set reads lower only by luck", () => {
+    const old = floor();
+    // 0.45 to 0.48: every reading lower than the old highest, but 0.48 + 3 x 0.03 = 0.57 is not
+    // below the old lowest 0.50. The old rule took 0.48 and kept the old noise: a tighter limit
+    // bought by a lucky set.
+    const lucky = seven((i) => readingDoc([at(0.45 + (i % 4) / 100, 2010)]));
+    const next = recordFloor(lucky, old);
+    expect(next.cases[0]?.msPerOp).toEqual({ value: 0.55, noise: 0.05 });
+    expect(next.cases[0]?.allocBytesPerOp).toEqual({ value: 2100, noise: 100 });
+  });
+
+  it("does not drift on unchanged code: the false-failure rate of one measure stays under 1%", () => {
+    // Unchanged code read many times: each reading is 1 ms times (1 + 0.05 E), E exponential, a
+    // heavy right tail like a shared runner's. Each trial records a floor, then records into it
+    // again 30 times from fresh sets of the same code. The chance that one more reading of the
+    // same code fails the floor is exact for this noise, exp(-(limit - 1) / 0.05), so the rate is
+    // its mean over the trials, after each recording.
+    let seed = 0x5eed;
+    const random = () => {
+      // mulberry32
+      seed = (seed + 0x6d2b79f5) | 0;
+      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    const template = readingDoc([at(1)], { importCost: null });
+    const reading = () => {
+      const ms = 1 + 0.05 * -Math.log(1 - random());
+      return { ...template, reading: { ...template.reading, cases: [at(ms)] } };
+    };
+    const set = () => Array.from({ length: BENCH_CONTRACT.FLOOR_MIN_READINGS }, () => reading());
+    const failRate = (f: Floor) => {
+      const limit = floorLimit(f.cases[0]?.msPerOp as FloorValue);
+      return Math.exp(-(limit - 1) / 0.05);
+    };
+    const TRIALS = 300;
+    const RECORDINGS = 30;
+    const rate = Array.from({ length: RECORDINGS + 1 }, () => 0);
+    for (let t = 0; t < TRIALS; t++) {
+      let f = recordFloor(set());
+      rate[0] = (rate[0] as number) + failRate(f) / TRIALS;
+      for (let r = 1; r <= RECORDINGS; r++) {
+        f = recordFloor(set(), f);
+        rate[r] = (rate[r] as number) + failRate(f) / TRIALS;
+      }
+    }
+    const first = rate[0] as number;
+    const last = rate[RECORDINGS] as number;
+    expect(first).toBeLessThan(0.01);
+    expect(last).toBeLessThan(0.01);
+    // No drift: thirty recordings later the rate is where it started, give or take a few trials.
+    expect(last).toBeLessThan(first * 1.25);
+  });
+
   it("keeps an old case, an old measure and the old import the new set did not measure", () => {
     const old = floor();
-    const docs = [0, 1, 2].map(() =>
+    const docs = seven(() =>
       readingDoc([caseReading({ size: "32 KiB", allocations: null })], { importCost: null }),
     );
     const next = recordFloor(docs, old);
@@ -212,7 +274,7 @@ describe("recordFloor", () => {
     expect(next.cases[1]?.allocBytesPerOp).toBeNull();
     expect(next.import).toEqual(old.import);
     const unmeasured = recordFloor(
-      [0, 1, 2].map(() => readingDoc([at(0.5, 2000, { allocations: null })])),
+      seven(() => readingDoc([at(0.5, 2000, { allocations: null })])),
       old,
     );
     expect(unmeasured.cases[0]?.allocBytesPerOp).toEqual({ value: 2100, noise: 100 });
@@ -235,15 +297,16 @@ describe("recordFloor", () => {
 });
 
 describe("checkFloor", () => {
-  it("passes a reading at the floor's value plus its noise, and counts each measure", () => {
-    const doc = readingDoc([at(0.6, 2200)], { importCost: withImport(3.5) });
+  it("passes a reading at the floor's limit, and counts each measure", () => {
+    // The limits: 0.55 + 3 x 0.05 ms, 2,100 + 3 x 100 bytes, 3 + 3 x 0.5 ms, 900 bytes.
+    const doc = readingDoc([at(0.7, 2400)], { importCost: withImport(4.5) });
     expect(checkFloor(doc, floor())).toEqual({ findings: [], checked: 5 });
   });
 
-  it("finds a measure above the floor's value plus its noise a regression", () => {
+  it("finds a measure above the floor's limit a regression", () => {
     const doc = readingDoc(
       [
-        at(0.61, 2201, {
+        at(0.71, 2401, {
           peak: {
             status: "measured",
             calls: 20,
@@ -253,34 +316,29 @@ describe("checkFloor", () => {
           },
         }),
       ],
-      { importCost: withImport(3.51, 901) },
+      { importCost: withImport(4.51, 901) },
     );
-    expect(checkFloor(doc, floor()).findings).toEqual([
-      {
-        kind: "regression",
-        message:
-          "parse @ 1 KiB: ms an operation 0.61, above the floor's 0.55 and its measured noise of 0.05",
-      },
-      {
-        kind: "regression",
-        message:
-          "parse @ 1 KiB: peak bytes 6145, above the floor's 6144 and its measured noise of 0",
-      },
-      {
-        kind: "regression",
-        message:
-          "parse @ 1 KiB: bytes allocated an operation 2201, above the floor's 2100 and its measured noise of 100",
-      },
-      {
-        kind: "regression",
-        message:
-          "import: median cold import, ms 3.51, above the floor's 3 and its measured noise of 0.5",
-      },
-      {
-        kind: "regression",
-        message:
-          "import: gzipped bytes loaded 901, above the floor's 900 and its measured noise of 0",
-      },
+    expect(checkFloor(doc, floor()).findings.map((f) => [f.kind, f.message])).toEqual([
+      [
+        "regression",
+        "parse @ 1 KiB: ms an operation 0.71, above the floor's limit of 0.7 (its highest A/A reading 0.55 plus 3 times its spread of 0.05)",
+      ],
+      [
+        "regression",
+        "parse @ 1 KiB: peak bytes 6145, above the floor's limit of 6144 (its highest A/A reading 6144 plus 3 times its spread of 0)",
+      ],
+      [
+        "regression",
+        "parse @ 1 KiB: bytes allocated an operation 2401, above the floor's limit of 2400 (its highest A/A reading 2100 plus 3 times its spread of 100)",
+      ],
+      [
+        "regression",
+        "import: median cold import, ms 4.51, above the floor's limit of 4.5 (its highest A/A reading 3 plus 3 times its spread of 0.5)",
+      ],
+      [
+        "regression",
+        "import: gzipped bytes loaded 901, above the floor's limit of 900 (its highest A/A reading 900 plus 3 times its spread of 0)",
+      ],
     ]);
   });
 
@@ -299,7 +357,7 @@ describe("checkFloor", () => {
     ]);
   });
 
-  it("judges nothing it keeps no floor for: a new case, a measure without a floor, no import", () => {
+  it("judges no new case, and calls a floor that keeps no measure unjudged rather than a pass", () => {
     const f: Floor = {
       ...floor(),
       import: null,
@@ -314,7 +372,15 @@ describe("checkFloor", () => {
       ],
     };
     const doc = readingDoc([at(9), caseReading({ size: "1 MiB" })], { importCost: null });
-    expect(checkFloor(doc, f)).toEqual({ findings: [], checked: 0 });
+    expect(checkFloor(doc, f)).toEqual({
+      findings: [{ kind: "unjudged", message: "the floor keeps no measure, so it judged nothing" }],
+      checked: 0,
+    });
+    // A new case beside a kept one is not judged, and does not count.
+    expect(checkFloor(readingDoc([at(0.5), caseReading({ size: "1 MiB" })]), floor())).toEqual({
+      findings: [],
+      checked: 5,
+    });
   });
 
   it("compares no reading of another suite, runner class or Node line", () => {
@@ -362,7 +428,7 @@ describe("loosenedFloor", () => {
     expect(loosenedFloor(unkept, f)).toEqual([]);
   });
 
-  it("finds a value or a noise raised, a measure or a case gone, and the import gone", () => {
+  it("finds a limit raised, a measure or a case gone, and the import gone", () => {
     const f = floor();
     const first = f.cases[0] as FloorCase;
     expect(
@@ -379,8 +445,8 @@ describe("loosenedFloor", () => {
         import: null,
       }).map((x) => x.message),
     ).toEqual([
-      "parse @ 1 KiB: ms an operation rose from 0.55 (noise 0.05) to 0.56 (noise 0.05)",
-      "parse @ 1 KiB: peak bytes rose from 6144 (noise 0) to 6144 (noise 1)",
+      "parse @ 1 KiB: ms an operation's limit rose from 0.7 to 0.71",
+      "parse @ 1 KiB: peak bytes's limit rose from 6144 to 6147",
       "parse @ 1 KiB: bytes allocated an operation has no floor any more",
       "import: median cold import, ms has no floor any more",
       "import: gzipped bytes loaded has no floor any more",
@@ -389,6 +455,15 @@ describe("loosenedFloor", () => {
       { kind: "loosened", message: "parse @ 1 KiB: the floor no longer keeps it" },
     ]);
     expect(loosenedFloor({ ...f, import: null }, { ...f, import: null })).toEqual([]);
+    // A lower value with a wider noise is looser only when the limit rises.
+    const alloc = (value: number, noise: number) => ({
+      ...f,
+      cases: [{ ...first, allocBytesPerOp: { value, noise } }],
+    });
+    expect(loosenedFloor(f, alloc(2000, 200)).map((x) => x.message)).toEqual([
+      "parse @ 1 KiB: bytes allocated an operation's limit rose from 2400 to 2600",
+    ]);
+    expect(loosenedFloor(f, alloc(2000, 130))).toEqual([]);
   });
 
   it("finds a floor recorded for another suite, runner class or Node line", () => {

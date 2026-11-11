@@ -55,8 +55,8 @@ export const USAGE = `Usage:
   cosyte-bench calibrate --suite <file> --base <file> --head <file> --comparisons <n>
                    [--inject <fraction>] [--only <name>]... [--out <file.json>] [--summary <file.md>]
   cosyte-bench check <results.json>
-  cosyte-bench gate <reading.json> [--budgets <file>] [--floor <file>] [--base-floor <file>]
-                   [--summary <file.md>]
+  cosyte-bench gate <reading.json> [--budgets <file>]
+                   [--floor <file> (--base-floor <file> | --no-base-floor)] [--summary <file.md>]
   cosyte-bench floor <reading.json>... --out <floor.json> [--from <floor.json>]
 
 Exit codes: 0 clean, 1 a finding (a regression, results that do not match the schema, a budget
@@ -88,7 +88,7 @@ const VALUE_FLAGS = new Set([
   "--base-floor",
   "--from",
 ]);
-const BOOLEAN_FLAGS = new Set(["--no-memory", "--no-import"]);
+const BOOLEAN_FLAGS = new Set(["--no-memory", "--no-import", "--no-base-floor"]);
 
 /** The flags each command takes. Any other is refused rather than quietly ignored. */
 const FLAGS_FOR: Readonly<
@@ -125,7 +125,7 @@ const FLAGS_FOR: Readonly<
     "--out",
     "--summary",
   ],
-  gate: ["--budgets", "--floor", "--base-floor", "--summary"],
+  gate: ["--budgets", "--floor", "--base-floor", "--no-base-floor", "--summary"],
   floor: ["--out", "--from"],
 };
 
@@ -272,8 +272,13 @@ function judgeOrRecord(
     const baseFloorFile = one(args, "--base-floor");
     if (budgetsFile === undefined && floorFile === undefined)
       throw new UsageError("gate needs --budgets, --floor or both");
-    if (baseFloorFile !== undefined && floorFile === undefined)
-      throw new UsageError("--base-floor needs --floor");
+    const noBaseFloor = args.flags.has("--no-base-floor");
+    if ((baseFloorFile !== undefined || noBaseFloor) && floorFile === undefined)
+      throw new UsageError("--base-floor and --no-base-floor need --floor");
+    if (floorFile !== undefined && (baseFloorFile === undefined) === !noBaseFloor)
+      throw new UsageError(
+        "--floor needs exactly one of --base-floor <the base branch's floor> and --no-base-floor (the base branch has no floor file yet)",
+      );
     const file = args.positional[0] as string;
     const doc = readings[0] as ResultsDocument;
     const why = notJudgeable(doc);
@@ -312,6 +317,11 @@ function judgeOrRecord(
           loosened,
           1,
         ),
+      );
+    }
+    if (noBaseFloor) {
+      parts.push(
+        "### The floor against the base branch's\n\nNot compared: `--no-base-floor` says the base branch has no floor file, so this is a first floor, approved in review.\n",
       );
     }
     const markdown = parts.join("\n");

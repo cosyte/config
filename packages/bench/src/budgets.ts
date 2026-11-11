@@ -153,15 +153,18 @@ function checkCase(rule: BudgetRule, c: CaseReading, out: GateFinding[]): number
     } else {
       const cls = sizeClass(perInput);
       const most = rule.peakMultiple[cls];
-      if (most !== undefined) {
-        checked++;
-        const peak = budgetPeakBytes(c);
-        if (peak === null) unjudged("its peak was not measured");
-        else if (peak / perInput > most) {
-          breach(
-            `peak ${bytes(peak)} is ${(peak / perInput).toFixed(2)} times its ${bytes(perInput)} input, over the ${cls} budget of ${String(most)} times`,
-          );
-        }
+      checked++;
+      const peak = budgetPeakBytes(c);
+      if (most === undefined) {
+        // The rule asks for a peak budget on this case and has none for its class: a skip, not a pass.
+        unjudged(
+          `its ${bytes(perInput)} input is in the ${cls} class, and the rule's peakMultiple names no ${cls} limit`,
+        );
+      } else if (peak === null) unjudged("its peak was not measured");
+      else if (peak / perInput > most) {
+        breach(
+          `peak ${bytes(peak)} is ${(peak / perInput).toFixed(2)} times its ${bytes(perInput)} input, over the ${cls} budget of ${String(most)} times`,
+        );
       }
     }
   }
@@ -205,7 +208,9 @@ function checkCase(rule: BudgetRule, c: CaseReading, out: GateFinding[]): number
 
 /**
  * Check a reading against a budgets file. Every rule must match at least one case of the reading:
- * a rule that matches none (a renamed case, a size removed) is `unjudged`, never a quiet pass.
+ * a rule that matches none (a renamed case, a size removed) is `unjudged`, never a quiet pass. So is
+ * a peak budget on a case whose size class the rule's `peakMultiple` does not name, and a file that
+ * holds no limit at all.
  * A limit is held at exactly its value and broken past it.
  *
  * @internal
@@ -258,6 +263,12 @@ export function checkBudgets(
     } else if (read(cost) > most) {
       findings.push({ kind: "breach", message: say(read(cost), most) });
     }
+  }
+  if (checked === 0) {
+    findings.push({
+      kind: "unjudged",
+      message: "the budgets file holds no limit, so it judged nothing",
+    });
   }
   return { findings, checked };
 }

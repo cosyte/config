@@ -9,9 +9,13 @@
   operation, the least bytes or operations a second, the median cold import, the gzipped bytes the
   import loads), when a measure is above its floor by more than the noise the floor's A/A readings
   measured, or when the floor file is looser than the base branch's. It exits 2 when a limit names
-  something the reading did not measure, and on any reading not taken on a GitHub-hosted runner.
+  something the reading did not measure or a file holds no limit, and on any reading not taken on a
+  GitHub-hosted runner.
 - `cosyte-bench floor <reading.json>... --out <file> [--from <file>]` records a floor from at least
-  three readings of one commit, or tightens an existing one: a floor only improves.
+  seven readings of one commit, or tightens an existing one only where a new set is better beyond
+  the old set's noise: a floor only improves, and does not drift down on a lucky set.
+- With `--floor`, `gate` needs `--base-floor <file>` or, for a package's first floor,
+  `--no-base-floor`.
 - New exports: `readBudgets`, `BUDGETS_SCHEMA`, `readFloor`, `FLOOR_SCHEMA` and their types, and the
   schemas as `schema/budgets-v1.schema.json` and `schema/floor-v1.schema.json`. `BENCH_CONTRACT`
-  gains `LARGE_INPUT_BYTES` and `FLOOR_MIN_READINGS`. Nothing a caller uses today changes.
+  gains `LARGE_INPUT_BYTES`, `FLOOR_MIN_READINGS` and `FLOOR_NOISE_MULTIPLE`. Nothing a caller uses today changes.

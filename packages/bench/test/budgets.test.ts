@@ -163,7 +163,9 @@ describe("checkBudgets", () => {
     const doc = readingDoc([caseReading(), medium, large]);
     // The small case reads 6 times, the medium its raw 40,000 bytes over 256 KiB (0.15 times), and
     // the large its raw 6 MiB over 2 MiB, 3 times.
-    expect(checkBudgets(doc, budgets({ rules: [{ peakMultiple: { large: 2.5 } }] }))).toEqual({
+    expect(
+      checkBudgets(doc, budgets({ rules: [{ size: "2 MiB", peakMultiple: { large: 2.5 } }] })),
+    ).toEqual({
       findings: [
         {
           kind: "breach",
@@ -173,7 +175,9 @@ describe("checkBudgets", () => {
       ],
       checked: 1,
     });
-    expect(checkBudgets(doc, budgets({ rules: [{ peakMultiple: { medium: 0.1 } }] }))).toEqual({
+    expect(
+      checkBudgets(doc, budgets({ rules: [{ size: "256 KiB", peakMultiple: { medium: 0.1 } }] })),
+    ).toEqual({
       findings: [
         {
           kind: "breach",
@@ -278,10 +282,37 @@ describe("checkBudgets", () => {
     ]);
   });
 
-  it("checks no peak for a size class the rule leaves out", () => {
+  it("calls a peak budget unjudged on a case whose size class the rule names no limit for", () => {
+    // The rule means the 4 MiB case, but its inputs average 256 KiB: medium, with no medium limit.
+    const misnamed = caseReading({
+      size: "4 MiB",
+      inputsPerPass: 16,
+      bytesPerPass: 4 * 1024 * 1024,
+    });
     expect(
-      checkBudgets(readingDoc([large]), budgets({ rules: [{ peakMultiple: { small: 1 } }] })),
-    ).toEqual({ findings: [], checked: 0 });
+      checkBudgets(
+        readingDoc([misnamed]),
+        budgets({ rules: [{ benchmark: "parse", size: "4 MiB", peakMultiple: { large: 3 } }] }),
+      ),
+    ).toEqual({
+      findings: [
+        {
+          kind: "unjudged",
+          message:
+            "parse @ 4 MiB: its 256.0 KiB input is in the medium class, and the rule's peakMultiple names no medium limit",
+        },
+      ],
+      checked: 1,
+    });
+  });
+
+  it("calls a budgets file that holds no limit unjudged, never a pass", () => {
+    expect(checkBudgets(readingDoc(), budgets())).toEqual({
+      findings: [
+        { kind: "unjudged", message: "the budgets file holds no limit, so it judged nothing" },
+      ],
+      checked: 0,
+    });
   });
 
   it("calls an import budget unjudged when the import was not measured", () => {
@@ -295,7 +326,9 @@ describe("checkBudgets", () => {
       ],
       checked: 2,
     });
-    expect(checkBudgets(doc, budgets({ import: {} }))).toEqual({ findings: [], checked: 0 });
+    expect(checkBudgets(doc, budgets({ import: {} })).findings).toEqual([
+      { kind: "unjudged", message: "the budgets file holds no limit, so it judged nothing" },
+    ]);
     expect(importCost.totalGzipBytes).toBe(900);
   });
 });

@@ -31,7 +31,7 @@ function harness() {
 }
 
 const aaSet = (h: ReturnType<typeof harness>) =>
-  [0.5, 0.55, 0.52].map((ms, i) =>
+  [0.5, 0.55, 0.52, 0.51, 0.53, 0.54, 0.5].map((ms, i) =>
     h.write(
       `aa-${String(i)}.json`,
       readingDoc([
@@ -62,14 +62,14 @@ describe("cosyte-bench floor", () => {
     const floor = readFloor(readFileSync(join(h.dir, "floor.json"), "utf8"));
     expect(floor.cases[0]?.msPerOp).toEqual({ value: 0.55, noise: 0.05 });
     expect(h.out()).toBe(
-      "floor.json: a floor of 1 case(s) from 3 readings on github-actions-github-hosted-ubuntu24-x64, Node 24\n",
+      "floor.json: a floor of 1 case(s) from 7 readings on github-actions-github-hosted-ubuntu24-x64, Node 24\n",
     );
   });
 
   it("tightens an existing floor with --from", async () => {
     const h = harness();
     await main(["floor", ...aaSet(h), "--out", "floor.json"], h.io);
-    const faster = [0.3, 0.32, 0.31].map((ms, i) =>
+    const faster = [0.3, 0.32, 0.31, 0.3, 0.3, 0.3, 0.3].map((ms, i) =>
       h.write(
         `fast-${String(i)}.json`,
         readingDoc([
@@ -89,28 +89,31 @@ describe("cosyte-bench floor", () => {
       await main(["floor", ...faster, "--from", "floor.json", "--out", "next.json"], h.io),
     ).toBe(0);
     const next = readFloor(readFileSync(join(h.dir, "next.json"), "utf8"));
-    expect(next.cases[0]?.msPerOp).toEqual({ value: 0.32, noise: 0.05 });
+    expect(next.cases[0]?.msPerOp).toEqual({ value: 0.32, noise: 0.02 });
   });
 
   it("exits 2 on too few readings, a developer machine's reading, or a file it cannot read", async () => {
     const h = harness();
-    const [a, b] = aaSet(h) as [string, string, string];
-    expect(await main(["floor", a, b, "--out", "f.json"], h.io)).toBe(2);
-    expect(h.err()).toContain("a floor is recorded from at least 3 readings");
+    const [a, b, ...more] = aaSet(h) as [string, string, ...string[]];
+    const five = more.slice(0, 4);
+    expect(await main(["floor", a, b, ...five, "--out", "f.json"], h.io)).toBe(2);
+    expect(h.err()).toContain("a floor is recorded from at least 7 readings");
     const local = h.write(
       "local.json",
       readingDoc([caseReading()], {
         runner: { ci: false, provider: null, environment: null, class: "local-linux-x64" },
       }),
     );
-    expect(await main(["floor", a, b, local, "--out", "f.json"], h.io)).toBe(2);
+    expect(await main(["floor", a, b, ...five, local, "--out", "f.json"], h.io)).toBe(2);
     expect(h.err()).toContain("local.json: the reading was taken on local-linux-x64");
-    expect(await main(["floor", a, b, "missing.json", "--out", "f.json"], h.io)).toBe(2);
+    expect(await main(["floor", a, b, ...five, "missing.json", "--out", "f.json"], h.io)).toBe(2);
     expect(h.err()).toContain("cannot read missing.json");
     h.write("bad.json", "{");
-    expect(await main(["floor", a, b, "bad.json", "--out", "f.json"], h.io)).toBe(2);
+    expect(await main(["floor", a, b, ...five, "bad.json", "--out", "f.json"], h.io)).toBe(2);
     expect(h.err()).toContain("bad.json: @cosyte/bench: the results are not JSON");
-    expect(await main(["floor", a, b, a, "--from", "bad.json", "--out", "f.json"], h.io)).toBe(2);
+    expect(
+      await main(["floor", a, b, ...five, a, "--from", "bad.json", "--out", "f.json"], h.io),
+    ).toBe(2);
     expect(h.err()).toContain("bad.json: @cosyte/bench: the floor file is not JSON");
   });
 
@@ -192,8 +195,8 @@ describe("cosyte-bench gate", () => {
         }),
       ]),
     );
-    expect(await main(["gate", slow, "--floor", "floor.json"], h.io)).toBe(1);
-    expect(h.out()).toContain("| regression | parse @ 1 KiB: ms an operation 0.9");
+    expect(await main(["gate", slow, "--floor", "floor.json", "--no-base-floor"], h.io)).toBe(1);
+    expect(h.out()).toContain("| regression | parse @ 1 KiB: ms an operation 0.9,");
 
     const floor = readFloor(readFileSync(join(h.dir, "floor.json"), "utf8"));
     h.write("loose.json", { ...floor, import: null });
@@ -201,6 +204,16 @@ describe("cosyte-bench gate", () => {
       await main(["gate", reading, "--floor", "loose.json", "--base-floor", "floor.json"], h.io),
     ).toBe(1);
     expect(h.out()).toContain("| loosened | import: median cold import, ms has no floor any more");
+  });
+
+  it("passes a first floor only when told the base branch has none, and says so", async () => {
+    const h = harness();
+    await main(["floor", ...aaSet(h), "--out", "floor.json"], h.io);
+    const reading = h.write("reading.json", readingDoc());
+    expect(await main(["gate", reading, "--floor", "floor.json", "--no-base-floor"], h.io)).toBe(0);
+    expect(h.out()).toContain(
+      "Not compared: `--no-base-floor` says the base branch has no floor file, so this is a first floor, approved in review.",
+    );
   });
 
   it("exits 2 when a limit could not be judged", async () => {
@@ -230,7 +243,7 @@ describe("cosyte-bench gate", () => {
     expect(h.err()).toContain(
       'bad.json: @cosyte/bench: the budgets file does not match its schema:\n/: is missing "rules"',
     );
-    expect(await main(["gate", reading, "--floor", "none.json"], h.io)).toBe(2);
+    expect(await main(["gate", reading, "--floor", "none.json", "--no-base-floor"], h.io)).toBe(2);
     expect(h.err()).toContain("cannot read none.json");
     expect(
       await main(["gate", reading, "--floor", "bad.json", "--base-floor", "none.json"], h.io),
@@ -241,10 +254,23 @@ describe("cosyte-bench gate", () => {
     for (const [argv, message] of [
       [["gate"], "gate needs a reading"],
       [["gate", "r.json"], "gate needs --budgets, --floor or both"],
-      [["gate", "r.json", "r.json", "--floor", "f.json"], "gate judges one reading"],
+      [
+        ["gate", "r.json", "r.json", "--floor", "f.json", "--no-base-floor"],
+        "gate judges one reading",
+      ],
       [
         ["gate", "r.json", "--budgets", "b.json", "--base-floor", "f.json"],
-        "--base-floor needs --floor",
+        "--base-floor and --no-base-floor need --floor",
+      ],
+      [
+        ["gate", "r.json", "--budgets", "b.json", "--no-base-floor"],
+        "--base-floor and --no-base-floor need --floor",
+      ],
+      // A base branch with no floor is said out loud, never assumed.
+      [["gate", "r.json", "--floor", "f.json"], "--floor needs exactly one of --base-floor"],
+      [
+        ["gate", "r.json", "--floor", "f.json", "--base-floor", "f.json", "--no-base-floor"],
+        "--floor needs exactly one of --base-floor",
       ],
       [["gate", "r.json", "--floor", "f.json", "--out", "x.json"], "--out does not apply to gate"],
     ] as const) {

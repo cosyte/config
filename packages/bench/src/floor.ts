@@ -5,10 +5,16 @@
  * A floor is recorded from an A/A set: at least `FLOOR_MIN_READINGS` readings of one commit, each on
  * a GitHub-hosted runner. For every measure it keeps the highest of them (`value`) and the spread
  * between the highest and the lowest (`noise`): the noise that set measured with nothing changed. A
- * later reading is a regression only when it is above `value + noise`, beyond what the A/A set
- * itself spread over. Recording again from an existing floor keeps the lower of each value and the
- * floor's own noise, so a floor only improves; a floor file that is looser than its base branch's
- * is a finding of its own.
+ * later reading is a regression only when it is above the measure's limit, `value` plus
+ * `FLOOR_NOISE_MULTIPLE` times `noise`.
+ *
+ * Recording again from an existing floor replaces a measure only when the new set's whole limit is
+ * below the old set's lowest reading (`value - noise`): an improvement the old noise cannot explain.
+ * Anything less keeps the old measure as it was, value and noise. Taking the lower of two sets of
+ * unchanged code would ratchet the limit down on luck alone, so unchanged code would fail more
+ * often with every recording; this rule almost never fires on unchanged code, so the limit does
+ * not drift, and it never rises. A floor file that is looser than its base branch's is a finding of
+ * its own.
  *
  * Every measure is one where lower is better: milliseconds an operation, the peak a memory budget
  * reads (`budgetPeakBytes`), bytes allocated an operation, the median cold import and the gzipped
@@ -29,7 +35,7 @@ import type { ImportCostReport } from "./import-cost.js";
 import { budgetPeakBytes, type CaseReading } from "./reading.js";
 import { round } from "./stats.js";
 
-/** One measure's floor: a reading above `value + noise` is a regression. */
+/** One measure's floor: a reading above `value + FLOOR_NOISE_MULTIPLE * noise` is a regression. */
 export interface FloorValue {
   /** The highest the A/A readings measured, or lower once the floor has improved. */
   readonly value: number;
@@ -218,11 +224,25 @@ function fromSet(values: readonly (number | null)[]): FloorValue | null {
   return { value: high, noise: round(high - Math.min(...xs), 6) };
 }
 
-/** The tighter of an old floor and a new one for one measure: only ever lower, never gone. */
-function tighter(old: FloorValue | null, next: FloorValue | null): FloorValue | null {
+/**
+ * The most a reading may measure before it is a regression.
+ *
+ * @internal
+ */
+export function floorLimit(f: FloorValue): number {
+  return f.value + BENCH_CONTRACT.FLOOR_NOISE_MULTIPLE * f.noise;
+}
+
+/**
+ * One measure of an old floor and a new set: the new set only when its whole limit is below the
+ * old set's lowest reading, else the old measure unchanged. Never gone, never looser.
+ *
+ * @internal
+ */
+export function tighter(old: FloorValue | null, next: FloorValue | null): FloorValue | null {
   if (old === null) return next;
   if (next === null) return old;
-  return { value: Math.min(old.value, next.value), noise: old.noise };
+  return floorLimit(next) < old.value - old.noise ? next : old;
 }
 
 /**
@@ -232,8 +252,9 @@ function tighter(old: FloorValue | null, next: FloorValue | null): FloorValue | 
  * from a GitHub-hosted runner, or when they (or the existing floor) differ in suite, runner class,
  * Node major version or commit: a floor compares like with like or not at all.
  *
- * With `from`, each value becomes the lower of the old and the new and the noise stays the old one,
- * no case or measure is dropped, and a new case or measure is added: the floor only tightens.
+ * With `from`, a measure takes the new set's value and noise only when the new limit is below the
+ * old set's lowest reading, and keeps the old ones otherwise; no case or measure is dropped, and a
+ * new case or measure is added: the floor only tightens, and does not tighten on luck.
  *
  * @internal
  */
@@ -349,10 +370,11 @@ export function recordFloor(docs: readonly ReadingDocument[], from?: Floor): Flo
 const show = (n: number) => String(round(n, 4));
 
 /**
- * Check a reading against a floor: each measure the floor keeps must be at or below its `value`
- * plus its `noise`. A case or a measure the floor keeps and the reading did not measure is
- * `unjudged`, and so is a reading of another suite, runner class or Node line. A case the floor
- * does not keep yet has no floor and is not judged. The reading's runner is checked by the caller.
+ * Check a reading against a floor: each measure the floor keeps must be at or below its limit
+ * (`floorLimit`). A case or a measure the floor keeps and the reading did not measure is
+ * `unjudged`, and so is a reading of another suite, runner class or Node line, and a floor that
+ * keeps no measure at all. A case the floor does not keep yet has no floor and is not judged. The
+ * reading's runner is checked by the caller.
  *
  * @internal
  */
@@ -388,11 +410,11 @@ export function checkFloor(
       findings.push({ kind: "unjudged", message: `${where}: ${label} was not measured` });
       return;
     }
-    const most = floorValue.value + floorValue.noise;
+    const most = floorLimit(floorValue);
     if (got > most) {
       findings.push({
         kind: "regression",
-        message: `${where}: ${label} ${show(got)}, above the floor's ${show(floorValue.value)} and its measured noise of ${show(floorValue.noise)}`,
+        message: `${where}: ${label} ${show(got)}, above the floor's limit of ${show(most)} (its highest A/A reading ${show(floorValue.value)} plus ${String(BENCH_CONTRACT.FLOOR_NOISE_MULTIPLE)} times its spread of ${show(floorValue.noise)})`,
       });
     }
   };
@@ -414,12 +436,18 @@ export function checkFloor(
       judge("import", LABEL[m], floor.import[m], cost === null ? null : IMPORT_MEASURES[m](cost));
     }
   }
+  if (checked === 0) {
+    findings.push({
+      kind: "unjudged",
+      message: "the floor keeps no measure, so it judged nothing",
+    });
+  }
   return { findings, checked };
 }
 
 /**
  * The ways a pull request's floor is looser than its base branch's: a case or a measure gone, a
- * value or a noise raised, or a floor for another suite, runner class or Node line. Each is a
+ * measure's limit raised, or a floor for another suite, runner class or Node line. Each is a
  * `loosened` finding; an empty list means the floor held or tightened.
  *
  * @internal
@@ -437,9 +465,9 @@ export function loosenedFloor(base: Floor, head: Floor): readonly GateFinding[] 
   const compare = (where: string, label: string, b: FloorValue | null, h: FloorValue | null) => {
     if (b === null) return;
     if (h === null) loosened(`${where}: ${label} has no floor any more`);
-    else if (h.value > b.value || h.noise > b.noise) {
+    else if (floorLimit(h) > floorLimit(b)) {
       loosened(
-        `${where}: ${label} rose from ${show(b.value)} (noise ${show(b.noise)}) to ${show(h.value)} (noise ${show(h.noise)})`,
+        `${where}: ${label}'s limit rose from ${show(floorLimit(b))} to ${show(floorLimit(h))}`,
       );
     }
   };
