@@ -70,7 +70,7 @@ describe("renderMarkdown", () => {
       },
     };
     expect(renderMarkdown(reading)).toContain(
-      "| scan | 1 MiB | 1 ms | 1000 | 1 MiB/s | n/a | n/a | n/a | 1 KiB | n/a | n/a | n/a |  |",
+      "| scan | 1 MiB | 1 ms | 1000 | 1 MiB/s | n/a | n/a | n/a | 1 KiB | n/a | n/a | n/a | n/a | n/a |  |",
     );
   });
 
@@ -292,44 +292,85 @@ describe("renderMarkdown", () => {
       },
     };
     const text = renderMarkdown(doc);
-    expect(text).toMatchInlineSnapshot(`
-      "### Reading: suite
-
-      Node v24.0.0 on github-actions-github-hosted-ubuntu24-x64 (unknown CPU, 4 logical CPUs), @cosyte/bench 9.9.9, 2026-11-10T00:00:00.000Z.
-
-      Throughput is the median of 3 fresh processes. "Large-case plan" marks a case whose calls each outlast a warmup batch. Latency is per call, nearest rank. Memory: allocations per operation ("collections counted" when every window collected), the peak of one call above what was in use before it (the V8 heap, external memory such as Buffers, and the two together, which a memory budget reads), and whether the settled heap stays flat over a long run.
-
-      | Benchmark | Size | Per op | Ops/s | Bytes/s | p50 | p95 | p99 | Alloc/op | Peak heap | Peak external | Peak total | Long run |
-      | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-      | scan | 1 KiB | 500 us | 2000 | 3 MiB/s | 500 ns | 2.5 ms | n/a | 1 KiB | 2 KiB | 3 MiB | 3 MiB | flat (512 B over 3000 ops, 0.01 B/op) |
-      | scan | 4 MiB | skipped (warmup-unstable) | n/a | n/a | skipped (latency-below-timer-resolution) | n/a | n/a | skipped (allocation-window-gc) | skipped (gc-unsettled) | skipped (gc-unsettled) | skipped (gc-unsettled) | skipped (gc-unavailable) |
-      | decode | 1 KiB | 2 ms (large-case plan) | 500 | n/a | n/a | n/a | n/a | 2 KiB (collections counted) | 4 KiB | n/a | n/a |  |
-
-      Cold import: median 2.5 ms, p95 3 ms over 2 fresh processes (an empty module: median 250 us). Loaded: 1 file(s), 2 KiB, 900 B gzipped.
-      "
-    `);
+    expect(text).toContain(
+      "the total above the empty-call floor, the peak a memory budget reads (the total above the floor for an input under 64 KiB, the raw total for any other)",
+    );
     expect(text).toContain(
       "Node v24.0.0 on github-actions-github-hosted-ubuntu24-x64 (unknown CPU, 4 logical CPUs)",
     );
     expect(text).toContain("Throughput is the median of 3 fresh processes.");
     expect(text).toContain(
-      "| Benchmark | Size | Per op | Ops/s | Bytes/s | p50 | p95 | p99 | Alloc/op | Peak heap | Peak external | Peak total | Long run |",
+      "| Benchmark | Size | Per op | Ops/s | Bytes/s | p50 | p95 | p99 | Alloc/op | Peak heap | Peak external | Peak total | Above floor | Budget reads | Long run |",
     );
     expect(text).toContain(
-      "| scan | 1 KiB | 500 us | 2000 | 3 MiB/s | 500 ns | 2.5 ms | n/a | 1 KiB | 2 KiB | 3 MiB | 3 MiB | flat (512 B over 3000 ops, 0.01 B/op) |",
+      "| scan | 1 KiB | 500 us | 2000 | 3 MiB/s | 500 ns | 2.5 ms | n/a | 1 KiB | 2 KiB | 3 MiB | 3 MiB | n/a | 3 MiB | flat (512 B over 3000 ops, 0.01 B/op) |",
     );
     expect(text).toContain(
-      "| scan | 4 MiB | skipped (warmup-unstable) | n/a | n/a | skipped (latency-below-timer-resolution) | n/a | n/a | skipped (allocation-window-gc) | skipped (gc-unsettled) | skipped (gc-unsettled) | skipped (gc-unsettled) | skipped (gc-unavailable) |",
+      "| scan | 4 MiB | skipped (warmup-unstable) | n/a | n/a | skipped (latency-below-timer-resolution) | n/a | n/a | skipped (allocation-window-gc) | skipped (gc-unsettled) | skipped (gc-unsettled) | skipped (gc-unsettled) | skipped (gc-unsettled) | skipped (gc-unsettled) | skipped (gc-unavailable) |",
     );
-    // A document written before external memory was read has no external or total peak.
+    // A document written before external memory was read has no external or total peak, and a
+    // budget reads its heap.
     expect(text).toContain(
-      "| decode | 1 KiB | 2 ms (large-case plan) | 500 | n/a | n/a | n/a | n/a | 2 KiB (collections counted) | 4 KiB | n/a | n/a |  |",
+      "| decode | 1 KiB | 2 ms (large-case plan) | 500 | n/a | n/a | n/a | n/a | 2 KiB (collections counted) | 4 KiB | n/a | n/a | n/a | 4 KiB |  |",
     );
+    // A document written before the floor says nothing of one, and lists no failures.
+    expect(text).not.toContain("Empty-call floor");
+    expect(text).not.toContain("Could not measure");
     expect(text).toContain(
       "Cold import: median 2.5 ms, p95 3 ms over 2 fresh processes (an empty module: median 250 us). Loaded: 1 file(s), 2 KiB, 900 B gzipped.",
     );
     expect(renderMarkdown({ ...doc, reading: { ...doc.reading, importCost: null } })).not.toContain(
       "Cold import",
     );
+    if (doc.kind !== "reading") throw new Error("a reading");
+    const first = doc.reading.cases[0];
+    if (first?.peak?.status !== "measured") throw new Error("measured");
+    const floored = renderMarkdown({
+      ...doc,
+      reading: {
+        ...doc.reading,
+        cases: [{ ...first, peak: { ...first.peak, peakTotalAboveFloorBytes: 2048 } }],
+        memoryFloor: {
+          status: "measured",
+          calls: 20,
+          peakHeapBytes: 30_000,
+          medianPeakHeapBytes: 24_576,
+          peakTotalBytes: 30_000,
+          medianPeakTotalBytes: 25_600,
+        },
+        failures: [
+          {
+            phase: "timing",
+            benchmark: "scan",
+            size: "4 MiB",
+            message: "the timing job timed out",
+          },
+          { phase: "floor", benchmark: null, size: null, message: "the floor job timed out" },
+        ],
+      },
+    });
+    expect(floored).toContain(
+      "Empty-call floor, what the peak probe itself costs: 24 KiB heap, 25 KiB total (the median of 20 calls).",
+    );
+    // 1 KiB an input is under the stated size, so the budget reads the figure above the floor.
+    expect(floored).toContain("| 3 MiB | 3 MiB | 2 KiB | 2 KiB | flat");
+    expect(floored).toContain(
+      "Could not measure 2 part(s) of the run; every other case above was measured and written:\n\n- timing of scan @ 4 MiB: the timing job timed out\n- the empty-call floor: the floor job timed out\n",
+    );
+    const oldFloor = renderMarkdown({
+      ...doc,
+      reading: {
+        ...doc.reading,
+        memoryFloor: { status: "measured", calls: 20, peakHeapBytes: 1, medianPeakHeapBytes: 1 },
+      },
+    });
+    expect(oldFloor).toContain("1 B heap, n/a total");
+    const skippedFloor = renderMarkdown({
+      ...doc,
+      reading: { ...doc.reading, memoryFloor: { status: "skipped", reason: "gc-unavailable" } },
+    });
+    expect(skippedFloor).toContain("Empty-call floor: skipped (gc-unavailable).\n");
+    const noFloor = renderMarkdown({ ...doc, reading: { ...doc.reading, memoryFloor: null } });
+    expect(noFloor).not.toContain("Empty-call floor");
   });
 });

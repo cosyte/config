@@ -44,6 +44,14 @@ export interface BenchContractShape {
   readonly ALLOC_SEMI_SPACE_MIB: number;
   /** Calls measured one by one for the peak heap. */
   readonly PEAK_CALLS: number;
+  /**
+   * An input under this many bytes, on average, is budgeted on its peak above the empty-call floor
+   * rather than its raw peak. The peak probe costs about 21 to 24 KiB with nothing to measure, so a
+   * budget of 20 times a 1 KiB input is spent before the code runs. At 64 KiB the floor is under 2%
+   * of a 20 times budget, less than the spread between one case's own calls, so above it the raw
+   * peak, which needs no figure from another process, is read as before.
+   */
+  readonly FLOOR_INPUT_BYTES: number;
   /** Rounds in the long run that checks the heap stays flat. */
   readonly LONG_RUN_ROUNDS: number;
   /** Rounds at the start of the long run left out of the slope, while caches and compiled code settle. */
@@ -106,6 +114,7 @@ export const BENCH_CONTRACT: BenchContractShape = Object.freeze({
   ALLOC_WINDOW_MS: 100,
   ALLOC_SEMI_SPACE_MIB: 64,
   PEAK_CALLS: 20,
+  FLOOR_INPUT_BYTES: 64 * 1024,
   LONG_RUN_ROUNDS: 30,
   LONG_RUN_SETTLE_ROUNDS: 5,
   LONG_RUN_ROUND_MS: 100,

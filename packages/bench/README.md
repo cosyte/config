@@ -98,14 +98,21 @@ cosyte-bench check bench.json
 Exit codes: 0 clean, 1 a finding (a regression, or a results file that does not match the schema),
 2 could not measure (a skip, a process that died, an input it could not read). A skip is not a pass.
 
+A `run` whose measuring process fails for one case still measures and writes every other case. The
+reading lists what failed in `failures` (the phase, `timing`, `memory` or `floor`, the case, and the
+first line of the error; the whole error goes to stderr) and the command exits 2. A case whose timing
+failed is left out of `cases`; one whose memory failed keeps its timing with its memory `null`. A
+case whose warmup never settled is not a failure: it is in `cases`, its throughput `skipped` with
+the reason `warmup-unstable`.
+
 ## Entry points
 
-| entry point                                   | what it is                                                                                                                                            |
-| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `cosyte-bench`                                | the bin: `run`, `compare`, `calibrate` and `check`                                                                                                    |
-| `@cosyte/bench`                               | writing a suite (`defineSuite`, `defineBenchmark`), judging ratios (`judge`), reading results (`readResults`, `RESULTS_SCHEMA`), and `BENCH_CONTRACT` |
-| `@cosyte/bench/schema/results-v1.schema.json` | the results schema as JSON Schema, for a tool in another language                                                                                     |
-| `@cosyte/bench/package.json`                  | the manifest                                                                                                                                          |
+| entry point                                   | what it is                                                                                                                                                               |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `cosyte-bench`                                | the bin: `run`, `compare`, `calibrate` and `check`                                                                                                                       |
+| `@cosyte/bench`                               | writing a suite (`defineSuite`, `defineBenchmark`), judging ratios (`judge`), reading results (`readResults`, `RESULTS_SCHEMA`, `budgetPeakBytes`), and `BENCH_CONTRACT` |
+| `@cosyte/bench/schema/results-v1.schema.json` | the results schema as JSON Schema, for a tool in another language                                                                                                        |
+| `@cosyte/bench/package.json`                  | the manifest                                                                                                                                                             |
 
 The module entry point has no side effects: importing it starts no process. The schema is plain JSON:
 
@@ -137,18 +144,35 @@ the command line:
 
 ## What it measures
 
-| Measure                                | How                                                                                                                                                                                                                                                                                                                     | What it cannot see                                                                                                                  |
-| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Throughput, small to very large inputs | Per size, fresh processes; a warmup by the scaling gate's rule, or by the large-case plan below when every warmup batch is one long pass; 5 samples of whole passes of at least 50 ms; the median of the processes' medians                                                                                             | Anything the suite's sizes do not cover; numbers from another machine                                                               |
-| Latency p50, p95, p99                  | One call at a time on a nanosecond clock, up to 2 s or 5,000 calls; a percentile is reported only with at least 10 calls above it                                                                                                                                                                                       | Calls shorter than 20 clock reads (skipped, typed); the tail of a size with few calls                                               |
-| Allocations per operation              | Heap growth over windows of `n` and `2n` operations in which no collection ran, in a process with a 64 MiB young generation; the difference cancels the cost of reading the heap. When every window collects, the largest pair is counted with what its collections reclaimed (`method: "gc-accounted"`)                | Native memory a library allocates outside V8's accounting                                                                           |
-| Peak memory                            | Per call, the higher of what was in use just before any collection during the call and at its end, above what was in use before it: the V8 heap (`peakHeapBytes`), external memory such as Buffers and ArrayBuffers (`peakExternalBytes`), and the two together (`peakTotalBytes`), which is what a memory budget reads | Native memory a library allocates outside V8's accounting                                                                           |
-| Heap flat over a long run              | 30 rounds, the heap settled after each; a Theil-Sen slope over the last 24; growing when the fitted growth reaches 64 KiB. On the long-run size and on the largest size whose 30 rounds fit in 60 s                                                                                                                     | A leak too small to reach 64 KiB over the run (each result says the smallest it could see, `detectableBytesPerOp`); external memory |
-| Cold import and loaded bytes           | 20 fresh processes import the target, 20 import an empty module, interleaved; one more records every file the import loads, with its gzip size                                                                                                                                                                          | What a bundler keeps after tree shaking                                                                                             |
+| Measure                                | How                                                                                                                                                                                                                                                                                                                                                                             | What it cannot see                                                                                                                  |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Throughput, small to very large inputs | Per size, fresh processes; a warmup by the scaling gate's rule, or by the large-case plan below when every warmup batch is one long pass; 5 samples of whole passes of at least 50 ms; the median of the processes' medians                                                                                                                                                     | Anything the suite's sizes do not cover; numbers from another machine                                                               |
+| Latency p50, p95, p99                  | One call at a time on a nanosecond clock, up to 2 s or 5,000 calls; a percentile is reported only with at least 10 calls above it                                                                                                                                                                                                                                               | Calls shorter than 20 clock reads (skipped, typed); the tail of a size with few calls                                               |
+| Allocations per operation              | Heap growth over windows of `n` and `2n` operations in which no collection ran, in a process with a 64 MiB young generation; the difference cancels the cost of reading the heap. When every window collects, the largest pair is counted with what its collections reclaimed (`method: "gc-accounted"`)                                                                        | Native memory a library allocates outside V8's accounting                                                                           |
+| Peak memory                            | Per call, the higher of what was in use just before any collection during the call and at its end, above what was in use before it: the V8 heap (`peakHeapBytes`), external memory such as Buffers and ArrayBuffers (`peakExternalBytes`), and the two together (`peakTotalBytes`); each also above the run's empty-call floor (`peakTotalAboveFloorBytes` and the like), below | Native memory a library allocates outside V8's accounting                                                                           |
+| Heap flat over a long run              | 30 rounds, the heap settled after each; a Theil-Sen slope over the last 24; growing when the fitted growth reaches 64 KiB. On the long-run size and on the largest size whose 30 rounds fit in 60 s                                                                                                                                                                             | A leak too small to reach 64 KiB over the run (each result says the smallest it could see, `detectableBytesPerOp`); external memory |
+| Cold import and loaded bytes           | 20 fresh processes import the target, 20 import an empty module, interleaved; one more records every file the import loads, with its gzip size                                                                                                                                                                                                                                  | What a bundler keeps after tree shaking                                                                                             |
 
 Memory measurements need `gc()`; the runner starts those processes with `--expose-gc` itself, and
 with `--no-concurrent-array-buffer-sweeping`, so a collection frees the ArrayBuffers it found dead
 before it ends and the external memory it reports before and after is exact.
+
+### The empty-call floor and small inputs
+
+Reading the peak costs memory of its own: settling the heap, the profiler that records each
+collection, the record itself. Four of our packages measured it at about 21 to 24 KiB with nothing to
+measure, so a budget of 20 times a 1 KiB input is spent before the code under test runs. A reading
+therefore measures an empty call once, in a fresh process through the same probe (`memoryFloor`), and
+gives each peak figure both raw and above the floor's median, never below zero
+(`peakTotalAboveFloorBytes`, `medianPeakTotalAboveFloorBytes`, and the same for the heap and external
+memory).
+
+A memory budget reads `budgetPeakBytes(caseReading)`: for a case whose inputs average under
+`BENCH_CONTRACT.FLOOR_INPUT_BYTES` (64 KiB) it is the highest total peak above the floor, and for any
+other case, or one whose suite gave no byte count, the raw `peakTotalBytes`. At 64 KiB the floor is
+under 2% of a 20 times budget, less than the spread between one case's own calls, so a large input
+keeps the raw figure, which needs nothing from another process. A suite that added its own empty
+"floor" case can drop it.
 
 ### Large cases
 
@@ -203,6 +227,8 @@ CI runner image, never by host name, user or absolute path.
 - `judge(ratios, threshold?, alpha?)`: the comparison's verdict for one case from its per-round ratios.
 - `readResults(text)`: parse and check a results document; throws a `TypeError` listing every
   problem. `RESULTS_SCHEMA` is the schema, also shipped as `schema/results-v1.schema.json`.
+- `budgetPeakBytes(caseReading)`: the peak a memory budget reads for a case, above the empty-call
+  floor for an input under 64 KiB and raw for any other.
 - `BENCH_CONTRACT`: the frozen constants.
 - `BenchError`: what a run that could not measure throws.
 

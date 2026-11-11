@@ -219,6 +219,61 @@ describe("the results schema", () => {
     );
   });
 
+  it("accepts the memory floor, the figures above it and the failures, and checks their types", () => {
+    const first = reading.cases[0];
+    if (first === undefined) throw new Error("a case");
+    const peak = {
+      status: "measured",
+      calls: 20,
+      peakHeapBytes: 30_000,
+      medianPeakHeapBytes: 25_000,
+      peakTotalBytes: 30_000,
+      medianPeakTotalBytes: 25_000,
+      peakHeapAboveFloorBytes: 6_000,
+      medianPeakHeapAboveFloorBytes: 1_000,
+      peakExternalAboveFloorBytes: 0,
+      medianPeakExternalAboveFloorBytes: 0,
+      peakTotalAboveFloorBytes: 6_000,
+      medianPeakTotalAboveFloorBytes: 1_000,
+    };
+    const body = {
+      ...reading,
+      cases: [{ ...first, peak }],
+      memoryFloor: {
+        status: "measured",
+        calls: 20,
+        peakHeapBytes: 25_000,
+        medianPeakHeapBytes: 24_000,
+      },
+      failures: [
+        { phase: "memory", benchmark: "scan", size: "1 KiB", message: "the heap job timed out" },
+        { phase: "floor", benchmark: null, size: null, message: "the floor job timed out" },
+      ],
+    };
+    const check = (b: unknown) =>
+      validate(JSON.parse(JSON.stringify({ ...docs[0], reading: b })), RESULTS_SCHEMA);
+    expect(check(body)).toEqual([]);
+    expect(check({ ...body, memoryFloor: null, failures: [] })).toEqual([]);
+    expect(
+      check({ ...body, memoryFloor: { status: "skipped", reason: "gc-unavailable" } }),
+    ).toEqual([]);
+    expect(check({ ...body, memoryFloor: { status: "measured" } })).toContain(
+      "/reading/memoryFloor: must match exactly one of 2 shapes, matches 0",
+    );
+    expect(
+      check({
+        ...body,
+        cases: [{ ...first, peak: { ...peak, peakTotalAboveFloorBytes: "6000" } }],
+      }),
+    ).toContain("/reading/cases/0/peak: must match exactly one of 2 shapes, matches 0");
+    expect(
+      check({ ...body, failures: [{ phase: "import", benchmark: null, size: null, message: "" }] }),
+    ).toContain('/reading/failures/0/phase: must be one of "timing", "memory", "floor"');
+    const missing = check({ ...body, failures: [{ phase: "timing", benchmark: "scan" }] });
+    expect(missing).toContain('/reading/failures/0: is missing "size"');
+    expect(missing).toContain('/reading/failures/0: is missing "message"');
+  });
+
   it("records the tool, its version, the time and the constants", () => {
     expect(base).toMatchObject({
       schemaVersion: SCHEMA_VERSION,

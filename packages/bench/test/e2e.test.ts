@@ -7,7 +7,8 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import type { Job } from "../src/child.js";
+import type { FloorJob, Job } from "../src/child.js";
+import { BENCH_CONTRACT } from "../src/contract.js";
 import { measureImportCost } from "../src/import-cost.js";
 import { readResults } from "../src/results.js";
 import { flagsFor, runInChild, runNode } from "../src/spawn.js";
@@ -107,6 +108,19 @@ describe("a real measuring process", () => {
     expect(heap.peak.medianPeakExternalBytes).toBeGreaterThanOrEqual(bytes);
     expect(heap.peak.peakTotalBytes).toBeGreaterThanOrEqual(bytes);
     expect(heap.peak.peakTotalBytes).toBeLessThan(bytes * 1.5);
+  });
+
+  it("measures the empty-call floor, the probe's own cost, under the size the budget rule names", async () => {
+    const floor: FloorJob = { mode: "floor" };
+    const result = await runInChild(floor, {
+      entry: TS.child,
+      execArgv: [...TS.loader, ...flagsFor(floor)],
+    });
+    if (result.peak.status !== "measured")
+      throw new Error(`not measured: ${JSON.stringify(result)}`);
+    expect(result.peak.calls).toBe(BENCH_CONTRACT.PEAK_CALLS);
+    expect(result.peak.medianPeakTotalBytes).toBeGreaterThanOrEqual(0);
+    expect(result.peak.medianPeakTotalBytes).toBeLessThan(BENCH_CONTRACT.FLOOR_INPUT_BYTES);
   });
 
   it("skips memory, typed, without --expose-gc", async () => {

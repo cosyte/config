@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { BENCH_CONTRACT } from "../src/contract.js";
 import {
+  aboveFloor,
   measureAllocations,
   measureLongRun,
   measurePeak,
@@ -281,6 +282,73 @@ describe("measurePeak", () => {
       status: "skipped",
       reason: "gc-unsettled",
     });
+  });
+});
+
+describe("aboveFloor", () => {
+  const floor = {
+    status: "measured",
+    calls: 20,
+    peakHeapBytes: 30_000,
+    medianPeakHeapBytes: 20_000,
+    peakExternalBytes: 900,
+    medianPeakExternalBytes: 100,
+    peakTotalBytes: 30_900,
+    medianPeakTotalBytes: 20_100,
+  } as const;
+  const peak = {
+    status: "measured",
+    calls: 20,
+    peakHeapBytes: 50_000,
+    medianPeakHeapBytes: 15_000,
+    peakExternalBytes: 1_000,
+    medianPeakExternalBytes: 50,
+    peakTotalBytes: 51_000,
+    medianPeakTotalBytes: 25_000,
+  } as const;
+
+  it("takes the floor's median off every figure, the highest and the median, never below zero", () => {
+    expect(aboveFloor(peak, floor)).toStrictEqual({
+      ...peak,
+      peakHeapAboveFloorBytes: 30_000,
+      medianPeakHeapAboveFloorBytes: 0,
+      peakExternalAboveFloorBytes: 900,
+      medianPeakExternalAboveFloorBytes: 0,
+      peakTotalAboveFloorBytes: 30_900,
+      medianPeakTotalAboveFloorBytes: 4_900,
+    });
+  });
+
+  it("gives a figure only where both sides have it, as a document written before them reads", () => {
+    const old = {
+      status: "measured",
+      calls: 20,
+      peakHeapBytes: 50_000,
+      medianPeakHeapBytes: 1,
+    } as const;
+    expect(aboveFloor(old, floor)).toStrictEqual({
+      ...old,
+      peakHeapAboveFloorBytes: 30_000,
+      medianPeakHeapAboveFloorBytes: 0,
+    });
+    const oldFloor = {
+      status: "measured",
+      calls: 20,
+      peakHeapBytes: 1,
+      medianPeakHeapBytes: 0,
+    } as const;
+    expect(aboveFloor(peak, oldFloor)).toStrictEqual({
+      ...peak,
+      peakHeapAboveFloorBytes: 50_000,
+      medianPeakHeapAboveFloorBytes: 15_000,
+    });
+  });
+
+  it("returns the peak as it is when either side was skipped, or there is no floor", () => {
+    const skip = { status: "skipped", reason: "gc-unsettled" } as const;
+    expect(aboveFloor(peak, null)).toBe(peak);
+    expect(aboveFloor(peak, skip)).toBe(peak);
+    expect(aboveFloor(skip, floor)).toBe(skip);
   });
 });
 

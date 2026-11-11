@@ -6,6 +6,8 @@
  */
 
 import type { CaseComparison } from "./compare.js";
+import { BENCH_CONTRACT } from "./contract.js";
+import { budgetPeakBytes } from "./reading.js";
 import type { ResultsDocument } from "./results.js";
 import { round } from "./stats.js";
 
@@ -112,10 +114,21 @@ export function renderMarkdown(doc: ResultsDocument): string {
     const r = doc.reading;
     lines.push(...header(doc, "Reading"));
     lines.push(
-      `Throughput is the median of ${String(r.processes)} fresh processes. "Large-case plan" marks a case whose calls each outlast a warmup batch. Latency is per call, nearest rank. Memory: allocations per operation ("collections counted" when every window collected), the peak of one call above what was in use before it (the V8 heap, external memory such as Buffers, and the two together, which a memory budget reads), and whether the settled heap stays flat over a long run.`,
+      `Throughput is the median of ${String(r.processes)} fresh processes. "Large-case plan" marks a case whose calls each outlast a warmup batch. Latency is per call, nearest rank. Memory: allocations per operation ("collections counted" when every window collected), the peak of one call above what was in use before it (the V8 heap, external memory such as Buffers, and the two together), the total above the empty-call floor, the peak a memory budget reads (the total above the floor for an input under ${bytes(BENCH_CONTRACT.FLOOR_INPUT_BYTES)}, the raw total for any other), and whether the settled heap stays flat over a long run.`,
       "",
-      "| Benchmark | Size | Per op | Ops/s | Bytes/s | p50 | p95 | p99 | Alloc/op | Peak heap | Peak external | Peak total | Long run |",
-      "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+    );
+    const f = r.memoryFloor;
+    if (f !== undefined && f !== null) {
+      lines.push(
+        f.status === "measured"
+          ? `Empty-call floor, what the peak probe itself costs: ${bytes(f.medianPeakHeapBytes)} heap, ${f.medianPeakTotalBytes === undefined ? "n/a" : bytes(f.medianPeakTotalBytes)} total (the median of ${String(f.calls)} calls).`
+          : `Empty-call floor: skipped (${f.reason}).`,
+        "",
+      );
+    }
+    lines.push(
+      "| Benchmark | Size | Per op | Ops/s | Bytes/s | p50 | p95 | p99 | Alloc/op | Peak heap | Peak external | Peak total | Above floor | Budget reads | Long run |",
+      "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     );
     for (const c of r.cases) {
       const t = c.throughput;
@@ -146,12 +159,19 @@ export function renderMarkdown(doc: ResultsDocument): string {
             : `skipped (${a.reason})`;
       const p = c.peak;
       const optional = (n: number | undefined) => (n === undefined ? "n/a" : bytes(n));
+      const budget = budgetPeakBytes(c);
       const peak =
         p === null
-          ? ["n/a", "n/a", "n/a"]
+          ? ["n/a", "n/a", "n/a", "n/a", "n/a"]
           : p.status === "measured"
-            ? [bytes(p.peakHeapBytes), optional(p.peakExternalBytes), optional(p.peakTotalBytes)]
-            : Array.from({ length: 3 }, () => `skipped (${p.reason})`);
+            ? [
+                bytes(p.peakHeapBytes),
+                optional(p.peakExternalBytes),
+                optional(p.peakTotalBytes),
+                optional(p.peakTotalAboveFloorBytes),
+                budget === null ? "n/a" : bytes(budget),
+              ]
+            : Array.from({ length: 5 }, () => `skipped (${p.reason})`);
       const lr = c.longRun;
       const long =
         lr === null
@@ -161,6 +181,19 @@ export function renderMarkdown(doc: ResultsDocument): string {
             : `skipped (${lr.reason})`;
       lines.push(
         `| ${c.benchmark} | ${c.size} | ${perOp} | ${ops} | ${bps} | ${lat.join(" | ")} | ${alloc} | ${peak.join(" | ")} | ${long} |`,
+      );
+    }
+    const failures = r.failures ?? [];
+    if (failures.length > 0) {
+      lines.push(
+        "",
+        `Could not measure ${String(failures.length)} part(s) of the run; every other case above was measured and written:`,
+        "",
+        ...failures.map((x) =>
+          x.benchmark === null
+            ? `- the empty-call floor: ${x.message}`
+            : `- ${x.phase} of ${x.benchmark} @ ${String(x.size)}: ${x.message}`,
+        ),
       );
     }
     if (r.importCost !== null) {

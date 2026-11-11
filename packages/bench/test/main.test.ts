@@ -3,7 +3,7 @@ import { join, relative } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import type { Job, JobResult } from "../src/child.js";
+import type { AnyJob, AnyJobResult } from "../src/child.js";
 import { USAGE, main, parseArgs, type MainIo } from "../src/main.js";
 import { readResults } from "../src/results.js";
 import { env, fixedRunner, importCost, warmup } from "./support/bodies.js";
@@ -237,7 +237,8 @@ describe("main", () => {
   });
 
   it("compares, exits 1 on a regression, and records both builds", async () => {
-    const runJob = (job: Job): Promise<JobResult> => {
+    const runJob = (job: AnyJob): Promise<AnyJobResult> => {
+      if (job.mode === "floor") return Promise.reject(new Error("a comparison runs no floor"));
       const ms = job.mode === "timing" && job.target.endsWith("head.mjs") ? 1.2 : 1;
       return Promise.resolve({
         mode: "timing",
@@ -479,6 +480,51 @@ describe("main", () => {
         thrown.io,
       ),
     ).toBe(2);
-    expect(thrown.err()).toBe("[cosyte-bench] plain\n");
+    expect(thrown.err()).toBe(
+      "[cosyte-bench] could not measure timing of length @ small: plain\n" +
+        "[cosyte-bench] could not measure the memory floor: plain\n",
+    );
+  });
+
+  it("writes every case it measured when one cannot be, lists that one, and exits 2", async () => {
+    const runner = fixedRunner({
+      fail: (j) => j.mode === "timing" && j.case.size === "large",
+    });
+    const h = harness({ runJob: runner.runJob });
+    const code = await main(
+      [
+        "run",
+        "--suite",
+        suite(),
+        "--target",
+        "t.mjs",
+        "--only",
+        "length",
+        "--processes",
+        "1",
+        "--out",
+        "r.json",
+      ],
+      h.io,
+    );
+    expect(code).toBe(2);
+    const doc = readResults(readFileSync(join(h.dir, "r.json"), "utf8"));
+    if (doc.kind !== "reading") throw new Error("a reading");
+    expect(doc.reading.cases.map((c) => c.size)).toEqual(["small"]);
+    expect(doc.reading.failures).toEqual([
+      {
+        phase: "timing",
+        benchmark: "length",
+        size: "large",
+        message: "the timing job could not measure: synthetic",
+      },
+    ]);
+    expect(doc.reading.memoryFloor).toMatchObject({ status: "measured" });
+    expect(h.out()).toContain(
+      "- timing of length @ large: the timing job could not measure: synthetic",
+    );
+    expect(h.err()).toContain(
+      "[cosyte-bench] could not measure timing of length @ large: the timing job could not measure: synthetic\nstderr line two\n",
+    );
   });
 });

@@ -38,6 +38,11 @@ describe("flagsFor", () => {
     expect(
       flagsFor({ mode: "heap", suite: "", target: "", case: job.case, longRun: false }),
     ).toEqual(["--expose-gc", "--no-concurrent-array-buffer-sweeping"]);
+    // The floor reads its peak the way the heap job does, so it starts the same way.
+    expect(flagsFor({ mode: "floor" })).toEqual([
+      "--expose-gc",
+      "--no-concurrent-array-buffer-sweeping",
+    ]);
     expect(flagsFor({ mode: "alloc", suite: "", target: "", case: job.case })).toEqual([
       "--expose-gc",
       "--no-concurrent-array-buffer-sweeping",
@@ -109,6 +114,10 @@ describe("runInChild", () => {
     );
     await expect(runInChild(job, { entry: entry("no-result") })).rejects.toThrow(
       /could not measure: undefined/,
+    );
+    // The floor names no case, so its error names the job alone.
+    await expect(runInChild({ mode: "floor" }, { entry: entry("refuses") })).rejects.toThrow(
+      new BenchError("the floor job could not measure: the suite is not a suite"),
     );
   });
 

@@ -171,6 +171,44 @@ describe("runJob: memory", () => {
   });
 });
 
+describe("runJob: the floor", () => {
+  it("measures the peak of an empty call, importing no suite and no target", async () => {
+    let calls = 0;
+    const counting: HeapProbe = {
+      ...stillHeap,
+      profile: (fn) => {
+        calls++;
+        return stillHeap.profile(fn);
+      },
+    };
+    const result = await runJob({ mode: "floor" }, deps(counting));
+    expect(result).toEqual({
+      mode: "floor",
+      peak: {
+        status: "measured",
+        calls: BENCH_CONTRACT.PEAK_CALLS,
+        peakHeapBytes: 0,
+        medianPeakHeapBytes: 0,
+        peakExternalBytes: 0,
+        medianPeakExternalBytes: 0,
+        peakTotalBytes: 0,
+        medianPeakTotalBytes: 0,
+      },
+    });
+    expect(calls).toBe(BENCH_CONTRACT.PEAK_CALLS);
+    expect(measuredSomething(result)).toBe(true);
+  });
+
+  it("skips, typed, without gc", async () => {
+    const result = await runJob({ mode: "floor" }, deps(null));
+    expect(result).toEqual({
+      mode: "floor",
+      peak: { status: "skipped", reason: "gc-unavailable" },
+    });
+    expect(measuredSomething(result)).toBe(false);
+  });
+});
+
 describe("runJob: refusals", () => {
   it("refuses a loop whose sink did not grow", async () => {
     await expect(runJob(timing("nothing"), deps())).rejects.toThrow(

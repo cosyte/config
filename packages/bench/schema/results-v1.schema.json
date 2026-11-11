@@ -398,6 +398,89 @@
         }
       }
     },
+    "peak": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["status", "calls", "peakHeapBytes", "medianPeakHeapBytes"],
+          "properties": {
+            "status": {
+              "const": "measured"
+            },
+            "calls": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "peakHeapBytes": {
+              "type": "number"
+            },
+            "medianPeakHeapBytes": {
+              "type": "number"
+            },
+            "peakExternalBytes": {
+              "type": "number"
+            },
+            "medianPeakExternalBytes": {
+              "type": "number"
+            },
+            "peakTotalBytes": {
+              "type": "number"
+            },
+            "medianPeakTotalBytes": {
+              "type": "number"
+            },
+            "peakHeapAboveFloorBytes": {
+              "type": "number"
+            },
+            "medianPeakHeapAboveFloorBytes": {
+              "type": "number"
+            },
+            "peakExternalAboveFloorBytes": {
+              "type": "number"
+            },
+            "medianPeakExternalAboveFloorBytes": {
+              "type": "number"
+            },
+            "peakTotalAboveFloorBytes": {
+              "type": "number"
+            },
+            "medianPeakTotalAboveFloorBytes": {
+              "type": "number"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["status", "reason"],
+          "properties": {
+            "status": {
+              "const": "skipped"
+            },
+            "reason": {
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "failure": {
+      "type": "object",
+      "required": ["phase", "benchmark", "size", "message"],
+      "properties": {
+        "phase": {
+          "enum": ["timing", "memory", "floor"]
+        },
+        "benchmark": {
+          "type": ["string", "null"]
+        },
+        "size": {
+          "type": ["string", "null"]
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    },
     "reading": {
       "type": "object",
       "required": ["processes", "cases", "importCost"],
@@ -410,6 +493,22 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/caseReading"
+          }
+        },
+        "memoryFloor": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/peak"
+            }
+          ]
+        },
+        "failures": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/failure"
           }
         },
         "importCost": {
@@ -668,51 +767,7 @@
               "type": "null"
             },
             {
-              "oneOf": [
-                {
-                  "type": "object",
-                  "required": ["status", "calls", "peakHeapBytes", "medianPeakHeapBytes"],
-                  "properties": {
-                    "status": {
-                      "const": "measured"
-                    },
-                    "calls": {
-                      "type": "integer",
-                      "minimum": 0
-                    },
-                    "peakHeapBytes": {
-                      "type": "number"
-                    },
-                    "medianPeakHeapBytes": {
-                      "type": "number"
-                    },
-                    "peakExternalBytes": {
-                      "type": "number"
-                    },
-                    "medianPeakExternalBytes": {
-                      "type": "number"
-                    },
-                    "peakTotalBytes": {
-                      "type": "number"
-                    },
-                    "medianPeakTotalBytes": {
-                      "type": "number"
-                    }
-                  }
-                },
-                {
-                  "type": "object",
-                  "required": ["status", "reason"],
-                  "properties": {
-                    "status": {
-                      "const": "skipped"
-                    },
-                    "reason": {
-                      "type": "string"
-                    }
-                  }
-                }
-              ]
+              "$ref": "#/$defs/peak"
             }
           ]
         },

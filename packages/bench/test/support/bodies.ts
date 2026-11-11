@@ -1,7 +1,9 @@
-import type { Job, JobResult } from "../../src/child.js";
+import type { AnyJob, AnyJobResult, Job } from "../../src/child.js";
 import type { CaseComparison } from "../../src/compare.js";
 import type { Environment } from "../../src/environment.js";
 import type { ImportCostReport } from "../../src/import-cost.js";
+import type { PeakReport } from "../../src/memory.js";
+import { BenchError } from "../../src/spawn.js";
 
 export const warmup = {
   stable: true,
@@ -45,6 +47,18 @@ export const importCost: ImportCostReport = {
   totalGzipBytes: 900,
 };
 
+/** The empty-call floor the fixed runner reports: 24 KiB of probe, all of it heap. */
+export const FLOOR_PEAK: PeakReport = {
+  status: "measured",
+  calls: 20,
+  peakHeapBytes: 26_000,
+  medianPeakHeapBytes: 24_576,
+  peakExternalBytes: 0,
+  medianPeakExternalBytes: 0,
+  peakTotalBytes: 26_000,
+  medianPeakTotalBytes: 24_576,
+};
+
 /** A runner that answers every job with fixed, plausible numbers, and records the jobs. */
 export function fixedRunner(
   options: {
@@ -53,12 +67,26 @@ export function fixedRunner(
     msPerOp?: (job: Job, call: number) => number;
     /** The warmup plan a timing job reports. */
     plan?: (job: Job) => "standard" | "large";
+    /** Fail a job the way a measuring process that could not measure does. */
+    fail?: (job: AnyJob) => boolean;
   } = {},
 ) {
+  /** The case jobs, in order. The floor jobs are counted in `floors`. */
   const jobs: Job[] = [];
-  const runJob = (job: Job): Promise<JobResult> => {
+  const counts = { floors: 0 };
+  const runJob = (job: AnyJob): Promise<AnyJobResult> => {
+    const failed = options.fail?.(job) === true;
+    const reject = () =>
+      Promise.reject(
+        new BenchError(`the ${job.mode} job could not measure: synthetic\nstderr line two`),
+      );
+    if (job.mode === "floor") {
+      counts.floors++;
+      return failed ? reject() : Promise.resolve({ mode: "floor", peak: FLOOR_PEAK });
+    }
     const call = jobs.length;
     jobs.push(job);
+    if (failed) return reject();
     const shape = { case: job.case, inputsPerPass: 4, bytesPerPass: 4096 };
     if (job.mode === "timing") {
       if (options.skipTiming?.(call) === true) {
@@ -113,6 +141,10 @@ export function fixedRunner(
         calls: 20,
         peakHeapBytes: 3 * 1024 * 1024,
         medianPeakHeapBytes: 1024,
+        peakExternalBytes: 0,
+        medianPeakExternalBytes: 0,
+        peakTotalBytes: 3 * 1024 * 1024,
+        medianPeakTotalBytes: 1024,
       },
       longRun: job.longRun
         ? {
@@ -128,7 +160,7 @@ export function fixedRunner(
         : null,
     });
   };
-  return { jobs, runJob };
+  return { jobs, counts, runJob };
 }
 
 export const caseComparison = (over: Partial<CaseComparison> = {}): CaseComparison => ({

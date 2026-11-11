@@ -244,6 +244,17 @@ export type PeakReport =
       readonly peakTotalBytes?: number;
       /** The median call's peak of the two together. */
       readonly medianPeakTotalBytes?: number;
+      /**
+       * Each figure above, less the same figure of the run's empty-call floor (its median), and
+       * never below zero. Absent when the run measured no floor, and in a document written before it.
+       * See {@link aboveFloor}.
+       */
+      readonly peakHeapAboveFloorBytes?: number;
+      readonly medianPeakHeapAboveFloorBytes?: number;
+      readonly peakExternalAboveFloorBytes?: number;
+      readonly medianPeakExternalAboveFloorBytes?: number;
+      readonly peakTotalAboveFloorBytes?: number;
+      readonly medianPeakTotalAboveFloorBytes?: number;
     }
   | { readonly status: "skipped"; readonly reason: MemorySkipReason };
 
@@ -284,6 +295,37 @@ export function measurePeak(call: (i: number) => void, probe: HeapProbe): PeakRe
     peakTotalBytes: Math.max(...total),
     medianPeakTotalBytes: median(total),
   };
+}
+
+/**
+ * A case's peak less the empty-call floor. The probe itself costs the same few tens of KiB whatever
+ * it measures (a settle, a profiler, a collection record), so the floor is the median of an empty
+ * call's peaks and is taken off every figure of the case, the highest and the median alike, never
+ * going below zero. A peak or floor that was skipped, or a floor lacking a figure, returns the peak
+ * as it is.
+ *
+ * @internal
+ */
+export function aboveFloor(peak: PeakReport, floor: PeakReport | null): PeakReport {
+  if (peak.status !== "measured" || floor === null || floor.status !== "measured") return peak;
+  const less = (value: number | undefined, base: number | undefined): number | undefined =>
+    value === undefined || base === undefined ? undefined : Math.max(0, value - base);
+  const out = {
+    ...peak,
+    peakHeapAboveFloorBytes: less(peak.peakHeapBytes, floor.medianPeakHeapBytes),
+    medianPeakHeapAboveFloorBytes: less(peak.medianPeakHeapBytes, floor.medianPeakHeapBytes),
+    peakExternalAboveFloorBytes: less(peak.peakExternalBytes, floor.medianPeakExternalBytes),
+    medianPeakExternalAboveFloorBytes: less(
+      peak.medianPeakExternalBytes,
+      floor.medianPeakExternalBytes,
+    ),
+    peakTotalAboveFloorBytes: less(peak.peakTotalBytes, floor.medianPeakTotalBytes),
+    medianPeakTotalAboveFloorBytes: less(peak.medianPeakTotalBytes, floor.medianPeakTotalBytes),
+  };
+  // JSON drops an undefined; drop it here too so a document and its in-memory form are alike.
+  return Object.fromEntries(
+    Object.entries(out).filter(([, v]) => v !== undefined),
+  ) as unknown as PeakReport;
 }
 
 /** Whether the heap stayed flat over a long run. */
