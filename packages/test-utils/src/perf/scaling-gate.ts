@@ -292,7 +292,7 @@ function describe(
   scaled: PhaseReport | null,
   ratio: number | null,
   headline: string,
-  targetMs: number | null = null,
+  sizing: string | null = null,
 ): string {
   const lines = [
     `[@cosyte/test-utils/perf] ${name}: ${axis} axis: ${headline}`,
@@ -303,7 +303,7 @@ function describe(
       `${String(warmup.passes)} passes, ${String(warmup.batches.length)} batches ` +
       `(ms/pass: ${warmup.batches.map(round4).join(", ")})`,
   ];
-  if (targetMs !== null && base !== null) lines.push(selfSizeLine(base.passes, targetMs));
+  if (sizing !== null) lines.push(sizing);
   for (const p of [base, scaled]) {
     if (p === null) continue;
     lines.push(
@@ -363,7 +363,7 @@ function runAxis<TInput, TResult, A extends PerfAxis>(
     };
   }
 
-  const passes = targetMs === null ? 1 : choosePasses(baseCorpus, parse, weigh, targetMs);
+  const passes = choosePasses(baseCorpus, parse, weigh, targetMs);
   const sinkBefore = perfSink.value;
   const baseSamples = timePhase(baseCorpus, parse, weigh, passes);
   const scaledSamples = timePhase(scaledCorpus, parse, weigh, passes);
@@ -378,6 +378,7 @@ function runAxis<TInput, TResult, A extends PerfAxis>(
   }
 
   const base = phaseReport("base", baseCorpus.length, passes, baseSize, baseSamples);
+  const sizing = targetMs === null ? null : selfSizeLine(passes, targetMs);
   const scaled = phaseReport("scaled", scaledCorpus.length, passes, scaledSize, scaledSamples);
 
   if (base.min < PERF_CONTRACT.MIN_PHASE_MS) {
@@ -390,10 +391,10 @@ function runAxis<TInput, TResult, A extends PerfAxis>(
       null,
       `SKIPPED (phase-too-short): base min ${String(base.min)} ms is under MIN_PHASE_MS ` +
         `${String(PERF_CONTRACT.MIN_PHASE_MS)} ms` +
-        (targetMs === null ? "" : ` even at ${String(passes)} passes per rep`) +
+        (sizing === null ? "" : ` even at ${String(passes)} passes per rep`) +
         ", so the ceiling would be extrapolation. " +
         "This fixture is below the calibrated regime: grow it. A skip is NOT a pass.",
-      targetMs,
+      sizing,
     );
     report(diagnostic);
     return {
@@ -408,7 +409,7 @@ function runAxis<TInput, TResult, A extends PerfAxis>(
   }
 
   const ratio = scaled.min / base.min;
-  const measured = describe(name, axis, warmup, base, scaled, ratio, "measured", targetMs);
+  const measured = describe(name, axis, warmup, base, scaled, ratio, "measured", sizing);
 
   if (ratio > PERF_CONTRACT.RATIO_CEILING) {
     throw new AssertionError({

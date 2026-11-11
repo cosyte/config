@@ -23,7 +23,7 @@ import {
   scalingGate,
   type ScalingGateOptions,
 } from "../../src/perf/index.js";
-import { MAX_PHASE_PASSES, choosePasses } from "../../src/perf/measure.js";
+import { MAX_PHASE_PASSES, choosePasses, perfSink, timePhase } from "../../src/perf/measure.js";
 import { costingParse, installFakeClock, type FakeClock } from "./_clock.js";
 
 interface Costed {
@@ -93,6 +93,14 @@ describe("self-sizing: the tiny fixture the gate used to skip", () => {
     expect(report.count.base?.min).toBe(0.5);
     // And its diagnostic says nothing about self-sizing.
     expect(lines.join("\n")).not.toContain("self-sized");
+    expect(lines.join("\n")).not.toContain("passes per rep");
+    expect(report.count.diagnostic).toContain(
+      "under MIN_PHASE_MS 4 ms, so the ceiling would be extrapolation. This fixture",
+    );
+    // Every line after the headline is an indented detail: nothing empty was pushed in.
+    for (const line of report.count.diagnostic.split("\n").slice(1)) {
+      expect(line.startsWith("  ")).toBe(true);
+    }
   });
 
   it("is measured with self-sizing, at the default target, with the ratio unchanged", () => {
@@ -107,6 +115,11 @@ describe("self-sizing: the tiny fixture the gate used to skip", () => {
     // 0.5 ms a pass, 20 ms wanted: 40 passes, on the base phase AND the scaled phase.
     expect(SELF_SIZE_TARGET_MS).toBe(20);
     for (const axis of [report.count, report.size]) {
+      expect(axis.diagnostic.split("\n")[0]).toBe(
+        `[@cosyte/test-utils/perf] tiny fixture: ${axis.axis} axis: measured`,
+      );
+      expect(axis.base.phase).toBe("base");
+      expect(axis.scaled.phase).toBe("scaled");
       expect(axis.base.passes).toBe(40);
       expect(axis.scaled.passes).toBe(40);
       expect(axis.base.min).toBe(20);
@@ -114,8 +127,10 @@ describe("self-sizing: the tiny fixture the gate used to skip", () => {
       // Exactly the ratio one pass against one pass would have given.
       expect(axis.ratio).toBe(4);
       // The count it chose is in the diagnostic, so a CI log shows it.
-      expect(axis.diagnostic).toContain("self-sized: 40 passes per rep");
-      expect(axis.diagnostic).toContain("target 20 ms");
+      expect(axis.diagnostic).toContain(
+        "\n  self-sized: 40 passes per rep (target 20 ms on the base phase; the scaled phase runs " +
+          "the same count, so the ratio is unchanged)\n",
+      );
     }
     // Inputs are per pass and unchanged: repetition is not a bigger corpus.
     expect(report.count.base.inputs).toBe(1);
@@ -218,8 +233,14 @@ describe("self-sizing keeps the ceiling, the floor and the fail-safe", () => {
 describe("choosePasses", () => {
   it("lands on the smallest count that reaches the target when the cost is exact", () => {
     const clock = installFakeClock();
-    const parse = costingParse(clock, (ms: number) => ms);
+    let calls = 0;
+    const parse = costingParse(clock, (ms: number) => {
+      calls++;
+      return ms;
+    });
     expect(choosePasses([0.25], parse, () => 1, 20)).toBe(80);
+    // One pass to estimate from, then the 80 it estimated: no creeping up a pass at a time.
+    expect(calls).toBe(1 + 80);
     expect(choosePasses([0.25, 0.25], parse, () => 1, 20)).toBe(40);
     expect(choosePasses([30], parse, () => 1, 20)).toBe(1);
   });
@@ -235,14 +256,33 @@ describe("choosePasses", () => {
     expect(passes * 0.5).toBeGreaterThanOrEqual(20);
   });
 
+  it("doubles while a pass reads as no time, then estimates from the first round that does", () => {
+    // Calls 0 to 2 cost nothing: one pass, then two, read 0 ms. The third round (four passes) costs
+    // 2 ms, so the estimate is 4 x 20 / 2 = 40 passes, which reach the target exactly.
+    const clock = installFakeClock();
+    let calls = 0;
+    const parse = costingParse(clock, () => (calls++ < 3 ? 0 : 0.5));
+    expect(choosePasses([0], parse, () => 1, 20)).toBe(40);
+  });
+
   it("doubles when a pass reads as no time at all, and stops at the cap", () => {
     const clock = installFakeClock();
     const parse = costingParse(clock, () => 0);
     expect(choosePasses([0], parse, () => 1, 20)).toBe(MAX_PHASE_PASSES);
   });
 
-  it("feeds the sink, so the calibration loop cannot be eliminated either", async () => {
-    const { perfSink } = await import("../../src/perf/measure.js");
+  it("returns 1 without timing anything when there is no target", () => {
+    const clock = installFakeClock();
+    let calls = 0;
+    const parse = costingParse(clock, () => {
+      calls++;
+      return 1;
+    });
+    expect(choosePasses([0, 0], parse, () => 1, null)).toBe(1);
+    expect(calls).toBe(0);
+  });
+
+  it("feeds the sink, so the calibration loop cannot be eliminated either", () => {
     const clock = installFakeClock();
     const before = perfSink.value;
     choosePasses(
@@ -255,20 +295,44 @@ describe("choosePasses", () => {
   });
 });
 
+describe("timePhase with passes", () => {
+  it("times every pass in each rep and sums every result into the sink", () => {
+    const clock = installFakeClock();
+    const before = perfSink.value;
+    const samples = timePhase(
+      [0.5, 0.5],
+      costingParse(clock, (ms: number) => ms),
+      () => 1,
+      3,
+    );
+    // 3 passes over 2 inputs at 0.5 ms: 3 ms a rep, and 6 results a rep into the sink.
+    expect(samples).toEqual(Array.from({ length: PERF_CONTRACT.REPS }, () => 3));
+    expect(perfSink.value - before).toBe(PERF_CONTRACT.REPS * 6);
+  });
+});
+
 describe("self-sizing in the self-check", () => {
   interface Sized {
     readonly i: number;
     readonly size: number;
   }
 
-  /** A clean parse at 0.1 ms per size unit: 1 ms at the base size of 10, under the floor. */
-  function sized(clock: FakeClock, selfSize?: true): ScalingGateOptions<Sized, number> {
+  /**
+   * A clean parse at `perUnit` ms per size unit (by default 0.1: 1 ms at the base size of 10, under
+   * the floor), one input on the count axis and two on the size axis, so the two axes need
+   * different counts of passes.
+   */
+  function sized(
+    clock: FakeClock,
+    selfSize?: true,
+    perUnit = 0.1,
+  ): ScalingGateOptions<Sized, number> {
     return {
       name: "self-check subject",
-      parse: costingParse(clock, (input: Sized) => input.size * 0.1),
+      parse: costingParse(clock, (input: Sized) => input.size * perUnit),
       weigh: (v) => v,
       count: { n: 1, generate: (i) => ({ i, size: 10 }) },
-      size: { inputs: 1, size: 10, generate: (i, size) => ({ i, size }) },
+      size: { inputs: 2, size: 10, generate: (i, size) => ({ i, size }) },
       report: () => undefined,
       ...(selfSize === undefined ? {} : { selfSize }),
     };
@@ -280,12 +344,46 @@ describe("self-sizing in the self-check", () => {
 
   it("without self-sizing, fails the precondition on the tiny clean phase", () => {
     const clock = installFakeClock();
-    expect(() =>
+    let thrown: Error | undefined;
+    try {
       assertScalingGateFires(sized(clock), {
         regressedParse: regressed(clock, 12),
         equals: () => true,
-      }),
-    ).toThrow(/CLEAN base phase measured 1 ms/);
+      });
+    } catch (error) {
+      thrown = error as Error;
+    }
+    expect(thrown?.message).toContain("CLEAN base phase measured 1 ms, under");
+    expect(thrown?.message).not.toContain("passes per rep");
+  });
+
+  it("without self-sizing, passes as before: one pass a rep and no sizing in the diagnostic", () => {
+    const clock = installFakeClock();
+    // 0.4 ms a unit: 4 ms at the base size, exactly the floor.
+    const report = assertScalingGateFires(sized(clock, undefined, 0.4), {
+      regressedParse: costingParse(clock, (input: Sized) => (input.size === 10 ? 4 : 48)),
+      equals: () => true,
+    });
+    expect(report.signal).toBe(12);
+    expect(report.passes).toBe(1);
+    expect(report.cleanPasses).toEqual({ count: 1, size: 1 });
+    expect(report.diagnostic).not.toContain("self-sized");
+    expect(report.diagnostic).not.toContain("passes per rep");
+  });
+
+  it("without self-sizing, a regressed phase under the floor names no count of passes", () => {
+    const clock = installFakeClock();
+    let thrown: Error | undefined;
+    try {
+      assertScalingGateFires(sized(clock, undefined, 0.4), {
+        // 1 ms a regressed input, 2 ms the size axis's base phase: under the floor.
+        regressedParse: costingParse(clock, (input: Sized) => (input.size === 10 ? 1 : 12)),
+        equals: () => true,
+      });
+    } catch (error) {
+      thrown = error as Error;
+    }
+    expect(thrown?.message).toContain("regressed base phase measured 2 ms, under");
   });
 
   it("with self-sizing, sizes the clean and the regressed phases and reports both counts", () => {
@@ -295,12 +393,17 @@ describe("self-sizing in the self-check", () => {
       equals: () => true,
     });
     expect(report.signal).toBe(12);
-    expect(report.cleanPasses).toEqual({ count: 20, size: 20 });
+    // Clean: 1 ms a pass on the count axis (one input), 2 ms on the size axis (two).
+    expect(report.cleanPasses).toEqual({ count: 20, size: 10 });
     expect(report.cleanBaseMinMs).toEqual({ count: 20, size: 20 });
-    expect(report.passes).toBe(10);
+    // Regressed: two inputs at 2 ms, so 4 ms a pass and 5 passes; 5 x 2 x 24 ms scaled.
+    expect(report.passes).toBe(5);
     expect(report.samples.base[0]).toBe(20);
-    expect(report.diagnostic).toContain("self-sized: 10 passes per rep");
-    expect(report.diagnostic).toContain("20 (count) / 20 (size) passes per rep");
+    expect(report.samples.scaled[0]).toBe(240);
+    expect(report.diagnostic).toContain("\n  self-sized: 5 passes per rep (target 20 ms");
+    expect(report.diagnostic).toContain(
+      "\n  clean self-sized: 20 (count) / 10 (size) passes per rep",
+    );
   });
 
   it("with self-sizing, still fails a quadratic whose signal does not clear the ceiling", () => {

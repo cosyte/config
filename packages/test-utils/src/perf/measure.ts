@@ -144,7 +144,8 @@ export function timePhase<TInput, TResult>(
 export const MAX_PHASE_PASSES = 1 << 16;
 
 /**
- * How many passes over `corpus` one timed rep needs for its duration to reach `targetMs`.
+ * How many passes over `corpus` one timed rep needs for its duration to reach `targetMs`, or 1,
+ * without timing anything, when `targetMs` is `null` (the gate was not asked to size itself).
  *
  * Runs after the warmup, so the runtime is already settled: it times one pass, estimates the count
  * from it, and times again at that count until a rep reaches the target or the count reaches
@@ -162,9 +163,10 @@ export function choosePasses<TInput, TResult>(
   corpus: readonly TInput[],
   parse: (input: TInput) => TResult,
   weigh: (result: TResult) => number,
-  targetMs: number,
+  targetMs: number | null,
 ): number {
   let passes = 1;
+  if (targetMs === null) return passes;
   for (;;) {
     let local = 0;
     const t0 = performance.now();
@@ -173,6 +175,9 @@ export function choosePasses<TInput, TResult>(
     perfSink.value += local;
     if (elapsedMs >= targetMs || passes >= MAX_PHASE_PASSES) return passes;
     const estimate = elapsedMs > 0 ? Math.ceil((passes * targetMs) / elapsedMs) : passes * 2;
+    // The `passes + 1` floor only matters when floating point rounds an estimate made from a rep
+    // just under the target down to `passes` itself, which would loop forever without it.
+    // Stryker disable next-line ArithmeticOperator: that rounding is not reachable from a test; any measured rep under the target makes the estimate exceed `passes`.
     passes = Math.min(MAX_PHASE_PASSES, Math.max(passes + 1, estimate));
   }
 }

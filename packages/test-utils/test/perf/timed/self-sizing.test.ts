@@ -135,19 +135,21 @@ describe("self-sizing on a real clock", () => {
   it(
     "the self-check, sized, still fails where the fixture is too small to show a quadratic",
     () => {
-      // Repetition lifts a phase over the floor; it cannot lift a signal over the ceiling. At 50
+      // Repetition lifts a phase over the floor; it cannot lift a signal over the ceiling. At 20
       // result lines the quadratic's extra work is small next to the linear work, so its ratio sits
-      // inside the band and this fixture cannot prove its gate can fail.
+      // inside the band and this fixture cannot prove its gate can fail. (At 50 lines five
+      // GitHub-hosted runners read 6.55 to 6.90, too close to the ceiling of 8 for a case that must
+      // fail every time.)
       let thrown: (Error & { operator?: string; actual?: number }) | undefined;
       try {
-        assertScalingGateFires(tiny(parseMessage, 50, true), {
+        assertScalingGateFires(tiny(parseMessage, 20, true), {
           regressedParse: parseMessageQuadratic,
         });
       } catch (error) {
         thrown = error as Error & { operator?: string; actual?: number };
       }
       process.stderr.write(
-        `self-sizing: self-check at 50 result lines: ${thrown?.operator ?? "no failure"}, ` +
+        `self-sizing: self-check at 20 result lines: ${thrown?.operator ?? "no failure"}, ` +
           `signal ${String(thrown?.actual)}\n`,
       );
       expect(thrown?.operator).toBe("perf-self-check");
