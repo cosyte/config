@@ -9,7 +9,8 @@
  * comparison and the readings, and says how much noise each one has.
  *
  * Most use is through the `cosyte-bench` command; this entry point is for writing a suite
- * ({@link defineSuite}) and for reading results ({@link readResults}).
+ * ({@link defineSuite}) and for reading results ({@link readResults}), budgets files
+ * ({@link readBudgets}) and floor files ({@link readFloor}).
  *
  * @packageDocumentation
  */
@@ -52,3 +53,6 @@ export {
   type ResultsDocument,
 } from "./results.js";
 export { BenchError } from "./spawn.js";
+export { BUDGETS_SCHEMA, readBudgets, type BudgetRule, type Budgets } from "./budgets.js";
+export { FLOOR_SCHEMA, readFloor, type Floor, type FloorCase, type FloorValue } from "./floor.js";
+export type { GateFinding, SizeClass } from "./gate.js";

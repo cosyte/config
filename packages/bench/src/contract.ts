@@ -3,7 +3,9 @@
  *
  * Every value here is fixed by the performance standard,
  * `documentation/decisions/0005-the-performance-standard.md` in the `config` repo, which says for
- * each one whether it was measured or chosen, and on what basis. The warmup rule is not here: it
+ * each one whether it was measured or chosen, and on what basis; `LARGE_INPUT_BYTES` and
+ * `FLOOR_MIN_READINGS` are fixed by the performance budgets standard,
+ * `documentation/decisions/0007-the-performance-budgets-standard.md`. The warmup rule is not here: it
  * is `PERF_CONTRACT` in `@cosyte/test-utils/perf` (ADR 0001 section 2), which `measure.ts` imports
  * and the build bundles, so the scaling gate and the benchmarks warm up by one rule kept in one
  * place.
@@ -83,6 +85,17 @@ export interface BenchContractShape {
    * a round being at least one pass.
    */
   readonly LONG_RUN_MAX_MS: number;
+  /**
+   * An input of at least this many bytes, on average, is in the `large` size class of a budgets
+   * file; one of at least `FLOOR_INPUT_BYTES` and under this is `medium`, and one under that is
+   * `small`.
+   */
+  readonly LARGE_INPUT_BYTES: number;
+  /**
+   * The fewest readings of one commit a floor is recorded from: the spread between them is the
+   * noise a floor check allows above the highest of them.
+   */
+  readonly FLOOR_MIN_READINGS: number;
   /** The timing comparison may become a required check when A/A false alarms are under this rate. */
   readonly REQUIRED_FALSE_ALARM_RATE: number;
   /** The confidence that the false alarm rate is under the line, for the rule above. */
@@ -128,6 +141,8 @@ export const BENCH_CONTRACT: BenchContractShape = Object.freeze({
   LARGE_WARMUP_WINDOW: 5,
   LARGE_WARMUP_MAX_MS: 30_000,
   LONG_RUN_MAX_MS: 60_000,
+  LARGE_INPUT_BYTES: 1024 * 1024,
+  FLOOR_MIN_READINGS: 3,
   REQUIRED_FALSE_ALARM_RATE: 0.01,
   REQUIRED_CONFIDENCE: 0.95,
 });

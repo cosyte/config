@@ -1,0 +1,172 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/cosyte/config/blob/main/packages/bench/schema/floor-v1.schema.json",
+  "title": "@cosyte/bench floor, version 1",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "kind",
+    "suite",
+    "runnerClass",
+    "nodeMajor",
+    "commit",
+    "readings",
+    "cases",
+    "import"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "schemaVersion": {
+      "const": 1
+    },
+    "kind": {
+      "const": "floor"
+    },
+    "suite": {
+      "type": "string"
+    },
+    "runnerClass": {
+      "type": "string"
+    },
+    "nodeMajor": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "commit": {
+      "type": ["string", "null"]
+    },
+    "readings": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "cases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["benchmark", "size", "msPerOp", "peakBytes", "allocBytesPerOp"],
+        "additionalProperties": false,
+        "properties": {
+          "benchmark": {
+            "type": "string"
+          },
+          "size": {
+            "type": "string"
+          },
+          "msPerOp": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "required": ["value", "noise"],
+                "additionalProperties": false,
+                "properties": {
+                  "value": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "noise": {
+                    "type": "number",
+                    "minimum": 0
+                  }
+                }
+              }
+            ]
+          },
+          "peakBytes": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "required": ["value", "noise"],
+                "additionalProperties": false,
+                "properties": {
+                  "value": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "noise": {
+                    "type": "number",
+                    "minimum": 0
+                  }
+                }
+              }
+            ]
+          },
+          "allocBytesPerOp": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "required": ["value", "noise"],
+                "additionalProperties": false,
+                "properties": {
+                  "value": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "noise": {
+                    "type": "number",
+                    "minimum": 0
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "import": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "required": ["medianMs", "gzipBytes"],
+          "additionalProperties": false,
+          "properties": {
+            "medianMs": {
+              "type": "object",
+              "required": ["value", "noise"],
+              "additionalProperties": false,
+              "properties": {
+                "value": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "noise": {
+                  "type": "number",
+                  "minimum": 0
+                }
+              }
+            },
+            "gzipBytes": {
+              "type": "object",
+              "required": ["value", "noise"],
+              "additionalProperties": false,
+              "properties": {
+                "value": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "noise": {
+                  "type": "number",
+                  "minimum": 0
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}
