@@ -176,6 +176,42 @@ jobs:
       - run: pnpm build
       - run: pnpm attw
 
+  # THE attw GATE ON WINDOWS. `@cosyte/script-utils/attw` (the `cosyte-attw` command and every
+  # repository's `scripts/attw.mjs`) starts attw, npm and pnpm, and on Windows all three are `.cmd`
+  # files that Node will not start without a shell. Repositories that test on Windows found it
+  # failing there with ENOENT. This job runs the gate's own Windows suite, which starts the real
+  # attw CLI through a `.cmd` file, after the gate itself over this repository's @cosyte/test-utils,
+  # the way a consuming repository's `pnpm attw` does. Not a required check.
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      # LF line endings, set before the checkout, so the formatter and the tests read the bytes
+      # that were committed rather than the CRLF that git on Windows writes by default.
+      - name: Check out text files with LF line endings
+        shell: bash
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+        shell: bash
+      - name: The attw gate over @cosyte/test-utils
+        shell: bash
+        run: |
+          pnpm --filter @cosyte/test-utils run build
+          pnpm --filter @cosyte/test-utils run attw
+      - name: The attw gate's Windows suite
+        shell: bash
+        run: pnpm --filter @cosyte/script-utils exec vitest run test/attw-windows.test.ts
+
   # MUTATION TESTING OF A PULL REQUEST'S OWN CODE. Each package's changed source files are mutated
   # with @cosyte/vitest-config/stryker, and the ratchet then requires every mutant in changed code to be
   # killed, unless an inline exception names its reason. It runs beside `verify` rather than in it,

@@ -787,6 +787,18 @@ const ALLOWED = new Set(["--profile", "--no-definitely-typed"]);
  */
 function forwardable(args) {
   const forwarded = [];
+  // REFUSED ON EVERY PLATFORM, though only Windows needs it: there attw is started
+  // through cmd.exe, which cannot take these characters inside quotes (see
+  // `toolCommand`). No option or value this gate accepts carries one, and refusing
+  // them everywhere keeps one behaviour on every system.
+  const unsafe = args.find((arg) => /["%\r\n]/.test(arg));
+  if (unsafe !== undefined) {
+    die(
+      `${JSON.stringify(unsafe)} carries a double quote, a percent sign or a line break.\n` +
+        `  No argument this gate accepts needs one, and on Windows, where attw is started\n` +
+        `  through cmd.exe, none of them can be passed on safely.`,
+    );
+  }
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     const name = arg.split("=")[0];
@@ -831,6 +843,92 @@ const PACK_PLACEMENT_CONFIG = /^npm_config_(dry[_-]run|pack[_-]destination)$/i;
 // sized past anything a package here will produce and the failure is named below
 // rather than left as `spawnSync ... ENOBUFS`.
 const MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
+
+/**
+ * Where the consuming package's own attw binary is, on the platform given.
+ *
+ * ON WINDOWS THE RUNNABLE ONE IS `attw.cmd`. A package manager writes three files
+ * into `node_modules/.bin` there: `attw` (a POSIX shell script), `attw.cmd` and
+ * `attw.ps1`. The extensionless one exists, so a check for it passes, and then
+ * starting it fails with ENOENT, because Windows cannot start a shell script. That
+ * was the whole failure on the Windows legs that first ran this gate.
+ *
+ * @param {string} callerUrl The caller's `import.meta.url`.
+ * @param {NodeJS.Platform} [platform] Defaults to this process's own.
+ * @returns {string} The absolute path of the binary to check and start.
+ */
+export function attwBinaryPath(callerUrl, platform = process.platform) {
+  const name = platform === "win32" ? "attw.cmd" : "attw";
+  return fileURLToPath(new URL(`../node_modules/.bin/${name}`, callerUrl));
+}
+
+/**
+ * How many backslashes end `text`. Counted by hand rather than by a regular
+ * expression anchored at the end, which backtracks over every run of backslashes
+ * that does not end the string and is slow on a long one.
+ *
+ * @param {string} text
+ * @returns {number}
+ */
+function trailingBackslashes(text) {
+  let end = text.length;
+  while (end > 0 && text[end - 1] === "\\") end--;
+  return text.length - end;
+}
+
+/**
+ * How to start one of the three tools this gate runs (attw, npm and pnpm), on the
+ * platform given, with no shell wherever a shell is not needed.
+ *
+ * Off Windows it is the file and its arguments, as they are. ON WINDOWS a `.cmd`
+ * file cannot be started without `cmd.exe`: Node refuses it (EINVAL) since the
+ * April 2024 security releases, and npm and pnpm are `.cmd` files there too. So
+ * the command line is built here, every part in double quotes (but one, below),
+ * and handed to the
+ * shell whole, with no separate arguments for Node to join. Inside double quotes
+ * `cmd.exe` takes `&`, `|`, `<`, `>`, `^` and spaces literally. It does not take
+ * `"` (which ends the quoting) or `%` (which expands a variable) literally, and a
+ * line break ends the command, so a part carrying any of those THROWS rather than
+ * being escaped: an escape that is wrong runs a different command. Nothing this
+ * gate passes carries one, because `forwardable()` refuses them in a caller's
+ * arguments on every platform, so a throw here is a defect in this file and is
+ * left to propagate. A trailing run of backslashes in an argument is doubled, for
+ * node's own reading of the line after cmd.exe (see below).
+ *
+ * A BARE NAME FOUND ON PATH IS THE ONE PART LEFT UNQUOTED. `cmd.exe` starts a
+ * quoted batch file found through PATH with `%~dp0` pointing at the working
+ * directory instead of the file's own, and `npm.cmd` finds `npm-cli.js` through
+ * `%~dp0`. Measured on `windows-latest` with every part quoted: npm looked for
+ * `<package>\node_modules\npm\bin\npm-cli.js` and exited 1. A name made only of
+ * letters, digits, `.`, `_` and `-` needs no quotes; a path is quoted, and a
+ * batch file named by its full path gets the right `%~dp0` either way.
+ *
+ * @param {string} file The tool: a path, or a name found on PATH.
+ * @param {string[]} args Its arguments.
+ * @param {NodeJS.Platform} [platform] Defaults to this process's own.
+ * @returns {{ file: string, args: string[], shell: boolean }}
+ */
+export function toolCommand(file, args, platform = process.platform) {
+  if (platform !== "win32") return { file, args, shell: false };
+  const parts = [file, ...args];
+  const unsafe = parts.find((part) => /["%\r\n]/.test(part));
+  if (unsafe !== undefined) {
+    throw new Error(
+      `${JSON.stringify(unsafe)} cannot be passed through cmd.exe safely: it carries a ` +
+        `double quote, a percent sign or a line break.`,
+    );
+  }
+  const command = /^[\w.-]+$/.test(file) ? file : `"${file}"`;
+  // A TRAILING RUN OF BACKSLASHES IS DOUBLED. cmd.exe passes the quotes on, and node then splits
+  // its command line by the Microsoft C rules, where backslashes before a quote are halved and an
+  // odd one makes the quote literal. Unescaped, `node16\` would arrive as `node16" --format json`,
+  // one argument where three were sent. A backslash anywhere else is literal and left alone.
+  const line = [
+    command,
+    ...args.map((arg) => `"${arg}${"\\".repeat(trailingBackslashes(arg))}"`),
+  ].join(" ");
+  return { file: line, args: [], shell: true };
+}
 
 /**
  * The fields that CAN name a file and that `declaredArtifacts()` deliberately does
@@ -1050,7 +1148,9 @@ function packReportEntries(doc, name) {
  * @returns {{ files: Set<string>, error?: undefined } | { error: string, files?: undefined }}
  */
 function packedFiles(pkg, childEnv) {
-  const res = spawnSync("npm", ["pack", "--dry-run", "--json"], {
+  const npm = toolCommand("npm", ["pack", "--dry-run", "--json"]);
+  const res = spawnSync(npm.file, npm.args, {
+    shell: npm.shell,
     encoding: "utf8",
     stdio: ["inherit", "pipe", "pipe"],
     env: childEnv,
@@ -1263,7 +1363,9 @@ function pnpmPublished(childEnv) {
     return { error: `could not create a temporary directory for \`pnpm pack\`: ${err.message}` };
   }
   try {
-    const res = spawnSync("pnpm", ["pack", "--pack-destination", dest], {
+    const pnpm = toolCommand("pnpm", ["pack", "--pack-destination", dest]);
+    const res = spawnSync(pnpm.file, pnpm.args, {
+      shell: pnpm.shell,
       encoding: "utf8",
       stdio: ["inherit", "pipe", "pipe"],
       env: childEnv,
@@ -1361,7 +1463,8 @@ function gate({ callerUrl, argv = process.argv.slice(2) }) {
         `  node_modules, which is not the package being checked.`,
     );
   }
-  const ATTW_BIN = fileURLToPath(new URL("../node_modules/.bin/attw", callerUrl));
+  // `attw.cmd` on Windows, `attw` everywhere else: see `attwBinaryPath`.
+  const ATTW_BIN = attwBinaryPath(callerUrl);
   // THE BINARY IS CHECKED BEFORE IT IS SPAWNED, so the refusal NAMES THE PATH it
   // looked for. spawnSync reports ENOENT and EACCES the same way, and a message
   // built out of `res.error.message` is about a syscall rather than about which
@@ -1449,7 +1552,9 @@ function gate({ callerUrl, argv = process.argv.slice(2) }) {
   // reads structure, so the structure has to be there. A `.attw.json` can still
   // override it (config is applied after argv), and that is handled where it lands,
   // as an unparseable transcript, rather than by refusing the key by name.
-  const res = spawnSync(ATTW_BIN, ["--pack", ".", ...forwarded, "--format", "json"], {
+  const attw = toolCommand(ATTW_BIN, ["--pack", ".", ...forwarded, "--format", "json"]);
+  const res = spawnSync(attw.file, attw.args, {
+    shell: attw.shell,
     encoding: "utf8",
     stdio: ["inherit", "pipe", "pipe"],
     env,

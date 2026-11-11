@@ -807,6 +807,16 @@ Four nets, each catching something the others cannot:
 What each net does and does not claim, and every measurement behind them, is in `attw.js`'s own
 docblock. It is not restated here: a claim written down twice is a claim that drifts.
 
+On Windows the gate checks and starts `node_modules/.bin/attw.cmd`, because the extensionless
+`attw` there is a POSIX shell script, and it starts attw, npm and pnpm through `cmd.exe`, because
+all three are `.cmd` files that Node will not start without a shell. Every argument and every path
+on that command line is in double quotes (a bare name found on PATH, such as `npm`, is not: `cmd.exe`
+gives a quoted one the wrong `%~dp0`), with a trailing run of backslashes doubled so node still
+reads the closing quote as one, and an argument carrying a double quote, a percent sign or a line break is
+refused on every system. Two exports say what the gate starts: `attwBinaryPath(callerUrl,
+platform?)`, the binary's path, and `toolCommand(file, args, platform?)`, the command, its arguments
+and whether a shell runs it.
+
 ## Compatibility
 
 Node `>=22.14`, ESM only, published as source (`index.js`, `phi-scan.js`, `internal-refs.js` and
@@ -814,7 +824,8 @@ Node `>=22.14`, ESM only, published as source (`index.js`, `phi-scan.js`, `inter
 relative path from a checkout as well as by specifier. `runPhiScan` shells out to `git` for the
 index-backed half of its sweep, so `all` mode needs git on the path, `runInternalRefsScan` shells
 out to `git` for its whole enumeration, and `runAttwGate` spawns the consuming package's own `attw`
-binary, `npm pack` and, where a `publishConfig` object is present, `pnpm pack`.
+binary, `npm pack` and, where a `publishConfig` object is present, `pnpm pack`, through `cmd.exe`
+on Windows.
 
 ## Contributing
 
