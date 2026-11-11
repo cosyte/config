@@ -23,9 +23,13 @@ import { fileURLToPath } from "node:url";
 // linear time. A line comment runs to the end of its line: the lookahead stops backtracking from
 // ending it early, where the next repetition would start a new `//` and every split of a run of
 // slashes would be tried. A block comment ends at its first `*/`, so it can neither stretch over
-// the code between two comments nor end anywhere else.
-const GAP = String.raw`(?:\s|//[^\n]*(?![^\n])|/\*(?:[^*]|\*(?!/))*\*/)*`;
-const STRING = String.raw`(?:"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*')`;
+// the code between two comments nor end anywhere else. A line ends at any of the four terminators
+// JavaScript knows (LF, CR, U+2028, U+2029); `\s` matches all four.
+const LINE = String.raw`[^\n\r  ]`;
+const GAP = String.raw`(?:\s|//${LINE}*(?!${LINE})|/\*(?:[^*]|\*(?!/))*\*/)*`;
+// A string holds no raw LF or CR (U+2028 and U+2029 are allowed in one), and `.` after a backslash
+// matches no line terminator, so a line continuation is not read and the file is measured.
+const STRING = String.raw`(?:"(?:[^"\\\n\r]|\\.)*"|'(?:[^'\\\n\r]|\\.)*')`;
 const IDENT = String.raw`[A-Za-z_$][\w$]*`;
 const NAME = `(?:${IDENT}|${STRING})`;
 // `a`, `type a`, `a as b`, `default as b`, `"a-b" as c`.

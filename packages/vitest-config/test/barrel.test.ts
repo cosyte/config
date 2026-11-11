@@ -195,6 +195,22 @@ describe("isBarrel", () => {
     expect(isBarrel('export * from "./a.js"\t;\t\n')).toBe(true);
   });
 
+  it("ends a line comment at every line terminator, so it hides no code after one", () => {
+    // JavaScript ends a line at LF, CR, U+2028 (line separator) and U+2029 (paragraph separator).
+    const LS = String.fromCharCode(0x2028);
+    const PS = String.fromCharCode(0x2029);
+    expect(isBarrel('export * from "./a"; // c\rfoo();\r')).toBe(false);
+    expect(isBarrel('export * from "./a"\rconst hidden = 1;\r')).toBe(false);
+    expect(isBarrel(`export * from "./a"; // c${LS}foo();\n`)).toBe(false);
+    expect(isBarrel(`export * from "./a"; // c${PS}foo();\n`)).toBe(false);
+    expect(isBarrel('export * from "./a"; // c\r\nfoo();\r\n')).toBe(false);
+    expect(isBarrel('// a\rexport * from "./a";\r// b\rexport * from "./b"\r')).toBe(true);
+    expect(isBarrel(`// a${LS}export * from "./a";${PS}`)).toBe(true);
+    // A raw CR cannot sit inside a string, so such a file is measured.
+    expect(isBarrel('export * from "./a\rb";')).toBe(false);
+    expect(isBarrel("export * from './a\rb';")).toBe(false);
+  });
+
   it("does not let a comment hide the code between two comments", () => {
     const text = 'export * from "./a.js"; /* a */ run(); /* b */';
     expect(isBarrel(text)).toBe(false);
