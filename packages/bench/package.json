@@ -1,6 +1,6 @@
 {
   "name": "@cosyte/bench",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Benchmarks for the @cosyte/* packages: throughput, latency percentiles, memory, cold import time and loaded bytes, as versioned JSON, and a base against head comparison interleaved on one machine.",
   "keywords": [
     "benchmark",
