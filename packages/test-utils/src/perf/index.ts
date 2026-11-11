@@ -84,6 +84,7 @@
 export { PERF_CONTRACT, type PerfContractShape } from "./contract.js";
 export { perfSink } from "./measure.js";
 export {
+  SELF_SIZE_TARGET_MS,
   scalingGate,
   type AxisReport,
   type CountAxisFixture,
