@@ -175,7 +175,18 @@ function firstLine(error: unknown): string {
  */
 export function budgetPeakBytes(c: CaseReading): number | null {
   const p = c.peak;
-  if (p === null || p.status !== "measured") return null;
+  return p === null || p.status !== "measured" ? null : budgetOf(c, p);
+}
+
+/**
+ * {@link budgetPeakBytes} for a case whose peak was measured.
+ *
+ * @internal
+ */
+export function budgetOf(
+  c: Pick<CaseReading, "bytesPerPass" | "inputsPerPass">,
+  p: Extract<PeakReport, { status: "measured" }>,
+): number {
   const raw = p.peakTotalBytes ?? p.peakHeapBytes;
   if (c.bytesPerPass === null) return raw;
   // A corpus is never empty (the measuring process refuses one); were it, the size reads infinite.
@@ -253,7 +264,9 @@ export function longRunFits(throughput: Throughput, inputsPerPass: number): bool
  *
  * @internal
  */
-export async function readBuild(options: ReadOptions): Promise<ReadingBody> {
+export async function readBuild(
+  options: ReadOptions,
+): Promise<ReadingBody & { readonly failures: readonly RunFailure[] }> {
   const runJob = options.runJob;
   const processes = options.processes ?? 3;
   if (!Number.isInteger(processes) || processes < 1) {

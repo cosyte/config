@@ -269,7 +269,7 @@ export async function main(argv: readonly string[], io: MainIo): Promise<number>
           reading,
         },
         // Whatever measured is written; a part that could not be is still exit 2.
-        (reading.failures ?? []).length > 0 ? 2 : 0,
+        reading.failures.length > 0 ? 2 : 0,
       );
     }
 

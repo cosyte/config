@@ -484,6 +484,22 @@ describe("main", () => {
       "[cosyte-bench] could not measure timing of length @ small: plain\n" +
         "[cosyte-bench] could not measure the memory floor: plain\n",
     );
+    // What fails outside a measuring process, the import cost here, still stops the run.
+    const importThrows = harness({
+      measureImport: () => {
+        // eslint-disable-next-line @typescript-eslint/only-throw-error -- the branch under test is a thrown non-Error
+        throw "no import";
+      },
+    });
+    expect(
+      await main(
+        ["run", "--suite", suite(), "--target", "t.mjs", "--only", "length @ small"],
+        importThrows.io,
+      ),
+    ).toBe(2);
+    expect(importThrows.err()).toBe(
+      "[cosyte-bench] read length @ small\n[cosyte-bench] no import\n",
+    );
   });
 
   it("writes every case it measured when one cannot be, lists that one, and exits 2", async () => {

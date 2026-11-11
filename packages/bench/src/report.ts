@@ -7,7 +7,7 @@
 
 import type { CaseComparison } from "./compare.js";
 import { BENCH_CONTRACT } from "./contract.js";
-import { budgetPeakBytes } from "./reading.js";
+import { budgetOf } from "./reading.js";
 import type { ResultsDocument } from "./results.js";
 import { round } from "./stats.js";
 
@@ -159,7 +159,6 @@ export function renderMarkdown(doc: ResultsDocument): string {
             : `skipped (${a.reason})`;
       const p = c.peak;
       const optional = (n: number | undefined) => (n === undefined ? "n/a" : bytes(n));
-      const budget = budgetPeakBytes(c);
       const peak =
         p === null
           ? ["n/a", "n/a", "n/a", "n/a", "n/a"]
@@ -169,7 +168,7 @@ export function renderMarkdown(doc: ResultsDocument): string {
                 optional(p.peakExternalBytes),
                 optional(p.peakTotalBytes),
                 optional(p.peakTotalAboveFloorBytes),
-                budget === null ? "n/a" : bytes(budget),
+                bytes(budgetOf(c, p)),
               ]
             : Array.from({ length: 5 }, () => `skipped (${p.reason})`);
       const lr = c.longRun;
