@@ -228,6 +228,26 @@ describe("checkBudgets", () => {
     );
   });
 
+  it("calls an allocation count whose second window counted fewer bytes than its first unjudged", () => {
+    const fell = caseReading({
+      allocations: {
+        status: "measured",
+        windowOps: 3,
+        heapBytesPerOp: -1_100_000,
+        externalBytesPerOp: 0,
+      },
+    });
+    expect(
+      checkBudgets(readingDoc([fell]), budgets({ rules: [{ allocBytesPerOp: 1 }] })).findings,
+    ).toEqual([
+      {
+        kind: "unjudged",
+        message:
+          "parse @ 1 KiB: its allocations were not a count: its second window, of twice the operations, counted 3300000 bytes fewer than its first",
+      },
+    ]);
+  });
+
   it("calls every limit whose measure was skipped or absent unjudged", () => {
     const skipped = caseReading({
       bytesPerPass: null,
