@@ -174,11 +174,11 @@ its highest is not a fixed figure.
 A memory budget reads `budgetPeakBytes(caseReading)`: for a case whose inputs average under
 `BENCH_CONTRACT.FLOOR_INPUT_BYTES` (64 KiB) it is the median call's total above the floor's median,
 the code's typical call without the probe; for any other case, or one whose suite gave no byte
-count, it is the highest raw `peakTotalBytes`. At 64 KiB even the probe's highest call is about 2%
-of a 20 times budget, so a large input keeps the raw highest figure, which needs nothing from
+count, it is the highest raw `peakTotalBytes`. At 64 KiB the probe's usual highest call is about
+2% of a 20 times budget, so a large input keeps the raw highest figure, which needs nothing from
 another process. A suite that added its own empty "floor" case can drop it.
 
-What the small-input rule gives up:
+What the rule gives up:
 
 - **A cost in fewer than half the calls is not bounded.** Under 64 KiB the budget reads the median
   of the case's 20 calls, so a cost that shows in fewer than half of them does not move it. In one
@@ -187,6 +187,9 @@ What the small-input rule gives up:
 - **The switch is a hard edge at 64 KiB.** A case whose inputs average 64 KiB or more reads its
   highest raw total, and one a byte under reads its median call above the floor. Two sizes either
   side of the edge can therefore read very different budgets for the same code.
+- **The 2% is the usual highest, not every highest.** The one 369,888-byte floor call is about 28%
+  of a 20 times budget at 64 KiB, so a large case whose highest call lands on such a probe outlier
+  reads it as the code's.
 
 ### Large cases
 

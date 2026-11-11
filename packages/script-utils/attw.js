@@ -878,7 +878,8 @@ export function attwBinaryPath(callerUrl, platform = process.platform) {
  * being escaped: an escape that is wrong runs a different command. Nothing this
  * gate passes carries one, because `forwardable()` refuses them in a caller's
  * arguments on every platform, so a throw here is a defect in this file and is
- * left to propagate.
+ * left to propagate. A trailing run of backslashes in an argument is doubled, for
+ * node's own reading of the line after cmd.exe (see below).
  *
  * A BARE NAME FOUND ON PATH IS THE ONE PART LEFT UNQUOTED. `cmd.exe` starts a
  * quoted batch file found through PATH with `%~dp0` pointing at the working
@@ -904,7 +905,11 @@ export function toolCommand(file, args, platform = process.platform) {
     );
   }
   const command = /^[\w.-]+$/.test(file) ? file : `"${file}"`;
-  const line = [command, ...args.map((arg) => `"${arg}"`)].join(" ");
+  // A TRAILING RUN OF BACKSLASHES IS DOUBLED. cmd.exe passes the quotes on, and node then splits
+  // its command line by the Microsoft C rules, where backslashes before a quote are halved and an
+  // odd one makes the quote literal. Unescaped, `node16\` would arrive as `node16" --format json`,
+  // one argument where three were sent. A backslash anywhere else is literal and left alone.
+  const line = [command, ...args.map((arg) => `"${arg.replace(/\\+$/, "$&$&")}"`)].join(" ");
   return { file: line, args: [], shell: true };
 }
 

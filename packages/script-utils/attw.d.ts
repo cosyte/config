@@ -68,6 +68,8 @@ export declare function attwBinaryPath(callerUrl: string, platform?: string): st
  * with no shell. On Windows, where all three are `.cmd` files that Node will not start without
  * one: a single command line, every part but a bare tool name in double quotes, run through `cmd.exe`. A part carrying
  * a double quote, a percent sign or a line break throws there rather than being escaped.
+ * A trailing run of backslashes in an argument is doubled, so node, which halves backslashes
+ * before a quote, still reads the closing quote as one.
  *
  * @param file The tool: a path, or a name found on PATH.
  * @param args Its arguments.

@@ -811,7 +811,8 @@ On Windows the gate checks and starts `node_modules/.bin/attw.cmd`, because the 
 `attw` there is a POSIX shell script, and it starts attw, npm and pnpm through `cmd.exe`, because
 all three are `.cmd` files that Node will not start without a shell. Every argument and every path
 on that command line is in double quotes (a bare name found on PATH, such as `npm`, is not: `cmd.exe`
-gives a quoted one the wrong `%~dp0`), and an argument carrying a double quote, a percent sign or a line break is
+gives a quoted one the wrong `%~dp0`), with a trailing run of backslashes doubled so node still
+reads the closing quote as one, and an argument carrying a double quote, a percent sign or a line break is
 refused on every system. Two exports say what the gate starts: `attwBinaryPath(callerUrl,
 platform?)`, the binary's path, and `toolCommand(file, args, platform?)`, the command, its arguments
 and whether a shell runs it.

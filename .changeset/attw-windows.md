@@ -8,7 +8,8 @@ Windows. It used to check `node_modules/.bin/attw` and start it without a shell;
 is a POSIX shell script, so the start failed with ENOENT, and npm and pnpm, which the gate also
 starts, are `.cmd` files there that Node will not start without a shell. On Windows the gate now
 checks and starts `node_modules/.bin/attw.cmd`, and starts all three tools through `cmd.exe` with
-every argument and every path on the command line in double quotes. Elsewhere nothing changes. Two new exports,
+every argument and every path on the command line in double quotes, a trailing run of backslashes
+doubled so each argument arrives whole. Elsewhere nothing changes. Two new exports,
 `attwBinaryPath(callerUrl, platform?)` and `toolCommand(file, args, platform?)`, say which binary and
 which command line. The gate now refuses an argument carrying a double quote, a percent sign or a
 line break, on every system: no argument it accepts needs one. A repository that skipped the attw
