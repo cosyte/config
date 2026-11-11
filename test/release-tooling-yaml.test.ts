@@ -131,7 +131,9 @@ describe("AC11: the release tooling still enumerates this workspace on the new j
     // Changesets 3 dropped read-yaml-file (and with it js-yaml 3.x): the manypkg tools package
     // parses the pnpm workspace file with `yaml`. Checked at the exact resolution the release path gets,
     // starting from the cli's own manifest, rather than at the version the lockfile says.
-    const fromGetPackages = createRequire(requireFromChangesets.resolve(["@manypkg", "get-packages"].join("/")));
+    const fromGetPackages = createRequire(
+      requireFromChangesets.resolve(["@manypkg", "get-packages"].join("/")),
+    );
     const fromTools = createRequire(fromGetPackages.resolve(["@manypkg", "tools"].join("/")));
     const yaml = fromTools("yaml") as { parse: (text: string) => unknown };
 
