@@ -8,6 +8,11 @@ export interface CosyteVitestOptions {
   coverageThresholds?: Record<string, unknown>;
   /** Extra Vitest `test` options, merged last. */
   test?: Record<string, unknown>;
+  /**
+   * The project root whose `src/` is read for barrels (files that hold nothing but re-exports),
+   * which coverage leaves out. Defaults to the working directory.
+   */
+  root?: string;
 }
 
 /**

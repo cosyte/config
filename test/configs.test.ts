@@ -90,6 +90,39 @@ describe("@cosyte/vitest-config", () => {
     expect(coverage.reporter).toEqual(["text", "html", "lcov", "json-summary"]);
     expect(coverage.reportsDirectory).toBe("./coverage");
   });
+
+  it("leaves out of coverage only the files that hold nothing but re-exports", async () => {
+    const { mkdirSync, mkdtempSync, rmSync, writeFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { dirname, join } = await import("node:path");
+    const dir = mkdtempSync(join(tmpdir(), "configs-barrels-"));
+    try {
+      const files: Record<string, string> = {
+        "src/index.ts": 'export * from "./parser/index.js";\nexport type { T } from "./t.js";\n',
+        "src/parser/index.ts":
+          'import { tokenize } from "./tokenize.js";\nexport { tokenize };\n' +
+          "export function parse(text: string): string[] {\n  return tokenize(text);\n}\n",
+        "src/profiles/index.ts": 'import { a } from "./a.js";\nexport const all = [a];\n',
+        "src/model/all.ts": 'export * from "./message.js";\n',
+      };
+      for (const [path, text] of Object.entries(files)) {
+        mkdirSync(dirname(join(dir, path)), { recursive: true });
+        writeFileSync(join(dir, path), text);
+      }
+      const coverage = cosyteVitest({ root: dir }).test?.coverage as { exclude: string[] };
+      expect(coverage.exclude).toEqual([
+        "**/*.test.ts",
+        "**/*.spec.ts",
+        "**/*.d.ts",
+        "**/__fixtures__/**",
+        "**/generated/**",
+        "src/index.ts",
+        "src/model/all.ts",
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("@cosyte/prettier-config", () => {

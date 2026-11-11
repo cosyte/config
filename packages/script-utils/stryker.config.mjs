@@ -8,6 +8,9 @@ import { cosyteStryker } from "@cosyte/vitest-config/stryker";
 // The modules under mutation testing so far: the PHI-scan engine, which runs in every parser's
 // commit gate, and the ratchet with the git reader it judges changes by. The other gates join as
 // their floors are recorded.
+//
+// Static mutants are kept (the shared config ignores them): the engine's pattern tables are
+// module-level code, and they are what it is made of.
 export default cosyteStryker({
   mutate: [
     "packages/script-utils/phi-scan.js",
@@ -18,5 +21,6 @@ export default cosyteStryker({
   stryker: {
     jsonReporter: { fileName: "packages/script-utils/reports/mutation/mutation.json" },
     htmlReporter: { fileName: "packages/script-utils/reports/mutation/mutation.html" },
+    ignoreStatic: false,
   },
 });

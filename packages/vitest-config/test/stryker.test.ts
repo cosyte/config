@@ -1,7 +1,7 @@
 /**
- * The shared StrykerJS config. What it must hold: the Vitest runner found under pnpm, every
- * mutant kept (static ones too, which a PHI pattern table is made of), the JSON report at the path
- * the ratchet reads, and no score threshold of its own, so the floor file is the one rule.
+ * The shared StrykerJS config. What it must hold: the Vitest runner found under pnpm, static
+ * mutants ignored (a package whose tables are the product turns them back on), the JSON report at
+ * the path the ratchet reads, and no score threshold of its own, so the floor file is the one rule.
  */
 
 import { existsSync } from "node:fs";
@@ -27,7 +27,7 @@ describe("cosyteStryker", () => {
       plugins: [resolveVitestRunner()],
       coverageAnalysis: "perTest",
       mutate: [...DEFAULT_MUTATE],
-      ignoreStatic: false,
+      ignoreStatic: true,
       reporters: ["clear-text", "progress-append-only", "html", "json"],
       jsonReporter: { fileName: "reports/mutation/mutation.json" },
       htmlReporter: { fileName: "reports/mutation/mutation.html" },
@@ -43,12 +43,12 @@ describe("cosyteStryker", () => {
     const config = cosyteStryker({
       mutate: ["lib/*.js"],
       vitestConfig: "vitest.mutation.config.ts",
-      stryker: { concurrency: 2, ignoreStatic: true },
+      stryker: { concurrency: 2, ignoreStatic: false },
     });
     expect(config.mutate).toEqual(["lib/*.js"]);
     expect(config.vitest).toEqual({ pool: "forks", configFile: "vitest.mutation.config.ts" });
     expect(config.concurrency).toBe(2);
-    expect(config.ignoreStatic).toBe(true);
+    expect(config.ignoreStatic).toBe(false);
   });
 });
 
@@ -87,7 +87,6 @@ describe("the report paths and the default mutate list", () => {
       "!src/**/*.test.ts",
       "!src/**/*.spec.ts",
       "!src/**/*.d.ts",
-      "!src/**/index.ts",
       "!src/**/__fixtures__/**",
       "!src/**/generated/**",
     ]);
