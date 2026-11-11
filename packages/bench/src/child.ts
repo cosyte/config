@@ -66,6 +66,23 @@ export type Job =
       readonly longRun: boolean;
     };
 
+/**
+ * The empty-call floor: the peak of a call that does nothing, read through the same probe the cases
+ * are. It names no suite, target or case, and runs once per reading.
+ *
+ * @internal
+ */
+export interface FloorJob {
+  readonly mode: "floor";
+}
+
+/**
+ * Any job a measuring process runs.
+ *
+ * @internal
+ */
+export type AnyJob = Job | FloorJob;
+
 /** The shape of one corpus, as reported. Sizes and counts only, never content. */
 export interface CorpusShape {
   readonly inputsPerPass: number;
@@ -106,11 +123,28 @@ export type MemoryResult = CorpusShape & {
 };
 
 /**
+ * What the floor job measured: the peak of an empty call, which is what the peak probe itself costs.
+ *
+ * @internal
+ */
+export interface FloorResult {
+  readonly mode: "floor";
+  readonly peak: PeakReport;
+}
+
+/**
  * What any job measured.
  *
  * @internal
  */
 export type JobResult = TimingResult | MemoryResult;
+
+/**
+ * What any job, the floor included, measured.
+ *
+ * @internal
+ */
+export type AnyJobResult = JobResult | FloorResult;
 
 /**
  * The clocks and the heap a job reads. Real ones in a measuring process; scripted ones in tests.
@@ -222,7 +256,8 @@ export function measureJob(
  *
  * @internal
  */
-export function measuredSomething(result: JobResult): boolean {
+export function measuredSomething(result: AnyJobResult): boolean {
+  if (result.mode === "floor") return result.peak.status === "measured";
   if (result.mode === "timing") return result.status === "measured";
   return [result.allocations, result.peak, result.longRun].some((r) => r?.status === "measured");
 }
@@ -236,7 +271,16 @@ export function measuredSomething(result: JobResult): boolean {
  *
  * @internal
  */
-export async function runJob(job: Job, deps: JobDeps = realDeps()): Promise<JobResult> {
+export async function runJob(job: FloorJob, deps?: JobDeps): Promise<FloorResult>;
+export async function runJob(job: Job, deps?: JobDeps): Promise<JobResult>;
+export async function runJob(job: AnyJob, deps?: JobDeps): Promise<AnyJobResult>;
+export async function runJob(job: AnyJob, deps: JobDeps = realDeps()): Promise<AnyJobResult> {
+  if (job.mode === "floor") {
+    return {
+      mode: "floor",
+      peak: deps.probe === null ? SKIPPED_NO_GC : measurePeak(() => undefined, deps.probe),
+    };
+  }
   const suiteModule = (await import(pathToFileURL(job.suite).href)) as { default?: unknown };
   const suite = checkSuite(suiteModule.default);
   const target: unknown = await import(pathToFileURL(job.target).href);
@@ -290,7 +334,7 @@ export async function runJob(job: Job, deps: JobDeps = realDeps()): Promise<JobR
  */
 export async function childMain(jobFile: string, outFile: string, deps?: JobDeps): Promise<number> {
   try {
-    const job = JSON.parse(readFileSync(jobFile, "utf8")) as Job;
+    const job = JSON.parse(readFileSync(jobFile, "utf8")) as AnyJob;
     const result = await runJob(job, deps);
     writeFileSync(outFile, JSON.stringify({ ok: true, result }));
     return 0;

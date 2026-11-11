@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type { Job, JobResult } from "./child.js";
+import type { AnyJob, AnyJobResult, FloorJob, FloorResult, Job, JobResult } from "./child.js";
 import { BENCH_CONTRACT } from "./contract.js";
 
 /**
@@ -124,15 +124,16 @@ export function runNode(
  *
  * @internal
  */
-export function flagsFor(job: Job): string[] {
+export function flagsFor(job: AnyJob): string[] {
   if (job.mode === "timing") return [];
   const memory = ["--expose-gc", "--no-concurrent-array-buffer-sweeping"];
-  if (job.mode === "heap") return memory;
+  if (job.mode === "heap" || job.mode === "floor") return memory;
   const mib = String(BENCH_CONTRACT.ALLOC_SEMI_SPACE_MIB);
   return [...memory, `--min-semi-space-size=${mib}`, `--max-semi-space-size=${mib}`];
 }
 
-function describe(job: Job): string {
+function describe(job: AnyJob): string {
+  if (job.mode === "floor") return "floor job";
   return `${job.mode} job for "${job.case.benchmark} @ ${job.case.size}"`;
 }
 
@@ -142,7 +143,10 @@ function describe(job: Job): string {
  *
  * @internal
  */
-export async function runInChild(job: Job, options: SpawnOptions = {}): Promise<JobResult> {
+export async function runInChild(job: FloorJob, options?: SpawnOptions): Promise<FloorResult>;
+export async function runInChild(job: Job, options?: SpawnOptions): Promise<JobResult>;
+export async function runInChild(job: AnyJob, options?: SpawnOptions): Promise<AnyJobResult>;
+export async function runInChild(job: AnyJob, options: SpawnOptions = {}): Promise<AnyJobResult> {
   // Stryker disable next-line StringLiteral: the prefix only names the temporary directory.
   const dir = mkdtempSync(join(tmpdir(), "cosyte-bench-"));
   try {
@@ -165,7 +169,7 @@ export async function runInChild(job: Job, options: SpawnOptions = {}): Promise<
         `the ${describe(job)} ended (${how}) without a result. Its stderr ends:\n${outcome.stderr}`,
       );
     }
-    const out = JSON.parse(text) as { ok: boolean; result?: JobResult; error?: string };
+    const out = JSON.parse(text) as { ok: boolean; result?: AnyJobResult; error?: string };
     if (!out.ok || out.result === undefined) {
       throw new BenchError(`the ${describe(job)} could not measure: ${String(out.error)}`);
     }

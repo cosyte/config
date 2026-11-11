@@ -33,7 +33,13 @@ export {
   type CountedRate,
   type Verdict,
 } from "./compare.js";
-export type { CaseReading, ReadingBody, Throughput } from "./reading.js";
+export {
+  budgetPeakBytes,
+  type CaseReading,
+  type ReadingBody,
+  type RunFailure,
+  type Throughput,
+} from "./reading.js";
 export type { LatencyReport, WarmupReport } from "./measure.js";
 export type { AllocationReport, LongRunReport, MemorySkipReason, PeakReport } from "./memory.js";
 export type { ImportCostReport, LoadedFile } from "./import-cost.js";

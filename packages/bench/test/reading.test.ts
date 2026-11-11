@@ -1,9 +1,16 @@
 import { describe, expect, it } from "vitest";
 
-import type { TimingResult } from "../src/child.js";
-import { readBuild, summarizeThroughput } from "../src/reading.js";
+import type { AnyJob, Job, TimingResult } from "../src/child.js";
+import { BENCH_CONTRACT } from "../src/contract.js";
+import type { PeakReport } from "../src/memory.js";
+import {
+  budgetPeakBytes,
+  readBuild,
+  summarizeThroughput,
+  type CaseReading,
+} from "../src/reading.js";
 import { checkSuite } from "../src/suite.js";
-import { fixedRunner, importCost, warmup } from "./support/bodies.js";
+import { FLOOR_PEAK, fixedRunner, importCost, warmup } from "./support/bodies.js";
 
 const suite = checkSuite({
   name: "s",
@@ -92,7 +99,7 @@ describe("readBuild", () => {
     expect(first.throughput.processes.map((p) => p.medianMsPerOp)).toEqual([0.5, 0.501, 0.502]);
   });
 
-  const longRuns = (jobs: readonly Parameters<ReturnType<typeof fixedRunner>["runJob"]>[0][]) =>
+  const longRuns = (jobs: readonly Job[]) =>
     jobs
       .filter((j) => j.mode === "heap" && j.longRun)
       .map((j) => `${j.case.benchmark} @ ${j.case.size}`);
@@ -206,20 +213,230 @@ describe("readBuild", () => {
 
   it("refuses a runner that answers with the wrong kind", async () => {
     const { runJob } = fixedRunner();
-    const swapped = (job: Parameters<typeof runJob>[0]) =>
-      runJob(
-        job.mode === "timing"
-          ? { mode: "alloc", suite: job.suite, target: job.target, case: job.case }
-          : { ...job, mode: "timing", latency: false, inject: 0 },
-      );
+    const swapped = (job: AnyJob) =>
+      job.mode === "floor"
+        ? runJob(job)
+        : runJob(
+            job.mode === "timing"
+              ? { mode: "alloc", suite: job.suite, target: job.target, case: job.case }
+              : { ...job, mode: "timing", latency: false, inject: 0 },
+          );
     await expect(readBuild({ ...options, runJob: swapped })).rejects.toThrow(
       "@cosyte/bench: a timing job returned another kind",
     );
-    const memorySwapped = (job: Parameters<typeof runJob>[0]) =>
-      runJob(job.mode === "timing" ? job : { ...job, mode: "timing", latency: false, inject: 0 });
+    const memorySwapped = (job: AnyJob) =>
+      runJob(
+        job.mode === "timing" || job.mode === "floor"
+          ? job
+          : { ...job, mode: "timing", latency: false, inject: 0 },
+      );
     await expect(readBuild({ ...options, runJob: memorySwapped })).rejects.toThrow(
-      "@cosyte/bench: a memory job returned a timing result",
+      "@cosyte/bench: a memory job returned another kind",
     );
+    const floorSwapped = (job: AnyJob) =>
+      runJob(job.mode === "floor" ? { mode: "alloc", ...base0, case: c0 } : job);
+    await expect(readBuild({ ...options, runJob: floorSwapped })).rejects.toThrow(
+      "@cosyte/bench: a floor job returned another kind",
+    );
+    const floorForMemory = (job: AnyJob) => runJob(job.mode === "alloc" ? { mode: "floor" } : job);
+    await expect(readBuild({ ...options, runJob: floorForMemory })).rejects.toThrow(
+      "@cosyte/bench: a memory job returned another kind",
+    );
+  });
+
+  it("measures the empty-call floor once per run, after the cases, and gives every peak above it", async () => {
+    const order: string[] = [];
+    const { counts, runJob } = fixedRunner();
+    const body = await readBuild({
+      ...options,
+      runJob: (job) => {
+        order.push(job.mode);
+        return runJob(job);
+      },
+      processes: 1,
+    });
+    expect(counts.floors).toBe(1);
+    expect(order.at(-1)).toBe("floor");
+    expect(order.filter((m) => m === "floor")).toHaveLength(1);
+    expect(body.memoryFloor).toEqual(FLOOR_PEAK);
+    // 3 MiB raw, less the floor's median of 24 KiB; a median of 1 KiB under the floor reads 0.
+    expect(body.cases[0]?.peak).toMatchObject({
+      peakTotalBytes: 3 * 1024 * 1024,
+      peakTotalAboveFloorBytes: 3 * 1024 * 1024 - 24_576,
+      medianPeakTotalAboveFloorBytes: 0,
+      peakHeapAboveFloorBytes: 3 * 1024 * 1024 - 24_576,
+      peakExternalAboveFloorBytes: 0,
+    });
+    expect(body.failures).toEqual([]);
+  });
+
+  it("measures no floor when memory is off", async () => {
+    const { counts, runJob } = fixedRunner();
+    const body = await readBuild({ ...options, runJob, processes: 1, memory: false });
+    expect(counts.floors).toBe(0);
+    expect(body.memoryFloor).toBeNull();
+  });
+
+  it("lists a case whose timing failed, leaves it out, and writes every other case", async () => {
+    const { runJob } = fixedRunner({
+      fail: (j) => j.mode === "timing" && j.case.benchmark === "scan" && j.case.size === "large",
+    });
+    const progress: string[] = [];
+    const body = await readBuild({
+      ...options,
+      runJob,
+      processes: 1,
+      onProgress: (l) => progress.push(l),
+    });
+    expect(body.cases.map((c) => `${c.benchmark} @ ${c.size}`)).toEqual([
+      "scan @ small",
+      "decode @ small",
+      "decode @ large",
+    ]);
+    expect(body.failures).toEqual([
+      {
+        phase: "timing",
+        benchmark: "scan",
+        size: "large",
+        message: "the timing job could not measure: synthetic",
+      },
+    ]);
+    // The whole error, stderr and all, goes to the progress stream; the document keeps one line.
+    expect(progress).toContain(
+      "could not measure timing of scan @ large: the timing job could not measure: synthetic\nstderr line two",
+    );
+    expect(body.importCost).toBe(importCost);
+  });
+
+  it("keeps a case whose memory failed, with its timing and no memory, and goes on", async () => {
+    const { runJob } = fixedRunner({
+      fail: (j) => j.mode === "heap" && j.case.benchmark === "decode" && j.case.size === "small",
+    });
+    const body = await readBuild({ ...options, runJob, processes: 1 });
+    expect(body.cases).toHaveLength(4);
+    expect(body.cases[2]).toMatchObject({
+      benchmark: "decode",
+      size: "small",
+      throughput: { status: "measured" },
+      allocations: { status: "measured" },
+      peak: null,
+      longRun: null,
+    });
+    expect(body.cases[3]?.peak).toMatchObject({ status: "measured" });
+    expect(body.failures).toEqual([
+      {
+        phase: "memory",
+        benchmark: "decode",
+        size: "small",
+        message: "the heap job could not measure: synthetic",
+      },
+    ]);
+  });
+
+  it("lists a floor that failed, and leaves the peaks raw", async () => {
+    const { runJob } = fixedRunner({ fail: (j) => j.mode === "floor" });
+    const progress: string[] = [];
+    const body = await readBuild({
+      ...options,
+      runJob,
+      processes: 1,
+      only: ["scan @ small"],
+      onProgress: (l) => progress.push(l),
+    });
+    expect(body.memoryFloor).toBeNull();
+    expect(body.failures).toEqual([
+      {
+        phase: "floor",
+        benchmark: null,
+        size: null,
+        message: "the floor job could not measure: synthetic",
+      },
+    ]);
+    expect(progress).toContain(
+      "could not measure the memory floor: the floor job could not measure: synthetic\nstderr line two",
+    );
+    expect(body.cases[0]?.peak).not.toHaveProperty("peakTotalAboveFloorBytes");
+  });
+
+  it("records a thrown value that is not an Error by its text", async () => {
+    const runJob = (job: AnyJob) => {
+      if (job.mode === "floor") return Promise.reject(new Error("first\nsecond"));
+      // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- the branch under test is a thrown non-Error
+      return Promise.reject("plain");
+    };
+    const progress: string[] = [];
+    const body = await readBuild({
+      ...options,
+      runJob,
+      processes: 1,
+      only: ["scan @ small"],
+      importCost: false,
+      onProgress: (l) => progress.push(l),
+    });
+    expect(body.cases).toEqual([]);
+    expect(body.failures?.map((f) => f.message)).toEqual(["plain", "first"]);
+    expect(progress).toEqual([
+      "could not measure timing of scan @ small: plain",
+      "could not measure the memory floor: first\nsecond",
+    ]);
+  });
+});
+
+const c0 = { benchmark: "scan", size: "small" };
+const base0 = { suite: "/s.mjs", target: "/t.mjs" };
+
+describe("budgetPeakBytes", () => {
+  const peak = (over: Partial<Extract<PeakReport, { status: "measured" }>> = {}): PeakReport => ({
+    status: "measured",
+    calls: 20,
+    peakHeapBytes: 30_000,
+    medianPeakHeapBytes: 29_000,
+    peakTotalBytes: 31_000,
+    medianPeakTotalBytes: 30_000,
+    peakTotalAboveFloorBytes: 27_600,
+    medianPeakTotalAboveFloorBytes: 6_000,
+    ...over,
+  });
+  const reading = (bytesPerPass: number | null, p: PeakReport | null, inputs = 2): CaseReading => ({
+    ...c0,
+    inputsPerPass: inputs,
+    bytesPerPass,
+    throughput: { status: "skipped", reason: "warmup-unstable" },
+    latency: null,
+    allocations: null,
+    peak: p,
+    longRun: null,
+  });
+  const limit = BENCH_CONTRACT.FLOOR_INPUT_BYTES;
+
+  it("reads the median call's total above the floor for an input under the stated size, and the highest raw total at it", () => {
+    expect(limit).toBe(64 * 1024);
+    // Two inputs a pass: the size is per input.
+    expect(budgetPeakBytes(reading(2 * (limit - 1), peak()))).toBe(6_000);
+    expect(budgetPeakBytes(reading(2 * limit, peak()))).toBe(31_000);
+    expect(budgetPeakBytes(reading(2 * limit - 1, peak()))).toBe(6_000);
+  });
+
+  it("reads raw when the suite gave no bytes, the corpus is empty, or there is no floor figure", () => {
+    expect(budgetPeakBytes(reading(null, peak()))).toBe(31_000);
+    expect(budgetPeakBytes(reading(100, peak(), 0))).toBe(31_000);
+    const { medianPeakTotalAboveFloorBytes: _dropped, ...unfloored } = peak() as Extract<
+      PeakReport,
+      { status: "measured" }
+    >;
+    expect(budgetPeakBytes(reading(100, unfloored))).toBe(31_000);
+  });
+
+  it("reads the heap of a document written before the total, and nothing without a measured peak", () => {
+    const old: PeakReport = {
+      status: "measured",
+      calls: 20,
+      peakHeapBytes: 4096,
+      medianPeakHeapBytes: 1024,
+    };
+    expect(budgetPeakBytes(reading(100, old))).toBe(4096);
+    expect(budgetPeakBytes(reading(100, null))).toBeNull();
+    expect(budgetPeakBytes(reading(100, { status: "skipped", reason: "gc-unsettled" }))).toBeNull();
   });
 });
 

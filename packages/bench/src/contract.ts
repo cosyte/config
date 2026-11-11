@@ -44,6 +44,15 @@ export interface BenchContractShape {
   readonly ALLOC_SEMI_SPACE_MIB: number;
   /** Calls measured one by one for the peak heap. */
   readonly PEAK_CALLS: number;
+  /**
+   * An input under this many bytes, on average, is budgeted on its median call's total peak above
+   * the empty-call floor's median, rather than its highest raw peak. On a GitHub-hosted runner the
+   * peak probe costs about 3.3 KiB on a typical empty call and 28 KiB on its highest (one call, the
+   * first), so the highest of a small input's calls reads the probe more than the code: 20 times a
+   * 1 KiB input is spent before the code runs. At 64 KiB even the probe's highest call is about 2%
+   * of a 20 times budget, so above it the raw highest peak is read as before.
+   */
+  readonly FLOOR_INPUT_BYTES: number;
   /** Rounds in the long run that checks the heap stays flat. */
   readonly LONG_RUN_ROUNDS: number;
   /** Rounds at the start of the long run left out of the slope, while caches and compiled code settle. */
@@ -106,6 +115,7 @@ export const BENCH_CONTRACT: BenchContractShape = Object.freeze({
   ALLOC_WINDOW_MS: 100,
   ALLOC_SEMI_SPACE_MIB: 64,
   PEAK_CALLS: 20,
+  FLOOR_INPUT_BYTES: 64 * 1024,
   LONG_RUN_ROUNDS: 30,
   LONG_RUN_SETTLE_ROUNDS: 5,
   LONG_RUN_ROUND_MS: 100,

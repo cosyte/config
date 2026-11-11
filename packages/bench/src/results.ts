@@ -306,12 +306,46 @@ export const RESULTS_SCHEMA = {
         },
       },
     },
+    peak: measuredOrSkipped({
+      type: "object",
+      required: ["status", "calls", "peakHeapBytes", "medianPeakHeapBytes"],
+      properties: {
+        status: { const: "measured" },
+        calls: int,
+        peakHeapBytes: num,
+        medianPeakHeapBytes: num,
+        // Added within version 1, so not required.
+        peakExternalBytes: num,
+        medianPeakExternalBytes: num,
+        peakTotalBytes: num,
+        medianPeakTotalBytes: num,
+        peakHeapAboveFloorBytes: num,
+        medianPeakHeapAboveFloorBytes: num,
+        peakExternalAboveFloorBytes: num,
+        medianPeakExternalAboveFloorBytes: num,
+        peakTotalAboveFloorBytes: num,
+        medianPeakTotalAboveFloorBytes: num,
+      },
+    }),
+    failure: {
+      type: "object",
+      required: ["phase", "benchmark", "size", "message"],
+      properties: {
+        phase: { enum: ["timing", "memory", "floor"] },
+        benchmark: strOrNull,
+        size: strOrNull,
+        message: str,
+      },
+    },
     reading: {
       type: "object",
       required: ["processes", "cases", "importCost"],
       properties: {
         processes: int,
         cases: { type: "array", items: { $ref: "#/$defs/caseReading" } },
+        // Added within version 1, so not required.
+        memoryFloor: orNull({ $ref: "#/$defs/peak" }),
+        failures: { type: "array", items: { $ref: "#/$defs/failure" } },
         importCost: orNull({
           type: "object",
           required: [
@@ -411,23 +445,7 @@ export const RESULTS_SCHEMA = {
             },
           }),
         ),
-        peak: orNull(
-          measuredOrSkipped({
-            type: "object",
-            required: ["status", "calls", "peakHeapBytes", "medianPeakHeapBytes"],
-            properties: {
-              status: { const: "measured" },
-              calls: int,
-              peakHeapBytes: num,
-              medianPeakHeapBytes: num,
-              // Added within version 1, so not required.
-              peakExternalBytes: num,
-              medianPeakExternalBytes: num,
-              peakTotalBytes: num,
-              medianPeakTotalBytes: num,
-            },
-          }),
-        ),
+        peak: orNull({ $ref: "#/$defs/peak" }),
         longRun: orNull(
           measuredOrSkipped({
             type: "object",

@@ -10,15 +10,10 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import {
-  calibrateComparison,
-  compareBuilds,
-  comparisonExitCode,
-  type JobRunner,
-} from "./compare.js";
+import { calibrateComparison, compareBuilds, comparisonExitCode } from "./compare.js";
 import type { Environment } from "./environment.js";
 import type { ImportCostReport } from "./import-cost.js";
-import { readBuild } from "./reading.js";
+import { readBuild, type ReadRunner } from "./reading.js";
 import { renderMarkdown } from "./report.js";
 import { documentBase, readResults, type ResultsDocument } from "./results.js";
 import { checkSuite, type BenchSuite } from "./suite.js";
@@ -30,7 +25,7 @@ export interface MainIo {
   readonly cwd: string;
   readonly env: NodeJS.ProcessEnv;
   /** Runs one measuring job: `runInChild` in the bin. */
-  readonly runJob: JobRunner;
+  readonly runJob: ReadRunner;
   /** Measures cold import cost: `measureImportCost` in the bin. */
   readonly measureImport: (target: string) => Promise<ImportCostReport>;
   /** Describes the machine: `environment` in the bin. */
@@ -53,7 +48,8 @@ export const USAGE = `Usage:
   cosyte-bench check <results.json>
 
 Exit codes: 0 clean, 1 a finding (a regression, or results that do not match the schema),
-2 could not measure or could not read its input.
+2 could not measure or could not read its input. A run that could not measure a case still
+writes every other case, lists what failed, and exits 2.
 `;
 
 /** A bad command line. */
@@ -272,7 +268,8 @@ export async function main(argv: readonly string[], io: MainIo): Promise<number>
           subject: { target: rel(target), commit },
           reading,
         },
-        0,
+        // Whatever measured is written; a part that could not be is still exit 2.
+        reading.failures.length > 0 ? 2 : 0,
       );
     }
 

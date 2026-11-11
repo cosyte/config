@@ -17,7 +17,7 @@
  * @packageDocumentation
  */
 
-import type { Job, JobResult } from "./child.js";
+import type { AnyJobResult, Job } from "./child.js";
 import { BENCH_CONTRACT } from "./contract.js";
 import type { WarmupPlan } from "./measure.js";
 import {
@@ -110,7 +110,7 @@ export interface ComparisonBody {
  *
  * @internal
  */
-export type JobRunner = (job: Job) => Promise<JobResult>;
+export type JobRunner = (job: Job) => Promise<AnyJobResult>;
 
 /** What {@link compareBuilds} needs. */
 export interface CompareOptions {
