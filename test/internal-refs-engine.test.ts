@@ -262,6 +262,48 @@ describe("the phase rule's compound-word and sentence guards", () => {
 });
 
 /**
+ * Clinical study phase wording through the CLI: HL7 table 0003's display texts on a public page
+ * exit 0, and a roadmap name put into the same sentence exits 1. The rule's own cases are in
+ * `packages/script-utils/test/internal-refs-phase.test.ts`, where the package's coverage sees them.
+ */
+describe("the phase rule on clinical study phase wording, through the gate", () => {
+  it("exits 0 over both display texts on a public page, and 1 over a near miss", () => {
+    const clean = scratch(
+      "irefs-hl7-0003",
+      "# Scratch\n\nCRM - Correct/update phase information\n\n" +
+        "MFN/MFK - Clinical study without phases but with schedules master file\n",
+    );
+    const cleanResult = runGate(baseConfig(clean));
+    expect(cleanResult.err, cleanResult.err).toBe("");
+    expect(cleanResult.code).toBe(0);
+
+    const near = scratch("irefs-hl7-0003-near", "# Scratch\n\nCRM - Correct/update phase one\n");
+    const nearResult = runGate(baseConfig(near));
+    expect(nearResult.code).toBe(1);
+    expect(nearResult.err).toContain("[phase or wave language]");
+  });
+
+  it("gives a caller no excuse of its own: an extra rule carrying one still reports its hits", () => {
+    const repo = scratch("irefs-extra-excuse", "# Scratch\n\nThe Zebrafish lane ships next.\n");
+    const result = runGate({
+      ...baseConfig(repo),
+      extraRules: [
+        {
+          id: "zebrafish",
+          name: "zebrafish lane",
+          patterns: ["\\bZebrafish lane\\b"],
+          positives: ["The Zebrafish lane"],
+          negatives: ["A zebra"],
+          excuse: () => true,
+        },
+      ],
+    });
+    expect(result.code).toBe(1);
+    expect(result.err).toContain("[zebrafish lane]");
+  });
+});
+
+/**
  * The slice rule's determiners, with the passages the narrowing lets through and the ones it must
  * still catch. The let-through passages are terminology's public documentation of its fixed-width
  * reader, where a field slice is a byte range the caller passes in; with `the` and `each` in the

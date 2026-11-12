@@ -876,6 +876,9 @@ shape rule, which flags the segment-field references a parser's documentation ex
 so a prefix shadowed by a standards designation refuses the run instead of silently contributing
 nothing. That is the axis a caller edits most, and a dead entry there is a rule that stopped seeing.
 
+**The phase rule excuses `phase` as a noun:** `phase information` passes, while `phase iib`,
+`phase one` and `Phase Atlas` do not. `ruleHits(rule, text)` reads a rule as the gate does.
+
 ### `runAttwGate(options)`
 
 The `attw` publish gate, run in the working directory of the package being checked. It returns the

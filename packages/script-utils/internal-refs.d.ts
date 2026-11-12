@@ -176,6 +176,12 @@ export interface CompiledRule {
   id: string;
   name: string;
   patterns: RegExp[];
+  /**
+   * Lets through some of what `patterns` match: a match it returns `true` for is not a hit. Only
+   * the phase rule carries one, for `phase` used as a noun before a lowercase word; a caller's
+   * extra rule never does. Read a rule with {@link ruleHits} to see what the gate reports.
+   */
+  excuse?: (found: RegExpExecArray) => boolean;
   positives: string[];
   negatives: string[];
 }
@@ -219,6 +225,12 @@ export declare function resolveConfig(config: unknown): {
   problems?: string[];
   codes: InternalRefsExitCodes;
 };
+
+/** Every hit one compiled rule reports in a text, with its `excuse` applied, as the gate reads it. */
+export declare function ruleHits(
+  rule: Pick<CompiledRule, "patterns" | "excuse">,
+  text: string,
+): string[];
 
 /** Prove every rule still matches its positives and still lets its negatives through. */
 export declare function runSelfTests(rules: CompiledRule[]): string[];

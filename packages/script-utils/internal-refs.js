@@ -264,6 +264,64 @@ const PHASE_NOT_FIELD =
   "(?:I{1,3}|IV)\\s+(?:trial|stud|clinical|oncolog))";
 
 /**
+ * The lowercase words that still name a phase, so the noun excuse below never covers them: every
+ * number word (zero to nineteen, the tens and hundred; a hyphenated one such as `twenty-one` is
+ * never excused, because a hyphen after the word ends the excuse), every written ordinal, the 24
+ * Greek letter names, a roman numeral made of `i v x l c d m` in any count with at most one letter
+ * after it (`iv`, `iib`, `xxiii`), and a single letter.
+ *
+ * The roman numeral form is wide on purpose. It keeps refusing a few ordinary words that are made
+ * of those letters, `phase via`, `phase mix`, `phase did`, `phase mild` and `phase civil` among
+ * them, exactly as the rule did before the excuse existed: a numeral that names a phase is the
+ * mistake that matters, and a remediator can reword one of those sentences.
+ */
+const NAMES_A_PHASE = new RegExp(
+  "^(?:" +
+    [
+      "zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen",
+      "fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy",
+      "eighty|ninety|hundred",
+      "first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|eleventh|twelfth",
+      "thirteenth|fourteenth|fifteenth|sixteenth|seventeenth|eighteenth|nineteenth|twentieth",
+      "alpha|beta|gamma|delta|epsilon|zeta|eta|theta|iota|kappa|lambda|mu|nu|xi|omicron|pi|rho",
+      "sigma|tau|upsilon|phi|chi|psi|omega",
+      "[ivxlcdm]+[a-z]?",
+      "[a-z]",
+    ].join("|") +
+    ")$",
+);
+
+/** A phase hit that is `phase` or `phases`, one space, and a word of lowercase ASCII letters. */
+const PHASE_BEFORE_LOWERCASE_WORD = /^[Pp][Hh][Aa][Ss][Ee][Ss]? ([a-z]+)$/;
+
+/** A character that would make the word after `phase` longer than what the hit holds. */
+const WORD_GOES_ON = /^[-\p{L}\p{N}\p{M}]$/u;
+
+/**
+ * Whether one hit of the phase rule is `phase` used as a noun in a sentence, not a phase's name.
+ *
+ * The rule's own pattern decides what is a candidate, unchanged; this only excuses some of them,
+ * so the rule refuses everything it refused before except what this returns `true` for. A hit is
+ * excused only when it is `phase` or `phases`, a single space, and then a word made only of
+ * lowercase ASCII letters that ends there and is none of {@link NAMES_A_PHASE}. That is how a
+ * standard's own text reads: HL7 table 0003's `CRM - Correct/update phase information` and
+ * `MFN/MFK - Clinical study without phases but with schedules master file`, and imaging's `phase
+ * encoding`. Any capital, digit, hyphen, other gap or longer word in that position leaves the hit
+ * refused, so `Phase Atlas`, `phase 2b`, `phase-by-phase`, `phase iib` and `phase twenty-one`
+ * still are. The case of `phase` itself does not matter: only the word after it is read.
+ *
+ * @param {RegExpExecArray} found One match of the rule's patterns, with its `input` and `index`.
+ * @returns {boolean} `true` when the hit is excused.
+ */
+function excusePhaseNoun(found) {
+  const shape = PHASE_BEFORE_LOWERCASE_WORD.exec(found[0]);
+  if (shape === null) return false;
+  const next = found.input.codePointAt(found.index + found[0].length);
+  if (next !== undefined && WORD_GOES_ON.test(String.fromCodePoint(next))) return false;
+  return !NAMES_A_PHASE.test(shape[1]);
+}
+
+/**
  * Imaging vocabulary that follows `slice` in reference material rather than in our jargon.
  *
  * Grounded in a generated DICOM tag dictionary: SliceThickness, SliceLocation, SpacingBetweenSlices,
@@ -391,6 +449,8 @@ export function compileCanonicalRules(resolved) {
           "gi",
         ),
       ],
+      // Only the first pattern's `phase` hits can be excused; the second never starts with `phase`.
+      excuse: excusePhaseNoun,
       positives: [
         "Phase 5b closes it (Phase W, Phase-L and the thirteenth slice landed earlier, in wave 2)",
         // The plural, which ten of the eleven per-repository copies matched (`phases?[ -]`).
@@ -402,6 +462,12 @@ export function compileCanonicalRules(resolved) {
         "The helpers are populated in subsequent phases",
         "It arrives in a later wave, after waves 2 and 3",
         "Obsolete codes are tracked by the roadmap",
+        // What the noun excuse must still leave refused: a lowercase number word, roman numeral
+        // with a letter after it, and Greek letter name, each in the sentences a standard uses.
+        "CRM - Correct/update phase one",
+        "MFN/MFK - Clinical study without phases two but with schedules",
+        "The work ships in phase iib",
+        "The master file lands in phase beta",
       ],
       negatives: [
         "CSP-1 Study Phase Identifier, CSP-2 Study Phase Start Date/Time, CSP-3 Study Phase End " +
@@ -417,6 +483,11 @@ export function compileCanonicalRules(resolved) {
         // The clinical senses of the adjective forms.
         "A later phase of the disease, the next wave of infections, and the previous phase of " +
           "the trial",
+        // The noun excuse: clinical study phase wording in a standard's own data, HL7 table
+        // 0003's display texts, and imaging and signal vocabulary after a lowercase `phase`.
+        "CRM - Correct/update phase information",
+        "MFN/MFK - Clinical study without phases but with schedules master file",
+        "The phase encoding direction, phase contrast flow, a phase shift and a phase lag",
       ],
     },
     {
@@ -862,22 +933,63 @@ function buildRules(resolved) {
 // The self-test floor
 // ---------------------------------------------------------------------------
 
-/** Does any of a rule's patterns match this text? */
-function matches(rule, text) {
-  return rule.patterns.some((pattern) => {
-    pattern.lastIndex = 0;
-    return pattern.test(text);
-  });
+/**
+ * The first match of one pattern in this text that the rule does not excuse, or `null`.
+ *
+ * After an excused match the search starts again one character on, not after the match, so a hit
+ * that starts inside an excused one is still found: in `phases phase 2` the excused `phases phase`
+ * would otherwise hide `phase 2`. A rule with no excuse reads exactly as `exec` does.
+ *
+ * @param {{ excuse?: (found: RegExpExecArray) => boolean }} rule The rule the pattern belongs to.
+ * @param {RegExp} pattern One of its patterns, global.
+ * @param {string} text The text.
+ * @param {number} from Where to start.
+ * @returns {RegExpExecArray | null} The match.
+ */
+function nextUnexcused(rule, pattern, text, from) {
+  pattern.lastIndex = from;
+  for (;;) {
+    const found = pattern.exec(text);
+    if (found === null || rule.excuse === undefined || !rule.excuse(found)) return found;
+    pattern.lastIndex = found.index + 1;
+  }
 }
 
-/** The first thing one of a rule's patterns matched in this text, or `null`. */
+/** Does any of a rule's patterns match this text, once its excuse is applied? */
+function matches(rule, text) {
+  return rule.patterns.some((pattern) => nextUnexcused(rule, pattern, text, 0) !== null);
+}
+
+/** The first thing one of a rule's patterns matched in this text and the rule kept, or `null`. */
 function firstMatch(rule, text) {
   for (const pattern of rule.patterns) {
-    pattern.lastIndex = 0;
-    const found = pattern.exec(text);
+    const found = nextUnexcused(rule, pattern, text, 0);
     if (found !== null) return found[0];
   }
   return null;
+}
+
+/**
+ * Every hit one compiled rule reports in a text, pattern by pattern, with the rule's excuse applied.
+ *
+ * Exported so a caller or a test reads a rule the way the gate does: a rule's `patterns` alone
+ * can name a candidate that its `excuse` lets through.
+ *
+ * @param {{ patterns: RegExp[], excuse?: (found: RegExpExecArray) => boolean }} rule The rule.
+ * @param {string} text The text.
+ * @returns {string[]} The matched text of each hit, in pattern order and then text order.
+ */
+export function ruleHits(rule, text) {
+  const hits = [];
+  for (const pattern of rule.patterns) {
+    let found = nextUnexcused(rule, pattern, text, 0);
+    while (found !== null) {
+      hits.push(found[0]);
+      const end = found.index + found[0].length;
+      found = nextUnexcused(rule, pattern, text, end > found.index ? end : end + 1);
+    }
+  }
+  return hits;
 }
 
 /**
