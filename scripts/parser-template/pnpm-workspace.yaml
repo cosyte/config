@@ -23,6 +23,14 @@
 # (https://pnpm.io/supply-chain-security).
 minimumReleaseAge: 1440
 
+# First-party packages are exempt from the floor, as in config's own pnpm-workspace.yaml and every
+# library. Without this a new repo cannot install a @cosyte package on the day it is published,
+# which is when its own toolchain most needs it. Every third-party package keeps the floor.
+# config's test/scaffold-repo-standards.test.ts holds this list equal to config's own.
+minimumReleaseAgeExclude:
+  # reason: first-party @cosyte package, exempt from the floor by operator decision
+  - "@cosyte/*"
+
 # Fail the install when a package's trust evidence is weaker than that of an earlier-published
 # version of the same package. Exemptions go in `trustPolicyExclude` below, one entry per line,
 # each with a "# reason: ..." comment above it saying why the hole is acceptable.

@@ -602,6 +602,8 @@ function main() {
       "                          # REQUIRED before `pnpm phi-scan`: its sweep reads the bytes git",
       "                          # carries as a union with the working-tree walk, and refuses rather",
       "                          # than sweeping on the walk's word alone when there is no index.",
+      "                          # Run the gate (`pnpm phi-scan` and the checks below) only AFTER",
+      "                          # `git add`: the PHI scan reads staged files, so unstaged work is unscanned.",
       "  pnpm install            # resolves @cosyte/* config packages from npm",
       "  pnpm format:check       # already clean: the emitted tree was formatted on emit",
       "  pnpm typecheck && pnpm lint --max-warnings=0 && pnpm test && pnpm build && pnpm attw",

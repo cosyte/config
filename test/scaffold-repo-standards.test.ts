@@ -352,6 +352,20 @@ describe("the install hardening", () => {
     expect(settings.trustPolicyExclude).toEqual(wanted);
   });
 
+  it("exempts first-party packages from the release-age floor exactly as this repository does", () => {
+    // Without the exemption a new repo cannot install a @cosyte package on the day it is published.
+    const wanted = parseYamlSubset(own).minimumReleaseAgeExclude;
+    expect(Array.isArray(wanted) && wanted.length > 0, "config's own list must be read").toBe(true);
+    const settings = parseYamlSubset(read("pnpm-workspace.yaml"));
+    expect(settings.minimumReleaseAge).toBe(1440);
+    expect(settings.minimumReleaseAgeExclude).toEqual(wanted);
+    const reasons = exemptionReasons(read("pnpm-workspace.yaml"), "minimumReleaseAgeExclude");
+    expect(reasons.length).toBeGreaterThan(0);
+    for (const { entry, reason } of reasons) {
+      expect(reason, `${entry} carries no "# reason:" comment`).toMatch(/^reason:\s*\S/i);
+    }
+  });
+
   it("gives every exclusion a recorded reason, as the install-hardening gate requires", () => {
     const reasons = exemptionReasons(read("pnpm-workspace.yaml"), "trustPolicyExclude");
     expect(reasons.length).toBeGreaterThan(0);
