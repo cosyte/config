@@ -495,9 +495,13 @@ block with what the example prints) and Code, in that order. The Code section ru
 page and is the example's file, which `cosyte-docs-content --write` writes and the check compares,
 so the code on the page is never pasted by hand. Its fence is marked `no-run` with a reason, since
 the example runs from `examples/` in the library's own CI, not as a docs sample. A missing page, a
-page whose example is gone, and a Code section that differs from the file each fail, and the ratchet
-holds none of them. `--write` never creates a page: what the example shows, how to run it and what
-it prints are written by hand.
+page whose example is gone, and a Code section that differs from the file each fail, under the
+rules `example-page` and `example-code`. The ratchet holds both, at the count of examples with no
+page each library had when they landed, so a library is not failed for its existing examples and
+fails once it adds one without a page; no library has an `example-code` count. `--write` never
+creates a page: what the example shows, how to run it and what it prints are written by hand. It
+reads and writes each page through one file descriptor, without following a symbolic link; on
+Windows, where Node.js has no `O_NOFOLLOW`, that protection does not apply.
 
 ```ts runnable
 import { checkDocsContent } from "@cosyte/script-utils/docs-content";

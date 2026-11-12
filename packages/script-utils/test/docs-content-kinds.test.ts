@@ -132,6 +132,8 @@ describe("the constants", () => {
       "tutorial-steps",
       "page-id",
       "reference-source",
+      "example-page",
+      "example-code",
     ]);
     expect(WARNING_RULES).toEqual(["measured-number"]);
     expect(DOCS_CONTENT_RULES).toMatchObject({
@@ -787,9 +789,26 @@ describe("the ratchet file", () => {
     readFileSync(new URL("../docs-content-ratchet.json", import.meta.url), "utf8"),
   ) as {
     description: string;
+    rules?: string[];
     measuredAt: Record<string, string>;
+    examplesMeasuredAt?: Record<string, string>;
     libraries: Record<string, Record<string, number>>;
   };
+
+  /**
+   * The rules a copy of the file holds. A copy that names none is one from before the example
+   * rules joined the ratchet, which held the seven rules on kinds.
+   */
+  const KIND_RULES = [
+    "howto-title",
+    "howto-steps",
+    "explanation-content",
+    "limitations",
+    "tutorial-steps",
+    "page-id",
+    "reference-source",
+  ];
+  const heldRules = (copy: typeof file) => copy.rules ?? KIND_RULES;
 
   it("is the counts the check reads, frozen", () => {
     expect(DOCS_CONTENT_RATCHET).toEqual(file.libraries);
@@ -808,6 +827,23 @@ describe("the ratchet file", () => {
         expect(Number.isInteger(count) && count >= 1).toBe(true);
       }
     }
+  });
+
+  it("names the rules it holds, and the commit each library's example counts were measured at", () => {
+    expect(file.rules).toEqual([...RATCHETED_RULES]);
+    for (const [library, counts] of Object.entries(file.libraries)) {
+      const examples = ["example-page", "example-code"].some((rule) => Object.hasOwn(counts, rule));
+      if (examples) expect(file.examplesMeasuredAt?.[library]).toMatch(/^[0-9a-f]{7,40}$/);
+    }
+    for (const library of Object.keys(file.examplesMeasuredAt ?? {})) {
+      expect(Object.keys(file.libraries)).toContain(library);
+    }
+  });
+
+  it("reads a copy that names no rules as one holding the seven rules on kinds", () => {
+    const { rules: _rules, ...old } = file;
+    expect(heldRules(old)).toEqual(KIND_RULES);
+    expect(heldRules(file)).toEqual([...RATCHETED_RULES]);
   });
 
   // The counts only fall. Against main's copy of the file, no library gains a rule or a count, and
@@ -858,7 +894,9 @@ describe("the ratchet file", () => {
     expect(baseOutcome({ kind: "read", file }, true)).toBe("compare");
   });
 
-  it("never raises a count main records, nor adds a library or a rule", (context) => {
+  // A rule main's copy does not hold is new to the ratchet, and this change records its first
+  // counts, measured from the libraries; every rule main holds is compared.
+  it("never raises a count main records, nor adds a library or a rule main holds", (context) => {
     const base = readRatchetAt("origin/main");
     const outcome = baseOutcome(base, process.env.CI !== undefined && process.env.CI !== "");
     if (outcome === "fail" && base.kind === "unreadable") {
@@ -867,9 +905,12 @@ describe("the ratchet file", () => {
     if (outcome === "skip") context.skip("main's copy of the ratchet cannot be read here");
     if (base.kind !== "read") return;
     const recorded = base.file.libraries;
+    const held = heldRules(base.file);
+    for (const rule of held) expect(heldRules(file)).toContain(rule);
     for (const [library, counts] of Object.entries(file.libraries)) {
       expect(Object.keys(recorded)).toContain(library);
       for (const [rule, count] of Object.entries(counts)) {
+        if (!held.includes(rule)) continue;
         expect(count).toBeLessThanOrEqual(recorded[library]?.[rule] ?? 0);
       }
     }

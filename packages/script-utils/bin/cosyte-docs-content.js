@@ -34,7 +34,8 @@ docs-content/example-<name>.md, listed under Examples, with the H2 headings "Wha
 it", "Expected output" (holding a fenced block) and "Code", in that order. The Code section runs to
 the end of the page and is the example's file: --write writes it from the file before the check
 runs, and without --write a Code section that differs from the file is a finding. --write never
-creates a page; what an example shows, how to run it and what it prints are written by hand.
+creates a page; what an example shows, how to run it and what it prints are written by hand. The
+ratchet holds these rules too, at each library's recorded count of examples with no page.
 
 It does not read links (the shared CI's docs-content link check does), the generated pages under
 api/ (cosyte-docs-reference checks those), or whether a sample runs (the sample runner in

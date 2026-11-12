@@ -17,10 +17,20 @@ written into the page from its file, and accepts an Examples category in the sid
   file in a fence titled with its path and marked `no-run`. `cosyte-docs-content --write` writes it
   (also `writeExamplePages(root)` and `exampleCodeSection(file, text)`), and a Code section that
   differs from the file fails under the new rule `example-code`. `--write` never creates a page.
-- **Not ratcheted.** Neither rule is held by `docs-content-ratchet.json`.
+- **Held by the ratchet.** `RATCHETED_RULES` gains `example-page` and `example-code`, and
+  `docs-content-ratchet.json` records each library's `example-page` count: its runnable examples
+  with no page, measured with this check at the commit its new `examplesMeasuredAt` names. The file
+  also gains `rules`, the rules it holds. No library records an `example-code` count.
 
-What a caller must change: a library with runnable examples fails the check on this version until
-it writes one page per example under an Examples category and runs `cosyte-docs-content --write`.
+What a caller must change: nothing at once. A library is not failed on this version for its
+examples with no page while they are at or under its recorded count; an example added without a
+page takes it over, and each one fails. It writes each page under an Examples category and runs
+`cosyte-docs-content --write`; the check then says which count to lower in
+`docs-content-ratchet.json` here. The type `DocsContentRatchetedRule` now includes
+`DocsContentExampleRule`. `--write` reads and writes a page through one descriptor without
+following a symbolic link; on Windows, where Node.js has no `O_NOFOLLOW`, that protection does not
+apply.
+
 `readDocsContent` now also reads `examples/` and returns `examples`, and refuses (exit 2) when
 `examples` is there and is not a directory, or an example is not a regular file. A caller of
 `checkDocsContent` that builds its input by hand passes `examples` to have them checked; without

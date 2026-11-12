@@ -354,10 +354,10 @@ structure check reads each one from the page's category, its title, its id and i
    page not in Reference. It cannot tell a measurement from a limit such as "1 MiB", so it is a
    warning and never fails.
 
-**The ratchet.** The first seven rules fail a library only past the findings it had when they
-landed. `docs-content-ratchet.json`, shipped in `@cosyte/script-utils`, records each library's count
-per rule, by the name in its `package.json`; at or under its count a rule's findings are listed and
-pass, and over it every one fails. The counts only fall: the check names a count a library has
+**The ratchet.** The first seven rules, and the two rules on example pages (section 13), fail a
+library only past the findings it had when they landed. `docs-content-ratchet.json`, shipped in
+`@cosyte/script-utils`, records each library's count per rule, by the name in its `package.json`;
+at or under its count a rule's findings are listed and pass, and over it every one fails. The counts only fall: the check names a count a library has
 dropped below, and that count is lowered in this repository, never raised; a test holds the file to
 main's copy. A library or a rule with no count has none to spend, so a new library keeps every rule
 from its first page. Measured on 2026-11-12 at each library's `main` (the commit for each is in the
@@ -420,8 +420,37 @@ umbrella pinned that day; `pathways` has none. So every runnable example has a p
   example page listed outside Examples, a page under Examples that is not an example page, an
   example whose name is not a page name (lower-case words joined by hyphens), two examples with one
   name (`a.ts` and `a.mjs`), a missing or misplaced heading, an Expected output section with no
-  fenced block, and a Code section that differs from the file. The ratchet holds none of these: a
-  page is written once, and a stale Code section is written again by `--write`.
+  fenced block, and a Code section that differs from the file. The first eight fail under the rule
+  `example-page`, the last under `example-code`.
+- **The ratchet holds both rules**, like the rules on kinds (section 12), so no library goes red the
+  day it takes them. `docs-content-ratchet.json` records each library's `example-page` count: its
+  runnable examples with no page, read with the check itself from the checkouts the umbrella pinned
+  on 2026-11-12 (the commit for each is in the file's `examplesMeasuredAt`). That is the runnable
+  examples above, not every file in `examples/`: a library's `README.md`, `tsconfig.json`,
+  `eslint.config.js`, the `_cosyte.ts` helper and folders of fixtures are not examples, so `x12`
+  holds 17 files at the top of `examples/` and 14 examples. No library records an `example-code`
+  count, so a Code section that differs from its file fails everywhere, and `--write` fixes it. The
+  counts only fall: once a library writes a page, the check names the count to lower here, and an
+  example added without a page takes the library over its count and fails. The counts are:
+
+  | Library | example-page | Library     | example-page |
+  | ------- | ------------ | ----------- | ------------ |
+  | astm    | 4            | hl7         | 3            |
+  | ccda    | 8            | mllp        | 4            |
+  | cli     | 4            | ncpdp       | 3            |
+  | dates   | 3            | synth       | 4            |
+  | deid    | 4            | terminology | 3            |
+  | dicom   | 4            | transform   | 4            |
+  | fhir    | 4            | x12         | 14           |
+
+  A count is per rule, so a page with a missing heading counts against the same number as an
+  example with no page, and is held while the library is at or under it; lowering the count as
+  pages are written is what makes each such finding fail.
+
+- **Writing a page.** `--write` opens each page once and reads and writes it through that one file
+  descriptor, without following a symbolic link (`O_NOFOLLOW`), so a page swapped for a link between
+  the read and the write is not written through. On Windows, Node.js has no `O_NOFOLLOW`, so that
+  protection does not apply there: a link swapped in at that moment would be followed.
 - **What it cannot catch.** Whether the expected output is what the example prints today, and
   whether the prose under What it shows and Run it is true of the example. Each of the 14 libraries
   has a `pnpm examples` script that runs its examples, and some examples assert their own output;
@@ -429,7 +458,8 @@ umbrella pinned that day; `pathways` has none. So every runnable example has a p
   and every example run, which the structure check does not do.
 
 `--write` never creates a page, since a page that only repeats the file says nothing the file does
-not. A library that takes this version writes one page per example in that change.
+not. A library that takes this version needs no page at once; it writes them as it can, and its
+count is lowered with each.
 
 ## Consequences
 
@@ -468,5 +498,8 @@ not. A library that takes this version writes one page per example in that chang
 - **Turn the rules on what a kind holds on at full strength.** All fifteen libraries would go red
   the day they landed (section 12's table), and each would need its pages rewritten before any other
   change could merge. The ratchet keeps them green and lets the counts only fall.
+- **Leave the example rules out of the ratchet.** Every library holding examples would fail the
+  check the day it took the release, until it wrote a page for each of its examples (66 in all);
+  the ratchet holds today's missing pages and still fails a new example without one.
 - **Warn on every rule instead of failing.** A warning in a log is read once and then not at all;
   only the measured-number rule, which a check cannot read reliably, is a warning.

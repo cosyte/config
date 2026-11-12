@@ -184,7 +184,7 @@ describe("the standard's constants", () => {
     expect(Object.keys(DOCS_CONTENT_RULES)).toEqual([
       ...STRUCTURE_RULES,
       ...EXAMPLE_RULES,
-      ...RATCHETED_RULES,
+      ...RATCHETED_RULES.filter((rule) => !(EXAMPLE_RULES as readonly string[]).includes(rule)),
       ...WARNING_RULES,
     ]);
     expect(Object.fromEntries(STRUCTURE_RULES.map((r) => [r, DOCS_CONTENT_RULES[r]]))).toEqual({

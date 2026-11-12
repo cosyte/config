@@ -24,6 +24,8 @@
 // It reads the runnable examples at the top of examples/: each has a page, example-<name>.md, listed
 // under Examples, whose Code section is the example's file. `--write` writes that section from the
 // file (writeExamplePages); the check fails when it differs, so the code is never pasted by hand.
+// The ratchet holds these rules too, at each library's count of examples with no page when they
+// landed.
 //
 // WHAT IT DOES NOT CHECK. Any other link, and images: the shared CI's docs-content link check
 // resolves those. The pages under `api/` themselves: the reference generator writes them and checks
@@ -153,8 +155,10 @@ export const DOCS_CONTENT_RULES = Object.freeze({
 });
 
 /**
- * The rules on example pages. They are not ratcheted: a missing page is written, and a Code section
- * that differs from its file is written again by `cosyte-docs-content --write`.
+ * The rules on example pages. The ratchet holds them too: a library's examples with no page are held
+ * at the count it had when the rules landed, which only falls, so no library fails the day it takes
+ * them and none can add an example without a page. No library records an `example-code` count, so a
+ * Code section that differs from its file fails everywhere; `cosyte-docs-content --write` fixes it.
  */
 export const EXAMPLE_RULES = Object.freeze(["example-page", "example-code"]);
 
@@ -185,9 +189,9 @@ const EXAMPLE_LANGUAGES = Object.freeze({ ".ts": "ts", ".mts": "ts", ".js": "js"
 const EXAMPLE_NO_RUN = "the example file itself, which the library runs from examples/";
 
 /**
- * The rules that read whether a page holds what its kind asks. A library's findings under them are
- * held by the ratchet up to the counts it records for that library (docs-content-ratchet.json), so
- * a library can only have fewer.
+ * The rules that read whether a page holds what its kind asks, and the rules on example pages. A
+ * library's findings under them are held by the ratchet up to the counts it records for that
+ * library (docs-content-ratchet.json), so a library can only have fewer.
  */
 export const RATCHETED_RULES = Object.freeze([
   "howto-title",
@@ -197,6 +201,7 @@ export const RATCHETED_RULES = Object.freeze([
   "tutorial-steps",
   "page-id",
   "reference-source",
+  ...EXAMPLE_RULES,
 ]);
 
 /** The rules that only warn: a check can only approximate them, so a hit never fails. */

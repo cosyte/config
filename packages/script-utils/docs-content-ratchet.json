@@ -1,5 +1,16 @@
 {
-  "description": "The docs-content ratchet: for each library, by package name, how many findings each rule that reads a page's kind may have. A library at or under its count passes; over it, the rule fails. The counts only fall: lower one when a library fixes pages, never raise one. A library or a rule not listed here may have none. Measured on 2026-11-12 at the commit named for each library in measuredAt.",
+  "description": "The docs-content ratchet: for each library, by package name, how many findings each rule in rules may have. A library at or under its count passes; over it, the rule fails. The counts only fall: lower one when a library fixes pages or writes an example's page, never raise one. A library or a rule not listed here may have none. The counts on kinds were measured on 2026-11-12 at the commit named for each library in measuredAt; the example-page counts, each library's runnable examples with no page, on 2026-11-12 at the commit in examplesMeasuredAt. No library records example-code, so it may have none.",
+  "rules": [
+    "howto-title",
+    "howto-steps",
+    "explanation-content",
+    "limitations",
+    "tutorial-steps",
+    "page-id",
+    "reference-source",
+    "example-page",
+    "example-code"
+  ],
   "measuredAt": {
     "@cosyte/astm": "18b6b5d",
     "@cosyte/ccda": "dd801d4",
@@ -17,53 +28,79 @@
     "@cosyte/transform": "671cf8b",
     "@cosyte/x12": "c01e565"
   },
+  "examplesMeasuredAt": {
+    "@cosyte/astm": "18b6b5d",
+    "@cosyte/ccda": "dd801d4",
+    "@cosyte/cli": "71fff3e",
+    "@cosyte/dates": "6ce068d",
+    "@cosyte/deid": "8b1a760",
+    "@cosyte/dicom": "8b4481b",
+    "@cosyte/fhir": "56938f8",
+    "@cosyte/hl7": "c3bf85d",
+    "@cosyte/mllp": "3424352",
+    "@cosyte/ncpdp": "f2c8169",
+    "@cosyte/synth": "314466c",
+    "@cosyte/terminology": "c5da7fe",
+    "@cosyte/transform": "43ff24a",
+    "@cosyte/x12": "c01e565"
+  },
   "libraries": {
     "@cosyte/astm": {
       "limitations": 2,
       "tutorial-steps": 2,
-      "page-id": 4
+      "page-id": 4,
+      "example-page": 4
     },
     "@cosyte/ccda": {
-      "howto-steps": 1
+      "howto-steps": 1,
+      "example-page": 8
     },
     "@cosyte/cli": {
       "limitations": 1,
       "page-id": 3,
-      "reference-source": 1
+      "reference-source": 1,
+      "example-page": 4
     },
     "@cosyte/dates": {
       "limitations": 1,
       "tutorial-steps": 3,
-      "page-id": 2
+      "page-id": 2,
+      "example-page": 3
     },
     "@cosyte/deid": {
       "howto-title": 1,
       "howto-steps": 2,
       "limitations": 7,
-      "page-id": 10
+      "page-id": 10,
+      "example-page": 4
     },
     "@cosyte/dicom": {
       "limitations": 1,
-      "page-id": 2
+      "page-id": 2,
+      "example-page": 4
     },
     "@cosyte/fhir": {
       "limitations": 1,
-      "page-id": 2
+      "page-id": 2,
+      "example-page": 4
     },
     "@cosyte/hl7": {
       "explanation-content": 6,
       "limitations": 14,
       "tutorial-steps": 2,
-      "page-id": 1
+      "page-id": 1,
+      "example-page": 3
     },
     "@cosyte/mllp": {
       "limitations": 2,
       "page-id": 1,
-      "reference-source": 2
+      "reference-source": 2,
+      "example-page": 4
     },
     "@cosyte/ncpdp": {
       "limitations": 3,
-      "tutorial-steps": 2
+      "tutorial-steps": 2,
+      "example-page": 3
     },
     "@cosyte/pathways": {
       "howto-steps": 11,
@@ -77,21 +114,25 @@
       "limitations": 1,
       "tutorial-steps": 18,
       "page-id": 11,
-      "reference-source": 1
+      "reference-source": 1,
+      "example-page": 4
     },
     "@cosyte/terminology": {
       "limitations": 1,
       "tutorial-steps": 1,
-      "page-id": 1
+      "page-id": 1,
+      "example-page": 3
     },
     "@cosyte/transform": {
       "limitations": 2,
       "tutorial-steps": 2,
-      "page-id": 3
+      "page-id": 3,
+      "example-page": 4
     },
     "@cosyte/x12": {
       "howto-steps": 1,
-      "limitations": 2
+      "limitations": 2,
+      "example-page": 14
     }
   }
 }

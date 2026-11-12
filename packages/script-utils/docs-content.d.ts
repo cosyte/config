@@ -60,8 +60,15 @@ export declare const DESCRIPTION_LIMIT: 160;
 export declare const PAGE_NAME: RegExp;
 
 /**
- * A rule that reads whether a page holds what its kind asks, the kind being the sidebar category it
- * is listed in. A library's findings under these are held by the ratchet up to its recorded counts.
+ * A rule on example pages: every runnable example has its page, and the page's Code section is the
+ * example's file. The ratchet holds these, at each library's recorded counts.
+ */
+export type DocsContentExampleRule = "example-page" | "example-code";
+
+/**
+ * A rule the ratchet holds: one that reads whether a page holds what its kind asks, the kind being
+ * the sidebar category it is listed in, or a rule on example pages. A library's findings under
+ * these are held by the ratchet up to its recorded counts.
  */
 export type DocsContentRatchetedRule =
   | "howto-title"
@@ -70,13 +77,8 @@ export type DocsContentRatchetedRule =
   | "limitations"
   | "tutorial-steps"
   | "page-id"
-  | "reference-source";
-
-/**
- * A rule on example pages: every runnable example has its page, and the page's Code section is the
- * example's file. Not ratcheted.
- */
-export type DocsContentExampleRule = "example-page" | "example-code";
+  | "reference-source"
+  | DocsContentExampleRule;
 
 /** A rule that only warns: a measured number outside a "Current numbers" section. */
 export type DocsContentWarningRule = "measured-number";
@@ -97,7 +99,7 @@ export type DocsContentRule =
 /** Every rule, with what it requires. */
 export declare const DOCS_CONTENT_RULES: Readonly<Record<DocsContentRule, string>>;
 
-/** The rules on example pages, which the ratchet does not hold. */
+/** The rules on example pages, which the ratchet also holds. */
 export declare const EXAMPLE_RULES: readonly DocsContentExampleRule[];
 
 /** The folder at the repository root whose top-level scripts are the library's runnable examples. */

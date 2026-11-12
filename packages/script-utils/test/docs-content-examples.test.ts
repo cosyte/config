@@ -26,6 +26,7 @@ import {
   CATEGORIES,
   checkDocsContent,
   CODE_HEADING,
+  DOCS_CONTENT_RATCHET,
   DOCS_CONTENT_RULES,
   EXAMPLE_HEADINGS,
   EXAMPLE_PAGE_PREFIX,
@@ -161,7 +162,7 @@ describe("the constants", () => {
       "example-code":
         "an example page's Code section is the example's file, written by cosyte-docs-content --write",
     });
-    for (const rule of EXAMPLE_RULES) expect(RATCHETED_RULES).not.toContain(rule);
+    for (const rule of EXAMPLE_RULES) expect(RATCHETED_RULES).toContain(rule);
   });
 
   it("puts Examples after How-to guides, and no library has to have it", () => {
@@ -612,6 +613,90 @@ describe("reading and writing a repository", () => {
     symlinkSync(join(linked, "elsewhere.md"), join(linked, "docs-content/example-read-name.md"));
     expect(() => writeExamplePages(linked)).toThrow(/example-read-name\.md could not be written/);
     expect(readFileSync(join(linked, "elsewhere.md"), "utf8")).toBe(written("read-name"));
+  });
+
+  /** Examples with no page, `count` of them, each a synthetic script. */
+  function unpaged(count: number): Record<string, string> {
+    const files: Record<string, string> = {};
+    for (let i = 1; i <= count; i += 1) files[`examples/read-name-${i}.ts`] = READ_NAME.text;
+    return files;
+  }
+
+  /** A library named `name` whose examples have no pages, checked against `ratchet`. */
+  function ratcheted(
+    label: string,
+    name: string,
+    files: Record<string, string>,
+    ratchet?: Record<string, Record<string, number>>,
+  ) {
+    const dir = repo(label, {
+      "package.json": JSON.stringify({ name }),
+      "docs-content/sidebars.json": sidebar([]),
+      ...files,
+    });
+    const out = capture();
+    const code = runDocsContentCheck({
+      dir,
+      stdout: out.stdout,
+      stderr: out.stderr,
+      ...(ratchet === undefined ? {} : { ratchet }),
+    });
+    return { code, out: out.out, err: out.err };
+  }
+
+  it("holds a library's examples with no page at its recorded count, and fails one over it", () => {
+    const ratchet = { "@cosyte/example": { "example-page": 2 } };
+    const at = ratcheted("at-count", "@cosyte/example", unpaged(2), ratchet);
+    expect(at.code).toBe(0);
+    expect(at.out).toContain("docs-content: 2 finding(s) held by the ratchet for @cosyte/example");
+    expect(at.out).toContain("[example-page] examples/read-name-1.ts has no page");
+    const under = ratcheted("under-count", "@cosyte/example", unpaged(1), ratchet);
+    expect(under.code).toBe(0);
+    expect(under.out).toContain("[example-page] is down to 1 from the 2 recorded");
+    const over = ratcheted("over-count", "@cosyte/example", unpaged(3), ratchet);
+    expect(over.code).toBe(1);
+    expect(over.err).toContain("[example-page] examples/read-name-3.ts has no page");
+    expect(over.err).toContain(
+      "docs-content: [example-page] has 3 finding(s), over the 2 recorded for @cosyte/example, so each one fails.",
+    );
+    const unnamed = ratcheted("not-recorded", "@cosyte/other", unpaged(1), ratchet);
+    expect(unnamed.code).toBe(1);
+  });
+
+  it("holds no Code section that differs from its file, at a count of none", () => {
+    const stale = {
+      "examples/read-name.ts": READ_NAME.text,
+      "docs-content/example-read-name.md": `${written("read-name")}\n## Code\n\nTyped by hand.\n`,
+      "docs-content/sidebars.json": sidebar(["example-read-name"]),
+    };
+    const dir = repo("stale-code", {
+      "package.json": JSON.stringify({ name: "@cosyte/example" }),
+      ...stale,
+    });
+    const out = capture();
+    const ratchet = { "@cosyte/example": { "example-page": 4 } };
+    expect(runDocsContentCheck({ dir, stdout: out.stdout, stderr: out.stderr, ratchet })).toBe(1);
+    expect(out.err).toContain("[example-code] the Code section differs from examples/read-name.ts");
+    const held = capture();
+    const allowed = { "@cosyte/example": { "example-code": 1 } };
+    expect(
+      runDocsContentCheck({ dir, stdout: held.stdout, stderr: held.stderr, ratchet: allowed }),
+    ).toBe(0);
+  });
+
+  it("holds each library the shipped ratchet records to its count of examples with no page", () => {
+    const recorded = Object.entries(DOCS_CONTENT_RATCHET).filter(([, counts]) =>
+      Object.hasOwn(counts, "example-page"),
+    );
+    expect(recorded.length).toBeGreaterThan(0);
+    for (const [library, counts] of recorded) {
+      const count = (counts as Record<string, number>)["example-page"] ?? 0;
+      const slug = library.replace("@cosyte/", "");
+      expect(ratcheted(`shipped-${slug}`, library, unpaged(count)).code).toBe(0);
+      const over = ratcheted(`shipped-over-${slug}`, library, unpaged(count + 1));
+      expect(over.code).toBe(1);
+      expect(over.err).toContain(`[example-page] has ${count + 1} finding(s), over the ${count}`);
+    }
   });
 
   it("names --write among the arguments it accepts", () => {
