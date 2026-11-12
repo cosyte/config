@@ -346,8 +346,9 @@ structure check reads each one from the page's category, its title, its id and i
    a path from the repository root; the file must exist and name the page's file as a whole path
    segment (`configuration.md` is not named by `cli-configuration.md` or `configuration.mdx`). It
    is never a page: a Markdown or MDX file, or any file under `docs-content/`, is refused, so a page
-   cannot hold itself or lean on a README. It cannot tell whether the test holds every entry; review
-   does.
+   cannot hold itself or lean on a README. Nor is it a text file that can only mention the page: a
+   `.markdown` or `.txt` file, or a file with no extension unless its text begins with `#!`, as a
+   script does. It cannot tell whether the test holds every entry; review does.
 8. **A measured number appears only in a "Current numbers" section, never in prose.** A check can
    only approximate it: a number followed by a measured unit (a percentage, `ms`, `µs`, `ns`, a size
    in bytes, a rate a second, "times faster"), in prose outside code and outside that section, on a

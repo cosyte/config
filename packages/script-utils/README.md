@@ -479,6 +479,8 @@ with its title and does not begin `guides-`, `concepts-` or `core-concepts`. A c
 command reference names the generator or the test that holds it to the code in its front matter,
 `held_by: test/docs-content.test.ts`, and that file names the page's file as a whole path segment.
 `held_by` never names a page: a Markdown or MDX file, or any file under `docs-content/`, is refused.
+Nor does it name a text file that can only mention the page: a `.markdown` or `.txt` file, or a file
+with no extension unless its text begins with `#!`, as a script does.
 
 A library's findings under these rules are held by a ratchet: `docs-content-ratchet.json`, shipped
 in this package, records each library's count per rule (by the name in its `package.json`) as it was

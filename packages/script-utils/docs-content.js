@@ -277,25 +277,13 @@ const MEASURED_NUMBER =
  * The counts the ratchet holds each library to, by package name and then by rule: today's findings
  * under the ratcheted rules, which a library may only lower. Read from docs-content-ratchet.json.
  */
-export const DOCS_CONTENT_RATCHET = deepFreeze(
+export const DOCS_CONTENT_RATCHET = Object.freeze(
+  // Stryker disable next-line StringLiteral: with no encoding Node returns a Buffer, which JSON.parse reads as UTF-8 text, so the value is the same.
   JSON.parse(readFileSync(new URL("./docs-content-ratchet.json", import.meta.url), "utf8"))
     .libraries,
 );
-
-/**
- * Freeze an object and every object inside it.
- *
- * @template T
- * @param {T} value Anything.
- * @returns {T} The same value, frozen.
- */
-function deepFreeze(value) {
-  if (typeof value === "object" && value !== null) {
-    for (const inner of Object.values(value)) deepFreeze(inner);
-    Object.freeze(value);
-  }
-  return value;
-}
+// Each library's counts, frozen with the map: a number inside needs no freezing.
+for (const counts of Object.values(DOCS_CONTENT_RATCHET)) Object.freeze(counts);
 
 /** Raised when the check cannot read its input; the CLI turns it into exit 2. */
 export class DocsContentRefusal extends Error {}
@@ -802,17 +790,14 @@ export function pageKinds(sidebars) {
  * @returns {{ level: number, text: string, line: number }[]} The headings, in page order.
  */
 function headings(text) {
-  const out = [];
-  for (const { text: line, line: number } of proseLines(text)) {
-    const heading = HEADING.exec(line);
-    if (heading === null) continue;
-    out.push({
+  return proseLines(text)
+    .map(({ text: line, line: number }) => ({ line, number, heading: HEADING.exec(line) }))
+    .filter(({ heading }) => heading !== null)
+    .map(({ line, number, heading }) => ({
       level: heading[0].trim().length,
       text: headingText(line.slice(heading[0].length)).trim(),
       line: number,
-    });
-  }
-  return out;
+    }));
 }
 
 /** A table's delimiter row: cells of hyphens, each with an optional colon at either end. */
@@ -820,7 +805,8 @@ const DELIMITER_ROW = /^ {0,3}\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*$/;
 
 /**
  * The header row of every table on a page outside fenced code, each cell's text with its code spans
- * read as their content, and the row's 1-based line.
+ * read as their content, and the row's 1-based line. A closing pipe leaves an empty last cell, which
+ * no rule reads: a settings table is told by its first cell and by any cell naming a default.
  *
  * @param {string} text A page.
  * @returns {{ cells: string[], line: number }[]} The header rows, in page order.
@@ -831,11 +817,10 @@ function tableHeaders(text) {
   lines.forEach((row, index) => {
     const next = lines[index + 1];
     if (!row.text.includes("|") || next === undefined || next.line !== row.line + 1) return;
-    if (!next.text.includes("-") || !DELIMITER_ROW.test(next.text)) return;
+    if (!DELIMITER_ROW.test(next.text)) return;
     const cells = row.text
       .trim()
       .replace(/^\|/, "")
-      .replace(/(?<!\\)\|$/, "")
       .split(/(?<!\\)\|/)
       .map((cell) => headingText(cell).trim());
     out.push({ cells, line: row.line });
@@ -876,7 +861,9 @@ function stepNumber(text) {
  * @returns {string[]} Its content words.
  */
 function contentWords(text) {
-  return (text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).filter((w) => !FILLER_WORDS.has(w));
+  return Array.from(text.toLowerCase().matchAll(/[\p{L}\p{N}]+/gu), (m) => m[0]).filter(
+    (w) => !FILLER_WORDS.has(w),
+  );
 }
 
 /**
@@ -888,8 +875,7 @@ function contentWords(text) {
  * @returns {boolean} True when they match.
  */
 function sameWord(a, b) {
-  const [short, long] = a.length <= b.length ? [a, b] : [b, a];
-  return short === long || (short.length >= 3 && long.startsWith(short));
+  return a === b || (Math.min(a.length, b.length) >= 3 && (a.startsWith(b) || b.startsWith(a)));
 }
 
 /**
@@ -900,7 +886,8 @@ function sameWord(a, b) {
  * @returns {boolean} True when the path may be read.
  */
 export function isHeldByPath(path) {
-  if (path === "" || path.startsWith("/") || path.includes("\\")) return false;
+  // An empty path and an absolute one each have an empty segment, so the split refuses them.
+  if (path.includes("\\")) return false;
   return path.split("/").every((s) => s !== "" && s !== "." && s !== "..");
 }
 
@@ -916,6 +903,21 @@ function isPagePath(path) {
 }
 
 /**
+ * A `held_by` path that names a text file rather than a generator or a test: a `.markdown` or
+ * `.txt` file, or a file whose name has no extension (a dot at its start does not count), unless
+ * its text begins with `#!`, as a script does. Such a file can only name the page, never hold it.
+ *
+ * @param {string} path The front matter value.
+ * @param {string} text The text of the file it names.
+ * @returns {boolean} True when the path names a text file.
+ */
+function isTextPath(path, text) {
+  const name = path.slice(path.lastIndexOf("/") + 1);
+  if (/\.(?:markdown|txt)$/i.test(name)) return true;
+  return !name.slice(1).includes(".") && !text.startsWith("#!");
+}
+
+/**
  * Whether a file's text names a page's file as a whole path segment: the name with no letter,
  * digit, dot, hyphen or underscore before it, and none after it but a dot that ends a sentence.
  * "configuration.md" is not named by "cli-configuration.md", "v2.configuration.md",
@@ -927,7 +929,7 @@ function isPagePath(path) {
  */
 function namesFile(text, file) {
   const escaped = file.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`(?<![\\w.-])${escaped}(?![\\w-]|\\.\\w)`, "u").test(text);
+  return new RegExp(`(?<![\\w.-])${escaped}(?![\\w-]|\\.\\w)`).test(text);
 }
 
 /**
@@ -1000,7 +1002,7 @@ function checkKinds(pages, kinds, sources, add) {
 
     if (kind === "How-to guides") {
       if (title !== undefined && title.value.trim() !== "") {
-        const first = title.value.trim().split(/\s+/)[0];
+        const first = title.value.trim().split(/\s/)[0];
         const word = first.toLowerCase().replace(/[^\p{L}\p{N}-]+$/u, "");
         if (!IMPERATIVE_VERBS.includes(word)) {
           add(
@@ -1107,6 +1109,14 @@ function checkKinds(pages, kinds, sources, add) {
             `${HELD_BY_KEY} names "${held.value}", which is a page, not the generator or the ` +
               "test that holds the reference to the code",
           );
+        } else if (isTextPath(held.value, sources.get(held.value))) {
+          add(
+            file,
+            held.line,
+            "reference-source",
+            `${HELD_BY_KEY} names "${held.value}", which is a text file, not the generator or ` +
+              "the test that holds the reference to the code",
+          );
         } else if (!namesFile(sources.get(held.value), file)) {
           add(
             file,
@@ -1131,7 +1141,8 @@ function checkKinds(pages, kinds, sources, add) {
 export function docsContentWarnings(input) {
   let kinds = new Map();
   try {
-    kinds = pageKinds(JSON.parse(input.sidebars ?? "null"));
+    // JSON.parse reads null as the text "null"; anything that is not JSON throws, and is caught.
+    kinds = pageKinds(JSON.parse(input.sidebars));
   } catch {
     // A sidebar that is not JSON is the check's finding; here every page is read.
   }
@@ -1143,7 +1154,8 @@ export function docsContentWarnings(input) {
       : -1;
     let numbers = false;
     for (const { text, line } of proseLines(page.text)) {
-      if (line <= end + 1) continue;
+      // The first line after the closing ---, or line 1 when there is no front matter.
+      if (line < end + 2) continue;
       if (HEADING.test(text) && SECTION_END.test(text)) numbers = text.trim() === NUMBERS_HEADING;
       if (numbers) continue;
       const match = MEASURED_NUMBER.exec(withoutCodeSpans(text));
@@ -1152,7 +1164,7 @@ export function docsContentWarnings(input) {
           file: `${page.name}.md`,
           line,
           rule: "measured-number",
-          message: `"${match[0].trim()}" reads as a measured number: measured numbers go in the generated "Current numbers" section`,
+          message: `"${match[0]}" reads as a measured number: measured numbers go in the generated "Current numbers" section`,
         });
       }
     }
@@ -1171,8 +1183,9 @@ export function docsContentWarnings(input) {
 export function isExampleFile(name) {
   if (name.startsWith("_") || name.startsWith(".")) return false;
   if (/\.d\.m?ts$/.test(name) || /\.(?:test|spec|config)\./.test(name)) return false;
-  const dot = name.lastIndexOf(".");
-  return dot > 0 && Object.hasOwn(EXAMPLE_LANGUAGES, name.slice(dot));
+  // A name with no dot gives its last character, which is no language's extension. A name that
+  // begins with a dot was refused above.
+  return Object.hasOwn(EXAMPLE_LANGUAGES, name.slice(name.lastIndexOf(".")));
 }
 
 /**
@@ -1361,6 +1374,7 @@ function checkExamplePage(page, example, add) {
   });
   if (!complete) return;
   for (let i = 1; i < found.length; i += 1) {
+    // Stryker disable next-line EqualityOperator: the four headings are four lines, so no two share one.
     if (found[i].line < found[i - 1].line) {
       add(
         file,
@@ -1715,6 +1729,7 @@ export function readDocsContent(root) {
  */
 function readLibraryName(root) {
   try {
+    // Stryker disable next-line StringLiteral: with no encoding Node returns a Buffer, which JSON.parse reads as UTF-8 text, so the name is the same.
     const name = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).name;
     return typeof name === "string" ? name : null;
   } catch {
@@ -1807,6 +1822,7 @@ export function runDocsContentCheck(options = {}) {
   }
   const library = input.library ?? null;
   const ratchet = options.ratchet ?? DOCS_CONTENT_RATCHET;
+  // Stryker disable next-line ConditionalExpression,LogicalOperator: a library the ratchet does not record reads as undefined, which applyDocsContentRatchet takes as {}; Object.hasOwn only keeps out an inherited key such as constructor, which holds no rule's count either.
   const allowance = library !== null && Object.hasOwn(ratchet, library) ? ratchet[library] : {};
   const { failing, held, over, loose } = applyDocsContentRatchet(
     checkDocsContent(input),

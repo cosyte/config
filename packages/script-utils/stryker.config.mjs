@@ -6,8 +6,9 @@ import { cosyteStryker } from "@cosyte/vitest-config/stryker";
 //   pnpm exec cosyte-mutate full --config packages/script-utils/stryker.config.mjs
 //
 // The modules under mutation testing so far: the PHI-scan engine, which runs in every parser's
-// commit gate, and the ratchet with the git reader it judges changes by. The other gates join as
-// their floors are recorded.
+// commit gate, the ratchet with the git reader it judges changes by, and the docs-content check,
+// which holds every library's docs to the standard. The other gates join as their floors are
+// recorded.
 //
 // Static mutants are kept (the shared config ignores them): the engine's pattern tables are
 // module-level code, and they are what it is made of.
@@ -16,6 +17,7 @@ export default cosyteStryker({
     "packages/script-utils/phi-scan.js",
     "packages/script-utils/ratchet.js",
     "packages/script-utils/changes.js",
+    "packages/script-utils/docs-content.js",
   ],
   vitestConfig: "packages/script-utils/vitest.mutation.config.ts",
   stryker: {
