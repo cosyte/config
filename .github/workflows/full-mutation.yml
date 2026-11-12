@@ -49,9 +49,12 @@ jobs:
     with:
       # @cosyte/vitest-config and @cosyte/test-utils run from their own directories;
       # @cosyte/script-utils runs from the root, because most of its tests are in the root suite.
-      # `pnpm build` first: the root suite imports packages that tsup builds.
+      # First, main's tip as origin/main: the docs-content tests compare the ratchet file with
+      # main's copy and fail in CI when they cannot read it, and a pull request's checkout holds
+      # only its merge commit. Then `pnpm build`: the root suite imports packages that tsup builds.
       mutate-cmd: >-
-        pnpm build
+        git fetch --no-tags --depth=1 origin +refs/heads/main:refs/remotes/origin/main
+        && pnpm build
         && (cd packages/vitest-config && pnpm exec cosyte-mutate full)
         && (cd packages/test-utils && pnpm exec cosyte-mutate full)
         && pnpm exec cosyte-mutate full --config packages/script-utils/stryker.config.mjs

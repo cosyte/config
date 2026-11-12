@@ -89,9 +89,13 @@ describe("the full mutation workflow", () => {
     expect(sharedCallers(WORKFLOW, text).map((c) => c.workflow)).toEqual(["weekly-mutation.yml"]);
   });
 
-  it("mutates every package that holds a mutation floor, and builds first", () => {
+  it("reads main's tip, builds, then mutates every package that holds a mutation floor", () => {
     const command = mutateCommand(text);
-    expect(command.startsWith("pnpm build && ")).toBe(true);
+    expect(
+      command.startsWith(
+        "git fetch --no-tags --depth=1 origin +refs/heads/main:refs/remotes/origin/main && pnpm build && ",
+      ),
+    ).toBe(true);
     expect(mutatedPackages(command)).toEqual(withMutationFloor(read("quality-floor.json")));
   });
 
