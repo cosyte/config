@@ -3,13 +3,22 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import {
+  SCOPED_COMMIT,
+  SCOPED_REFERENCE,
+  SCOPED_TITLE,
+  dependabotTitles,
+  updateBlocks,
+} from "./support/shared-workflows.js";
+
 /**
  * THIS REPOSITORY'S OWN PULL REQUEST TITLES, HELD TO THE SCOPED FORM.
  *
  * `.github/workflows/pr-title.yml` calls the shared title check in cosyte/.github, pinned by commit,
  * so a change to the shared rule takes effect here only when that pin moves. The rule that requires
- * a scope, `type(scope): description`, landed at the commit below. A pin to any earlier commit
- * accepts `fix: something` and lets an unscoped subject onto main. A later bump updates the constant.
+ * a scope, `type(scope): description`, landed at `SCOPED_COMMIT`. A pin to any earlier commit
+ * accepts `fix: something` and lets an unscoped subject onto main. A later bump updates the constant
+ * in `test/support/shared-workflows.ts`.
  *
  * Dependabot opens pull requests here too, and its title is its commit message: `prefix` plus, with
  * `include: scope`, the `(deps)` or `(deps-dev)` scope. Without `include: scope` its titles are
@@ -18,34 +27,6 @@ import { describe, expect, it } from "vitest";
 
 const REPO_ROOT = join(import.meta.dirname, "..");
 const read = (path: string): string => readFileSync(join(REPO_ROOT, path), "utf8");
-
-// The shared workflow's commit that requires a scope, and its published reference.
-const SCOPED_COMMIT = "398cd4ded647dddd9f2e220ceb042840f59e1426";
-const SCOPED_REFERENCE = "workflows-2026-11-10-398cd4ded647";
-
-// The pattern the shared workflow tests a title against, at SCOPED_COMMIT.
-const SCOPED_TITLE =
-  /^(feat|fix|docs|chore|ci|build|refactor|test|perf|revert|style)\([a-z0-9][a-z0-9._/-]*\)!?: \S/;
-
-/** The `- package-ecosystem:` blocks of a dependabot.yml, each as its own text. */
-const updateBlocks = (text: string): string[] =>
-  text.split(/\n(?= {2}- package-ecosystem:)/).slice(1);
-
-/**
- * The titles Dependabot writes for one update block: `prefix(deps): ...` for production updates and
- * `prefix(deps-dev): ...` for development ones when `include: scope` is set, `prefix: ...` without.
- * A block with no `commit-message` gets Dependabot's own default, `Bump ...`.
- */
-const dependabotTitles = (block: string): string[] => {
-  const message = /\n {4}commit-message:\n((?: {6}.*\n?)+)/.exec(block)?.[1] ?? "";
-  const prefix = /^ {6}prefix: "?([^"\n]+?)"?$/m.exec(message)?.[1];
-  if (prefix === undefined) return ["Bump example-package from 1.0.0 to 1.0.1"];
-  const dev = /^ {6}prefix-development: "?([^"\n]+?)"?$/m.exec(message)?.[1] ?? prefix;
-  const scoped = /^ {6}include: "?scope"?$/m.test(message);
-  return scoped
-    ? [`${prefix}(deps): bump example-package`, `${dev}(deps-dev): bump example-package`]
-    : [`${prefix}: bump example-package`, `${dev}: bump example-package`];
-};
 
 describe("the pull request title check", () => {
   it("pins the shared workflow at the commit that requires a scope", () => {

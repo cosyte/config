@@ -1,8 +1,7 @@
 name: PR title
 
-# Checks every pull request title against Conventional Commits (ST24 in the umbrella's
-# plans/standards.md) through the shared workflow, at the published reference codeql.yml and
-# scorecard.yml call, pinned by its commit (ST37). Merges here are squash-only, so the title is the
+# Checks every pull request title against Conventional Commits through the shared workflow, at the
+# published reference codeql.yml and scorecard.yml call, pinned by its commit. Merges here are squash-only, so the title is the
 # subject that lands on main. A title is `type(scope): description`, and the scope is required:
 # `fix(phi-scan): name the rule in a finding` passes, `fix: name the rule in a finding` does not.
 # test/pr-title-pin.test.ts holds the pin below at the shared commit that requires the scope.

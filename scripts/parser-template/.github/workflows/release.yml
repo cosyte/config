@@ -23,7 +23,7 @@ jobs:
       contents: write # create tags and the GitHub release
       id-token: write # npm trusted publishing and provenance
       pull-requests: write # open the "Version Packages" PR
-    uses: cosyte/.github/.github/workflows/release.yml@c0db8d8e5927269820de4401b3b5ad6141854b76 # workflows-2026-11-08-c0db8d8e5927
+    uses: cosyte/.github/.github/workflows/release.yml@398cd4ded647dddd9f2e220ceb042840f59e1426 # workflows-2026-11-10-398cd4ded647
     with:
       package-name: "{{PKG}}"
     secrets: inherit

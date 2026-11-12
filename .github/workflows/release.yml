@@ -18,7 +18,7 @@ permissions:
 # PR bumps versions and triggers this workflow again, and that run publishes.
 #
 # ---------------------------------------------------------------------------
-# THE SPLIT: ONE UNGATED `version` JOB, ONE GATED `publish` JOB (S0074, 2026-08-22).
+# THE SPLIT: ONE UNGATED `version` JOB, ONE GATED `publish` JOB (2026-08-22).
 #
 # Until this change the whole thing was a SINGLE job carrying `environment: release`, so GitHub held
 # it in `Waiting` before step one and a human had to approve a run merely to have a Version Packages
@@ -171,7 +171,7 @@ jobs:
       # It runs FIRST, before install, because it needs nothing but node.
       # scripts/changeset-guard.mjs is zero-dependency for that reason.
       #
-      # BEFORE S0074 THIS COPY RAN AFTER THE APPROVAL, because `environment: release` sat at job
+      # BEFORE 2026-08-22 THIS COPY RAN AFTER THE APPROVAL, because `environment: release` sat at job
       # level and GitHub held the whole job in `Waiting` before step one. It now runs in an ungated
       # job, so the claim RELEASING.md always made for it ("before an approver is asked for
       # anything") is finally true of this file as well as of ci.yml.
@@ -462,7 +462,7 @@ jobs:
 
       # GATE 3: THE EFFECTIVE CONFIGURATION OF THIS PUBLISH MUST BE ONE SOMEBODY APPROVED.
       #
-      # THE HOLE THIS CLOSES (S0055 finding F9). Everything that decides WHERE these tarballs go,
+      # THE HOLE THIS CLOSES. Everything that decides WHERE these tarballs go,
       # WHAT goes inside them and WHAT METADATA rides along is npm/pnpm configuration, and that
       # configuration is assembled at publish time out of sources nothing in this repository used to
       # inspect: a global npmrc, a user npmrc, a repository or per-package `.npmrc`,
@@ -480,7 +480,7 @@ jobs:
       # that a refusal here happens after an approver has already approved the run.
       #
       # THE `env:` BLOCK BELOW IS THE PUBLISH STEP'S npm CONFIGURATION, AND NOTHING ELSE. It is
-      # DECLARED in .github/credential-surface.json (S0080), which is what made this decision a
+      # DECLARED in .github/credential-surface.json, which is what made this decision a
       # reviewed one rather than a default.
       #
       #   * NPM_CONFIG_PROVENANCE is npm CONFIGURATION supplied at STEP level, so a check that ran

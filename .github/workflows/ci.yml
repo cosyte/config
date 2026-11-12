@@ -17,17 +17,17 @@ concurrency:
 permissions:
   contents: read
 
-# NOTE, CORRECTED 2026-08-22 (S0074). This note used to say that Phase C of the standardization
+# NOTE, CORRECTED 2026-08-22. This note used to say that a later step of the standardization
 # campaign REPLACES this hand-rolled workflow with a thin caller of the reusable workflow in
 # cosyte/.github. That was stale and contradicted both release.yml and RELEASING.md, which argue at
-# length that this repo structurally cannot be a caller. Phase C was measured against this repo and
+# length that this repo structurally cannot be a caller. That step was measured against this repo and
 # DECLINED, for two reasons that are properties of the multi-package shape rather than of effort: the
 # shared release-notes gate answers "is a release pending" from the ROOT package.json version, which
 # here is `cosyte-config` `private: true` pinned at 0.0.0 and never versioned by Changesets, so
 # adopting it would withhold every publish on a green run; and the shared workflow tags `v<version>`,
 # which collides when eight packages publish in one run. See RELEASING.md, "Why this repository is not
-# a thin caller of the shared workflow". Every action is pinned to a full commit SHA with its version
-# (ST37 in the umbrella's plans/standards.md), and every job carries a timeout (ST38).
+# a thin caller of the shared workflow". Every action is pinned to a full commit SHA with its version,
+# and every job carries a timeout.
 jobs:
   verify:
     runs-on: ubuntu-latest
@@ -99,7 +99,7 @@ jobs:
       # gates above: `verify` is a REQUIRED status check in this repo's `config-ci-required-checks`
       # ruleset, so this is the copy that can REFUSE A MERGE. Zero-dependency node, like them.
       - run: node scripts/install-hardening.mjs
-      # THE README SHAPE GATE (S0197). A README is inside every published package's `files` array,
+      # THE README SHAPE GATE. A README is inside every published package's `files` array,
       # so its text is FROZEN INTO THE TARBALL at publish time and a wrong string can be corrected
       # only by publishing again. That makes it the one surface here where catching a defect after
       # the merge is already too late, so the check belongs in `verify`, which is a REQUIRED status
@@ -108,12 +108,12 @@ jobs:
       #
       # Zero-dependency node, like the four gates above, so it runs before install.
       - run: node scripts/readme-check.mjs
-      # THE CLAUDE.md CARD CHECK (RD2). This repository's own card is graded by the checker every
+      # THE CLAUDE.md CARD CHECK. This repository's own card is graded by the checker every
       # repository runs (`@cosyte/script-utils/claude-card`, documentation/claude-card.md), and the
       # parser template's card by test/scaffold-claude-card.test.ts. Zero-dependency node, so it runs
       # before install like the gates above.
       - run: node packages/script-utils/claude-card.js
-      # THE ESTATE BASELINE GATE (S0230), AND THIS LINE IS WHAT MAKES drift-manifest.json A STANDARD
+      # THE ESTATE BASELINE GATE, AND THIS LINE IS WHAT MAKES drift-manifest.json A STANDARD
       # THAT CAN REFUSE A MERGE. The checker has always exited non-zero on drift; nothing consumed
       # that exit code, so no merge had ever been refused by it and the baseline was a report a
       # human ran. It belongs in `verify` for the reason the five gates above do: `verify` is a
@@ -163,13 +163,13 @@ jobs:
             pnpm quality:check
           fi
       # NOTE: `pnpm test:perf` is deliberately NOT run here. It holds the only tests that read a real
-      # clock, and PERF-P2's own false-alarm sweeps measured this class of runner firing on a LINEAR
-      # workload 4 times in 600 runs and failing to reach steady state in another ~1%, so as a
-      # REQUIRED check it would be a known-flaky gate, which is roadmap §5's risk #1 ("a gate that
+      # clock, and the false-alarm sweeps measured this class of runner firing on a LINEAR workload
+      # 4 times in 600 runs and failing to reach steady state in another ~1%, so as a REQUIRED check
+      # it would be a known-flaky gate, the first risk the performance work named ("a gate that
       # false-alarms gets disabled, and then there is no gate"). It also does not currently hold on
       # Node 24, which is half this matrix. The kit's decision logic is fully covered by `pnpm test`
       # on an injected clock; what `test:perf` adds is the measurement, and that stays a deliberate
-      # command until P4 settles the ceiling question with the founder.
+      # command until the ceiling question is settled.
       # Evidence: experiments/perf-p2-false-alarm/ANALYSIS.md.
       # Build the workspace's TS packages (test-utils is the first), then verify
       # their published types resolve under every module mode.
@@ -251,10 +251,10 @@ jobs:
         run: pnpm exec cosyte-ratchet check --skip coverage --base "origin/${BASE_REF}"
 
   # Lints every workflow here with the official actionlint, installed the way the shared cosyte/.github
-  # CI installs it (EN6 in the umbrella's plans/standards.md): rhysd/actionlint's release binary at the
-  # version below, checked against the SHA-256 below before it is unpacked, so a changed asset fails
-  # the job. The pair is the one the shared `actionlint` job pins (cosyte/.github#93); moving to a new
-  # version means changing both values together, here and there. Dependabot cannot see this pin.
+  # CI installs it: rhysd/actionlint's release binary at the version below, checked against the
+  # SHA-256 below before it is unpacked, so a changed asset fails the job. The pair is the one the
+  # shared `actionlint` job pins (cosyte/.github#93); moving to a new version means changing both
+  # values together, here and there. Dependabot cannot see this pin.
   #
   # NOT reviewdog/action-actionlint: from v1.75.0 that action installs actionlint by piping a fork's
   # script to bash, so the org does not use it, and dependabot.yml ignores it. NOT the shared workflow

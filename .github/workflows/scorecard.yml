@@ -10,7 +10,7 @@ name: Scorecard
 # file landed.
 #
 # THE REFERENCE IS A PUBLISHED ONE, PINNED BY ITS COMMIT, for the reason codeql.yml's header gives:
-# `workflows-2026-11-08-c0db8d8e5927`, moved by hand with every caller together (ST37). No
+# `workflows-2026-11-10-398cd4ded647`, moved by hand with every caller together. No
 # `timeout-minutes` here: a job that calls a reusable workflow cannot set one.
 #
 # PUBLISHING IS LEFT ON, AND THAT IS A MEASUREMENT RATHER THAN A DEFAULT. Scorecard can only publish
@@ -53,4 +53,4 @@ jobs:
       contents: read # required to resolve the reusable workflow (else contents:none is a startup failure)
       security-events: write # upload the SARIF to the Security tab
       id-token: write # publish results to the OpenSSF API (for the badge)
-    uses: cosyte/.github/.github/workflows/scorecard.yml@c0db8d8e5927269820de4401b3b5ad6141854b76 # workflows-2026-11-08-c0db8d8e5927
+    uses: cosyte/.github/.github/workflows/scorecard.yml@398cd4ded647dddd9f2e220ceb042840f59e1426 # workflows-2026-11-10-398cd4ded647

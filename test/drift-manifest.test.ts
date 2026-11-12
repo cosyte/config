@@ -659,11 +659,14 @@ describe("AC12: the phi-scan probe still gates the report, and its parameters st
 
   it("keeps the default parameters sufficient for the controls", () => {
     const spec = phiScanProbeSpec("__control__") as Record<string, unknown>;
+    // The probe's synthetic SSN, assembled here so that this file does not itself carry an SSN
+    // shape: a push that changes a file is scanned whole, and the literal would refuse it.
+    const marker = ["123", "45", "6789"].join("-");
     expect(spec).toEqual({
       violator: "test/fixtures/phi-scan-probe-violator.txt",
       decoy: "test/fixtures/phi-scan-probe-decoy.txt",
-      payload: "patient ssn 123-45-6789 on file\n",
-      marker: "123-45-6789",
+      payload: `patient ssn ${marker} on file\n`,
+      marker,
       clean: "nothing to see here\n",
       scaffoldFiles: ["src/index.ts", "README.md"],
     });
@@ -1156,6 +1159,7 @@ describe("S0228: the two provenance corrections", () => {
       "ci.yml",
       "codeql.yml",
       "no-emdash.yml",
+      "pr-title.yml",
       "release.yml",
       "scorecard.yml",
     ]);

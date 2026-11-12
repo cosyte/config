@@ -15,18 +15,18 @@ permissions:
 
 jobs:
   # Universal gates from the shared pipeline (typecheck, lint, format, test, coverage, build, attw,
-  # dual ESM/CJS smoke, actionlint) on Node 22, 24 and 26 (ST15: we claim only the lines CI runs).
-  # Every shared workflow is called at one published `workflows-*` reference, pinned by its commit
-  # with the name beside it (ST37), and all of them move together; @cosyte/process's trigger surface
-  # accepts any published reference for codeql and scorecard. A job that calls a reusable workflow
-  # cannot carry `timeout-minutes`; the shared workflow sets it on its own jobs (ST38). Repo-specific extra jobs (e.g. an
+  # dual ESM/CJS smoke, actionlint) on Node 22, 24 and 26: we claim only the lines CI runs. Every
+  # shared workflow is called at one published `workflows-*` reference, pinned by its commit with the
+  # name beside it, and all of them move together; @cosyte/process's trigger surface accepts any
+  # published reference for codeql and scorecard. A job that calls a reusable workflow cannot carry
+  # `timeout-minutes`; the shared workflow sets it on its own jobs. Repo-specific extra jobs (e.g. an
   # examples smoke, a starter-kit build) are added on top of this caller, never instead of it.
   # The template ships a PHI scanner (scripts/phi-scan.ts), so the shared pipeline's optional
   # PHI-scan step is switched on. NOTE: the scaffolded scanner is a STARTER. It detects only
   # cross-cutting SSN/email shapes until you add structured, field-level detection for this
   # standard's PHI (see the STARTER banner in scripts/phi-scan.ts).
   ci:
-    uses: cosyte/.github/.github/workflows/ci.yml@c0db8d8e5927269820de4401b3b5ad6141854b76 # workflows-2026-11-08-c0db8d8e5927
+    uses: cosyte/.github/.github/workflows/ci.yml@398cd4ded647dddd9f2e220ceb042840f59e1426 # workflows-2026-11-10-398cd4ded647
     with:
       node-versions: '["22", "24", "26"]'
       run-phi-scan: true
