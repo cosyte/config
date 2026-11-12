@@ -35,7 +35,8 @@
     "cosyte-agent-notes": "bin/cosyte-agent-notes.js",
     "cosyte-catalog": "bin/cosyte-catalog.js",
     "cosyte-ratchet": "bin/cosyte-ratchet.js",
-    "cosyte-docs-content": "bin/cosyte-docs-content.js"
+    "cosyte-docs-content": "bin/cosyte-docs-content.js",
+    "cosyte-release-pr": "bin/cosyte-release-pr.js"
   },
   "types": "index.d.ts",
   "exports": {
@@ -82,6 +83,10 @@
     "./docs-content": {
       "types": "./docs-content.d.ts",
       "default": "./docs-content.js"
+    },
+    "./release-pr": {
+      "types": "./release-pr.d.ts",
+      "default": "./release-pr.js"
     }
   },
   "files": [
@@ -109,6 +114,8 @@
     "docs-content.js",
     "docs-content.d.ts",
     "docs-content-ratchet.json",
+    "release-pr.js",
+    "release-pr.d.ts",
     "check-no-emdash.sh",
     "bin",
     "README.md",

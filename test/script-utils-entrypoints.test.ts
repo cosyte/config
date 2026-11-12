@@ -176,6 +176,7 @@ describe("the tarball a consumer installs", () => {
       "./ratchet": { types: "./ratchet.d.ts", default: "./ratchet.js" },
       "./changes": { types: "./changes.d.ts", default: "./changes.js" },
       "./docs-content": { types: "./docs-content.d.ts", default: "./docs-content.js" },
+      "./release-pr": { types: "./release-pr.d.ts", default: "./release-pr.js" },
     });
   });
 
@@ -183,7 +184,7 @@ describe("the tarball a consumer installs", () => {
     const manifest = JSON.parse(readFileSync(join(installed, "package.json"), "utf8")) as {
       bin: Record<string, string>;
     };
-    expect(Object.keys(manifest.bin).length).toBe(11);
+    expect(Object.keys(manifest.bin).length).toBe(12);
     for (const target of Object.values(manifest.bin)) {
       expect(existsSync(join(installed, target)), `${target} is not in the tarball`).toBe(true);
     }
@@ -240,6 +241,22 @@ describe("the tarball a consumer installs", () => {
     );
     expect(probe.code, probe.out).toBe(0);
     expect(probe.out.trim()).toBe("6 7 true");
+  });
+
+  it("ships the release pull request check and its declarations, and runs it from the tarball", () => {
+    for (const file of ["release-pr.js", "release-pr.d.ts", "bin/cosyte-release-pr.js"]) {
+      expect(existsSync(join(installed, file)), `${file} is not in the tarball`).toBe(true);
+    }
+    const probe = inConsumer(
+      [
+        'import { RELEASE_BULLET_LIMIT, checkVersionScript } from "@cosyte/script-utils/release-pr";',
+        "const found = checkVersionScript({});",
+        "console.log(RELEASE_BULLET_LIMIT, found.length, found[0].rule);",
+        "",
+      ].join("\n"),
+    );
+    expect(probe.code, probe.out).toBe(0);
+    expect(probe.out.trim()).toBe("400 1 version-script");
   });
 
   it("ships the catalog, its data file and declarations, and reads the data from the tarball", () => {

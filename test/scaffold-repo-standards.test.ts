@@ -19,7 +19,9 @@ import { join } from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { findVersionDeclarations } from "../packages/process/src/sync-version.js";
 import { checkReadme } from "../packages/script-utils/readme.js";
+import { checkReleasePr, readReleasePrInput } from "../packages/script-utils/release-pr.js";
 import { exemptionReasons, parseYamlSubset } from "../scripts/install-hardening.mjs";
 
 import {
@@ -356,5 +358,52 @@ describe("the install hardening", () => {
     for (const { entry, reason } of reasons) {
       expect(reason, `${entry} carries no "# reason:" comment`).toMatch(/^reason:\s*\S/i);
     }
+  });
+});
+
+describe("the release pull request", () => {
+  // A library's Version Packages pull request went red after the change behind it had merged green:
+  // a VERSION mutant no test was linked to, an API reference the version script did not regenerate,
+  // and a changeset bullet the release refused. A scaffold is born with the fixes, and graded by the
+  // same check its CI runs, `cosyte-release-pr`, on the last two; the release pull request's mutation
+  // job proves the first.
+
+  it("passes the release pull request check as it is emitted", () => {
+    const input = readReleasePrInput(repo);
+    expect(input.declaresVersion, "the scaffold must be graded on the version rules").toBe(true);
+    expect(checkReleasePr(input)).toEqual([]);
+  });
+
+  it("carries a VERSION test that imports the source afresh inside its test body", () => {
+    const text = read("test/version.test.ts");
+    expect(text).not.toMatch(/^import [^\n]*from "\.\.\/src/m);
+    expect(text).toContain(
+      'vi.resetModules();\n    const { VERSION } = await import("../src/index.js");',
+    );
+  });
+
+  it("declares VERSION in the one form the version script's sync rewrites", () => {
+    expect(findVersionDeclarations(read("src/index.ts"))).toHaveLength(1);
+    expect(json("package.json")["scripts"]["version"]).toBe(
+      "changeset version && cosyte-process sync-version && cosyte-docs-reference && cosyte-process format",
+    );
+  });
+
+  it("runs the check on every pull request, from the package script", () => {
+    expect(json("package.json")["scripts"]["check:release-pr"]).toBe("cosyte-release-pr");
+    const ci = read(".github/workflows/ci.yml");
+    expect(ci).toMatch(/\n {2}release-pr:\n/);
+    expect(ci).toContain("- run: pnpm check:release-pr");
+  });
+
+  it("NEGATIVE CONTROL: the same tree without its reference step fails", () => {
+    // Without this, the first case passes for a check that finds nothing. The step is taken out of
+    // the emitted input in memory, and nothing else changes.
+    const input = readReleasePrInput(repo);
+    const scripts = {
+      ...input.scripts,
+      version: "changeset version && cosyte-process sync-version && cosyte-process format",
+    };
+    expect(checkReleasePr({ ...input, scripts }).map((f) => f.rule)).toEqual(["version-script"]);
   });
 });

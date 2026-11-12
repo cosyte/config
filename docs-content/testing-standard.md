@@ -12,7 +12,8 @@ cosyte/config, written out for this site. The record is the source: a change is 
 - **Scope:** every `@cosyte/*` package, and the shared pieces in this repository that carry the
   standard: the `./stryker` and `./mutate` entry points and the `cosyte-mutate` bin of
   `@cosyte/vitest-config` (new), the `cosyte-ratchet` bin and the `./ratchet` and
-  `./changes` entry points of `@cosyte/script-utils`, the property runners of `@cosyte/test-utils`,
+  `./changes` entry points of `@cosyte/script-utils`, its `cosyte-release-pr` bin and `./release-pr`
+  entry point, the property runners of `@cosyte/test-utils`,
   and the coverage reporters of `@cosyte/vitest-config`. The CI jobs that run them in the other
   repositories live in the shared workflows of cosyte/.github and are not decided here.
 - **Relates to:** ADR 0001 (performance measurement; its section 6 keeps clock-reading tests out
@@ -328,6 +329,8 @@ only.
 5. Export `/arbitraries`, and prove the three properties with them.
 6. Add every inline exception's reason when the ratchet asks for it, and list them in the pull
    request.
+7. Give the library the version script section 9 asks for, one that regenerates the API
+   reference, and run `cosyte-release-pr` on every pull request.
 
 This repository adopted it in the same change: `quality-floor.json` holds today's measured scores
 for `packages/process`, `packages/script-utils`, `packages/test-utils` and `packages/vitest-config`,
@@ -336,6 +339,49 @@ pull request that lowers or removes a floor. Two limits,
 stated rather than hidden: `@cosyte/script-utils` mutates only the PHI-scan engine and the ratchet
 so far (its other gates join as their floors are recorded), and `@cosyte/process` has no mutation
 floor until its first full run.
+
+### 9. A release pull request passes its own checks
+
+The Version Packages pull request that Changesets opens is a pull request like any other, and every
+check above runs on it. Five of our libraries' release pull requests were blocked on one night for
+mechanical reasons, each fixed by hand in its own repository. Four went red on a surviving mutant of
+the exported `VERSION` string; a release pull request's mutation job is what proves the test that
+pins `VERSION` to package.json today, and a check that proves it by running it is planned.
+
+**The version script regenerates the API reference.** The generated reference under
+`docs-content/api/` prints `VERSION`, and its drift check (`cosyte-docs-reference --check`) failed a
+release pull request whose version script bumped the version and synced `VERSION` but left the
+reference as it was. The version script runs, in this order:
+
+```sh
+changeset version && cosyte-process sync-version && cosyte-docs-reference && cosyte-process format
+```
+
+`changeset version` bumps package.json, the sync writes the new version into `VERSION`, and the
+reference is generated from the synced source, all in the commit Changesets makes.
+
+**A changeset's opening sentence fits a release bullet.** Another defect wedged a release after its
+pull request had merged: the shared release workflow makes one bullet of each changeset's opening
+sentence and refuses one over 400 characters, and it refuses it after the Version Packages pull
+request has merged and consumed the changeset, when the fix is a revert. The check below reads the
+pending changesets on the pull request that adds them.
+
+**The check.** `cosyte-release-pr`, in `@cosyte/script-utils`, reads a library's tree and fails it
+(exit 1) for each of these: a version script that does not run the three steps in order, a pending
+changeset whose opening sentence could become a bullet over 400 characters, and a pending changeset
+the release cannot read, an empty one (`changeset add --empty`) among them: a change that releases
+no package gets no changeset at all. The version rule applies when `src/` declares an exported
+`VERSION`. It measures a bullet conservatively, as an upper bound on what the release publishes.
+The parser template runs it in its own CI job on every pull request, and the root suite here grades
+what the scaffolder emits with it.
+
+**Who still lacks it, for the sweep.** Measured on 2026-11-12 by running the check over a fresh
+clone of each library's `main`, these libraries' version scripts do not regenerate the reference:
+`astm` (`18b6b5d`), `ccda` (`69b5c5b`), `cli` (`71fff3e`), `dicom` (`6eedfb4`), `ncpdp`
+(`f2c8169`), `terminology` (`c5da7fe`) and `transform` (`2374b5f`). `deid` (`60f6570`), `synth`
+(`3156ab8`), `x12` (`f8cc2fb`), `hl7` (`4d89126`), `mllp` (`d3ebc5d`) and `fhir` (`997d81d`) pass.
+No library's pending changesets were refused. Each library takes the check into its own CI in the
+change that clears it.
 
 ## Consequences
 

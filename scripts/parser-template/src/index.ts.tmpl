@@ -9,9 +9,13 @@
  */
 
 /**
- * Library version string, synced with `package.json#version` at build time by downstream phases.
- * Exported now so consumers (and the type-check pipeline) have at least one symbol to resolve
- * through the `exports` map.
+ * Library version string, the same as `package.json#version`. The `version` script writes it
+ * (`cosyte-process sync-version`) in the commit that bumps the version, and `test/version.test.ts`
+ * holds the two equal.
+ *
+ * It is typed `string` rather than left to inference, so the declaration file does not carry the
+ * current version as a literal type, and so `cosyte-process sync-version` finds it: it rewrites
+ * exactly this form.
  *
  * @example
  * ```ts
@@ -19,7 +23,7 @@
  * console.log(VERSION);
  * ```
  */
-export const VERSION = "0.0.0";
+export const VERSION: string = "0.0.0";
 
 /**
  * The result of parsing a {{TITLE}} payload.

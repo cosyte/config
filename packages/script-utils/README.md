@@ -203,6 +203,7 @@ CATALOG.engine.displayName; // => "Pathways"
 | `@cosyte/script-utils/ratchet`       | `runRatchet(options)` and its parts, the coverage and mutation ratchet                       |
 | `@cosyte/script-utils/changes`       | `readChanges({ base })`, the lines a change touched against a base ref, read from git        |
 | `@cosyte/script-utils/docs-content`  | `runDocsContentCheck(options)` and `checkDocsContent(input)`, the docs-content check         |
+| `@cosyte/script-utils/release-pr`    | `runReleasePrCheck(options)` and `checkReleasePr(input)`, the release pull request check     |
 
 They are separate subpaths because they are separately adoptable: a repo can take the entry-point
 guard without taking a position on PHI scanning, a repo can take the internal-reference gate without
@@ -264,6 +265,7 @@ npx -y -p @cosyte/script-utils@0.1 cosyte-readme   # or one gate's own bin
 | `cosyte-catalog`       | `catalog`              | the catalog check                                 |
 | `cosyte-ratchet`       | `ratchet`              | the coverage and mutation ratchet                 |
 | `cosyte-docs-content`  | `docs-content`         | the docs-content structure check                  |
+| `cosyte-release-pr`    | `release-pr`           | the release pull request check                    |
 
 Each runs over the working directory, takes the arguments its gate takes, exits with the gate's own
 code, and prints what it does with `--help`. `script-utils` with no command prints the list and exits 2.
@@ -511,6 +513,48 @@ import { checkDocsContent } from "@cosyte/script-utils/docs-content";
 const found = checkDocsContent({ pages: [{ name: "intro", text: "# Intro\n" }], sidebars: null });
 found.map((f) => f.rule).includes("front-matter"); // => true
 found.map((f) => f.rule).includes("required-page"); // => true
+```
+
+### The release pull request check
+
+`@cosyte/script-utils/release-pr` fails a library tree whose Version Packages pull request would
+fail its own checks, and a changeset whose opening sentence the release would refuse. Each rule is
+a defect that reached one of our release pull requests after the change behind it had merged green.
+Run it from a package script, and in CI on every pull request:
+
+```sh
+cosyte-release-pr                # the package in the working directory
+cosyte-release-pr --dir <path>   # another package
+```
+
+| rule               | what it requires                                                                                                                                  |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `version-script`   | the `version` script runs `changeset version`, then the VERSION sync (`cosyte-process sync-version`), then `cosyte-docs-reference`, in that order |
+| `changeset-bullet` | each pending changeset opens with a sentence of at most 400 characters                                                                            |
+| `changeset-shape`  | each pending changeset has a front matter block that is not empty, a package and bump on each line, and a summary when it releases a package      |
+
+The version rule applies when a file under `src/` declares `export const VERSION`. A version script
+step may go through another script (`pnpm docs:reference`), any step naming `sync-version` is the
+sync, and `cosyte-docs-reference --check` (or `--check=true`) is not a regeneration. The steps are
+read, split on `&&`, not run: a step that can never run (`false && ...`), one after `||`, or an
+`echo` naming a step passes, and a script joined with `;` fails closed.
+
+It does not read tests: a release pull request's mutation job is what proves the test that pins
+`VERSION` to package.json.
+
+The bullet bound is conservative, not a copy of the release's rewrites: the opening sentence, read
+as the release reads it, plus one for each em dash, each "slice" (inside a word too), each innermost
+parenthetical and each comma inside one, the rewrites that can lengthen it. A sentence this passes
+the release passes on length. The release refuses only after the Version Packages pull request has
+merged, so this reads changesets on the pull request that adds them, and refuses an empty front
+matter block (`changeset add --empty`), which the release cannot read: a change that releases no
+package gets no changeset. Exit 0 clean, 1 a finding, 2 the package could not be read.
+
+```ts runnable
+import { checkChangeset, checkVersionScript } from "@cosyte/script-utils/release-pr";
+
+checkVersionScript({ version: "changeset version && cosyte-process sync-version" })[0]?.rule; // => "version-script"
+checkChangeset(".changeset/a.md", '---\n"@cosyte/demo": patch\n---\n\nA short sentence.\n').length; // => 0
 ```
 
 ### The agent-notes checker, deprecated
