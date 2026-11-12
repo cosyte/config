@@ -448,7 +448,7 @@ describe("the whole path, not its last name", () => {
     expect(entries("console.log(code.name, segment.name, field.name);")).toEqual([]);
     expect(entries("console.log(patient(msg)?.code, patient(msg).gender);")).toEqual([]);
     expect(
-      entries("console.log(patients.map((p) => p.code), patients.widgetCount().code);"),
+      entries("console.log(patients.map((p) => p.code), patients.widgetCount().gender);"),
     ).toEqual([]);
   });
 
@@ -657,11 +657,16 @@ describe("the bounds on a sample", () => {
     const templates =
       "`${".repeat(PRINT_NESTING_LIMIT - 1) + inside + "}`".repeat(PRINT_NESTING_LIMIT - 1);
     expect(entries(templates)).toEqual(["mrn"]);
+    expect(() => samplePrintFindings(deep("`${", "}`", PRINT_NESTING_LIMIT))).not.toThrow();
+    // Templates side by side do not nest, however many there are.
+    const siblings = `console.log(${"`${x}`, ".repeat(PRINT_NESTING_LIMIT + 1)}p.mrn);`;
+    expect(entries(siblings)).toEqual(["mrn"]);
   });
 
   it("refuses a sample nested past the limit, naming its line and never its text", () => {
     for (const [label, code] of [
       ["groups", deep("(", ")", PRINT_NESTING_LIMIT + 1)],
+      ["a template in groups", deep("(", ")", PRINT_NESTING_LIMIT).replace("x", "`x`")],
       ["brackets", deep("[{", "}]", 10_000)],
       ["templates", deep("`${", "}`", PRINT_NESTING_LIMIT + 1)],
       ["many templates", deep("`${", "}`", 10_000)],
@@ -681,8 +686,17 @@ describe("the bounds on a sample", () => {
     () => {
       const code = "throw error;\n".repeat(40_000) + "throw p.mrn;\nthrow p.mrn\nthrow error";
       expect(entries(code)).toEqual(["mrn", "mrn"]);
+      // A throw with no `;` ends at the next throw, which is read on its own.
+      expect(samplePrintFindings("throw error\nthrow p.mrn")).toMatchObject([{ line: 2 }]);
     },
   );
+
+  it("lets an error that is not about nesting through, as it is", () => {
+    const readme = "```js\nconsole.log(x);\n```\n";
+    // A list entry that is not a string fails as itself, not as a sample nested too deep.
+    const extra = { accessors: [1 as unknown as string] };
+    expect(() => examplePrintFindings({ pages: [], readme }, extra)).toThrow(TypeError);
+  });
 });
 
 describe("the samples of a page", () => {

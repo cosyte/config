@@ -2142,13 +2142,13 @@ function printLists(extra = {}) {
     [...WHOLE_VALUES, ...ownWholeValues].map((entry) => [comparable(entry), entry]),
   );
   const personPaths = new Map(PERSON_PATHS.map((entry) => [comparable(entry), entry]));
-  // Stryker disable next-line ArrayDeclaration: a seeded printer holds spaces, which no call read from a sample does, so it changes no finding.
   const safeEnds = new Set(PERSON_SAFE_ENDS.map(comparable));
   return {
     accessors,
     wholeValues,
     personPaths,
     safeEnds,
+    // Stryker disable next-line ArrayDeclaration: a seeded printer holds spaces, which no call read from a sample does, so it changes no finding.
     printers: new Set(extra.printers ?? []),
   };
 }
