@@ -16,7 +16,8 @@ node scripts/changeset-guard.mjs
 node scripts/release-notes.mjs prepare --repo . --out "$RUNNER_TEMP/release-notes"
 node scripts/credential-surface.mjs && node scripts/install-hardening.mjs
 node scripts/readme-check.mjs && node packages/script-utils/claude-card.js
-node scripts/drift-check.js && pnpm install --frozen-lockfile && pnpm check:no-emdash
+node scripts/drift-check.js && pnpm install --frozen-lockfile
+node scripts/standards-pages.mjs --check && pnpm check:no-emdash
 pnpm format:check && pnpm typecheck && pnpm lint && pnpm test
 pnpm quality:check --base origin/main && pnpm build && pnpm attw
 actionlint

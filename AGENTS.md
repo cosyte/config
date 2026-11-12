@@ -33,6 +33,7 @@ node scripts/readme-check.mjs
 node packages/script-utils/claude-card.js
 node scripts/drift-check.js
 pnpm install --frozen-lockfile
+node scripts/standards-pages.mjs --check
 pnpm check:no-emdash
 pnpm format:check
 pnpm typecheck
@@ -46,6 +47,13 @@ actionlint
 
 Outside CI, set `RUNNER_TEMP` to a scratch directory, and run `drift-check.js` from a checkout whose
 directory is named `config`: under any other name it exits 2, "nothing was graded".
+
+`docs-content/` holds the testing and performance standards as pages for docs.cosyte.com.
+`testing-standard.md` and `performance-standard.md` are written from
+`documentation/decisions/0004-the-testing-standard.md` and `0005-the-performance-standard.md` by
+`node scripts/standards-pages.mjs`: change the record, then run it. CI also runs the shared
+docs-content link check over the folder, and each release attaches it as `docs-content.tar.gz`
+(`scripts/pack-docs-content.sh`).
 
 `pnpm quality:check` is the coverage ratchet: it compares the coverage `pnpm test` just measured
 in each package with `quality-floor.json`, and with `--base` also requires every changed line to

@@ -1,0 +1,10 @@
+{
+  "docs": [
+    "intro",
+    {
+      "type": "category",
+      "label": "Explanation",
+      "items": ["testing-standard", "performance-standard"]
+    }
+  ]
+}

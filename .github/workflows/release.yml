@@ -713,6 +713,30 @@ jobs:
           node scripts/release-tags.mjs reconcile --repo "$GITHUB_WORKSPACE" \
             --target "$GITHUB_SHA" --notes-dir "$RUNNER_TEMP/release-tags"
 
+      # THE STANDARDS PAGES GO OUT WITH THE RELEASE. docs.cosyte.com reads a repository's pages from
+      # the `docs-content.tar.gz` asset of its LATEST GitHub release, whichever package's that is, so
+      # the asset goes on the release GitHub marks latest once the steps above have made theirs. It
+      # is packed from this commit, the one just released. `--clobber` makes a re-run replace the
+      # asset rather than fail on it, and the asset is read back by name, so a release without it
+      # reds the run instead of leaving the site on an older copy without a word.
+      - name: The latest release carries docs-content.tar.gz
+        if: ${{ !cancelled() && steps.reconcile.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          asset="$RUNNER_TEMP/docs-content.tar.gz"
+          bash scripts/pack-docs-content.sh "$asset"
+          tag=$(gh release view --json tagName --jq .tagName)
+          gh release upload "$tag" "$asset" --clobber
+          if ! gh release view "$tag" --json assets --jq '.assets[].name' | grep -qx 'docs-content.tar.gz'; then
+            echo "::error title=No docs-content.tar.gz on $tag::the upload returned, but the release" \
+                 "does not list the asset, so docs.cosyte.com would not find the standards pages."
+            exit 1
+          fi
+          echo "Attached docs-content.tar.gz to $tag."
+
       # THE OTHER DIRECTION: npm published on a commit the notes gate never recognised as a version
       # commit, so no changeset-derived body was made and the bumped-package step did not run. It is
       # reached two ways: the classifier missed a real version commit (a shallow checkout, say), or

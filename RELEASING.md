@@ -520,6 +520,20 @@ promoted to a version heading by hand, and twice it was not; that history sits u
 `## Released before this file was generated` heading. The release path does not depend on the
 changelog either way, because it reads changesets.
 
+## The docs-content asset
+
+docs.cosyte.com reads a repository's pages from the `docs-content.tar.gz` asset of its latest GitHub
+release. Here those pages are the testing and performance standards in `docs-content/`, and the
+latest release is whichever package released last, so the publish job's last release step packs the
+folder at the release commit (`scripts/pack-docs-content.sh`) and attaches it to the release GitHub
+marks latest, replacing any copy already there, then reads the asset list back and reds the run if
+it is missing. CI's `release-dry-run` job packs the same archive on every pull request and lists it.
+`cosyte-process pack-docs` is not used: it also packs `src/` and `tsconfig.json`, which this
+repository has no root copy of.
+
+The asset moves only when a package publishes, so a changed standard reaches the site with the next
+release of any package here.
+
 ## Why this repository is not a thin caller of the shared workflow
 
 Thirteen of the fourteen `.changeset/`-carrying repositories that have a release workflow call
