@@ -210,6 +210,102 @@ describe("measureAllocations", () => {
     ).toMatchObject({ windowOps: 4, collections: 2 });
   });
 
+  it("measures again at half the window when the second window counted fewer bytes than the first", () => {
+    // Each call allocates 100 bytes. After the second window of the first pair, the heap reads
+    // 1 MB lower with no collection: the pair is no count, so the next pair, of 50 and 100, is.
+    const { state, probe } = scripted();
+    let profiles = 0;
+    const falls = (when: (profile: number) => boolean, by: number): HeapProbe => ({
+      ...probe,
+      profile: (fn) => {
+        const report = probe.profile(fn);
+        if (when(profiles++)) state.heap -= by;
+        return report;
+      },
+    });
+    const call = () => {
+      state.heap += 100;
+      state.garbage += 100;
+    };
+    expect(
+      measureAllocations(
+        call,
+        falls((p) => p === 1, 1_000_000),
+        1,
+      ),
+    ).toEqual({
+      status: "measured",
+      method: "no-gc-window",
+      collections: 0,
+      windowOps: 50,
+      heapBytesPerOp: 100,
+      externalBytesPerOp: 0,
+    });
+    // A fall of up to 64 KiB is what a settled heap may move: still a count, at the first window.
+    const quiet = () => undefined;
+    profiles = 0;
+    expect(
+      measureAllocations(
+        quiet,
+        falls((p) => p === 1, BENCH_CONTRACT.GC_SETTLE_BYTES),
+        1,
+      ),
+    ).toMatchObject({ windowOps: 100, heapBytesPerOp: -655.4 });
+    profiles = 0;
+    expect(
+      measureAllocations(
+        quiet,
+        falls((p) => p === 1, BENCH_CONTRACT.GC_SETTLE_BYTES + 1),
+        1,
+      ),
+    ).toMatchObject({ windowOps: 50, heapBytesPerOp: 0 });
+    // External memory that falls is no count either.
+    const external = scripted();
+    let ext = 0;
+    const externalFalls: HeapProbe = {
+      ...external.probe,
+      profile: (fn) => {
+        const report = external.probe.profile(fn);
+        if (ext++ === 1) external.state.external -= 1_000_000;
+        return report;
+      },
+    };
+    expect(measureAllocations(() => undefined, externalFalls, 1)).toMatchObject({ windowOps: 50 });
+  });
+
+  it("skips, typed, when every window pair counted fewer bytes the second time", () => {
+    // The second window of every pair reads 2 MB lower after it ran, with no collection.
+    const { state, probe } = scripted();
+    let calls = 0;
+    const twice: HeapProbe = {
+      ...probe,
+      profile: (fn) => {
+        const report = probe.profile(fn);
+        state.heap -= calls++ % 2 === 1 ? 2_000_000 : 0;
+        return report;
+      },
+    };
+    expect(measureAllocations(() => undefined, twice, 25)).toEqual({
+      status: "skipped",
+      reason: "allocation-fell",
+    });
+    // With a collection in every window it is not accounted either.
+    const collecting = scripted({ gcsFor: () => 1 });
+    let n = 0;
+    const collectingFalls: HeapProbe = {
+      ...collecting.probe,
+      profile: (fn) => {
+        const report = collecting.probe.profile(fn);
+        collecting.state.heap -= n++ % 2 === 1 ? 2_000_000 : 0;
+        return report;
+      },
+    };
+    expect(measureAllocations(() => undefined, collectingFalls, 25)).toEqual({
+      status: "skipped",
+      reason: "allocation-fell",
+    });
+  });
+
   it("skips, typed, when the heap will not settle", () => {
     const { probe } = scripted({ reclaim: () => 100_000 });
     expect(measureAllocations(() => undefined, probe, 1)).toEqual({

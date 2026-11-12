@@ -53,11 +53,11 @@ cosyte-bench gate reading.json --budgets bench/budgets.json --floor bench/floor.
   --base-floor <the base branch's bench/floor.json> --summary gate.md
 ```
 
-| Exit | When                                                                                                                                                                                                 |
-| ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0    | Every limit held                                                                                                                                                                                     |
-| 1    | A case is over a budget (`breach`), a measure is above the highest of the floor's recorded readings plus 3 times their spread (`regression`), or the floor file is looser than its base (`loosened`) |
-| 2    | A limit names something the reading did not measure, a file could not be read, or the reading was not taken on a GitHub-hosted runner (`unjudged`)                                                   |
+| Exit | When                                                                                                                                                                                                                                             |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 0    | Every limit held                                                                                                                                                                                                                                 |
+| 1    | A case is over a budget (`breach`), a measure is above its floor limit, the highest of the floor's recorded readings plus 3 times their spread and for memory at least 5% (`regression`), or the floor file is looser than its base (`loosened`) |
+| 2    | A limit names something the reading did not measure or an allocation count that fell, a file could not be read, or the reading was not taken on a GitHub-hosted runner (`unjudged`)                                                              |
 
 A skip is not a pass, as in ADR 0005: a budget on a case whose throughput skipped, a rule that
 matches no case, a peak budget on a matched case whose size class the rule's `peakMultiple` leaves
@@ -119,7 +119,17 @@ bytes the import loads.
 - **A regression is past the limit.** A reading's measure above its limit, `value` plus
   `FLOOR_NOISE_MULTIPLE` (3) times `noise`, is a `regression`. The highest alone would not do: the
   next reading of unchanged code lands above the highest of `n` about one time in `n + 1`, whatever
-  the distribution. Section 7 gives the rate the limit allows.
+  the distribution. Section 7 gives the rate the limit allows. For a memory measure (the peak and
+  bytes allocated an operation) the limit is at least `FLOOR_MEMORY_MARGIN` (5%) above `value`,
+  whatever the spread: memory moves between discrete levels that a set may not have seen (section
+  7, "Hold a memory measure to its spread alone").
+- **A count that fell is no reading.** An allocation count whose `2n` window counted more than
+  `GC_SETTLE_BYTES` fewer than its `n` window is measured again at half the window, and skipped
+  (`allocation-fell`) when every pair does. `floor` refuses a set holding one, and `gate` calls one
+  `unjudged`. One reading in 82 of `@cosyte/dicom` recorded such a count before it was refused
+  (-14,057,504 bytes an operation, Bench floor run 43113425128), which made that measure's spread
+  28 MB and its limit useless; `floor --from` replaces a measure whose lowest reading was below zero
+  whenever the new set's limit is lower.
 - **It only improves, and not on luck.** `cosyte-bench floor <reading>... --from bench/floor.json`
   records a new set into the old floor. A measure takes the new set's value and noise only when the
   new set's whole limit is below the old set's lowest reading (`value - noise`): an improvement the
@@ -175,11 +185,12 @@ measured yet: a package's A/A set is the first measure of it.
 
 ### 6. Constants
 
-| Constant               | Value | Basis                                                                                                                                                                   |
-| ---------------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `LARGE_INPUT_BYTES`    | 1 MiB | **Judgement.** Where ADR 0005's large-case plan starts to matter (a 1 MiB call takes tens of milliseconds) and where the audit's large inputs begin                     |
-| `FLOOR_MIN_READINGS`   | 7     | **Measured by simulation** (section 7). With five, exponential noise failed one measure 1.2% of the time; a package may record from more                                |
-| `FLOOR_NOISE_MULTIPLE` | 3     | **Measured by simulation** (section 7). The margin above the highest reading, in spreads, that keeps one measure's rate near or under 1% for the noise shapes simulated |
+| Constant               | Value | Basis                                                                                                                                                                                           |
+| ---------------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `LARGE_INPUT_BYTES`    | 1 MiB | **Judgement.** Where ADR 0005's large-case plan starts to matter (a 1 MiB call takes tens of milliseconds) and where the audit's large inputs begin                                             |
+| `FLOOR_MIN_READINGS`   | 7     | **Measured by simulation** (section 7). With five, exponential noise failed one measure 1.2% of the time; a package may record from more                                                        |
+| `FLOOR_NOISE_MULTIPLE` | 3     | **Measured by simulation** (section 7). The margin above the highest reading, in spreads, that keeps one measure's rate near or under 1% for the noise shapes simulated                         |
+| `FLOOR_MEMORY_MARGIN`  | 0.05  | **Measured** on 82 readings of one `@cosyte/dicom` source (section 7). The least room above a memory measure's highest reading: the smallest margin tried that the 4.7% allocation level passes |
 
 ### 7. What it cannot do
 
@@ -228,8 +239,29 @@ measured yet: a package's A/A set is the first measure of it.
   backstop against large regressions; small ones are the base against head comparison's job (ADR
   0005 section 4), which reads both builds on one runner. The same margin makes the floor slow to
   move: `floor --from` takes a new set only after an improvement of about four spreads, so a floor
-  rarely tightens.
+  rarely tightens. A memory measure held by the 5% margin tightens only after an improvement of
+  more than 5%, since the new set's limit is then at least 5% above its highest reading.
 
+- **Hold a memory measure to its spread alone.** V8 compiles on a background thread, and when that
+  compile finishes decides which code a process runs, so one process of unchanged code allocates on
+  one of two or three levels, and a set whose readings all landed on one level measures almost no
+  spread. In 82 readings of one unchanged `@cosyte/dicom` source on GitHub-hosted runners (Bench
+  floor runs 43109166865, 43110461726, 43113425128, 43114865620 and 43116547990, and Budgets runs
+  43110461576, 43113425069, 43114865841 twice and 43116548037), the higher allocation levels sat
+  3.4% to 4.7% above the median reading, one peak level 11.2% to 11.4% above the highest reading of
+  a set that missed it, and one peak read 74,616 or 74,880 bytes with nothing between. A floor
+  recorded from one of the five sets failed 3 to 38 of the other readings of that source with three
+  spreads alone, and 0 to 5 with the 5% margin; margins of 0.5% to 4% still failed the 4.7% level.
+  Resampling the readings (5,000 trials), a reading failed any memory measure of a 21-reading floor
+  13.2% of the time with three spreads alone and 2.8% with the margin. The cost: a memory measure
+  whose three spreads come to under 5% no longer fails growth of 5% or less (a 5% regression of one
+  memory measure against a 21-reading floor was caught 41.3% of the time before and 2.3% after; a
+  10% one 55.6% and 57.5%). A level more than 5% up that no reading of the set landed on still
+  fails unchanged code, as the 11% peak level did in 4 of 82 readings. The other way we weighed
+  was to read memory as the lowest of three processes: in two smaller resamplings (1,000 trials
+  each), with a 1% margin on top, a reading failed a 21-reading floor 1.1% and 1.2% of the time and
+  a 10% regression was caught 72.7% and 72.5% of the time. It costs three times the memory processes a reading and changes what a reading holds, so
+  it is left for later.
 - **Allow any growth of a measure that measured no noise.** The gzipped bytes are the same in every
   reading of one commit, so the floor holds them exactly: a pull request that adds code adds bytes,
   and is a `regression` until the floor is loosened with the owner's words or the budget alone is

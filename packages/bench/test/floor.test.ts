@@ -242,7 +242,7 @@ describe("recordFloor", () => {
     };
     const set = () => Array.from({ length: BENCH_CONTRACT.FLOOR_MIN_READINGS }, () => reading());
     const failRate = (f: Floor) => {
-      const limit = floorLimit(f.cases[0]?.msPerOp as FloorValue);
+      const limit = floorLimit(f.cases[0]?.msPerOp as FloorValue, "msPerOp");
       return Math.exp(-(limit - 1) / 0.05);
     };
     const TRIALS = 300;
@@ -287,6 +287,59 @@ describe("recordFloor", () => {
     expect(gained.cases[0]?.peakBytes).toEqual({ value: 6144, noise: 0 });
   });
 
+  it("refuses a reading whose second window counted fewer bytes than its first, and takes a quiet heap's jitter", () => {
+    // A count of -1,100,000 heap bytes an operation over windows of 3: the window of 6 operations
+    // counted 3.3 MB fewer than the window of 3, which no code does.
+    const shrank = (heap: number, windowOps: number) => {
+      const docs = aa();
+      docs[5] = readingDoc([
+        at(0.5, 2000, {
+          allocations: {
+            status: "measured",
+            method: "no-gc-window",
+            collections: 0,
+            windowOps,
+            heapBytesPerOp: heap,
+            externalBytesPerOp: 0,
+          },
+        }),
+      ]);
+      return docs;
+    };
+    expect(() => recordFloor(shrank(-1_100_000, 3))).toThrow(
+      "reading 6 counted parse @ 1 KiB allocating -1100000 bytes an operation: its second window, of twice the operations, counted 3300000 bytes fewer than its first, which is not a count; take that reading again",
+    );
+    // Half a byte under zero over 256 operations is 128 bytes: a settled heap moves that much.
+    expect(recordFloor(shrank(-0.5, 256)).cases[0]?.allocBytesPerOp).toEqual({
+      value: 2100,
+      noise: 2100.5,
+    });
+  });
+
+  it("replaces an old measure whose lowest reading was below zero, recorded before that was refused", () => {
+    const old = floor();
+    const broken: Floor = {
+      ...old,
+      // Recorded from a set whose lowest reading was -14,057,504: a limit of about 98 MB.
+      cases: [
+        {
+          ...(old.cases[0] as FloorCase),
+          allocBytesPerOp: { value: 14_000_000, noise: 28_057_504 },
+        },
+      ],
+    };
+    const next = recordFloor(aa(), broken);
+    expect(next.cases[0]?.allocBytesPerOp).toEqual({ value: 2100, noise: 100 });
+    expect(loosenedFloor(broken, next)).toEqual([]);
+    // Never for a looser limit: a lowest reading of -0.5 bytes is a quiet heap's jitter around
+    // nothing allocated, and a set at 2,000 to 2,100 bytes would raise its limit of 9.5.
+    const nearZero: Floor = {
+      ...old,
+      cases: [{ ...(old.cases[0] as FloorCase), allocBytesPerOp: { value: 2, noise: 2.5 } }],
+    };
+    expect(recordFloor(aa(), nearZero).cases[0]?.allocBytesPerOp).toEqual({ value: 2, noise: 2.5 });
+  });
+
   it("refuses to tighten a floor of another suite, runner class or Node line", () => {
     const old = floor();
     for (const field of ["suite", "runnerClass", "nodeMajor"] as const) {
@@ -312,7 +365,7 @@ describe("checkFloor", () => {
             calls: 20,
             peakHeapBytes: 1,
             medianPeakHeapBytes: 1,
-            medianPeakTotalAboveFloorBytes: 6145,
+            medianPeakTotalAboveFloorBytes: 6452,
           },
         }),
       ],
@@ -325,7 +378,7 @@ describe("checkFloor", () => {
       ],
       [
         "regression",
-        "parse @ 1 KiB: peak bytes 6145, above the floor's limit of 6144 (its highest A/A reading 6144 plus 3 times its spread of 0)",
+        "parse @ 1 KiB: peak bytes 6452, above the floor's limit of 6451.2 (its highest A/A reading 6144 plus 5% of it, more than 3 times its spread of 0)",
       ],
       [
         "regression",
@@ -339,6 +392,65 @@ describe("checkFloor", () => {
         "regression",
         "import: gzipped bytes loaded 901, above the floor's limit of 900 (its highest A/A reading 900 plus 3 times its spread of 0)",
       ],
+    ]);
+  });
+
+  it("holds a memory measure at least 5% above its highest reading, and time and size by their spread", () => {
+    const peak = (bytes: number) => ({
+      status: "measured" as const,
+      calls: 20,
+      peakHeapBytes: 1,
+      medianPeakHeapBytes: 1,
+      medianPeakTotalAboveFloorBytes: bytes,
+    });
+    // The peak read 6,144 in all seven readings: its limit is 6,144 x 1.05 = 6,451.2, not 6,144.
+    // Allocations spread 100: 2,100 + 3 x 100 = 2,400 is above 2,100 x 1.05 = 2,205 and stands.
+    const atLimit = readingDoc([at(0.7, 2400, { peak: peak(6451) })], {
+      importCost: withImport(4.5),
+    });
+    expect(checkFloor(atLimit, floor())).toEqual({ findings: [], checked: 5 });
+    const over = readingDoc([at(0.7, 2401, { peak: peak(6452) })], {
+      importCost: withImport(4.5, 901),
+    });
+    expect(checkFloor(over, floor()).findings.map((f) => f.message)).toEqual([
+      "parse @ 1 KiB: peak bytes 6452, above the floor's limit of 6451.2 (its highest A/A reading 6144 plus 5% of it, more than 3 times its spread of 0)",
+      "parse @ 1 KiB: bytes allocated an operation 2401, above the floor's limit of 2400 (its highest A/A reading 2100 plus 3 times its spread of 100)",
+      // The gzipped bytes keep no margin: one byte more is a regression.
+      "import: gzipped bytes loaded 901, above the floor's limit of 900 (its highest A/A reading 900 plus 3 times its spread of 0)",
+    ]);
+  });
+
+  it("passes a second compiler level 3.4% up and catches a regression of more than 5%", () => {
+    // Every reading of the set landed on the lower of two levels, 100,000 bytes an operation; the
+    // other level, 3.4% up, is the same code. Anything more than 5% above the highest reading is
+    // caught however still the set was. Where 3 spreads come to more than 5% (here 3 x 4,000 on
+    // 100,000), the spreads set the limit, as before.
+    const still = recordFloor(seven(() => readingDoc([at(0.5, 100_000)])));
+    const judged = (alloc: number, f: Floor = still) =>
+      checkFloor(readingDoc([at(0.5, alloc)]), f).findings.map((x) => x.kind);
+    expect(judged(103_400)).toEqual([]);
+    expect(judged(105_000)).toEqual([]);
+    expect(judged(105_001)).toEqual(["regression"]);
+    const spread = recordFloor(seven((i) => readingDoc([at(0.5, i === 0 ? 96_000 : 100_000)])));
+    expect(judged(112_000, spread)).toEqual([]);
+    expect(judged(112_001, spread)).toEqual(["regression"]);
+  });
+
+  it("calls an allocation count whose second window counted fewer bytes than its first unjudged", () => {
+    const shrank = at(0.5, -1_100_000, {
+      allocations: {
+        status: "measured",
+        windowOps: 3,
+        heapBytesPerOp: -1_100_000,
+        externalBytesPerOp: 0,
+      },
+    });
+    expect(checkFloor(readingDoc([shrank]), floor()).findings).toEqual([
+      {
+        kind: "unjudged",
+        message:
+          "parse @ 1 KiB: bytes allocated an operation was not a count: its second window, of twice the operations, counted 3300000 bytes fewer than its first",
+      },
     ]);
   });
 
@@ -438,7 +550,7 @@ describe("loosenedFloor", () => {
           {
             ...first,
             msPerOp: { value: 0.56, noise: 0.05 },
-            peakBytes: { value: 6144, noise: 1 },
+            peakBytes: { value: 6144, noise: 200 },
             allocBytesPerOp: null,
           },
         ],
@@ -446,7 +558,7 @@ describe("loosenedFloor", () => {
       }).map((x) => x.message),
     ).toEqual([
       "parse @ 1 KiB: ms an operation's limit rose from 0.7 to 0.71",
-      "parse @ 1 KiB: peak bytes's limit rose from 6144 to 6147",
+      "parse @ 1 KiB: peak bytes's limit rose from 6451.2 to 6744",
       "parse @ 1 KiB: bytes allocated an operation has no floor any more",
       "import: median cold import, ms has no floor any more",
       "import: gzipped bytes loaded has no floor any more",

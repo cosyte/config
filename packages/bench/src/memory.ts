@@ -128,11 +128,31 @@ export function settle(probe: HeapProbe): SettleResult {
 }
 
 /**
- * Why a memory measurement has no number. `allocation-window-gc` is no longer written: a case whose
- * every window collects is now counted with its collections. It stays here because documents
- * written before carry it.
+ * Why a memory measurement has no number. `allocation-fell`: in every pair of windows tried, the
+ * window of `2n` operations counted fewer bytes than the window of `n` (see {@link allocationFell}).
+ * `allocation-window-gc` is no longer written: a case whose every window collects is now counted
+ * with its collections. It stays here because documents written before carry it.
  */
-export type MemorySkipReason = "gc-unavailable" | "gc-unsettled" | "allocation-window-gc";
+export type MemorySkipReason =
+  "gc-unavailable" | "gc-unsettled" | "allocation-fell" | "allocation-window-gc";
+
+/**
+ * Why an allocation count is not a count, or `null` when it is one: its second window, of twice
+ * the operations, counted more than `GC_SETTLE_BYTES` (what a settled heap may move with nothing
+ * running) fewer than its first, in V8 heap or external memory. No code allocates fewer bytes by
+ * running more. A reading recorded one, a heap 34 MB lower with no collection in either window,
+ * before such a pair was measured again.
+ *
+ * @internal
+ */
+export function allocationFell(
+  a: Extract<AllocationReport, { status: "measured" }>,
+): string | null {
+  const fell = -Math.min(a.heapBytesPerOp * a.windowOps, a.externalBytesPerOp * a.windowOps);
+  return fell > BENCH_CONTRACT.GC_SETTLE_BYTES
+    ? `its second window, of twice the operations, counted ${String(round(fell, 0))} bytes fewer than its first`
+    : null;
+}
 
 /**
  * How allocations were counted. `no-gc-window`: the heap's growth over windows in which no
@@ -171,6 +191,11 @@ export type AllocationReport =
  * from each collection's heap before and after it. No further calls are made. On a case whose windows
  * do not collect the two counts are the same number, since nothing was reclaimed.
  *
+ * A pair whose second window counted more than `GC_SETTLE_BYTES` fewer than its first, in V8 heap
+ * or external memory, is no count either ({@link allocationFell}), and is measured again at half
+ * the window, as a collection is; when every pair tried fell, the count is skipped
+ * (`allocation-fell`) rather than written below zero.
+ *
  * @internal
  */
 export function measureAllocations(
@@ -207,17 +232,19 @@ export function measureAllocations(
   });
   const paced = Math.floor(BENCH_CONTRACT.ALLOC_WINDOW_MS / msPerOp);
   const first = Math.max(1, Math.min(BENCH_CONTRACT.ALLOC_WINDOW_OPS, paced));
-  let largest: [ReturnType<typeof window>, ReturnType<typeof window>] | null = null;
+  type Window = ReturnType<typeof window>;
+  let largest: { n: number; a: Window; b: Window } | null = null;
   for (let n = first; n >= 1; n = Math.floor(n / 2)) {
     const a = window(n);
     const b = window(2 * n);
     if (!a.settled || !b.settled) return { status: "skipped", reason: "gc-unsettled" };
+    if (b.heap - a.heap < -BENCH_CONTRACT.GC_SETTLE_BYTES) continue;
+    if (b.ext - a.ext < -BENCH_CONTRACT.GC_SETTLE_BYTES) continue;
     if (a.gcs === 0 && b.gcs === 0) return perOp("no-gc-window", n, a, b);
-    largest ??= [a, b];
+    largest ??= { n, a, b };
   }
-  // The loop ran at least once (`first` is at least 1) and every pass that reached here collected.
-  const [a, b] = largest as [ReturnType<typeof window>, ReturnType<typeof window>];
-  return perOp("gc-accounted", first, a, b);
+  if (largest === null) return { status: "skipped", reason: "allocation-fell" };
+  return perOp("gc-accounted", largest.n, largest.a, largest.b);
 }
 
 /** Peak memory per call: the V8 heap, external memory, and the two together. */

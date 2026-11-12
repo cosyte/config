@@ -4,7 +4,7 @@
  * Every value here is fixed by the performance standard,
  * `documentation/decisions/0005-the-performance-standard.md` in the `config` repo, which says for
  * each one whether it was measured or chosen, and on what basis; `LARGE_INPUT_BYTES`,
- * `FLOOR_MIN_READINGS` and `FLOOR_NOISE_MULTIPLE` are fixed by the performance budgets standard,
+ * `FLOOR_MIN_READINGS`, `FLOOR_NOISE_MULTIPLE` and `FLOOR_MEMORY_MARGIN` are fixed by the performance budgets standard,
  * `documentation/decisions/0007-the-performance-budgets-standard.md`. The warmup rule is not here: it
  * is `PERF_CONTRACT` in `@cosyte/test-utils/perf` (ADR 0001 section 2), which `measure.ts` imports
  * and the build bundles, so the scaling gate and the benchmarks warm up by one rule kept in one
@@ -98,6 +98,15 @@ export interface BenchContractShape {
   readonly FLOOR_MIN_READINGS: number;
   /** A floor's limit is its highest A/A reading plus this many times their spread. */
   readonly FLOOR_NOISE_MULTIPLE: number;
+  /**
+   * A memory measure's floor limit (the peak and bytes allocated an operation) is at least this
+   * fraction above its highest A/A reading, whatever their spread. V8 compiles on a background
+   * thread, so one process of unchanged code lands on one of two allocation levels, the higher up
+   * to 4.7% above the lower on a GitHub-hosted runner, and a set of readings that all landed on one
+   * level measures a spread of a few bytes. Time keeps its spread alone, and the gzipped bytes stay
+   * exact.
+   */
+  readonly FLOOR_MEMORY_MARGIN: number;
   /** The timing comparison may become a required check when A/A false alarms are under this rate. */
   readonly REQUIRED_FALSE_ALARM_RATE: number;
   /** The confidence that the false alarm rate is under the line, for the rule above. */
@@ -146,6 +155,7 @@ export const BENCH_CONTRACT: BenchContractShape = Object.freeze({
   LARGE_INPUT_BYTES: 1024 * 1024,
   FLOOR_MIN_READINGS: 7,
   FLOOR_NOISE_MULTIPLE: 3,
+  FLOOR_MEMORY_MARGIN: 0.05,
   REQUIRED_FALSE_ALARM_RATE: 0.01,
   REQUIRED_CONFIDENCE: 0.95,
 });

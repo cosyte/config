@@ -6,7 +6,9 @@
  * a GitHub-hosted runner. For every measure it keeps the highest of them (`value`) and the spread
  * between the highest and the lowest (`noise`): the noise that set measured with nothing changed. A
  * later reading is a regression only when it is above the measure's limit, `value` plus
- * `FLOOR_NOISE_MULTIPLE` times `noise`.
+ * `FLOOR_NOISE_MULTIPLE` times `noise`, and for a memory measure (the peak and bytes allocated an
+ * operation) at least `FLOOR_MEMORY_MARGIN` of `value` above it: memory moves between levels that a
+ * set of readings with little spread may not have seen.
  *
  * Recording again from an existing floor replaces a measure only when the new set's whole limit is
  * below the old set's lowest reading (`value - noise`): an improvement the old noise cannot explain.
@@ -32,10 +34,11 @@ import {
   type ReadingDocument,
 } from "./gate.js";
 import type { ImportCostReport } from "./import-cost.js";
+import { allocationFell } from "./memory.js";
 import { budgetPeakBytes, type CaseReading } from "./reading.js";
 import { round } from "./stats.js";
 
-/** One measure's floor: a reading above `value + FLOOR_NOISE_MULTIPLE * noise` is a regression. */
+/** One measure's floor: a reading above its limit (`floorLimit`) is a regression. */
 export interface FloorValue {
   /** The highest the A/A readings measured, or lower once the floor has improved. */
   readonly value: number;
@@ -224,25 +227,57 @@ function fromSet(values: readonly (number | null)[]): FloorValue | null {
   return { value: high, noise: round(high - Math.min(...xs), 6) };
 }
 
+/** The measures a floor keeps, by name. */
+export type FloorMeasure = CaseMeasure | ImportMeasure;
+
+/** The memory measures, whose limit is at least `FLOOR_MEMORY_MARGIN` above their highest reading. */
+const MEMORY: ReadonlySet<FloorMeasure> = new Set(["peakBytes", "allocBytesPerOp"]);
+
+/** Whether the memory margin, not the spread, sets a measure's limit. */
+function byMargin(f: FloorValue, measure: FloorMeasure): boolean {
+  return (
+    MEMORY.has(measure) &&
+    BENCH_CONTRACT.FLOOR_MEMORY_MARGIN * f.value > BENCH_CONTRACT.FLOOR_NOISE_MULTIPLE * f.noise
+  );
+}
+
 /**
- * The most a reading may measure before it is a regression.
+ * The most a reading may measure before it is a regression: `value` plus `FLOOR_NOISE_MULTIPLE`
+ * times `noise`, and for a memory measure at least `value` plus `FLOOR_MEMORY_MARGIN` of it.
  *
  * @internal
  */
-export function floorLimit(f: FloorValue): number {
-  return f.value + BENCH_CONTRACT.FLOOR_NOISE_MULTIPLE * f.noise;
+export function floorLimit(f: FloorValue, measure: FloorMeasure): number {
+  return byMargin(f, measure)
+    ? f.value * (1 + BENCH_CONTRACT.FLOOR_MEMORY_MARGIN)
+    : f.value + BENCH_CONTRACT.FLOOR_NOISE_MULTIPLE * f.noise;
 }
 
 /**
  * One measure of an old floor and a new set: the new set only when its whole limit is below the
- * old set's lowest reading, else the old measure unchanged. Never gone, never looser.
+ * old set's lowest reading, else the old measure unchanged. Never gone, never looser. An old
+ * measure whose lowest reading was below zero, which a count of bytes or milliseconds cannot be, was
+ * recorded from a reading that is now refused: a new set replaces it whenever its limit is lower.
  *
  * @internal
  */
-export function tighter(old: FloorValue | null, next: FloorValue | null): FloorValue | null {
+export function tighter(
+  old: FloorValue | null,
+  next: FloorValue | null,
+  measure: FloorMeasure,
+): FloorValue | null {
   if (old === null) return next;
   if (next === null) return old;
-  return floorLimit(next) < old.value - old.noise ? next : old;
+  const limit = floorLimit(next, measure);
+  const lowest = old.value - old.noise;
+  if (lowest < 0) return limit < floorLimit(old, measure) ? next : old;
+  return limit < lowest ? next : old;
+}
+
+/** Why a case's allocation count is not a count, or `null` when it is or was not measured. */
+function fellBy(c: CaseReading): string | null {
+  const a = c.allocations;
+  return a === null || a.status !== "measured" ? null : allocationFell(a);
 }
 
 /**
@@ -268,6 +303,16 @@ export function recordFloor(docs: readonly ReadingDocument[], from?: Floor): Flo
     const why = notJudgeable(doc);
     if (why !== null) throw new TypeError(`@cosyte/bench: ${why}`);
   }
+  docs.forEach((doc, i) => {
+    for (const c of doc.reading.cases) {
+      const fell = fellBy(c);
+      if (fell !== null) {
+        throw new TypeError(
+          `@cosyte/bench: reading ${String(i + 1)} counted ${caseName(c)} allocating ${String(CASE_MEASURES.allocBytesPerOp(c))} bytes an operation: ${fell}, which is not a count; take that reading again`,
+        );
+      }
+    }
+  });
   const first = docs[0] as ReadingDocument;
   const same = {
     suite: first.suite.name,
@@ -339,9 +384,9 @@ export function recordFloor(docs: readonly ReadingDocument[], from?: Floor): Flo
         return {
           benchmark: o.benchmark,
           size: o.size,
-          msPerOp: tighter(o.msPerOp, n.msPerOp),
-          peakBytes: tighter(o.peakBytes, n.peakBytes),
-          allocBytesPerOp: tighter(o.allocBytesPerOp, n.allocBytesPerOp),
+          msPerOp: tighter(o.msPerOp, n.msPerOp, "msPerOp"),
+          peakBytes: tighter(o.peakBytes, n.peakBytes, "peakBytes"),
+          allocBytesPerOp: tighter(o.allocBytesPerOp, n.allocBytesPerOp, "allocBytesPerOp"),
         };
       }),
       ...cases.filter((c) => !old.has(key(c))),
@@ -351,8 +396,16 @@ export function recordFloor(docs: readonly ReadingDocument[], from?: Floor): Flo
         freshImport === null
           ? from.import
           : {
-              medianMs: tighter(from.import.medianMs, freshImport.medianMs) as FloorValue,
-              gzipBytes: tighter(from.import.gzipBytes, freshImport.gzipBytes) as FloorValue,
+              medianMs: tighter(
+                from.import.medianMs,
+                freshImport.medianMs,
+                "medianMs",
+              ) as FloorValue,
+              gzipBytes: tighter(
+                from.import.gzipBytes,
+                freshImport.gzipBytes,
+                "gzipBytes",
+              ) as FloorValue,
             };
     }
   }
@@ -372,7 +425,8 @@ const show = (n: number) => String(round(n, 4));
 /**
  * Check a reading against a floor: each measure the floor keeps must be at or below its limit
  * (`floorLimit`). A case or a measure the floor keeps and the reading did not measure is
- * `unjudged`, and so is a reading of another suite, runner class or Node line, and a floor that
+ * `unjudged`, as is an allocation count whose second window counted fewer bytes than its first,
+ * and so is a reading of another suite, runner class or Node line, and a floor that
  * keeps no measure at all. A case the floor does not keep yet has no floor and is not judged. The
  * reading's runner is checked by the caller.
  *
@@ -400,21 +454,33 @@ export function checkFloor(
   let checked = 0;
   const judge = (
     where: string,
-    label: string,
+    measure: FloorMeasure,
     floorValue: FloorValue | null,
     got: number | null,
+    notCount: string | null = null,
   ) => {
     if (floorValue === null) return;
     checked++;
+    const label = LABEL[measure];
     if (got === null) {
       findings.push({ kind: "unjudged", message: `${where}: ${label} was not measured` });
       return;
     }
-    const most = floorLimit(floorValue);
+    if (notCount !== null) {
+      findings.push({
+        kind: "unjudged",
+        message: `${where}: ${label} was not a count: ${notCount}`,
+      });
+      return;
+    }
+    const most = floorLimit(floorValue, measure);
     if (got > most) {
+      const above = byMargin(floorValue, measure)
+        ? `plus ${String(BENCH_CONTRACT.FLOOR_MEMORY_MARGIN * 100)}% of it, more than ${String(BENCH_CONTRACT.FLOOR_NOISE_MULTIPLE)} times its spread of ${show(floorValue.noise)}`
+        : `plus ${String(BENCH_CONTRACT.FLOOR_NOISE_MULTIPLE)} times its spread of ${show(floorValue.noise)}`;
       findings.push({
         kind: "regression",
-        message: `${where}: ${label} ${show(got)}, above the floor's limit of ${show(most)} (its highest A/A reading ${show(floorValue.value)} plus ${String(BENCH_CONTRACT.FLOOR_NOISE_MULTIPLE)} times its spread of ${show(floorValue.noise)})`,
+        message: `${where}: ${label} ${show(got)}, above the floor's limit of ${show(most)} (its highest A/A reading ${show(floorValue.value)} ${above})`,
       });
     }
   };
@@ -428,12 +494,14 @@ export function checkFloor(
       });
       continue;
     }
-    for (const m of CASE_MEASURE_NAMES) judge(caseName(f), LABEL[m], f[m], CASE_MEASURES[m](c));
+    for (const m of CASE_MEASURE_NAMES) {
+      judge(caseName(f), m, f[m], CASE_MEASURES[m](c), m === "allocBytesPerOp" ? fellBy(c) : null);
+    }
   }
   if (floor.import !== null) {
     const cost = doc.reading.importCost;
     for (const m of IMPORT_MEASURE_NAMES) {
-      judge("import", LABEL[m], floor.import[m], cost === null ? null : IMPORT_MEASURES[m](cost));
+      judge("import", m, floor.import[m], cost === null ? null : IMPORT_MEASURES[m](cost));
     }
   }
   if (checked === 0) {
@@ -462,12 +530,18 @@ export function loosenedFloor(base: Floor, head: Floor): readonly GateFinding[] 
       );
     }
   }
-  const compare = (where: string, label: string, b: FloorValue | null, h: FloorValue | null) => {
+  const compare = (
+    where: string,
+    measure: FloorMeasure,
+    b: FloorValue | null,
+    h: FloorValue | null,
+  ) => {
     if (b === null) return;
+    const label = LABEL[measure];
     if (h === null) loosened(`${where}: ${label} has no floor any more`);
-    else if (floorLimit(h) > floorLimit(b)) {
+    else if (floorLimit(h, measure) > floorLimit(b, measure)) {
       loosened(
-        `${where}: ${label}'s limit rose from ${show(floorLimit(b))} to ${show(floorLimit(h))}`,
+        `${where}: ${label}'s limit rose from ${show(floorLimit(b, measure))} to ${show(floorLimit(h, measure))}`,
       );
     }
   };
@@ -477,11 +551,11 @@ export function loosenedFloor(base: Floor, head: Floor): readonly GateFinding[] 
       loosened(`${caseName(b)}: the floor no longer keeps it`);
       continue;
     }
-    for (const m of CASE_MEASURE_NAMES) compare(caseName(b), LABEL[m], b[m], h[m]);
+    for (const m of CASE_MEASURE_NAMES) compare(caseName(b), m, b[m], h[m]);
   }
   if (base.import !== null) {
     for (const m of IMPORT_MEASURE_NAMES) {
-      compare("import", LABEL[m], base.import[m], head.import === null ? null : head.import[m]);
+      compare("import", m, base.import[m], head.import === null ? null : head.import[m]);
     }
   }
   return findings;

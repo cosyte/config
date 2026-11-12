@@ -28,6 +28,7 @@ describe("the contracts", () => {
         "ALLOC_WINDOW_OPS": 256,
         "ALPHA": 0.05,
         "FLOOR_INPUT_BYTES": 65536,
+        "FLOOR_MEMORY_MARGIN": 0.05,
         "FLOOR_MIN_READINGS": 7,
         "FLOOR_NOISE_MULTIPLE": 3,
         "GC_MAX_ROUNDS": 7,
