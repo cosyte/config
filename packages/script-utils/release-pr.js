@@ -266,7 +266,12 @@ export function openingSentence(summary) {
   let t = String(summary).trim().split(/\s+/).join(" ");
   t = t.replace(/^\*\*(.+?)\*\*[.:]?\s*/, "$1. ");
   const sentence = /^(.+?[.!?]\*{0,2})(\s|$)/.exec(t);
-  return (sentence ? sentence[1] : t).trim().replace(/\.+$/, "");
+  const kept = (sentence ? sentence[1] : t).trim();
+  // The trailing full stops come off by a scan, not by `/\.+$/`, which backtracks on a long run of
+  // full stops that does not end the text.
+  let end = kept.length;
+  while (end > 0 && kept[end - 1] === ".") end -= 1;
+  return kept.slice(0, end);
 }
 
 /**

@@ -304,6 +304,15 @@ describe("openingSentence", () => {
     expect(openingSentence("Version 1.2.3 parses. Next.")).toBe("Version 1.2.3 parses");
   });
 
+  it("drops every trailing full stop, and reads a long run of them quickly", () => {
+    expect(openingSentence("Done...")).toBe("Done");
+    expect(openingSentence("...")).toBe("");
+    const run = `a${".".repeat(50_000)}b`;
+    const started = performance.now();
+    expect(openingSentence(run)).toBe(run);
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+
   it("reads a bold lead-in as the headline, and a sentence ending inside emphasis", () => {
     expect(openingSentence("**Lead in** and the rest. More.")).toBe("Lead in");
     expect(openingSentence("**Lead in:** the rest.")).toBe("Lead in:");
