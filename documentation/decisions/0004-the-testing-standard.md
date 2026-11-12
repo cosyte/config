@@ -351,9 +351,11 @@ however exactly a test compares it. Importing the source again inside a test of 
 help either: the module cache returns the copy the static import already evaluated. What works is a
 test file that:
 
-- has no static import of the source (a type-only import is fine);
+- has no static import of the source (a type-only import is fine), and loads it nowhere outside a
+  test body: not at the top of the file, in a `describe` callback or in a hook, each of which runs
+  before the test the mutation run links;
 - calls `vi.resetModules()`, then imports the source inside the test body,
-  `await import("../src/index.js")`;
+  `await import("../src/index.js")`, or in a helper that only test bodies call;
 - compares `VERSION` with the version read from package.json at test time.
 
 The parser template's `test/version.test.ts` is that file.
@@ -378,14 +380,18 @@ pending changesets on the pull request that adds them.
 
 **The check.** `cosyte-release-pr`, in `@cosyte/script-utils`, reads a library's tree and fails it
 (exit 1) for each of these: a version script that does not run the three steps in order, no test
-file of the shape above (it names each test that reads `VERSION` and what it lacks), and a pending
-changeset whose opening sentence could become a bullet over 400 characters. The version rules apply
-when `src/` declares an exported `VERSION`. It reads text, so it cannot tell that the test it
-accepts passes; the test's own run does that. The parser template runs it in its own CI job on every
+file of the shape above (it names each test that reads `VERSION` and what it lacks), a pending
+changeset whose opening sentence could become a bullet over 400 characters, and a pending changeset
+the release cannot read, an empty one (`changeset add --empty`) among them: a change that releases
+no package gets no changeset at all. The version rules apply when `src/` declares an exported
+`VERSION`. It parses test files with the TypeScript compiler, so a comment or a string satisfies
+nothing, but it does not run them, so it cannot tell that the test it accepts passes; the test's
+own run does that. It measures a bullet conservatively, as an upper bound on what the release
+publishes. The parser template runs it in its own CI job on every
 pull request, and the root suite here grades what the scaffolder emits with it.
 
-**Who still lacks one, for the sweep.** Measured on 2026-11-12 by running the check over each
-library's `main`:
+**Who still lacks one, for the sweep.** Measured on 2026-11-12 by running the check over a fresh
+clone of each library's `main`:
 
 | library       | version script misses the reference | no fresh-import `VERSION` test |
 | ------------- | ----------------------------------- | ------------------------------ |
@@ -393,17 +399,17 @@ library's `main`:
 | `ccda`        | yes                                 | yes                            |
 | `cli`         | yes                                 | yes                            |
 | `deid`        | no                                  | yes                            |
-| `dicom`       | yes                                 | yes                            |
+| `dicom`       | yes                                 | no                             |
 | `ncpdp`       | yes                                 | yes                            |
 | `synth`       | no                                  | yes                            |
 | `terminology` | yes                                 | yes                            |
 | `transform`   | yes                                 | yes                            |
 | `x12`         | no                                  | yes                            |
 
-The commits read: astm `18b6b5d`, ccda `dd801d4`, cli `71fff3e`, deid `60f6570`, dicom `3b0abd5`,
-ncpdp `f2c8169`, synth `243b991`, terminology `c5da7fe`, transform `2374b5f`, x12 `f8cc2fb`. `hl7`
-(`c3bf85d`), `mllp` (`5bc58e1`) and `fhir` (`707ba32`) pass. No library's pending changesets were
-over the cap. Each library takes the check into its own CI in the change that clears its row.
+The commits read: astm `18b6b5d`, ccda `69b5c5b`, cli `71fff3e`, deid `60f6570`, dicom `6eedfb4`,
+ncpdp `f2c8169`, synth `3156ab8`, terminology `c5da7fe`, transform `2374b5f`, x12 `f8cc2fb`. `hl7`
+(`4d89126`), `mllp` (`d3ebc5d`) and `fhir` (`997d81d`) pass. No library's pending changesets were
+refused. Each library takes the check into its own CI in the change that clears its row.
 
 ## Consequences
 

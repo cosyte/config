@@ -530,26 +530,30 @@ cosyte-release-pr --dir <path>   # another package
 | `version-script`   | the `version` script runs `changeset version`, then the VERSION sync (`cosyte-process sync-version`), then `cosyte-docs-reference`, in that order  |
 | `version-test`     | one test file has no static import of the source, calls `vi.resetModules()`, imports the source in its body and compares VERSION with package.json |
 | `changeset-bullet` | each pending changeset opens with a sentence of at most 400 characters                                                                             |
-| `changeset-shape`  | each pending changeset has a front matter block, and a summary when it releases a package                                                          |
+| `changeset-shape`  | each pending changeset has a front matter block that is not empty, a package and bump on each line, and a summary when it releases a package       |
 
-The two version rules apply when a file under `src/` declares an exported `VERSION`
-(`export const VERSION` at the start of a line). The version script may reach a step through another
-script (`pnpm docs:reference`), and any step naming `sync-version` counts as the sync, so a library
-with its own sync script passes.
+The version rules apply when a file under `src/` declares `export const VERSION`. A version script
+step may go through another script (`pnpm docs:reference`), any step naming `sync-version` is the
+sync, and `cosyte-docs-reference --check` (or `--check=true`) is not a regeneration. The steps are
+read, split on `&&`, not run: a step that can never run (`false && ...`), one after `||`, or an
+`echo` naming a step passes, and a script joined with `;` fails closed.
 
-Why the test is shaped that way: the mutation run mutates the `VERSION` string, and links a mutant
-only to the tests that run while its line is evaluated. `VERSION` is set once, when its module is
-first evaluated, so a test file that imports the source statically evaluates it before any test
-starts, and the mutant survives however exactly a test compares it. A test that resets the module
-cache and imports the source inside its body is the one the mutation run can link.
+The test's shape: the mutation run links a `VERSION` mutant only to the tests that run while its
+module is evaluated, and a static import evaluates it before any test starts. Test files are parsed
+with the TypeScript compiler (the library's own, else `@cosyte/process`'s, else one beside this
+package; with none, exit 2), so a comment or a string satisfies nothing. A test body is the callback
+of an `it` or `test` call that runs, or a function the file names that only test bodies call (a
+`freshVersion()` helper). One must call `.resetModules()`, then import the source with a literal
+specifier, and read `VERSION`. A load of the source anywhere else fails the rule: at the top of the
+file, in a `describe` callback or hook, or in a function those call. It does not run the test.
 
-The bullet is measured as an upper bound on what the release publishes: the opening sentence, read
-the way the release reads it, plus one character for each em dash and each "slice", the two
-rewrites the release makes that can lengthen it. The release refuses an over-long bullet only after
-the Version Packages pull request has merged and consumed the changeset, so this check reads the
-changesets on the pull request that adds them. It reads text: it does not run the test it accepts,
-and it does not check the reference pages (`cosyte-docs-reference --check` does). Exit 0 clean, 1 a
-finding, 2 the package could not be read.
+The bullet bound is conservative, not a copy of the release's rewrites: the opening sentence, read
+as the release reads it, plus one for each em dash, each "slice" (inside a word too), each innermost
+parenthetical and each comma inside one, the rewrites that can lengthen it. A sentence this passes
+the release passes on length. The release refuses only after the Version Packages pull request has
+merged, so this reads changesets on the pull request that adds them, and refuses an empty front
+matter block (`changeset add --empty`), which the release cannot read: a change that releases no
+package gets no changeset. Exit 0 clean, 1 a finding, 2 the package could not be read.
 
 ```ts runnable
 import { checkChangeset, checkVersionScript } from "@cosyte/script-utils/release-pr";

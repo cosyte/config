@@ -52,11 +52,27 @@ export declare function checkVersionScript(scripts: Record<string, unknown>): Re
 /** Whether a module's text declares an exported `VERSION` constant at the start of a line. */
 export declare function declaresVersion(text: string): boolean;
 
-/** What one test file lacks to pin VERSION through a fresh import. Empty when it does. */
-export declare function freshVersionTestGaps(path: string, text: string): string[];
+/**
+ * The TypeScript compiler the version-test rule parses test files with: the package's own, else the
+ * one `@cosyte/process` depends on, else one resolvable from each of `fallbacks` (this module's own
+ * location by default). Typed `unknown` so this package keeps no dependency on `typescript`.
+ *
+ * @throws {Error} When none of them resolves it.
+ */
+export declare function loadTypeScript(root: string, fallbacks?: readonly string[]): unknown;
+
+/**
+ * What one test file lacks to pin VERSION through a fresh import. Empty when it does. The file is
+ * parsed with `ts`, the TypeScript compiler (found from this module when not given), so a comment or
+ * a string satisfies nothing, and the import must sit inside an `it` or `test` callback.
+ */
+export declare function freshVersionTestGaps(path: string, text: string, ts?: unknown): string[];
 
 /** The `version-test` rule: at least one test file pins VERSION through a fresh import. */
-export declare function checkVersionTests(tests: readonly ReleasePrFile[]): ReleasePrFinding[];
+export declare function checkVersionTests(
+  tests: readonly ReleasePrFile[],
+  ts?: unknown,
+): ReleasePrFinding[];
 
 /** The first sentence of a changeset's summary, read the way the release workflow reads it. */
 export declare function openingSentence(summary: string): string;
@@ -67,8 +83,8 @@ export declare function bulletLengthBound(sentence: string): number;
 /** The `changeset-bullet` and `changeset-shape` rules over one changeset. */
 export declare function checkChangeset(path: string, text: string): ReleasePrFinding[];
 
-/** Every rule over a package's input. */
-export declare function checkReleasePr(input: ReleasePrInput): ReleasePrFinding[];
+/** Every rule over a package's input, the version-test rule parsing with `ts` when given. */
+export declare function checkReleasePr(input: ReleasePrInput, ts?: unknown): ReleasePrFinding[];
 
 /**
  * Read what the check needs from a package root.
