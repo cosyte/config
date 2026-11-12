@@ -519,8 +519,8 @@ named `log`, `logger` or ending in `Logger`. A call is a finding, under the rule
 an argument:
 
 - reads an identifying accessor anywhere in its chain (`msg.patient.mrn`, `doc.getMrn()`,
-  `row["mrn"]`, `{ mrn }`, or a template that interpolates one), unless a `length`, `size` or
-  `precision` read follows it. The list is `IDENTIFYING_ACCESSORS` in `@cosyte/script-utils`. A name
+  `row["mrn"]`, `{ mrn }`, or a template that interpolates one), unless the chain ends in a
+  `length`, `size` or `precision` read (`msg.patient.mrn.length`). The list is `IDENTIFYING_ACCESSORS` in `@cosyte/script-utils`. A name
   is matched with any `get` prefix, case, `_` and `-` set aside, and a dotted entry such as
   `patient.id` or `name.family` matches those members in a row, for a name that identifies a person
   only after another;

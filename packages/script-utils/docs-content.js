@@ -1803,7 +1803,7 @@ export const WHOLE_VALUES = Object.freeze([
 ]);
 
 /**
- * What a sample may read after an identifying accessor and print: how long it is and how precise a
+ * What a chain may end in and be printed, an identifying accessor in it or not: how long it is and how precise a
  * date is, which say nothing about the person.
  */
 export const SAFE_READS = Object.freeze(["length", "size", "precision"]);
@@ -1867,8 +1867,9 @@ const REGEX_AFTER = new Set(
  */
 const PUNCTUATION = ["?.", "=>", "==", "!=", "??"];
 
-/** The closing character of each group. */
-const CLOSERS = Object.freeze({ "(": ")", "[": "]", "{": "}" });
+/** The characters that open a group, and the ones that close it, in the same order. */
+const OPENERS = "([{";
+const CLOSERS = ")]}";
 
 /** A character of a name, and a name. A number reads as a name, which no list holds. */
 const NAME_CHAR = /[\p{L}\p{N}_$]/u;
@@ -1888,9 +1889,10 @@ function comparable(name) {
 }
 
 /**
- * The tokens of a sample: names, punctuation, strings, numbers and regular expressions, each with
- * its 0-based line; a template literal is one token holding the tokens of each `${...}` in it.
- * Comments and whitespace are dropped.
+ * The tokens of a sample: names, punctuation, strings and regular expressions, each with its 0-based
+ * line; a template literal is one token holding the tokens of each `${...}` in it. Comments and
+ * whitespace are dropped. A string, a comment or a regular expression left open ends at the end of
+ * its line or of the sample, and the reading goes on.
  *
  * @param {string} code A sample.
  * @returns {object[]} The tokens.
@@ -1904,7 +1906,7 @@ function tokenize(code) {
   const read = (inTemplate) => {
     const tokens = [];
     let depth = 0;
-    while (at < code.length) {
+    while (code[at] !== undefined) {
       const c = code[at];
       const next = code[at + 1];
       if (c === "\n") {
@@ -1913,8 +1915,7 @@ function tokenize(code) {
       } else if (/\s/.test(c)) {
         at += 1;
       } else if (c === "/" && next === "/") {
-        const end = code.indexOf("\n", at);
-        at = end === -1 ? code.length : end;
+        while (code[at] !== undefined && code[at] !== "\n") at += 1;
       } else if (c === "/" && next === "*") {
         const end = code.indexOf("*/", at + 2);
         const stop = end === -1 ? code.length : end + 2;
@@ -1923,7 +1924,7 @@ function tokenize(code) {
       } else if (c === '"' || c === "'") {
         let value = "";
         at += 1;
-        while (at < code.length && code[at] !== c && code[at] !== "\n") {
+        while (code[at] !== undefined && code[at] !== c && code[at] !== "\n") {
           if (code[at] === "\\") at += 1;
           value += code[at] ?? "";
           at += 1;
@@ -1933,9 +1934,10 @@ function tokenize(code) {
         tokens.push({ type: "string", value, line });
       } else if (c === "`") {
         const start = line;
+        // Stryker disable next-line ArrayDeclaration: a seeded part is a string, which nest reads as nodes of no type, and no node of no type is read, so it changes no finding.
         const parts = [];
         at += 1;
-        while (at < code.length && code[at] !== "`") {
+        while (code[at] !== undefined && code[at] !== "`") {
           if (code[at] === "\\") {
             lines(at, at + 2);
             at += 2;
@@ -1954,17 +1956,18 @@ function tokenize(code) {
         return tokens;
       } else if (c === "/" && regexAllowed(tokens.at(-1))) {
         let inClass = false;
-        at += 1;
-        while (at < code.length && code[at] !== "\n") {
+        for (at += 1; code[at] !== undefined && code[at] !== "\n"; at += 1) {
           const r = code[at];
           if (r === "\\") at += 1;
           else if (r === "[") inClass = true;
           else if (r === "]") inClass = false;
-          else if (r === "/" && !inClass) break;
-          at += 1;
+          else if (r === "/" && !inClass) {
+            // Past the closing slash; the flags after it read as a name, which no list holds.
+            at += 1;
+            break;
+          }
         }
-        // Past the closing slash; the flags after it read as a name, which no list holds.
-        if (code[at] === "/") at += 1;
+        // Stryker disable next-line ObjectLiteral,StringLiteral: only regexAllowed reads this token, and it reads any token that is neither punctuation nor a name the same way.
         tokens.push({ type: "regex", line });
       } else if (NAME_CHAR.test(c)) {
         NAME.lastIndex = at;
@@ -2007,18 +2010,20 @@ function regexAllowed(previous) {
  * @returns {object[]} The nodes.
  */
 function nest(tokens) {
+  // Stryker disable next-line ArrayDeclaration: a seeded node is a string, which no reading of a node takes for anything, so it changes no finding.
   const root = [];
   const stack = [{ children: root, close: null }];
   for (const token of tokens) {
     const top = stack.at(-1);
+    const punct = token.type === "punct" ? token.value : null;
     if (token.type === "template") {
       top.children.push({ ...token, parts: token.parts.map(nest) });
-    } else if (token.type === "punct" && Object.hasOwn(CLOSERS, token.value)) {
-      const group = { type: "group", open: token.value, line: token.line, children: [] };
+    } else if (OPENERS.includes(punct)) {
+      const group = { type: "group", open: punct, line: token.line, children: [] };
       top.children.push(group);
-      stack.push({ children: group.children, close: CLOSERS[token.value] });
-    } else if (token.type === "punct" && ")]}".includes(token.value)) {
-      const open = stack.findLastIndex((frame) => frame.close === token.value);
+      stack.push({ children: group.children, close: CLOSERS[OPENERS.indexOf(punct)] });
+    } else if (CLOSERS.includes(punct)) {
+      const open = stack.findLastIndex((frame) => frame.close === punct);
       if (open !== -1) stack.length = open;
     } else {
       top.children.push(token);
@@ -2061,13 +2066,16 @@ function splitAt(nodes, separator) {
  * @returns {{ accessors: { entry: string, parts: string[] }[], wholeValues: Map<string, string>, printers: Set<string> }}
  */
 function printLists(extra = {}) {
+  // Stryker disable next-line ArrayDeclaration: a seeded entry holds spaces, which no name read from a sample does, so it changes no finding.
   const accessors = [...IDENTIFYING_ACCESSORS, ...(extra.accessors ?? [])].map((entry) => ({
     entry,
     parts: entry.split(".").map(comparable),
   }));
   const wholeValues = new Map(
+    // Stryker disable next-line ArrayDeclaration: a seeded entry holds spaces, which no name read from a sample does, so it changes no finding.
     [...WHOLE_VALUES, ...(extra.wholeValues ?? [])].map((entry) => [comparable(entry), entry]),
   );
+  // Stryker disable next-line ArrayDeclaration: a seeded printer holds spaces, which no call read from a sample does, so it changes no finding.
   return { accessors, wholeValues, printers: new Set(extra.printers ?? []) };
 }
 
@@ -2092,11 +2100,9 @@ function isPrinter(names, printers) {
  * @param {object[]} nodes The expression.
  * @param {ReturnType<typeof printLists>} lists The lists.
  * @param {boolean} whole Whether a whole value here is printed whole.
- * @returns {{ kind: "accessor" | "whole", entry: string } | null} The first fault.
+ * @returns {{ entry: string, whole: boolean } | null} The first fault.
  */
 function expressionFault(nodes, lists, whole) {
-  const arrow = nodes.findIndex((node) => isPunct(node, "=>"));
-  if (arrow !== -1) return expressionFault(nodes.slice(arrow + 1), lists, whole);
   // A conditional prints one of its branches, and its condition is only read. Each condition is the
   // part before a `?`, so past the first `?` the parts between `:` are branches, or a nested
   // conditional whose own condition the next reading drops.
@@ -2117,56 +2123,52 @@ function expressionFault(nodes, lists, whole) {
 }
 
 /**
- * What the value starting at a node prints: a name and the members, calls and indexes after it, or
- * a group, a template or a literal.
+ * What the value starting at a node prints: a name and the members, calls and indexes after it, a
+ * group, a template or a literal. An arrow function's parameters are skipped: its body is read next.
  *
  * @param {object[]} nodes The expression.
  * @param {number} start Where the value starts.
  * @param {ReturnType<typeof printLists>} lists The lists.
  * @param {boolean} whole Whether a whole value here is printed whole.
- * @returns {{ fault: { kind: "accessor" | "whole", entry: string } | null, end: number }}
+ * @returns {{ fault: { entry: string, whole: boolean } | null, end?: number }} The fault, or where
+ *   the value ends.
  */
 function chainFault(nodes, start, lists, whole) {
   const node = nodes[start];
+  if (isPunct(nodes[start + 1], "=>")) return { fault: null, end: start + 2 };
   const members = [];
   if (node.type === "ident") {
-    members.push({ name: node.value, called: false });
+    members.push(node.value);
   } else if (node.type === "group") {
-    const inner =
-      node.open === "{"
-        ? objectFault(node.children, lists, whole)
-        : listFault(node.children, ",", lists, whole);
-    if (inner !== null) return { fault: inner, end: start + 1 };
+    const inner = listFault(node.children, ",", lists, whole);
+    if (inner !== null) return { fault: inner };
   } else if (node.type === "template") {
     // What a template interpolates is printed as text, whole.
     for (const part of node.parts) {
       const inner = expressionFault(part, lists, true);
-      if (inner !== null) return { fault: inner, end: start + 1 };
+      if (inner !== null) return { fault: inner };
     }
-    return { fault: null, end: start + 1 };
-  } else {
-    return { fault: null, end: start + 1 };
   }
   let at = start + 1;
   while (at < nodes.length) {
     const next = nodes[at];
     const after = nodes[at + 1];
     if ((isPunct(next, ".") || isPunct(next, "?.")) && after?.type === "ident") {
-      members.push({ name: after.value, called: false });
+      members.push(after.value);
       at += 2;
     } else if (isPunct(next, "?.") || isPunct(next, "!")) {
       // `a?.(x)`, `a?.[k]`, and TypeScript's `a!.b`: the group or member after it reads on.
       at += 1;
-    } else if (next.type === "group" && next.open === "(") {
+    } else if (next.open === "(") {
       const callee = members.at(-1);
-      if (callee !== undefined) callee.called = true;
-      const prints = whole && SERIALIZER.test(String(callee?.name));
-      const inner = listFault(next.children, ",", lists, prints);
-      if (inner !== null) return { fault: inner, end: at + 1 };
+      const inner = listFault(next.children, ",", lists, whole && SERIALIZER.test(String(callee)));
+      if (inner !== null) return { fault: inner };
+      // `msg.toString()` is the message itself, as text.
+      if (TO_TEXT.has(callee)) members.pop();
       at += 1;
-    } else if (next.type === "group" && next.open === "[") {
+    } else if (next.open === "[") {
       const key = next.children.length === 1 ? next.children[0] : null;
-      if (key?.type === "string") members.push({ name: key.value, called: false });
+      if (key?.type === "string") members.push(key.value);
       at += 1;
     } else {
       break;
@@ -2176,68 +2178,45 @@ function chainFault(nodes, start, lists, whole) {
 }
 
 /**
- * What a list prints: arguments, array items or a parenthesized expression, split at commas, or a
- * conditional's branches, split at colons.
+ * What a list prints: arguments, array items, an object's values or a parenthesized expression,
+ * split at commas, or a conditional's branches, split at colons. An item that opens `key:` is an
+ * object's entry, and only its value is read.
  *
  * @param {object[]} children The list's nodes.
  * @param {string} separator What the items are split at.
  * @param {ReturnType<typeof printLists>} lists The lists.
  * @param {boolean} whole Whether a whole value here is printed whole.
- * @returns {{ kind: "accessor" | "whole", entry: string } | null} The first fault.
+ * @returns {{ entry: string, whole: boolean } | null} The first fault.
  */
 function listFault(children, separator, lists, whole) {
   for (const item of splitAt(children, separator)) {
-    const inner = expressionFault(item, lists, whole);
+    const inner = expressionFault(isPunct(item[1], ":") ? item.slice(2) : item, lists, whole);
     if (inner !== null) return inner;
   }
   return null;
 }
 
 /**
- * What an object literal prints: each value, never a key.
+ * What a chain of member names prints: nothing when it ends in a length, a size or a precision;
+ * otherwise an identifying accessor anywhere in it, or, as the value printed, a whole value.
  *
- * @param {object[]} children The object's nodes.
+ * @param {string[]} members The chain's names, from its first.
  * @param {ReturnType<typeof printLists>} lists The lists.
  * @param {boolean} whole Whether a whole value here is printed whole.
- * @returns {{ kind: "accessor" | "whole", entry: string } | null} The first fault.
- */
-function objectFault(children, lists, whole) {
-  for (const entry of splitAt(children, ",")) {
-    const keyed = isPunct(entry[1], ":");
-    const inner = expressionFault(keyed ? entry.slice(2) : entry, lists, whole);
-    if (inner !== null) return inner;
-  }
-  return null;
-}
-
-/**
- * What a chain of members prints: an identifying accessor anywhere in it, unless a safe read
- * follows; or, as the value printed, a whole value.
- *
- * @param {{ name: string, called: boolean }[]} members The chain, from its first name.
- * @param {ReturnType<typeof printLists>} lists The lists.
- * @param {boolean} whole Whether a whole value here is printed whole.
- * @returns {{ kind: "accessor" | "whole", entry: string } | null} The fault.
+ * @returns {{ entry: string, whole: boolean } | null} The fault.
  */
 function membersFault(members, lists, whole) {
-  const names = members.map((member) => comparable(member.name));
+  if (SAFE_READS.includes(members.at(-1))) return null;
+  const names = members.map(comparable);
   for (const { entry, parts } of lists.accessors) {
-    for (let at = 0; at + parts.length <= names.length; at += 1) {
-      if (!parts.every((part, k) => names[at + k] === part)) continue;
-      const rest = members.slice(at + parts.length);
-      if (!rest.some((member) => SAFE_READS.includes(member.name))) {
-        return { kind: "accessor", entry };
-      }
-    }
+    const found = names.some((_, at) => parts.every((part, k) => names[at + k] === part));
+    if (found) return { entry, whole: false };
   }
-  if (!whole) return null;
-  let last = members.length - 1;
-  // Stryker disable next-line EqualityOperator: a chain that is only a to-text call is no whole value whether it is stepped past or not, so `>=` reads the same.
-  while (last > 0 && TO_TEXT.has(members[last].name) && members[last].called) last -= 1;
+  const last = names.at(-1);
   // `error.message` and `warning.message` are the text of an error or a warning, not a message.
-  if (last > 0 && names[last] === "message") return null;
-  const entry = lists.wholeValues.get(names[last]);
-  return entry === undefined ? null : { kind: "whole", entry };
+  if (names.length > 1 && last === "message") return null;
+  const entry = whole ? lists.wholeValues.get(last) : undefined;
+  return entry === undefined ? null : { entry, whole: true };
 }
 
 /**
@@ -2258,9 +2237,9 @@ export function samplePrintFindings(code, extra = {}) {
       const node = nodes[i];
       if (node.type === "group") walk(node.children);
       if (node.type === "template") node.parts.forEach(walk);
-      if (node.type !== "ident" || isPunct(nodes[i - 1], ".") || isPunct(nodes[i - 1], "?.")) {
-        continue;
-      }
+      // A call's names start at a node no `.` comes before. A node that is not a name has no name
+      // that any printer starts with, so it is no printer.
+      if (isPunct(nodes[i - 1], ".") || isPunct(nodes[i - 1], "?.")) continue;
       const names = [node.value];
       let at = i + 1;
       while (isPunct(nodes[at], ".") && nodes[at + 1]?.type === "ident") {
@@ -2268,20 +2247,18 @@ export function samplePrintFindings(code, extra = {}) {
         at += 2;
       }
       const call = nodes[at];
-      if (call?.type !== "group" || call.open !== "(" || !isPrinter(names, lists.printers))
-        continue;
+      if (call?.open !== "(" || !isPrinter(names, lists.printers)) continue;
       const fault = listFault(call.children, ",", lists, true);
       if (fault === null) continue;
       const callee = names.join(".");
       findings.push({
         line: node.line + 1,
         entry: fault.entry,
-        message:
-          fault.kind === "accessor"
-            ? `${callee} prints what "${fault.entry}" reads, which identifies a person: read it ` +
-              "into a variable or assert on it, with its synthetic value in a comment"
-            : `${callee} prints "${fault.entry}" whole, a message, segment, resource or person: ` +
-              "print a type, a code or a count from it instead",
+        message: fault.whole
+          ? `${callee} prints "${fault.entry}" whole, a message, segment, resource or person: ` +
+            "print a type, a code or a count from it instead"
+          : `${callee} prints what "${fault.entry}" reads, which identifies a person: read it ` +
+            "into a variable or assert on it, with its synthetic value in a comment",
       });
     }
   };

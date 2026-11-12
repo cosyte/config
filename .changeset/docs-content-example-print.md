@@ -8,8 +8,8 @@ docs-content pages prints, under the new rule `example-print`. A `console` metho
 `logger` or ending in `Logger` is a finding when an argument reads an identifying accessor (a name,
 a record or member number, a date of birth, an address, a phone number, an email or a free-text
 note, such as `msg.patient.mrn` or `doc.getMrn()`) or prints a whole message, segment, resource or
-person (`console.log(msg)`, `JSON.stringify(bundle)`). A `length`, `size` or `precision` read after
-the accessor, a comparison, a type, a count and a code are allowed. A finding names the file, the
+person (`console.log(msg)`, `JSON.stringify(bundle)`). A chain that ends in a `length`, `size` or
+`precision` read, a comparison, a type, a count and a code are allowed. A finding names the file, the
 line and the list entry it matched, never the value.
 
 The rule is advisory: its findings are listed on stdout and never change the exit code. A library

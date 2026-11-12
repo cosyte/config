@@ -138,6 +138,11 @@ describe("each kind of call", () => {
 
   it("reads only the call's own arguments", () => {
     expect(entries("console.log(n);\nconst copy = msg;")).toEqual([]);
+    expect(entries('console.log("(");\nconst copy = msg;')).toEqual([]);
+    expect(entries('console.log(")", msg);')).toEqual(["msg"]);
+    expect(entries("console.log(a], msg);")).toEqual(["msg"]);
+    expect(entries("console.log(a[0], msg);")).toEqual(["msg"]);
+    expect(entries("}\nconsole.log(p.mrn);")).toEqual(["mrn"]);
   });
 
   it("gives the line of the call, in a sample of many lines", () => {
@@ -183,6 +188,7 @@ describe("each kind of argument", () => {
     ["a mapped list", "console.log(patients.map((p) => p.mrn));", "mrn"],
     ["a function body", "console.log(rows.map((r) => { return r.city; }));", "city"],
     ["a lazy message", "logger.debug(() => p.notes);", "notes"],
+    ["a lazy whole value", "logger.debug(() => msg);", "msg"],
     ["a call's argument", "console.log(format(p.mrn));", "mrn"],
     ["an index on a list", "console.log(p.identifiers[0].value);", "identifiers"],
     ["an operand", 'console.log("MRN " + p.mrn);', "mrn"],
@@ -209,6 +215,11 @@ describe("each kind of argument", () => {
     ["a key with hyphens", 'console.log(p["date-of-birth"]);', "dateOfBirth"],
     ["a comparison's absence", "console.log(p.mrn, n == 1);", "mrn"],
     ["a chained conditional", "console.log(a ? p.mrn : b ? 1 : 2);", "mrn"],
+    ["a later entry of an object", "logger.info({ code: 1, mrn });", "mrn"],
+    ["an item after a comparison", "console.log([p.mrn, a < b]);", "mrn"],
+    ["a call's argument before a comparison", "console.log(f(p.mrn, a < b));", "mrn"],
+    ["a whole value added to", "console.log(msg + n);", "msg"],
+    ["a string that reads like an operator", 'console.log("<", "in", p.mrn);', "mrn"],
   ];
   for (const [kind, code, entry] of flagged) {
     it(`flags ${kind}`, () => {
@@ -249,6 +260,10 @@ describe("the prints the rule allows", () => {
     ["a to-text method not called", "console.log(msg.toString);"],
     ["a get inside a name", "console.log(p.zipgetCode, p.getmrn);"],
     ["a computed key that starts with a string", 'console.log(table["mrn" + n]);'],
+    ["an instance test", "console.log(p.mrn instanceof String);"],
+    ["a membership test of a field", 'console.log("x" in p.address);'],
+    ["an arrow's parameters", "console.log(rows.map((mrn: string) => mrn.length));"],
+    ["an arrow's bare parameter", "console.log(rows.map(mrn => mrn.length));"],
     ["a negation", "console.log(!p.mrn);"],
     ["a type", "console.log(typeof p.mrn);"],
     ["a membership test", 'console.log("mrn" in p);'],
@@ -310,6 +325,8 @@ describe("reading the code as written", () => {
   it("ends a block comment at its own close, or at the end of the sample", () => {
     expect(entries("/*/ console.log(p.mrn) */")).toEqual([]);
     expect(entries("/* console.log(p.mrn)")).toEqual([]);
+    expect(entries("/* a */ console.log(p.mrn);")).toEqual(["mrn"]);
+    expect(entries("console.log(n*2, p.mrn);")).toEqual(["mrn"]);
   });
 
   it("ends a line comment at the end of the line or of the sample", () => {
@@ -332,6 +349,9 @@ describe("reading the code as written", () => {
     expect(entries("console.log(rows.map(() => { return /p.mrn/; }));")).toEqual([]);
     expect(entries("console.log(/x/gi, p.mrn);")).toEqual(["mrn"]);
     expect(entries("const r = /x/")).toEqual([]);
+    expect(entries('console.log(/"/.test(t), p.mrn);')).toEqual(["mrn"]);
+    expect(entries("console.log(p.mrn); f(/unclosed")).toEqual(["mrn"]);
+    expect(entries('console.log("in" / 2, p.mrn);')).toEqual(["mrn"]);
     expect(entries("console.log(/[a]/.source, p.mrn);")).toEqual(["mrn"]);
     expect(samplePrintFindings("f(/unclosed\nconsole.log(p.mrn);")[0]?.line).toBe(2);
   });
@@ -352,6 +372,13 @@ describe("reading the code as written", () => {
     expect(entries("console.log(`${f({ a: 1 }) + p.mrn}`);")).toEqual(["mrn"]);
     expect(entries("console.log(`${rows.length} rows`);")).toEqual([]);
     expect(entries("console.log(`a{p.mrn}`);")).toEqual([]);
+    expect(entries("console.log(`$p.mrn`);")).toEqual([]);
+    expect(entries("console.log(`\\${p.mrn}`);")).toEqual([]);
+    expect(entries("console.log(`${n}`, p.mrn);")).toEqual(["mrn"]);
+    expect(entries("console.log(`${n} ${p.mrn}`);")).toEqual(["mrn"]);
+    expect(entries("console.log(`${`x`}`, p.mrn);")).toEqual(["mrn"]);
+    expect(entries("console.log(`${f({ a: 1 })}`, p.mrn);")).toEqual(["mrn"]);
+    expect(entries("console.log(`unclosed ${p.mrn")).toEqual(["mrn"]);
   });
 
   it("reads a conditional inside a conditional", () => {
@@ -405,6 +432,23 @@ describe("the samples of a page", () => {
       { line: 10, code: "  a();\n  ~~~\n  b();" },
       { line: 15, code: "```" },
       { line: 21, code: "last();" },
+    ]);
+  });
+
+  it("closes a fence only on a run of its own character, alone on its line", () => {
+    const text = [
+      "Text with ```ts in it",
+      "```ts",
+      "a();",
+      "~~~",
+      "a ```",
+      "```x",
+      "``` trailing",
+      "b();",
+      "```",
+    ].join("\n");
+    expect(sampleBlocks(text)).toEqual([
+      { line: 3, code: "a();\n~~~\na ```\n```x\n``` trailing\nb();" },
     ]);
   });
 

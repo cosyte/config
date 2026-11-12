@@ -439,7 +439,7 @@ export declare const IDENTIFYING_ACCESSORS: readonly string[];
 /** The names of a whole message, segment, resource or person, a finding when printed whole. */
 export declare const WHOLE_VALUES: readonly string[];
 
-/** What a sample may read after an identifying accessor and print: `length`, `size`, `precision`. */
+/** A chain that ends in one of these is safe to print: `length`, `size`, `precision`. */
 export declare const SAFE_READS: readonly string[];
 
 /** The console methods that print. */
