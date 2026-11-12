@@ -71,3 +71,8 @@ is proved green.
 Questions, bug reports and proposals go to
 [the issue tracker](https://github.com/cosyte/config/issues). See also
 [CONTRIBUTING](https://github.com/cosyte/.github/blob/main/CONTRIBUTING.md).
+
+A pull request title follows Conventional Commits, and the scope is required:
+`type(scope): description`, for example `fix(phi-scan): name the rule in a finding`. Merges are
+squash merges, so the title is the commit that lands on main, and CI's `pr-title` check refuses a
+title without a scope.
