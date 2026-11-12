@@ -24,20 +24,28 @@ import {
   NUMBERS_PLACEHOLDER,
   parseFrontMatter,
   QUALITY_PAGES,
+  RATCHETED_RULES,
   readDocsContent,
   REFERENCE_LINK_PREFIX,
   REQUIRED_PAGES,
   runDocsContentCheck,
+  WARNING_RULES,
 } from "../docs-content.js";
 
 type Page = { name: string; text: string };
+
+/** The title page() gives a page: its name in sentence case, "read-a-field" as "Read a field". */
+function titleOf(name: string): string {
+  const words = name.replaceAll("-", " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
 
 /** A page that keeps the front matter rules, with an optional body. */
 function page(name: string, body = "Text.\n"): Page {
   return {
     name,
     text:
-      `---\nid: ${name}\ntitle: ${name}\nsidebar_label: ${name}\n` +
+      `---\nid: ${name}\ntitle: ${titleOf(name)}\nsidebar_label: ${name}\n` +
       `description: "A page about ${name}."\n---\n\n# ${name}\n\n${body}`,
   };
 }
@@ -62,6 +70,36 @@ function minimalSidebar(): { docs: unknown[] } {
     ],
   };
 }
+
+/**
+ * The minimal sidebar with the limitations page every library has, in Reference: the smallest tree
+ * that keeps the rules on what each kind of page holds as well as the structure.
+ */
+function keptSidebar(): { docs: unknown[] } {
+  const sidebar = minimalSidebar();
+  sidebar.docs.splice(5, 0, { type: "category", label: "Reference", items: ["limitations"] });
+  return sidebar;
+}
+
+/** The pages the kept sidebar lists. */
+function keptPages(): Page[] {
+  return [...minimalPages(), page("limitations")];
+}
+
+/**
+ * The rules on the folder's structure. The tests of those rules build trees that keep or break the
+ * structure alone, so they read only these findings; the rules on what each kind of page holds have
+ * their own tests (docs-content-kinds.test.ts), and the tree that keeps the standard is read whole.
+ */
+const STRUCTURE_RULES = [
+  "sidebar",
+  "listing",
+  "required-page",
+  "front-matter",
+  "file-name",
+  "numbers",
+  "reference-link",
+];
 
 /** The pages the minimal sidebar lists. */
 function minimalPages(): Page[] {
@@ -97,7 +135,7 @@ function check(
     sidebars,
     misplaced: overrides.misplaced ?? [],
     ...(overrides.reference === undefined ? {} : { reference: overrides.reference }),
-  });
+  }).filter((finding) => STRUCTURE_RULES.includes(finding.rule));
 }
 
 /** Findings as `file:line [rule] message` lines, which is what a failure prints. */
@@ -142,15 +180,11 @@ describe("the standard's constants", () => {
     expect(REFERENCE_LINK_PREFIX).toBe("./api/");
     expect(DESCRIPTION_LIMIT).toBe(160);
     expect(Object.keys(DOCS_CONTENT_RULES)).toEqual([
-      "sidebar",
-      "listing",
-      "required-page",
-      "front-matter",
-      "file-name",
-      "numbers",
-      "reference-link",
+      ...STRUCTURE_RULES,
+      ...RATCHETED_RULES,
+      ...WARNING_RULES,
     ]);
-    expect(DOCS_CONTENT_RULES).toEqual({
+    expect(Object.fromEntries(STRUCTURE_RULES.map((r) => [r, DOCS_CONTENT_RULES[r]]))).toEqual({
       sidebar: "sidebars.json holds one `docs` sidebar in the standard shape",
       listing: "every page is listed in the sidebar exactly once, and every listed id is a page",
       "required-page": "the pages every library has exist",
@@ -166,13 +200,23 @@ describe("the standard's constants", () => {
 });
 
 describe("a tree that keeps the standard", () => {
-  it("has no findings", () => {
+  it("has no findings, under any rule", () => {
+    expect(
+      checkDocsContent({
+        pages: keptPages(),
+        sidebars: JSON.stringify(keptSidebar()),
+        misplaced: [],
+      }),
+    ).toEqual([]);
+  });
+
+  it("has no structure findings without the limitations page, which only its own rule asks for", () => {
     expect(check()).toEqual([]);
   });
 
   it("has none when the input names no misplaced markdown at all", () => {
     expect(
-      checkDocsContent({ pages: minimalPages(), sidebars: JSON.stringify(minimalSidebar()) }),
+      checkDocsContent({ pages: keptPages(), sidebars: JSON.stringify(keptSidebar()) }),
     ).toEqual([]);
   });
 
@@ -192,20 +236,22 @@ describe("a tree that keeps the standard", () => {
             { type: "category", label: "Spec notes", items: [{ type: "doc", id: "escapes" }] },
           ],
         },
-        { type: "category", label: "Reference", items: ["codes"] },
+        { type: "category", label: "Reference", items: ["codes", "limitations"] },
         { type: "category", label: "Troubleshooting", items: ["troubleshooting", "limits"] },
         { type: "doc", id: "testing-and-quality" },
         "performance",
       ],
     };
     const pages = [
-      ...minimalPages(),
-      page("build-a-feed"),
+      ...keptPages(),
+      page("build-a-feed", "## 1. Start\n\n## What you built\n\n## Next\n"),
       page("escapes"),
       page("codes"),
       page("limits"),
     ];
-    expect(check({ pages, sidebars: sidebar })).toEqual([]);
+    expect(checkDocsContent({ pages, sidebars: JSON.stringify(sidebar), misplaced: [] })).toEqual(
+      [],
+    );
   });
 });
 
@@ -1036,9 +1082,9 @@ describe("readDocsContent and the command line", () => {
 
   function minimalTree(label: string, extra: Record<string, string> = {}): string {
     const files: Record<string, string> = {
-      "docs-content/sidebars.json": JSON.stringify(minimalSidebar()),
+      "docs-content/sidebars.json": JSON.stringify(keptSidebar()),
     };
-    for (const p of minimalPages()) files[`docs-content/${p.name}.md`] = p.text;
+    for (const p of keptPages()) files[`docs-content/${p.name}.md`] = p.text;
     return tree(label, { ...files, ...extra });
   }
 
@@ -1085,8 +1131,8 @@ describe("readDocsContent and the command line", () => {
       "docs-content/img/logo.svg": "<svg/>",
     });
     const input = readDocsContent(dir);
-    expect(input.pages.map((p) => p.name)).toEqual([...minimalPages().map((p) => p.name)].sort());
-    expect(input.sidebars).toBe(JSON.stringify(minimalSidebar()));
+    expect(input.pages.map((p) => p.name)).toEqual([...keptPages().map((p) => p.name)].sort());
+    expect(input.sidebars).toBe(JSON.stringify(keptSidebar()));
     expect(input.misplaced).toEqual(["C.MD", "b.mdx", "guides/a.md", "zz/z.md"]);
     expect([...input.reference]).toEqual([
       ["README.md", "# generated\n"],
@@ -1114,7 +1160,7 @@ describe("readDocsContent and the command line", () => {
       code: 1,
       out: "",
       err:
-        "docs-content: 1 finding(s) in 8 page(s).\n" +
+        "docs-content: 1 finding(s) in 9 page(s).\n" +
         "  docs-content/read-a-field.md:10 [reference-link] links ./api/README.md#parse-thing, " +
         'but no heading on api/README.md has the anchor "parse-thing"\n',
     });
@@ -1175,19 +1221,19 @@ describe("readDocsContent and the command line", () => {
 
   it("exits 0 on a tree that keeps the standard, saying how many pages it read", () => {
     const r = cli(["--dir", minimalTree("clean")]);
-    expect(r).toEqual({ code: 0, out: "docs-content: OK (8 page(s) checked)\n", err: "" });
+    expect(r).toEqual({ code: 0, out: "docs-content: OK (9 page(s) checked)\n", err: "" });
   });
 
   it("exits 1 on a finding, naming the file, the line and the rule", () => {
     const dir = minimalTree("finding", {
       "docs-content/the-model.md":
-        "---\nid: other\ntitle: T\nsidebar_label: T\ndescription: D.\n---\n",
+        "---\nid: other\ntitle: The model\nsidebar_label: T\ndescription: D.\n---\n",
     });
     const r = cli(["--dir", dir]);
     expect(r.code).toBe(1);
     expect(r.out).toBe("");
     expect(r.err).toBe(
-      "docs-content: 1 finding(s) in 8 page(s).\n" +
+      "docs-content: 1 finding(s) in 9 page(s).\n" +
         '  docs-content/the-model.md:2 [front-matter] id is "other"; it must be the file name, "the-model"\n',
     );
   });
@@ -1198,7 +1244,7 @@ describe("readDocsContent and the command line", () => {
       "docs-content/stray.md": page("stray").text,
     });
     expect(cli(["--dir", dir]).err).toBe(
-      "docs-content: 2 finding(s) in 10 page(s).\n" +
+      "docs-content: 2 finding(s) in 11 page(s).\n" +
         "  docs-content/orphan.md [listing] the sidebar does not list it\n" +
         "  docs-content/stray.md [listing] the sidebar does not list it\n",
     );
@@ -1227,7 +1273,7 @@ describe("readDocsContent and the command line", () => {
     try {
       cwd.mockReturnValue(minimalTree("cwd"));
       expect(runDocsContentCheck()).toBe(0);
-      expect(out).toHaveBeenCalledWith("docs-content: OK (8 page(s) checked)\n");
+      expect(out).toHaveBeenCalledWith("docs-content: OK (9 page(s) checked)\n");
       cwd.mockReturnValue(root);
       expect(runDocsContentCheck()).toBe(2);
       expect(err).toHaveBeenCalledWith(

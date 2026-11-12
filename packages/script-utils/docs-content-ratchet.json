@@ -1,0 +1,97 @@
+{
+  "description": "The docs-content ratchet: for each library, by package name, how many findings each rule that reads a page's kind may have. A library at or under its count passes; over it, the rule fails. The counts only fall: lower one when a library fixes pages, never raise one. A library or a rule not listed here may have none. Measured on 2026-11-12 at the commit named for each library in measuredAt.",
+  "measuredAt": {
+    "@cosyte/astm": "18b6b5d",
+    "@cosyte/ccda": "dd801d4",
+    "@cosyte/cli": "71fff3e",
+    "@cosyte/dates": "6ce068d",
+    "@cosyte/deid": "8ce91bb",
+    "@cosyte/dicom": "c87d521",
+    "@cosyte/fhir": "539ef89",
+    "@cosyte/hl7": "ec43ca8",
+    "@cosyte/mllp": "692ae12",
+    "@cosyte/ncpdp": "f2c8169",
+    "@cosyte/pathways": "fae0e1f",
+    "@cosyte/synth": "463f272",
+    "@cosyte/terminology": "c5da7fe",
+    "@cosyte/transform": "671cf8b",
+    "@cosyte/x12": "c01e565"
+  },
+  "libraries": {
+    "@cosyte/astm": {
+      "limitations": 2,
+      "tutorial-steps": 2,
+      "page-id": 4
+    },
+    "@cosyte/ccda": {
+      "howto-steps": 1
+    },
+    "@cosyte/cli": {
+      "limitations": 1,
+      "page-id": 3,
+      "reference-source": 1
+    },
+    "@cosyte/dates": {
+      "limitations": 1,
+      "tutorial-steps": 3,
+      "page-id": 2
+    },
+    "@cosyte/deid": {
+      "howto-title": 1,
+      "howto-steps": 2,
+      "limitations": 7,
+      "page-id": 10
+    },
+    "@cosyte/dicom": {
+      "limitations": 1,
+      "page-id": 2
+    },
+    "@cosyte/fhir": {
+      "limitations": 1,
+      "page-id": 2
+    },
+    "@cosyte/hl7": {
+      "explanation-content": 6,
+      "limitations": 14,
+      "tutorial-steps": 2,
+      "page-id": 1
+    },
+    "@cosyte/mllp": {
+      "limitations": 2,
+      "page-id": 1,
+      "reference-source": 2
+    },
+    "@cosyte/ncpdp": {
+      "limitations": 3,
+      "tutorial-steps": 2
+    },
+    "@cosyte/pathways": {
+      "howto-steps": 11,
+      "explanation-content": 1,
+      "limitations": 1,
+      "page-id": 1,
+      "reference-source": 2
+    },
+    "@cosyte/synth": {
+      "howto-steps": 1,
+      "limitations": 1,
+      "tutorial-steps": 18,
+      "page-id": 11,
+      "reference-source": 1
+    },
+    "@cosyte/terminology": {
+      "limitations": 1,
+      "tutorial-steps": 1,
+      "page-id": 1
+    },
+    "@cosyte/transform": {
+      "limitations": 2,
+      "tutorial-steps": 2,
+      "page-id": 3
+    },
+    "@cosyte/x12": {
+      "howto-steps": 1,
+      "limitations": 2
+    }
+  }
+}

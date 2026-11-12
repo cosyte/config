@@ -11,11 +11,23 @@
 // site. And it reads the "Current numbers" section of both quality pages, which holds only the
 // placeholder until the release fills in the measured numbers.
 //
+// It reads whether each page holds what its kind asks, the kind being the sidebar category it is
+// listed in (Tutorials, How-to guides, Explanation, Reference): a how-to guide's title begins with an
+// imperative verb and it has no How, Why or alternatives heading; an explanation has no settings
+// table and no numbered H2; a tutorial's H2s are numbered steps ending in "What you built" and
+// "Next"; the one limitations page is in Reference and no other page has a limitations heading; a
+// page id shares a word with its title and does not name a kind; a configuration or command
+// reference names, in `held_by`, the generator or test that holds it to the code. A library's
+// findings under these rules are held by the ratchet (docs-content-ratchet.json) at the counts it
+// had when they landed, which only fall. A measured number outside "Current numbers" is a warning.
+//
 // WHAT IT DOES NOT CHECK. Any other link, and images: the shared CI's docs-content link check
 // resolves those. The pages under `api/` themselves: the reference generator writes them and checks
 // them itself; here they are only read for their headings. Whether a sample runs: the sample runner
-// in @cosyte/vitest-config does that. Whether the prose is good, or whether a page sits in the
-// category its content belongs to: nothing here can judge either, so review does.
+// in @cosyte/vitest-config does that. Whether the prose is good, or whether a page's content suits
+// its kind beyond the patterns above (a how-to that explains under a heading that does not begin How
+// or Why, a held_by test that does not really hold every entry): nothing here can judge either, so
+// review does.
 //
 // Zero dependencies, like the rest of this package: the front matter is read by hand, for the one
 // form the standard allows (one `key: value` per line), rather than by a YAML parser.
@@ -99,7 +111,134 @@ export const DOCS_CONTENT_RULES = Object.freeze({
   numbers: `both quality pages carry the "${NUMBERS_HEADING.slice(3)}" section, holding only the placeholder`,
   "reference-link":
     "a link into the generated reference names a page under api/ and, after #, a heading on it",
+  "howto-title": "a how-to guide's title states its goal and begins with a verb in the imperative",
+  "howto-steps":
+    "a how-to holds steps; how and why it works goes in an explanation it links. A how-to has " +
+    "no heading that begins How, Why or The alternatives",
+  "explanation-content":
+    "an explanation has no settings table and no steps: no table whose header starts Key or " +
+    "Option with a Default column, and no numbered H2",
+  limitations:
+    "each library has one limitations page, id limitations, in Reference; no other page has a " +
+    "heading Known limitations or Limitations",
+  "tutorial-steps":
+    "a tutorial's H2s are numbered steps in order and it ends with What you built and Next",
+  "page-id":
+    "a page id names what the page is about and shares a content word with its title; a new id " +
+    "never begins guides-, concepts- or core-concepts",
+  "reference-source":
+    "a reference for a surface that is not TypeScript (config keys, CLI commands) is generated " +
+    "from the code or a test holds every entry to it",
+  "measured-number":
+    "a measured number appears only in a Current numbers section, never in prose (a warning)",
 });
+
+/**
+ * The rules that read whether a page holds what its kind asks. A library's findings under them are
+ * held by the ratchet up to the counts it records for that library (docs-content-ratchet.json), so
+ * a library can only have fewer.
+ */
+export const RATCHETED_RULES = Object.freeze([
+  "howto-title",
+  "howto-steps",
+  "explanation-content",
+  "limitations",
+  "tutorial-steps",
+  "page-id",
+  "reference-source",
+]);
+
+/** The rules that only warn: a check can only approximate them, so a hit never fails. */
+export const WARNING_RULES = Object.freeze(["measured-number"]);
+
+/** The front matter key that names the file holding a configuration or CLI reference to the code. */
+export const HELD_BY_KEY = "held_by";
+
+/** The page every library keeps its limitations on, in Reference. */
+export const LIMITATIONS_PAGE = "limitations";
+
+/** The two sections a tutorial ends with, in this order. */
+export const TUTORIAL_ENDING = Object.freeze(["What you built", "Next"]);
+
+/** The id prefixes that name a page's kind, not its subject. */
+export const KIND_PREFIXES = Object.freeze(["guides-", "concepts-", "core-concepts"]);
+
+/**
+ * The verbs a how-to guide's title may begin with, lower-case. A title that begins with any other
+ * word is a finding: add a verb here, in @cosyte/script-utils, when a guide needs one this lacks.
+ */
+export const IMPERATIVE_VERBS = Object.freeze(
+  [
+    "accept acknowledge add adopt allow analyze annotate answer apply archive assert assign attach",
+    "audit authenticate authorize avoid batch bill branch bring build bundle cache calculate call",
+    "cancel capture catch chain change check choose clean clear close collect combine compare",
+    "compose compute configure confirm connect contribute control convert copy correct count create",
+    "customize de-identify debug decide declare decode decrypt define delete deploy describe detect",
+    "diagnose diff disable discover dispatch display draw drive drop edit emit enable encode encrypt",
+    "enforce enrich ensure escape evaluate exclude expand export extend extract fetch filter find",
+    "fix flag follow format forward generate get give group guard handle hash hide host identify",
+    "ignore implement import include index inspect install integrate join keep label launch link",
+    "list listen load locate lock log look make manage map mask match measure merge migrate mock",
+    "modify monitor move name navigate normalize notify observe open order organize override parse",
+    "pass patch pause persist pin plan plug post prepare preserve prevent print process",
+    "property-test protect prove provide publish pull push put query queue read rebuild receive",
+    "record recover redact reduce refresh register reject release reload remove rename render",
+    "reorder repair replace replay report request resend reset resolve respond restart restore",
+    "retry return reuse review rotate route run sanitize save scale scan schedule search secure",
+    "select send separate serialize serve set share ship show sign simulate skip sort split start",
+    "stop store stream strip subscribe supply support swap switch sync take tell test throttle",
+    "tokenize tolerate trace track transform translate triage trim troubleshoot tune turn type undo",
+    "unpack update upgrade upload use validate verify view wait walk warn watch work wrap write",
+  ]
+    .join(" ")
+    .split(" "),
+);
+
+/** Words that say nothing about what a page is about, left out when an id is matched to a title. */
+const FILLER_WORDS = new Set(
+  (
+    "a an and are as at be by can concept concepts core do does for from guide guides how in into " +
+    "is it its no not of on or our over the this that to under we what when where which why with " +
+    "you your"
+  ).split(" "),
+);
+
+/** The words in an id that say the page is a reference for configuration or a command line. */
+const SURFACE_WORDS = new Set(
+  "cli command commands config configuration environment options settings".split(" "),
+);
+
+/**
+ * A number with a unit that is measured rather than set: a percentage, a duration under a second, a
+ * size in bytes, a rate a second, or a ratio "times faster". The check can only approximate a
+ * measured number, so it warns.
+ */
+const MEASURED_NUMBER =
+  /\b\d[\d,]*(?:\.\d+)?(?:\s?(?:%|ms\b|µs\b|ns\b|[KMGT]i?B\b)|\s(?:\w+\s)?(?:a|per) second\b|\s?\/s\b|\s?x faster\b|\s(?:times) (?:faster|slower|smaller|larger|more|less|fewer)\b)/u;
+
+/**
+ * The counts the ratchet holds each library to, by package name and then by rule: today's findings
+ * under the ratcheted rules, which a library may only lower. Read from docs-content-ratchet.json.
+ */
+export const DOCS_CONTENT_RATCHET = deepFreeze(
+  JSON.parse(readFileSync(new URL("./docs-content-ratchet.json", import.meta.url), "utf8"))
+    .libraries,
+);
+
+/**
+ * Freeze an object and every object inside it.
+ *
+ * @template T
+ * @param {T} value Anything.
+ * @returns {T} The same value, frozen.
+ */
+function deepFreeze(value) {
+  if (typeof value === "object" && value !== null) {
+    for (const inner of Object.values(value)) deepFreeze(inner);
+    Object.freeze(value);
+  }
+  return value;
+}
 
 /** Raised when the check cannot read its input; the CLI turns it into exit 2. */
 export class DocsContentRefusal extends Error {}
@@ -571,13 +710,407 @@ function referenceFault(target, anchors) {
 }
 
 /**
+ * The top-level category each page is listed under, by id: the page's kind. A page in a category one
+ * level down takes its parent's label; a page listed twice keeps the first. Only labelled categories
+ * at the top of a `docs` array are read, so a sidebar of the wrong shape names no kinds.
+ *
+ * @param {unknown} sidebars The parsed sidebars.json.
+ * @returns {Map<string, string>} Each listed page's top-level category label.
+ */
+export function pageKinds(sidebars) {
+  const kinds = new Map();
+  if (!isRecord(sidebars) || !Array.isArray(sidebars.docs)) return kinds;
+  const visit = (items, label) => {
+    if (!Array.isArray(items)) return;
+    for (const item of items) {
+      const id = docId(item);
+      if (id !== null) {
+        if (!kinds.has(id)) kinds.set(id, label);
+      } else if (isCategoryItem(item)) {
+        visit(item.items, label);
+      }
+    }
+  };
+  for (const item of sidebars.docs) {
+    if (isCategoryItem(item)) visit(item.items, item.label);
+  }
+  return kinds;
+}
+
+/**
+ * Every ATX heading of a page outside fenced code, with its level, its text as the docs site reads
+ * it, and its 1-based line.
+ *
+ * @param {string} text A page.
+ * @returns {{ level: number, text: string, line: number }[]} The headings, in page order.
+ */
+function headings(text) {
+  const out = [];
+  for (const { text: line, line: number } of proseLines(text)) {
+    const heading = HEADING.exec(line);
+    if (heading === null) continue;
+    out.push({
+      level: heading[0].trim().length,
+      text: headingText(line.slice(heading[0].length)).trim(),
+      line: number,
+    });
+  }
+  return out;
+}
+
+/** A table's delimiter row: cells of hyphens, each with an optional colon at either end. */
+const DELIMITER_ROW = /^ {0,3}\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*$/;
+
+/**
+ * The header row of every table on a page outside fenced code, each cell's text with its code spans
+ * read as their content, and the row's 1-based line.
+ *
+ * @param {string} text A page.
+ * @returns {{ cells: string[], line: number }[]} The header rows, in page order.
+ */
+function tableHeaders(text) {
+  const lines = proseLines(text);
+  const out = [];
+  lines.forEach((row, index) => {
+    const next = lines[index + 1];
+    if (!row.text.includes("|") || next === undefined || next.line !== row.line + 1) return;
+    if (!next.text.includes("-") || !DELIMITER_ROW.test(next.text)) return;
+    const cells = row.text
+      .trim()
+      .replace(/^\|/, "")
+      .replace(/(?<!\\)\|$/, "")
+      .split(/(?<!\\)\|/)
+      .map((cell) => headingText(cell).trim());
+    out.push({ cells, line: row.line });
+  });
+  return out;
+}
+
+/**
+ * Whether a table's header is a settings table: its first cell starts Key or Option, and a cell is
+ * a Default column.
+ *
+ * @param {string[]} cells The header's cells.
+ * @returns {boolean} True for a settings table.
+ */
+function isSettingsTable(cells) {
+  return /^(?:key|option)/i.test(cells[0]) && cells.some((cell) => /\bdefault/i.test(cell));
+}
+
+/** A numbered step heading: `1. Do this` or `Step 1: do this`, with the step's number. */
+const STEP_HEADING = /^(?:step\s+(\d+)\s*[:.]|(\d+)[.)])\s+\S/i;
+
+/**
+ * The number of a heading that is a numbered step, or null.
+ *
+ * @param {string} text A heading's text.
+ * @returns {number | null} The step's number.
+ */
+function stepNumber(text) {
+  const match = STEP_HEADING.exec(text);
+  return match === null ? null : Number(match[1] ?? match[2]);
+}
+
+/**
+ * The words of an id or a title that say what a page is about: lower-case runs of letters and
+ * digits, without the filler words.
+ *
+ * @param {string} text An id or a title.
+ * @returns {string[]} Its content words.
+ */
+function contentWords(text) {
+  return (text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).filter((w) => !FILLER_WORDS.has(w));
+}
+
+/**
+ * Whether two words are the same word: equal, or one begins with the other and the shorter has at
+ * least three letters, so `ack` matches `acks` and `test` matches `testing`.
+ *
+ * @param {string} a A word.
+ * @param {string} b Another.
+ * @returns {boolean} True when they match.
+ */
+function sameWord(a, b) {
+  const [short, long] = a.length <= b.length ? [a, b] : [b, a];
+  return short === long || (short.length >= 3 && long.startsWith(short));
+}
+
+/**
+ * A `held_by` path that stays inside the repository: relative, with forward slashes, and no empty,
+ * `.` or `..` segment.
+ *
+ * @param {string} path The front matter value.
+ * @returns {boolean} True when the path may be read.
+ */
+export function isHeldByPath(path) {
+  if (path === "" || path.startsWith("/") || path.includes("\\")) return false;
+  return path.split("/").every((s) => s !== "" && s !== "." && s !== "..");
+}
+
+/**
+ * The findings of the rules that read whether each page holds what its kind asks.
+ *
+ * @param {{ name: string, text: string }[]} pages The pages.
+ * @param {Map<string, string>} kinds Each page's top-level category.
+ * @param {Map<string, string>} sources The files `held_by` names, by path, as read.
+ * @param {(file: string, line: number, rule: string, message: string) => void} add Records a finding.
+ */
+function checkKinds(pages, kinds, sources, add) {
+  const names = new Set(pages.map((page) => page.name));
+  if (!names.has(LIMITATIONS_PAGE)) {
+    add(
+      `${LIMITATIONS_PAGE}.md`,
+      0,
+      "limitations",
+      `every library has one limitations page, id "${LIMITATIONS_PAGE}", listed in Reference`,
+    );
+  } else if (kinds.has(LIMITATIONS_PAGE) && kinds.get(LIMITATIONS_PAGE) !== "Reference") {
+    add(
+      `${LIMITATIONS_PAGE}.md`,
+      0,
+      "limitations",
+      `the limitations page is listed in "${kinds.get(LIMITATIONS_PAGE)}": it belongs in Reference`,
+    );
+  }
+
+  for (const page of pages) {
+    const file = `${page.name}.md`;
+    const kind = kinds.get(page.name);
+    const { fields } = parseFrontMatter(page.text);
+    const title = fields.get("title");
+    const outline = headings(page.text);
+
+    if (page.name !== LIMITATIONS_PAGE) {
+      for (const heading of outline) {
+        if (/^(?:known\s+)?limitations\b/i.test(heading.text)) {
+          add(
+            file,
+            heading.line,
+            "limitations",
+            `the heading "${heading.text}" belongs on the limitations page, in Reference: move it there and link it`,
+          );
+        }
+      }
+    }
+
+    if (!REQUIRED_PAGES.includes(page.name)) {
+      const prefix = KIND_PREFIXES.find((p) => page.name.startsWith(p));
+      if (prefix !== undefined) {
+        add(
+          file,
+          0,
+          "page-id",
+          `the id begins "${prefix}", which names the page's kind: a new id names what the page is about`,
+        );
+      } else if (title !== undefined && title.value.trim() !== "") {
+        const words = contentWords(title.value);
+        if (!contentWords(page.name).some((w) => words.some((t) => sameWord(w, t)))) {
+          add(
+            file,
+            title.line,
+            "page-id",
+            `the id "${page.name}" shares no content word with the title "${title.value}"`,
+          );
+        }
+      }
+    }
+
+    if (kind === "How-to guides") {
+      if (title !== undefined && title.value.trim() !== "") {
+        const first = title.value.trim().split(/\s+/)[0];
+        const word = first.toLowerCase().replace(/[^\p{L}\p{N}-]+$/u, "");
+        if (!IMPERATIVE_VERBS.includes(word)) {
+          add(
+            file,
+            title.line,
+            "howto-title",
+            `the title begins "${first}": a how-to guide's title begins with a verb in the ` +
+              "imperative (a verb missing from IMPERATIVE_VERBS is added there)",
+          );
+        }
+      }
+      for (const heading of outline) {
+        if (heading.level < 2 || heading.level > 3) continue;
+        if (/^(?:how|why)\b|^(?:the\s+)?alternatives\b/i.test(heading.text)) {
+          add(
+            file,
+            heading.line,
+            "howto-steps",
+            `the heading "${heading.text}" explains: move the section to an explanation and link it`,
+          );
+        }
+      }
+    }
+
+    if (kind === "Explanation") {
+      for (const table of tableHeaders(page.text)) {
+        if (isSettingsTable(table.cells)) {
+          add(
+            file,
+            table.line,
+            "explanation-content",
+            "a settings table (Key or Option, with a Default column) belongs in a reference: move it and link it",
+          );
+        }
+      }
+      for (const heading of outline) {
+        if (heading.level === 2 && stepNumber(heading.text) !== null) {
+          add(
+            file,
+            heading.line,
+            "explanation-content",
+            `the heading "${heading.text}" is numbered, which reads as a step: steps go in a how-to guide or a tutorial`,
+          );
+        }
+      }
+    }
+
+    if (kind === "Tutorials") {
+      const sections = outline.filter((heading) => heading.level === 2);
+      const tail = sections.slice(-TUTORIAL_ENDING.length).map((heading) => heading.text);
+      const ends =
+        tail.length === TUTORIAL_ENDING.length &&
+        tail.every((text, i) => text.toLowerCase() === TUTORIAL_ENDING[i].toLowerCase());
+      const steps = ends ? sections.slice(0, -TUTORIAL_ENDING.length) : sections;
+      if (steps.length === 0) {
+        add(file, 0, "tutorial-steps", "a tutorial's H2s are numbered steps: it has none");
+      }
+      steps.forEach((heading, index) => {
+        if (stepNumber(heading.text) !== index + 1) {
+          add(
+            file,
+            heading.line,
+            "tutorial-steps",
+            `the heading "${heading.text}" is not step ${index + 1} ("${index + 1}. ..." or "Step ${index + 1}: ...")`,
+          );
+        }
+      });
+      if (!ends) {
+        add(
+          file,
+          sections.at(-1)?.line ?? 0,
+          "tutorial-steps",
+          `a tutorial ends with the sections "${TUTORIAL_ENDING.join('" then "')}"`,
+        );
+      }
+    }
+
+    if (kind === "Reference") {
+      const surface = contentWords(page.name).some((w) => SURFACE_WORDS.has(w));
+      const settings = tableHeaders(page.text).some((table) => isSettingsTable(table.cells));
+      if (surface || settings) {
+        const held = fields.get(HELD_BY_KEY);
+        const what = surface ? "a configuration or command reference" : "a settings table";
+        if (held === undefined || held.value.trim() === "") {
+          add(
+            file,
+            0,
+            "reference-source",
+            `${what}: name the generator or the test that holds every entry to the code in ` +
+              `"${HELD_BY_KEY}:" in the front matter`,
+          );
+        } else if (!isHeldByPath(held.value) || !sources.has(held.value)) {
+          add(
+            file,
+            held.line,
+            "reference-source",
+            `${HELD_BY_KEY} names "${held.value}", which is not a file in the repository`,
+          );
+        } else if (!sources.get(held.value).includes(file)) {
+          add(
+            file,
+            held.line,
+            "reference-source",
+            `${HELD_BY_KEY} names "${held.value}", which never names ${file}`,
+          );
+        }
+      }
+    }
+  }
+}
+
+/**
+ * The warnings of a docs-content tree: each prose line, outside code and outside a "Current numbers"
+ * section, that carries a measured number, on every page that is not in Reference. A number with a
+ * unit is only a guess at a measured one, so these never fail the check.
+ *
+ * @param {{ pages: { name: string, text: string }[], sidebars: string | null }} input The tree.
+ * @returns {{ file: string, line: number, rule: "measured-number", message: string }[]} Each warning.
+ */
+export function docsContentWarnings(input) {
+  let kinds = new Map();
+  try {
+    kinds = pageKinds(JSON.parse(input.sidebars ?? "null"));
+  } catch {
+    // A sidebar that is not JSON is the check's finding; here every page is read.
+  }
+  const warnings = [];
+  for (const page of input.pages) {
+    if (kinds.get(page.name) === "Reference") continue;
+    const end = parseFrontMatter(page.text).present
+      ? page.text.split(/\r?\n/).indexOf("---", 1)
+      : -1;
+    let numbers = false;
+    for (const { text, line } of proseLines(page.text)) {
+      if (line <= end + 1) continue;
+      if (HEADING.test(text) && SECTION_END.test(text)) numbers = text.trim() === NUMBERS_HEADING;
+      if (numbers) continue;
+      const match = MEASURED_NUMBER.exec(withoutCodeSpans(text));
+      if (match !== null) {
+        warnings.push({
+          file: `${page.name}.md`,
+          line,
+          rule: "measured-number",
+          message: `"${match[0].trim()}" reads as a measured number: measured numbers go in the generated "Current numbers" section`,
+        });
+      }
+    }
+  }
+  return warnings;
+}
+
+/**
+ * Hold a library's findings under the ratcheted rules to the counts recorded for it. A rule whose
+ * findings are at or under its count is held, and does not fail; over it, every finding under the
+ * rule fails. A rule under its count is loose: the count can be lowered.
+ *
+ * @param {{ file: string, line: number, rule: string, message: string }[]} findings Every finding.
+ * @param {Readonly<Record<string, number>>} [allowance] The library's recorded counts, by rule.
+ * @returns {{ failing: typeof findings, held: typeof findings, over: { rule: string, count: number, allowed: number }[], loose: { rule: string, count: number, allowed: number }[] }}
+ */
+export function applyDocsContentRatchet(findings, allowance = {}) {
+  const counts = new Map();
+  for (const finding of findings) counts.set(finding.rule, (counts.get(finding.rule) ?? 0) + 1);
+  const over = [];
+  const loose = [];
+  for (const rule of RATCHETED_RULES) {
+    const count = counts.get(rule) ?? 0;
+    const allowed = allowance[rule] ?? 0;
+    if (count > allowed) over.push({ rule, count, allowed });
+    else if (count < allowed) loose.push({ rule, count, allowed });
+  }
+  const failing = [];
+  const held = [];
+  for (const finding of findings) {
+    const ratcheted = RATCHETED_RULES.includes(finding.rule);
+    if (ratcheted && !over.some((o) => o.rule === finding.rule)) held.push(finding);
+    else failing.push(finding);
+  }
+  return { failing, held, over, loose };
+}
+
+/**
  * Check a docs-content tree that has already been read.
  *
- * @param {{ pages: { name: string, text: string }[], sidebars: string | null, misplaced?: string[], reference?: Map<string, string> }} input
+ * Every finding is returned, the ratcheted rules' included: applyDocsContentRatchet sorts out which
+ * of those fail for a library. The rules on kinds run once the sidebar parses.
+ *
+ * @param {{ pages: { name: string, text: string }[], sidebars: string | null, misplaced?: string[], reference?: Map<string, string>, sources?: Map<string, string> }} input
  *   `pages` are the `.md` files at the top of docs-content/, by file name without `.md`; `sidebars`
  *   is the text of sidebars.json, or null when there is none; `misplaced` are the paths, relative to
  *   docs-content/, of markdown that is not a top-level `.md` page and is not under api/;
- *   `reference` holds the generated `.md` pages, by their path under api/.
+ *   `reference` holds the generated `.md` pages, by their path under api/; `sources` holds the
+ *   files `held_by` names, by their path from the repository root.
  * @returns {{ file: string, line: number, rule: keyof typeof DOCS_CONTENT_RULES, message: string }[]}
  *   Every finding, in a stable order.
  */
@@ -700,6 +1233,8 @@ export function checkDocsContent(input) {
     if (!counts.has(page.name))
       add(`${page.name}.md`, 0, "listing", "the sidebar does not list it");
   }
+
+  checkKinds(input.pages, pageKinds(sidebars), input.sources ?? new Map(), add);
   return findings;
 }
 
@@ -707,7 +1242,7 @@ export function checkDocsContent(input) {
  * Read docs-content/ under a repository root.
  *
  * @param {string} root The repository root.
- * @returns {{ pages: { name: string, text: string }[], sidebars: string | null, misplaced: string[], reference: Map<string, string> }}
+ * @returns {{ pages: { name: string, text: string }[], sidebars: string | null, misplaced: string[], reference: Map<string, string>, sources: Map<string, string>, library: string | null }}
  * @throws {DocsContentRefusal} When the folder is missing or a file in it cannot be read.
  */
 export function readDocsContent(root) {
@@ -740,7 +1275,32 @@ export function readDocsContent(root) {
     }
   };
   walk("");
-  return { pages, sidebars, misplaced, reference };
+  // The files a reference's `held_by` names, read so the check can see each one names its page. One
+  // that is missing, or not a regular file, is left out, and the check reports it.
+  const sources = new Map();
+  for (const page of pages) {
+    const held = parseFrontMatter(page.text).fields.get(HELD_BY_KEY)?.value;
+    if (held === undefined || !isHeldByPath(held) || sources.has(held)) continue;
+    const path = join(root, held);
+    if (lstatSync(path, { throwIfNoEntry: false })?.isFile() !== true) continue;
+    sources.set(held, readOrRefuse(path, { isFile: () => true }));
+  }
+  return { pages, sidebars, misplaced, reference, sources, library: readLibraryName(root) };
+}
+
+/**
+ * The name in a repository's package.json, which the ratchet records a library's counts under.
+ *
+ * @param {string} root The repository root.
+ * @returns {string | null} The name, or null when there is no package.json with a string name.
+ */
+function readLibraryName(root) {
+  try {
+    const name = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).name;
+    return typeof name === "string" ? name : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -786,7 +1346,11 @@ function readOrRefuse(path, entry) {
 /**
  * The command line: check docs-content/ in a repository and report.
  *
- * @param {{ argv?: string[], dir?: string, stdout?: { write(text: string): unknown }, stderr?: { write(text: string): unknown } }} [options]
+ * The findings of the ratcheted rules are held to the counts the ratchet records for the library
+ * (the name in the repository's package.json); warnings, held findings and counts that can be
+ * lowered go to stdout, and never change the exit code.
+ *
+ * @param {{ argv?: string[], dir?: string, stdout?: { write(text: string): unknown }, stderr?: { write(text: string): unknown }, ratchet?: Readonly<Record<string, Readonly<Record<string, number>>>> }} [options]
  * @returns {number} 0 clean, 1 a finding, 2 the check could not run.
  */
 export function runDocsContentCheck(options = {}) {
@@ -814,20 +1378,45 @@ export function runDocsContentCheck(options = {}) {
     stderr.write(`docs-content: ${error.message} Nothing was checked.\n`);
     return 2;
   }
-  const findings = checkDocsContent(input);
-  if (findings.length === 0) {
+  const library = input.library ?? null;
+  const ratchet = options.ratchet ?? DOCS_CONTENT_RATCHET;
+  const allowance = library !== null && Object.hasOwn(ratchet, library) ? ratchet[library] : {};
+  const { failing, held, over, loose } = applyDocsContentRatchet(
+    checkDocsContent(input),
+    allowance,
+  );
+  const where = (f) =>
+    `  ${DOCS_DIR}/${f.file}${f.line > 0 ? `:${f.line}` : ""} [${f.rule}] ${f.message}`;
+  const notes = [];
+  for (const warning of docsContentWarnings(input)) notes.push(`${where(warning)} (a warning)`);
+  if (held.length > 0) {
+    notes.push(
+      `docs-content: ${held.length} finding(s) held by the ratchet for ${library}, at or under ` +
+        "the counts docs-content-ratchet.json in @cosyte/script-utils records:",
+      ...held.map(where),
+    );
+  }
+  for (const { rule, count, allowed } of loose) {
+    notes.push(
+      `docs-content: [${rule}] is down to ${count} from the ${allowed} recorded for ${library}: ` +
+        "lower its count in docs-content-ratchet.json in @cosyte/script-utils",
+    );
+  }
+  if (notes.length > 0) stdout.write(`${notes.join("\n")}\n`);
+  if (failing.length === 0) {
     stdout.write(`docs-content: OK (${input.pages.length} page(s) checked)\n`);
     return 0;
   }
+  const overLines = over.map(
+    ({ rule, count, allowed }) =>
+      `docs-content: [${rule}] has ${count} finding(s), over the ${allowed} recorded for ` +
+      `${library ?? "this repository"}, so each one fails.`,
+  );
   stderr.write(
-    `docs-content: ${findings.length} finding(s) in ${input.pages.length} page(s).\n` +
-      findings
-        .map(
-          (f) =>
-            `  ${DOCS_DIR}/${f.file}${f.line > 0 ? `:${f.line}` : ""} [${f.rule}] ${f.message}`,
-        )
-        .join("\n") +
-      "\n",
+    `docs-content: ${failing.length} finding(s) in ${input.pages.length} page(s).\n` +
+      failing.map(where).join("\n") +
+      "\n" +
+      overLines.map((line) => `${line}\n`).join(""),
   );
   return 1;
 }

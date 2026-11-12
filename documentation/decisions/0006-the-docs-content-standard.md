@@ -1,7 +1,8 @@
 # 0006: The docs-content standard
 
 - **Status:** Proposed (2026-11-10), for review before merge. Revised the same day from what the
-  pilot on `hl7` found (section 11).
+  pilot on `hl7` found (section 11). Revised on 2026-11-12 with the rules on what each kind of page
+  holds, from a Diataxis audit of every library's pages (section 12).
 - **Scope:** the `docs-content/` folder of every `@cosyte/*` library: the pages docs.cosyte.com
   renders from each release's `docs-content.tar.gz`. It does not reach a package's README, which
   `scripts/readme-check.mjs` governs.
@@ -40,6 +41,9 @@ need, and a page that tries to answer two answers both badly.
 | Reference    | look a fact up         | complete, austere lists: error and warning codes, grammars, version and conformance matrices; structured like the thing it describes                       |
 | Explanation  | understand why and how | the model, the design and its trade-offs, what the standard says and what we do about it; no steps                                                         |
 
+A page's kind is the sidebar category it is listed in (section 3). Section 12 gives the rules a page
+of each kind keeps, and how the structure check reads each one.
+
 Two pages are fixed, and every library has both:
 
 - **Testing and quality** (`testing-and-quality`): what we test and how (unit tests, conformance
@@ -54,8 +58,9 @@ Two pages are fixed, and every library has both:
 
 `intro` (the overview: what the package does, who it is for and what it is not), `installation`,
 `quickstart`, `troubleshooting`, `testing-and-quality` and `performance`; at least one how-to guide
-and at least one explanation; and the generated reference (section 6). Tutorials beyond the
-quickstart and hand-written reference pages are added when a library has them.
+and at least one explanation; a `limitations` page, in Reference (section 12); and the generated
+reference (section 6). Tutorials beyond the quickstart and other hand-written reference pages are
+added when a library has them.
 
 ### 3. The sidebar
 
@@ -115,9 +120,12 @@ description: "Pull the medical record number and other identifiers out of a mess
 - `id`, `title`, `sidebar_label` and `description` are required and not empty. `id` is the file
   name without `.md`. `title` is in sentence case. `description` is one plain sentence of at most 160
   characters, the length a search result shows.
-- `sidebar_position` is not used: the sidebar sets the order. Other Docusaurus keys are allowed.
+- `sidebar_position` is not used: the sidebar sets the order. Other Docusaurus keys are allowed, and
+  so is `held_by`, which a configuration or command reference carries (section 12).
 - A page is a `.md` file at the top of `docs-content/`, named in lower-case words joined by single
   hyphens. The name says what the page is about, not its kind, so existing pages keep their URLs.
+  The name shares a content word with the title, and a new one never begins `guides-`, `concepts-`
+  or `core-concepts` (section 12).
 - `docs-content/api/` belongs to the reference generator, and images go in `docs-content/img/`.
 - Docusaurus compiles `.md` as MDX, so a brace or an angle bracket outside code is written in code
   or escaped.
@@ -243,11 +251,11 @@ release" with the reason, never left out.
 
 ### 9. The checks, and what each one cannot catch
 
-| Check                                                        | Catches                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Cannot catch                                                                                                                                                                                                                                                                                                       |
-| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `cosyte-docs-content` (`@cosyte/script-utils`)               | the sidebar's shape and order; a page not listed, listed twice, or listed and missing; a missing required page; missing or empty front matter keys, an `id` that is not the file name, a description over 160 characters, `sidebar_position`; a page name or place outside the rules; a quality page with no "Current numbers" section, or with anything in it but the placeholder; a link into the reference whose page is not generated or whose anchor no heading on it gets | whether a page holds what its kind asks; any other broken link (the shared CI's docs-content link check resolves those); a heading the generator writes in a form the slug reading does not know (setext, an explicit `{#id}`, HTML or an entity in the heading); a brace that breaks the MDX build; prose quality |
-| `cosyte-docs-reference` (`@cosyte/process`)                  | an export with no TSDoc summary; a markdown heading in any TSDoc comment; committed reference pages that no longer match the source                                                                                                                                                                                                                                                                                                                                             | an undocumented member; a comment that is wrong; an `@example` that does not run; a heading inside a list or a quote in a comment                                                                                                                                                                                  |
-| `docSnippetSuite({ every: true })` (`@cosyte/vitest-config`) | a sample that throws, fails an `// =>` assertion, does not compile as JavaScript, or a `throws` sample that does not throw; a TypeScript sample with a type error against the package's built types; a `no-run` or `no-typecheck` with no reason                                                                                                                                                                                                                                | a sample whose output is right but whose prose is wrong; whether the data in a sample is synthetic; a sample that runs but proves nothing because it asserts nothing; the types of a JavaScript sample                                                                                                             |
+| Check                                                        | Catches                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Cannot catch                                                                                                                                                                                                                                                                                                                                                                     |
+| ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cosyte-docs-content` (`@cosyte/script-utils`)               | the sidebar's shape and order; a page not listed, listed twice, or listed and missing; a missing required page; missing or empty front matter keys, an `id` that is not the file name, a description over 160 characters, `sidebar_position`; a page name or place outside the rules; a quality page with no "Current numbers" section, or with anything in it but the placeholder; a link into the reference whose page is not generated or whose anchor no heading on it gets; each pattern section 12 gives for what a kind of page holds | whether a page holds what its kind asks beyond those patterns (section 12 lists what each cannot see); any other broken link (the shared CI's docs-content link check resolves those); a heading the generator writes in a form the slug reading does not know (setext, an explicit `{#id}`, HTML or an entity in the heading); a brace that breaks the MDX build; prose quality |
+| `cosyte-docs-reference` (`@cosyte/process`)                  | an export with no TSDoc summary; a markdown heading in any TSDoc comment; committed reference pages that no longer match the source                                                                                                                                                                                                                                                                                                                                                                                                          | an undocumented member; a comment that is wrong; an `@example` that does not run; a heading inside a list or a quote in a comment                                                                                                                                                                                                                                                |
+| `docSnippetSuite({ every: true })` (`@cosyte/vitest-config`) | a sample that throws, fails an `// =>` assertion, does not compile as JavaScript, or a `throws` sample that does not throw; a TypeScript sample with a type error against the package's built types; a `no-run` or `no-typecheck` with no reason                                                                                                                                                                                                                                                                                             | a sample whose output is right but whose prose is wrong; whether the data in a sample is synthetic; a sample that runs but proves nothing because it asserts nothing; the types of a JavaScript sample                                                                                                                                                                           |
 
 Measured on 2026-11-10, on each library's checked-out `main` at the time:
 
@@ -297,6 +305,79 @@ now part of the standard and of its check:
    table typed by hand would have passed under it. It now requires the placeholder alone (section
    8).
 
+### 12. What each kind of page holds, and how the check reads it
+
+Until this section, nothing read whether a page holds what its kind asks: a page's kind was set only
+by its sidebar category, so a how-to guide that was mostly explanation, or an explanation that held a
+settings table, passed. A Diataxis audit of every library's pages on 2026-11-12 found those mixed
+pages in most libraries, and limitations pages filed four ways. These eight rules come from it. The
+structure check reads each one from the page's category, its title, its id and its headings:
+
+1. **A how-to guide's title states its goal and begins with a verb in the imperative.** The check
+   reads the title's first word against a list of verbs, `IMPERATIVE_VERBS` in
+   `@cosyte/script-utils`; a guide that needs a verb the list lacks adds it there. It cannot tell
+   whether the rest of the title states a goal.
+2. **A how-to holds steps; how and why it works goes in an explanation it links.** A how-to has no
+   heading (H2 or H3) that begins How, Why or The alternatives. It cannot see explanation written
+   under any other heading.
+3. **An explanation has no settings table and no steps:** no table whose header starts Key or Option
+   with a Default column, and no numbered H2 (`1. ...` or `Step 1: ...`). A section numbered only to
+   order an argument is a finding too: write its heading without the number. It cannot see a list
+   of steps written as a paragraph or a numbered list.
+4. **Each library has one limitations page, id `limitations`, in Reference; no other page has a
+   heading Known limitations or Limitations.** A page that names limitations links that page. It
+   cannot see a limitation written under another heading.
+5. **A tutorial's H2s are numbered steps in order, and it ends with "What you built" and "Next".**
+   The quickstart is its own category and is not read as a tutorial here. It cannot tell whether a
+   step is one the reader can follow.
+6. **A page id names what the page is about and shares a content word with its title; a new id never
+   begins `guides-`, `concepts-` or `core-concepts`.** Words such as "the", "how" or "guides" do not
+   count, a shorter word matches a longer one that begins with it (`ack` and `acks`), and the six
+   fixed pages are not read. It cannot tell whether the shared word is the one the page is about.
+7. **A reference for a surface that is not TypeScript (configuration keys, CLI commands) is
+   generated from the code, or a test holds every entry to it.** A Reference page whose id names
+   configuration, options, settings, environment, a command or the CLI, or that holds a settings
+   table, names that generator or test in its front matter, `held_by: test/docs-content.test.ts`,
+   a path from the repository root; the file must exist and name the page's file. It cannot tell
+   whether the test holds every entry; review does.
+8. **A measured number appears only in a "Current numbers" section, never in prose.** A check can
+   only approximate it: a number followed by a measured unit (a percentage, `ms`, `µs`, `ns`, a size
+   in bytes, a rate a second, "times faster"), in prose outside code and outside that section, on a
+   page not in Reference. It cannot tell a measurement from a limit such as "1 MiB", so it is a
+   warning and never fails.
+
+**The ratchet.** The first seven rules fail a library only past the findings it had when they
+landed. `docs-content-ratchet.json`, shipped in `@cosyte/script-utils`, records each library's count
+per rule, by the name in its `package.json`; at or under its count a rule's findings are listed and
+pass, and over it every one fails. The counts only fall: the check names a count a library has
+dropped below, and that count is lowered in this repository, never raised; a test holds the file to
+main's copy. A library or a rule with no count has none to spend, so a new library keeps every rule
+from its first page. Measured on 2026-11-12 at each library's `main` (the commit for each is in the
+file), the counts are:
+
+| Library     | howto-title | howto-steps | explanation-content | limitations | tutorial-steps | page-id | reference-source |
+| ----------- | ----------- | ----------- | ------------------- | ----------- | -------------- | ------- | ---------------- |
+| astm        |             |             |                     | 2           | 2              | 4       |                  |
+| ccda        |             | 1           |                     |             |                |         |                  |
+| cli         |             |             |                     | 1           |                | 3       | 1                |
+| dates       |             |             |                     | 1           | 3              | 2       |                  |
+| deid        | 1           | 2           |                     | 7           |                | 10      |                  |
+| dicom       |             |             |                     | 1           |                | 2       |                  |
+| fhir        |             |             |                     | 1           |                | 2       |                  |
+| hl7         |             |             | 6                   | 14          | 2              | 1       |                  |
+| mllp        |             |             |                     | 2           |                | 1       | 2                |
+| ncpdp       |             |             |                     | 3           | 2              |         |                  |
+| pathways    |             | 11          | 1                   | 1           |                | 1       | 2                |
+| synth       |             | 1           |                     | 1           | 18             | 11      | 1                |
+| terminology |             |             |                     | 1           | 1              | 1       |                  |
+| transform   |             |             |                     | 2           | 2              | 3       |                  |
+| x12         |             | 1           |                     | 2           |                |         |                  |
+
+`dicom` still has the sidebar categories from before this standard (Core concepts and Guides), so
+the rules that read a kind find little there yet; its pages meet them when it moves to the four
+kinds. The audit's other findings, the pages to split and the pages each library is missing, are
+work on each library's pages, not rules.
+
 ## Consequences
 
 - Every library's docs-content changes: pages move between categories, the two quality pages are
@@ -322,3 +403,8 @@ now part of the standard and of its check:
   closes); a `no-run` with its reason in the fence keeps each one visible in the report.
 - **A `kind` key in the front matter.** The sidebar category already says what kind a page is, and
   a second statement of the same fact is one more thing to keep in agreement.
+- **Turn the rules on what a kind holds on at full strength.** All fifteen libraries would go red
+  the day they landed (section 12's table), and each would need its pages rewritten before any other
+  change could merge. The ratchet keeps them green and lets the counts only fall.
+- **Warn on every rule instead of failing.** A warning in a log is read once and then not at all;
+  only the measured-number rule, which a check cannot read reliably, is a warning.

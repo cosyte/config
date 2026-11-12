@@ -467,6 +467,23 @@ does not read any other link, check the generated pages themselves, or run a sam
 CI's link check, `cosyte-docs-reference` in `@cosyte/process` and the sample runner in
 `@cosyte/vitest-config` do those. Exit 0 clean, 1 a finding, 2 the check could not run.
 
+It also reads whether each page holds what its kind asks, the kind being the sidebar category the
+page is listed in. A how-to guide's title begins with an imperative verb (`IMPERATIVE_VERBS`), and it
+has no heading that begins How, Why or The alternatives. An explanation has no settings table (Key or
+Option, with a Default column) and no numbered H2. A tutorial's H2s are numbered steps, `1. ...` or
+`Step 1: ...`, ending in "What you built" and "Next". Each library has one `limitations` page, in
+Reference, and no other page has a Known limitations or Limitations heading. A page id shares a word
+with its title and does not begin `guides-`, `concepts-` or `core-concepts`. A configuration or
+command reference names the generator or the test that holds it to the code in its front matter,
+`held_by: test/docs-content.test.ts`, and that file names the page.
+
+A library's findings under these rules are held by a ratchet: `docs-content-ratchet.json`, shipped
+in this package, records each library's count per rule (by the name in its `package.json`) as it was
+when the rules landed. At or under its count, a rule's findings are listed on stdout and pass; over
+it, each one fails. The counts only fall: when a library fixes pages, the check says which count to
+lower. A number with a measured unit outside a "Current numbers" section (a percentage, `ms`, a size
+in bytes, a rate a second) is a warning on stdout, and never fails.
+
 ```ts runnable
 import { checkDocsContent } from "@cosyte/script-utils/docs-content";
 
