@@ -20,6 +20,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { checkReadme } from "../packages/script-utils/readme.js";
+import { exemptionReasons, parseYamlSubset } from "../scripts/install-hardening.mjs";
 
 const REPO_ROOT = process.cwd();
 const SCAFFOLDER = join(REPO_ROOT, "scripts", "scaffold-parser.mjs");
@@ -301,5 +302,30 @@ describe("the Release caller", () => {
       .join("\n");
     expect(withoutBlock).not.toBe(release);
     expect(jobPermissions(withoutBlock, "release")).toBeNull();
+  });
+});
+
+describe("the install hardening", () => {
+  // A fresh scaffold resolves the same toolchain this repository does, so it meets the same
+  // packages whose trust evidence fell between releases. Without the same exclusions its first
+  // `pnpm install` stops with ERR_PNPM_TRUST_DOWNGRADE. The list is read from this repository's
+  // own pnpm-workspace.yaml on every run, so an exclusion added there and not to the template
+  // reds this case instead of drifting.
+  const own = readFileSync(join(REPO_ROOT, "pnpm-workspace.yaml"), "utf8");
+
+  it("excludes from the trust policy exactly what this repository's own workspace file excludes", () => {
+    const wanted = parseYamlSubset(own).trustPolicyExclude;
+    expect(Array.isArray(wanted) && wanted.length > 0, "config's own list must be read").toBe(true);
+    const settings = parseYamlSubset(read("pnpm-workspace.yaml"));
+    expect(settings.trustPolicy).toBe("no-downgrade");
+    expect(settings.trustPolicyExclude).toEqual(wanted);
+  });
+
+  it("gives every exclusion a recorded reason, as the install-hardening gate requires", () => {
+    const reasons = exemptionReasons(read("pnpm-workspace.yaml"), "trustPolicyExclude");
+    expect(reasons.length).toBeGreaterThan(0);
+    for (const { entry, reason } of reasons) {
+      expect(reason, `${entry} carries no "# reason:" comment`).toMatch(/^reason:\s*\S/i);
+    }
   });
 });
