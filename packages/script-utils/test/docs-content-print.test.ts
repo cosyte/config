@@ -220,6 +220,8 @@ describe("each kind of argument", () => {
     ["a call's argument before a comparison", "console.log(f(p.mrn, a < b));", "mrn"],
     ["a whole value added to", "console.log(msg + n);", "msg"],
     ["a string that reads like an operator", 'console.log("<", "in", p.mrn);', "mrn"],
+    ["a string like a comparison, joined", 'console.log("<" + p.mrn);', "mrn"],
+    ["a string like `in`, joined", 'console.log("in" + p.mrn);', "mrn"],
   ];
   for (const [kind, code, entry] of flagged) {
     it(`flags ${kind}`, () => {
@@ -353,6 +355,7 @@ describe("reading the code as written", () => {
     expect(entries("console.log(p.mrn); f(/unclosed")).toEqual(["mrn"]);
     expect(entries('console.log("in" / 2, p.mrn);')).toEqual(["mrn"]);
     expect(entries("console.log(/[a]/.source, p.mrn);")).toEqual(["mrn"]);
+    expect(entries("console.log(/x/ / 2, p.mrn);")).toEqual(["mrn"]);
     expect(samplePrintFindings("f(/unclosed\nconsole.log(p.mrn);")[0]?.line).toBe(2);
   });
 
