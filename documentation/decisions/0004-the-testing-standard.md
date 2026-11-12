@@ -355,8 +355,13 @@ test file that:
   test body: not at the top of the file, in a `describe` callback or in a hook, each of which runs
   before the test the mutation run links;
 - calls `vi.resetModules()`, then imports the source inside the test body,
-  `await import("../src/index.js")`, or in a helper that only test bodies call;
+  `await import("../src/index.js")`, or in a helper that test bodies only call directly, never
+  through an alias, a hook or a call at module load;
+- mocks no module, since a mocked source is never evaluated (a pass-through mock that returns
+  `importOriginal()` is fine);
 - compares `VERSION` with the version read from package.json at test time.
+
+The check that enforces this is an allow list: a test file in a shape it cannot classify fails it.
 
 The parser template's `test/version.test.ts` is that file.
 

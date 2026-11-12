@@ -525,12 +525,12 @@ cosyte-release-pr                # the package in the working directory
 cosyte-release-pr --dir <path>   # another package
 ```
 
-| rule               | what it requires                                                                                                                                   |
-| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `version-script`   | the `version` script runs `changeset version`, then the VERSION sync (`cosyte-process sync-version`), then `cosyte-docs-reference`, in that order  |
-| `version-test`     | one test file has no static import of the source, calls `vi.resetModules()`, imports the source in its body and compares VERSION with package.json |
-| `changeset-bullet` | each pending changeset opens with a sentence of at most 400 characters                                                                             |
-| `changeset-shape`  | each pending changeset has a front matter block that is not empty, a package and bump on each line, and a summary when it releases a package       |
+| rule               | what it requires                                                                                                                                  |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `version-script`   | the `version` script runs `changeset version`, then the VERSION sync (`cosyte-process sync-version`), then `cosyte-docs-reference`, in that order |
+| `version-test`     | one test file mocks no module, calls `vi.resetModules()`, then imports the source in a test body, and compares VERSION with package.json          |
+| `changeset-bullet` | each pending changeset opens with a sentence of at most 400 characters                                                                            |
+| `changeset-shape`  | each pending changeset has a front matter block that is not empty, a package and bump on each line, and a summary when it releases a package      |
 
 The version rules apply when a file under `src/` declares `export const VERSION`. A version script
 step may go through another script (`pnpm docs:reference`), any step naming `sync-version` is the
@@ -541,11 +541,19 @@ read, split on `&&`, not run: a step that can never run (`false && ...`), one af
 The test's shape: the mutation run links a `VERSION` mutant only to the tests that run while its
 module is evaluated, and a static import evaluates it before any test starts. Test files are parsed
 with the TypeScript compiler (the library's own, else `@cosyte/process`'s, else one beside this
-package; with none, exit 2), so a comment or a string satisfies nothing. A test body is the callback
-of an `it` or `test` call that runs, or a function the file names that only test bodies call (a
-`freshVersion()` helper). One must call `.resetModules()`, then import the source with a literal
-specifier, and read `VERSION`. A load of the source anywhere else fails the rule: at the top of the
-file, in a `describe` callback or hook, or in a function those call. It does not run the test.
+package; with none, exit 2). The rule is an allow list, and what it cannot classify fails it:
+
+- no module mock or stub (`vi.mock`, `vi.doMock`, `vi.hoisted`, `vi.stubGlobal`, `jest.mock`), save
+  a pass-through, `vi.doMock(path, (importOriginal) => importOriginal())`;
+- static imports only of packages, built-in modules, JSON and types; dynamic imports and `require()`
+  only with a literal specifier; no `createRequire`, `eval` or `import.meta.glob`;
+- the source loaded only after `vi.resetModules()` in a test body: an `it` or `test` callback that
+  runs, or a named function every reference to which is a direct call from one. An alias, `.call`,
+  a name passed to a hook, or a call at module load disqualifies it;
+- that body imports `src/index` or the module declaring `VERSION`, and reads `VERSION`.
+
+It cannot see a mock in a Vitest setup file, an alias in the Vitest or TypeScript config, or a test
+registered conditionally, and it does not run the test.
 
 The bullet bound is conservative, not a copy of the release's rewrites: the opening sentence, read
 as the release reads it, plus one for each em dash, each "slice" (inside a word too), each innermost

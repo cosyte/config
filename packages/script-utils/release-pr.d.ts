@@ -34,6 +34,8 @@ export interface ReleasePrInput {
   scripts: Record<string, unknown>;
   /** Whether a source file under `src/` declares an exported `VERSION` at the start of a line. */
   declaresVersion: boolean;
+  /** The source files that declare it, which a fresh import may name besides `src/index`. */
+  versionModules?: string[];
   /** The test files under `test/` and `src/` (`*.test.*` and `*.spec.*`). */
   tests: ReleasePrFile[];
   /** The pending changesets under `.changeset/`, its README left out. */
@@ -63,15 +65,23 @@ export declare function loadTypeScript(root: string, fallbacks?: readonly string
 
 /**
  * What one test file lacks to pin VERSION through a fresh import. Empty when it does. The file is
- * parsed with `ts`, the TypeScript compiler (found from this module when not given), so a comment or
- * a string satisfies nothing, and the import must sit inside an `it` or `test` callback.
+ * parsed with `ts`, the TypeScript compiler (found from this module when not given), and passes only
+ * in a shape the check recognises: no module mock, every load classified, and the source imported
+ * after `vi.resetModules()` in an `it` or `test` callback, or in a function only those call directly.
+ * `versionModules` names the source files that declare VERSION, besides `src/index`.
  */
-export declare function freshVersionTestGaps(path: string, text: string, ts?: unknown): string[];
+export declare function freshVersionTestGaps(
+  path: string,
+  text: string,
+  ts?: unknown,
+  versionModules?: readonly string[],
+): string[];
 
 /** The `version-test` rule: at least one test file pins VERSION through a fresh import. */
 export declare function checkVersionTests(
   tests: readonly ReleasePrFile[],
   ts?: unknown,
+  versionModules?: readonly string[],
 ): ReleasePrFinding[];
 
 /** The first sentence of a changeset's summary, read the way the release workflow reads it. */
