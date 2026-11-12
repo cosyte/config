@@ -454,6 +454,50 @@ describe("pack-docs.sourceFiles: extra files carried in source.tar.gz", () => {
     expect(existsSync(join(dir, "dist-artifacts"))).toBe(false);
   });
 
+  it.each([
+    ["package.json", ["build/Package.json"]],
+    ["tsconfig.json", ["build/TSCONFIG.json"]],
+    ["src", ["build/Src"]],
+    ["README.md", ["a/README.md", "b/readme.md"]],
+  ])("refuses a second member that differs from %s only in letter case", async (name, files) => {
+    const dir = tree();
+    for (const file of files) place(dir, file, INVENTORY);
+    configure(dir, { "pack-docs": { sourceFiles: files } });
+    const result = await runIn(["pack-docs"], dir);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain(
+      `${files.at(-1)}: source.tar.gz already carries "${name}", a name that differs only in ` +
+        "letter case: rename the file or take it off the list",
+    );
+    expect(existsSync(join(dir, "dist-artifacts"))).toBe(false);
+  });
+
+  it.each([
+    "build/inventory.cdx.json/",
+    "build/inventory.cdx.json//",
+    "build/inventory.cdx.json\\",
+  ])("refuses %s, which ends in a separator, rather than drop it", async (trailing) => {
+    const dir = tree();
+    place(dir, "build/inventory.cdx.json", INVENTORY);
+    configure(dir, { "pack-docs": { sourceFiles: [trailing] } });
+    const result = await runIn(["pack-docs"], dir);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain(
+      `${trailing}: ends in a path separator: name the file without one`,
+    );
+    expect(existsSync(join(dir, "dist-artifacts"))).toBe(false);
+  });
+
+  it("refuses a config file that is not JSON, which it read once sourceFiles existed", async () => {
+    const dir = tree();
+    writeFileSync(join(dir, "cosyte-process.config.json"), "{ not json");
+    const result = await runIn(["pack-docs"], dir);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain(`pack-docs: ${join(dir, "cosyte-process.config.json")}`);
+    expect(result.stderr).toContain("Nothing was written.");
+    expect(existsSync(join(dir, "dist-artifacts"))).toBe(false);
+  });
+
   it("refuses a malformed option with the config file's own diagnostic", async () => {
     const dir = tree();
     configure(dir, { "pack-docs": { sourceFiles: "build/inventory.cdx.json" } });

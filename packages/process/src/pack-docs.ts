@@ -183,7 +183,9 @@ function sourceFileRefusal(cwd: string, path: string, problem: string, action: s
  * Every path has to stay inside the package root twice over: as written, and once every symlink on
  * the way has been followed. Only then is it read, so a link out of the package is refused rather
  * than archived. A name the archive already carries is refused rather than written twice, since an
- * extractor would keep only one of the two.
+ * extractor would keep only one of the two. Names are compared without regard to letter case, since
+ * a case-insensitive filesystem (macOS, Windows) extracts `Package.json` over `package.json`. A
+ * path ending in a separator is refused rather than read as the file before it.
  *
  * @internal
  */
@@ -192,10 +194,15 @@ function sourceFileMembers(
   sourceFiles: readonly string[],
   taken: ReadonlySet<string>,
 ): TarMember[] {
-  const names = new Set(taken);
+  // Each name already in the archive, keyed by its case-folded form.
+  const names = new Map([...taken].map((name) => [name.toLowerCase(), name]));
   const realRoot = realpathSync(cwd);
   const members: TarMember[] = [];
   for (const path of sourceFiles) {
+    // Either separator, on every platform: a trailing backslash names no file anyone meant.
+    if (/[/\\]$/.test(path)) {
+      sourceFileRefusal(cwd, path, "ends in a path separator", "name the file without one");
+    }
     const absolute = resolve(cwd, path);
     if (isAbsolute(path) || escapes(cwd, absolute)) {
       sourceFileRefusal(cwd, path, "is outside the package root", "name a path relative to it");
@@ -223,15 +230,17 @@ function sourceFileMembers(
       sourceFileRefusal(cwd, path, "is not a regular file", "name a file, not a directory");
     }
     const name = basename(absolute);
-    if (names.has(name)) {
+    const existing = names.get(name.toLowerCase());
+    if (existing !== undefined) {
+      const caseOnly = existing === name ? "" : ", a name that differs only in letter case";
       sourceFileRefusal(
         cwd,
         path,
-        `source.tar.gz already carries "${name}"`,
+        `source.tar.gz already carries "${existing}"${caseOnly}`,
         "rename the file or take it off the list",
       );
     }
-    names.add(name);
+    names.set(name.toLowerCase(), name);
     members.push(member(real, name));
   }
   return members;

@@ -321,17 +321,22 @@ the entry point, what the system reported in structural terms, and the action av
 - Each path is checked before anything is written, and the run refuses, naming the path, when it:
   - does not exist;
   - is absolute, or leaves the package root (`../inventory.json`);
+  - ends in a path separator (`build/inventory.json/`), rather than be read as the file before it;
   - resolves outside the package root through a symlink, the file itself or a directory on the way;
   - is not a regular file;
   - would carry a name the archive already has: `src`, `package.json`, `tsconfig.json`, or the file
-    name of an earlier entry.
+    name of an earlier entry. Names are compared without regard to letter case, so
+    `build/Package.json` is refused too: a case-insensitive filesystem would extract one over the
+    other.
 - A symlink that stays inside the package is followed, and the archive carries the file it points
   to under the link's name.
 - `docs-content.tar.gz` is never changed by the option.
 - Absent, or an empty list, `source.tar.gz` is byte for byte what it was before the option existed.
 
 A malformed option (not an array, or an entry that is not a non-empty string) refuses the run
-naming the file, as it refuses every verb.
+naming the file, as it refuses every verb. `pack-docs` reads `cosyte-process.config.json` whenever
+the file exists, so a file that is not valid JSON, or that breaks the schema anywhere, exits 1 under
+`pack-docs` too, which ignored the file before the option existed.
 
 ### `cosyte-docs-reference`
 
