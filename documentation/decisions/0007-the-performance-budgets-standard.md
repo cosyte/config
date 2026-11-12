@@ -239,7 +239,8 @@ measured yet: a package's A/A set is the first measure of it.
   backstop against large regressions; small ones are the base against head comparison's job (ADR
   0005 section 4), which reads both builds on one runner. The same margin makes the floor slow to
   move: `floor --from` takes a new set only after an improvement of about four spreads, so a floor
-  rarely tightens.
+  rarely tightens. A memory measure held by the 5% margin tightens only after an improvement of
+  more than 5%, since the new set's limit is then at least 5% above its highest reading.
 
 - **Hold a memory measure to its spread alone.** V8 compiles on a background thread, and when that
   compile finishes decides which code a process runs, so one process of unchanged code allocates on
@@ -254,12 +255,12 @@ measured yet: a package's A/A set is the first measure of it.
   Resampling the readings (5,000 trials), a reading failed any memory measure of a 21-reading floor
   13.2% of the time with three spreads alone and 2.8% with the margin. The cost: a memory measure
   whose three spreads come to under 5% no longer fails growth of 5% or less (a 5% regression of one
-  memory measure was caught 41.3% of the time before and 2.3% after; a 10% one 55.6% and 57.5%).
-  A level more than 5% up that no reading of the set landed on still fails unchanged code, as the
-  11% peak level did in 4 of 82 readings. The other way we weighed was to read memory as the
-  lowest of three processes: in a smaller resampling (1,000 trials), with a 1% margin on top, a
-  reading failed a 21-reading floor 1.1% of the time and a 10% regression was caught 72.3% of the
-  time. It costs three times the memory processes a reading and changes what a reading holds, so
+  memory measure against a 21-reading floor was caught 41.3% of the time before and 2.3% after; a
+  10% one 55.6% and 57.5%). A level more than 5% up that no reading of the set landed on still
+  fails unchanged code, as the 11% peak level did in 4 of 82 readings. The other way we weighed
+  was to read memory as the lowest of three processes: in two smaller resamplings (1,000 trials
+  each), with a 1% margin on top, a reading failed a 21-reading floor 1.1% and 1.2% of the time and
+  a 10% regression was caught 72.7% and 72.5% of the time. It costs three times the memory processes a reading and changes what a reading holds, so
   it is left for later.
 - **Allow any growth of a measure that measured no noise.** The gzipped bytes are the same in every
   reading of one commit, so the floor holds them exactly: a pull request that adds code adds bytes,

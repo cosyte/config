@@ -13,10 +13,14 @@ that fell is measured again instead of written below zero.
   `@cosyte/dicom` source on GitHub-hosted runners (Bench floor runs 43109166865, 43110461726,
   43113425128, 43114865620 and 43116547990; Budgets runs 43110461576, 43113425069, 43114865841 twice
   and 43116548037), a floor recorded from one set failed 3 to 38 of the other readings of that
-  source with three spreads alone, and 0 to 5 with the margin. The cost: a memory measure whose
-  three spreads come to under 5% no longer fails growth of 5% or less; anything more still fails.
-  Milliseconds an operation and the cold import keep their spread alone, and the gzipped bytes stay
-  exact.
+  source with three spreads alone, and 0 to 5 with the margin. Milliseconds an operation and the
+  cold import keep their spread alone, and the gzipped bytes stay exact.
+- **What the margin costs.** A memory measure whose three spreads come to under 5% no longer fails
+  growth of 5% or less; anything more still fails. Resampling the same 82 readings (5,000 trials),
+  a 5% regression of one memory measure against a 21-reading floor was caught 41.3% of the time
+  before and 2.3% after; a 10% one 55.6% and 57.5%, and a 25% one 83.4% and 85.2%. With
+  `floor --from`, a memory measure held by the margin now tightens only after an improvement of
+  more than 5%.
 - **An allocation count that fell is no count.** A pair of windows whose `2n` window counted more
   than 64 KiB fewer than its `n` window is measured again at half the window, and the count is
   skipped (`allocation-fell`) when every pair does. `cosyte-bench floor` refuses a set holding such
@@ -27,8 +31,9 @@ that fell is measured again instead of written below zero.
   reported as loosened.
 
 What a repo must do: nothing for the margin, which applies to a floor file as it is. A floor whose
-`allocBytesPerOp` has a `noise` larger than its `value` was recorded from a count that fell: take a
-fresh A/A set with this version and record it with `--from` (or afresh, without `--from`, when the
-default branch has no floor yet). A reading from an earlier version that holds such a count is taken
-again. The exported `MemorySkipReason` type gains `allocation-fell`: code that switches on it
-handles one more reason. Nothing else exported changes.
+`allocBytesPerOp` has a lowest reading (`value` less `noise`) far below zero, such as the
+-14,057,504 above, was recorded from a count that fell; a few bytes below zero is jitter and needs
+nothing. Take a fresh A/A set with this version and record it with `--from` (or afresh, without
+`--from`, when the default branch has no floor yet). A reading from an earlier version that holds
+such a count is taken again. The exported `MemorySkipReason` type gains `allocation-fell`: code
+that switches on it handles one more reason. Nothing else exported changes.

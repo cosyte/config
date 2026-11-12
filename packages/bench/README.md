@@ -348,7 +348,9 @@ What the floor gives up:
   about 7 to 9% of the time, 17% about half the time, and 95% detection needs about 27%. The floor
   is a backstop against large regressions; small ones are the base against head comparison's job.
   For the same reason `floor --from` tightens only after an improvement of about four spreads, so a
-  floor rarely moves.
+  floor rarely moves. A memory measure held by the 5% margin below tightens only after an
+  improvement of more than 5%, since the new set's limit is then at least 5% above its highest
+  reading.
 - **A reading is only compared within its runner class and Node line.** A new runner image is a
   new class, and the floor cannot judge it (exit 2) until it is recorded afresh.
 - **A floor that measured no noise holds exactly.** The gzipped bytes the import loads are the same
@@ -361,8 +363,9 @@ What the floor gives up:
   runs 43110461576, 43113425069, 43114865841 twice and 43116548037), the higher allocation levels sat
   3.4% to 4.7% above the median reading, and one peak level 11.2% to 11.4% above the highest reading
   of a set that missed it. A set that landed on one level measures almost no spread: the peak of
-  `parseDicom: CT @ single frame` read 74,616 bytes in all 7 readings of run 43109166865, and
-  74,880 in 3 other readings, with nothing between. With the limit at three spreads alone, a floor recorded from one set
+  `parseDicom: CT @ single frame` read 74,616 bytes in all 21 readings of run 43113425128, and
+  74,880 in 3 of the 82 readings (readings 5 and 6 of run 43109166865 and Budgets run
+  43110461576), with nothing between. With the limit at three spreads alone, a floor recorded from one set
   failed 3 to 38 of the other readings of that source (out of 61 for a 21-reading set, 75 for a
   7-reading one); with the 5% margin, 0 to 5. We tried margins of 0.5% to 5%: below 5% the 4.7%
   allocation level still failed. Resampling the 82 readings (5,000 trials), a reading failed any
@@ -371,16 +374,20 @@ What the floor gives up:
 - **What the margin gives up.** A memory measure whose seven or more readings spread less than 5%
   of its value, divided by three, is held to 5% above its highest reading, not less: any growth of
   more than 5% fails, however still the set was, and a smaller one passes. In the same resampling, a
-  5% regression of one memory measure was caught 41.3% of the time with three spreads alone and
+  5% regression of one memory measure against a 21-reading floor was caught 41.3% of the time with three spreads alone and
   2.3% with the margin, a 10% one 55.6% and 57.5%, and a 25% one 83.4% and 85.2% (the last two
   differ by the resampling alone). A measure whose three spreads come to more than 5% keeps the
   limit it had. A level more than 5% up still fails unchanged code when no reading of the set
   landed on it: the dicom readings above show one peak level 11.2% to 11.4% up in 4 of 82.
 
 **Recording a floor again with 0.1.6.** The margin applies to a floor file as it is: nothing needs
-recording for it. A floor whose set held an allocation count that fell (in `bench/floor.json`, an
-`allocBytesPerOp` whose `noise` is larger than its `value`: its lowest reading was below zero) has a
-limit far too loose for that measure. Take a fresh A/A set with 0.1.6 and record it with `--from`:
+recording for it. A floor whose set held an allocation count that fell has a limit far too loose for
+that measure. In `bench/floor.json` it is an `allocBytesPerOp` whose lowest reading, `value` less
+`noise`, is far below zero: the dicom floor recorded from run 43113425128 had -14,057,504 bytes an
+operation. A lowest reading a few bytes below zero is jitter on code that allocates next to
+nothing, which `floor` still records, and needs nothing. To be sure, look at the set's readings: a
+count fell when its `heapBytesPerOp` or `externalBytesPerOp` times its `windowOps` is below
+-65,536, and `floor` from 0.1.6 refuses such a reading and names it. Take a fresh A/A set with 0.1.6 and record it with `--from`:
 the new set replaces a measure whose lowest reading was below zero whenever its limit is lower, and
 the floor is not reported as loosened. A floor not yet on the default branch is recorded afresh,
 without `--from`. A reading taken with an earlier version that holds such a count is `unjudged`
