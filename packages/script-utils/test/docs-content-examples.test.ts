@@ -596,6 +596,24 @@ describe("reading and writing a repository", () => {
     }
   });
 
+  it("refuses a page that is a folder, and writes through no link where the platform refuses one", () => {
+    const dir = repo("folder-page", {
+      "docs-content/sidebars.json": sidebar(["example-read-name"]),
+      "docs-content/example-read-name.md/inside.txt": "x\n",
+      "examples/read-name.ts": READ_NAME.text,
+    });
+    expect(() => writeExamplePages(dir)).toThrow(/example-read-name\.md could not be written/);
+    if (process.platform === "win32") return;
+    const linked = repo("linked-page", {
+      "docs-content/sidebars.json": sidebar(["example-read-name"]),
+      "elsewhere.md": written("read-name"),
+      "examples/read-name.ts": READ_NAME.text,
+    });
+    symlinkSync(join(linked, "elsewhere.md"), join(linked, "docs-content/example-read-name.md"));
+    expect(() => writeExamplePages(linked)).toThrow(/example-read-name\.md could not be written/);
+    expect(readFileSync(join(linked, "elsewhere.md"), "utf8")).toBe(written("read-name"));
+  });
+
   it("names --write among the arguments it accepts", () => {
     const out = capture();
     expect(

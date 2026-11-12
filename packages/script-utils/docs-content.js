@@ -36,7 +36,16 @@
 // Zero dependencies, like the rest of this package: the front matter is read by hand, for the one
 // form the standard allows (one `key: value` per line), rather than by a YAML parser.
 
-import { lstatSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  constants,
+  ftruncateSync,
+  lstatSync,
+  openSync,
+  readFileSync,
+  readdirSync,
+  writeSync,
+} from "node:fs";
 import { join, resolve } from "node:path";
 
 /** The folder this check reads, at the repository root. */
@@ -1423,23 +1432,43 @@ export function writeExamplePages(root) {
   for (const [name, example] of examplesByName(readExamples(root))) {
     const file = `${EXAMPLE_PAGE_PREFIX}${name}.md`;
     const path = join(docs, file);
-    const entry = lstatSync(path, { throwIfNoEntry: false });
-    if (entry === undefined) continue;
-    const text = readOrRefuse(path, entry);
-    const normal = text.replaceAll("\r\n", "\n");
-    const lines = normal.split("\n");
-    const code = headings(normal).find((h) => h.level === 2 && h.text === EXAMPLE_HEADINGS.at(-1));
-    const hand = code === undefined ? normal : lines.slice(0, code.line - 1).join("\n");
-    const want = `${hand.replace(/\n+$/, "")}\n\n${exampleCodeSection(example.file, example.text)}`;
-    if (want === text) continue;
+    // One descriptor for the read and the write, so the page written is the page read. A link is
+    // not followed where the platform can refuse one, and a folder fails to open for writing.
+    let fd;
     try {
-      writeFileSync(path, want);
+      fd = openSync(path, constants.O_RDWR | (constants.O_NOFOLLOW ?? 0));
     } catch (error) {
+      if (error.code === "ENOENT") continue;
       throw new DocsContentRefusal(`${path} could not be written (${error.code}).`);
+    }
+    try {
+      const text = readFileSync(fd, "utf8");
+      const want = examplePageText(text, example);
+      if (want === text) continue;
+      ftruncateSync(fd, 0);
+      writeSync(fd, want, 0);
+    } finally {
+      closeSync(fd);
     }
     written.push(file);
   }
   return written;
+}
+
+/**
+ * An example page with its Code section written from its example: the page from its "## Code"
+ * heading to the end replaced, or the section added at the end when the page has none.
+ *
+ * @param {string} text The page.
+ * @param {{ file: string, text: string }} example Its example.
+ * @returns {string} The page as it should be, with LF line endings.
+ */
+function examplePageText(text, example) {
+  const normal = text.replaceAll("\r\n", "\n");
+  const lines = normal.split("\n");
+  const code = headings(normal).find((h) => h.level === 2 && h.text === EXAMPLE_HEADINGS.at(-1));
+  const hand = code === undefined ? normal : lines.slice(0, code.line - 1).join("\n");
+  return `${hand.replace(/\n+$/, "")}\n\n${exampleCodeSection(example.file, example.text)}`;
 }
 
 /**
