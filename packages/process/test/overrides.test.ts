@@ -76,7 +76,7 @@ describe("valid override files", () => {
   });
 
   it("reads an empty pack-docs object, or no file at all, as no options", () => {
-    expect(loadConfig(withOverrideFile('{"pack-docs":{}}')).packDocs).toEqual({});
+    expect(loadConfig(withOverrideFile('{"pack-docs":{}}')).packDocs).toStrictEqual({});
     expect(loadConfig(makeTempDir("cosyte-process-no-override-"))).toEqual({
       overrides: {},
       packDocs: {},
@@ -153,7 +153,7 @@ describe("term-7 violations, each naming the file and the first violation", () =
 
   it("rejects an unknown key under pack-docs, naming the one it takes", () => {
     expect(violationOf('{"pack-docs":{"files":["a.json"]}}').violation).toBe(
-      'unknown key "files" under "pack-docs" (expected one of sourceFiles)',
+      'unknown key "files" under "pack-docs" (the only key it takes is "sourceFiles")',
     );
   });
 

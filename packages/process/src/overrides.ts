@@ -124,7 +124,7 @@ function parsePackDocsOptions(file: string, value: unknown): PackDocsOptions {
     if (!PACK_DOCS_KEYS.includes(key)) {
       throw new OverrideError(
         file,
-        `unknown key "${key}" under "${PACK_DOCS_CONFIG_KEY}" (expected one of ${PACK_DOCS_KEYS.join(", ")})`,
+        `unknown key "${key}" under "${PACK_DOCS_CONFIG_KEY}" (the only key it takes is "sourceFiles")`,
       );
     }
     const paths: unknown = value[key];

@@ -439,6 +439,7 @@ describe("pack-docs.sourceFiles: extra files carried in source.tar.gz", () => {
 
   it.each([
     ["package.json", ["build/package.json"]],
+    ["tsconfig.json", ["build/tsconfig.json"]],
     ["src", ["build/src"]],
     ["inventory.cdx.json", ["a/inventory.cdx.json", "b/inventory.cdx.json"]],
   ])("refuses a second member named %s rather than overwrite one", async (name, files) => {
