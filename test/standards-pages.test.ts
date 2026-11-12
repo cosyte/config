@@ -75,7 +75,7 @@ describe("the committed pages", () => {
   it("match what their records write", async () => {
     const lines: string[] = [];
     expect(await run({ root: REPO_ROOT, check: true, log: (l) => lines.push(l) })).toBe(0);
-    expect(lines).toEqual(["standards-pages: 2 page(s) match their records."]);
+    expect(lines).toEqual(["standards-pages: 3 page(s) match their records."]);
   });
 
   it("are the sidebar's Explanation category, after the overview, and nothing else", () => {

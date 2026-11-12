@@ -27,6 +27,12 @@
 // The ratchet holds these rules too, at each library's count of examples with no page when they
 // landed.
 //
+// It reads what each TypeScript or JavaScript sample in the README and the pages prints: a console,
+// logger or printer call never passes a value that identifies a person (an identifying accessor, or
+// a whole message, segment, resource or person). Each library can add names to the lists in
+// cosyte-docs-content.config.json. The rule is advisory, its findings listed on stdout, until that
+// file sets "examplePrint": { "required": true }, after the library's samples are swept.
+//
 // WHAT IT DOES NOT CHECK. Any other link, and images: the shared CI's docs-content link check
 // resolves those. The pages under `api/` themselves: the reference generator writes them and checks
 // them itself; here they are only read for their headings. Whether a sample runs: the sample runner
@@ -152,6 +158,9 @@ export const DOCS_CONTENT_RULES = Object.freeze({
     "from the code or a test holds every entry to it",
   "measured-number":
     "a measured number appears only in a Current numbers section, never in prose (a warning)",
+  "example-print":
+    "a README or docs-content sample never passes a value that identifies a person to a " +
+    "console, logger or printer call (advisory until cosyte-docs-content.config.json requires it)",
 });
 
 /**
@@ -1662,6 +1671,756 @@ export function checkDocsContent(input) {
   return findings;
 }
 
+// WHAT AN EXAMPLE MAY PRINT. A sample in a README or a docs-content page never passes a value that
+// identifies a patient or another person to a console, logger or printer call: the page is
+// published, and readers copy what it does. The check reads each TypeScript or JavaScript sample
+// without a parser, as tokens, so it reads the code as written: a call by a known printer name
+// whose argument reads an identifying accessor (`msg.patient.mrn`, `getMrn()`, `{ mrn }`) or prints a
+// whole message, segment, resource or person. A finding names the file, the line and the list entry
+// it matched, never the argument, which may hold a synthetic value. It is advisory until a library
+// turns it on in cosyte-docs-content.config.json, after its samples are swept.
+
+/** The rule a finding on what a sample prints carries. */
+export const PRINT_RULE = "example-print";
+
+/** The file at the repository root that turns the print rule on and extends its lists. */
+export const PRINT_CONFIG_FILE = "cosyte-docs-content.config.json";
+
+/** The key in that file the print rule reads. */
+export const PRINT_CONFIG_KEY = "examplePrint";
+
+/** The keys the print rule's object in that file takes. */
+export const PRINT_CONFIG_KEYS = Object.freeze([
+  "required",
+  "accessors",
+  "wholeValues",
+  "printers",
+]);
+
+/** The fence languages of a sample, as the sample runner reads them. */
+export const SAMPLE_LANGUAGES = Object.freeze([
+  "ts",
+  "typescript",
+  "tsx",
+  "js",
+  "javascript",
+  "mjs",
+]);
+
+/**
+ * The accessors whose value identifies a patient or another person: a name, a record or member
+ * number, a date of birth or death, an address, a phone number, an email and a free-text note. A
+ * member is matched with any `get` prefix, case, `_` and `-` set aside (`getMrn()`, `MRN`,
+ * `date_of_birth`). A dotted entry (`patient.id`, `name.family`) matches those members in a row,
+ * for a name that identifies a person only after another (`id` alone does not). A library adds its
+ * own in cosyte-docs-content.config.json.
+ */
+export const IDENTIFYING_ACCESSORS = Object.freeze([
+  "fullName",
+  "firstName",
+  "middleName",
+  "lastName",
+  "givenName",
+  "familyName",
+  "name.family",
+  "name.given",
+  "patient.name",
+  "patientName",
+  "maidenName",
+  "mothersMaidenName",
+  "mrn",
+  "medicalRecordNumber",
+  "patient.id",
+  "patientId",
+  "identifier",
+  "identifiers",
+  "ssn",
+  "socialSecurityNumber",
+  "memberId",
+  "memberNumber",
+  "subscriberId",
+  "cardholderId",
+  "insuredId",
+  "accountNumber",
+  "patientAccountNumber",
+  "patientControlNumber",
+  "driversLicense",
+  "dateOfBirth",
+  "birthDate",
+  "birthTime",
+  "dob",
+  "dateOfDeath",
+  "deathDate",
+  "deceasedDateTime",
+  "address",
+  "addresses",
+  "streetAddress",
+  "street",
+  "city",
+  "postalCode",
+  "zip",
+  "zipCode",
+  "phone",
+  "phoneNumber",
+  "telephone",
+  "telecom",
+  "homePhone",
+  "workPhone",
+  "mobilePhone",
+  "fax",
+  "email",
+  "emailAddress",
+  "note",
+  "notes",
+  "comment",
+  "comments",
+  "freeText",
+  "narrative",
+]);
+
+/**
+ * The names of a whole message, segment, resource or person, which a sample never prints whole. A
+ * name here is a finding only as the value printed (`console.log(msg)`, a template that interpolates
+ * `segment`, `JSON.stringify(bundle)`), not when a sample reads a field of it (`msg.meta.type`).
+ */
+export const WHOLE_VALUES = Object.freeze([
+  "message",
+  "messages",
+  "msg",
+  "segment",
+  "segments",
+  "resource",
+  "resources",
+  "bundle",
+  "document",
+  "doc",
+  "patient",
+  "patients",
+  "person",
+  "subscriber",
+  "guarantor",
+  "nextOfKin",
+]);
+
+/**
+ * What a sample may read after an identifying accessor and print: how long it is and how precise a
+ * date is, which say nothing about the person.
+ */
+export const SAFE_READS = Object.freeze(["length", "size", "precision"]);
+
+/** The console methods that print. */
+export const CONSOLE_METHODS = Object.freeze([
+  "log",
+  "info",
+  "warn",
+  "error",
+  "debug",
+  "trace",
+  "dir",
+  "dirxml",
+  "table",
+  "group",
+  "groupCollapsed",
+]);
+
+/** The methods of a logger (`log`, `logger`, `this.logger`, `auditLogger`) that print. */
+export const LOGGER_METHODS = Object.freeze([
+  "trace",
+  "debug",
+  "info",
+  "warn",
+  "warning",
+  "error",
+  "fatal",
+  "log",
+  "notice",
+  "critical",
+  "verbose",
+]);
+
+/** The stream writes that print. */
+export const STREAM_PRINTERS = Object.freeze(["process.stdout.write", "process.stderr.write"]);
+
+/** The name of an object whose methods in LOGGER_METHODS print. */
+const LOGGER_NAME = /^(?:log|logger|[\w$]*Logger)$/;
+
+/** A call that turns its arguments into text, so a whole value passed to it is printed whole. */
+const SERIALIZER = /^(?:stringify|inspect|format|String|serialize\w*|encode\w*)$/;
+
+/** A member call after a whole value that prints the same value as text. */
+const TO_TEXT = new Set(["toString", "toJSON", "valueOf"]);
+
+/**
+ * The operators that make an argument a boolean, which says nothing about the person. `===` reads
+ * as `==` then `=`, and `<=` as `<` then `=`, so these four cover every comparison.
+ */
+const COMPARISONS = new Set(["==", "!=", "<", ">"]);
+
+/** Words after which a `/` starts a regular expression rather than a division. */
+const REGEX_AFTER = new Set(
+  "await case delete do else in instanceof new of return throw typeof void yield".split(" "),
+);
+
+/**
+ * The punctuation of more than one character the reading needs: an optional chain, an arrow, the
+ * comparisons and `??`, which is no conditional. Any other is read one character at a time.
+ */
+const PUNCTUATION = ["?.", "=>", "==", "!=", "??"];
+
+/** The closing character of each group. */
+const CLOSERS = Object.freeze({ "(": ")", "[": "]", "{": "}" });
+
+/** A character of a name, and a name. A number reads as a name, which no list holds. */
+const NAME_CHAR = /[\p{L}\p{N}_$]/u;
+const NAME = /[\p{L}\p{N}_$]+/uy;
+
+/**
+ * A name as the lists compare it: any `get` prefix before a capital, case, `_` and `-` set aside.
+ *
+ * @param {string} name A member name.
+ * @returns {string} The name, compared form.
+ */
+function comparable(name) {
+  return name
+    .replace(/^get(?=[A-Z])/, "")
+    .replace(/[_-]/g, "")
+    .toLowerCase();
+}
+
+/**
+ * The tokens of a sample: names, punctuation, strings, numbers and regular expressions, each with
+ * its 0-based line; a template literal is one token holding the tokens of each `${...}` in it.
+ * Comments and whitespace are dropped.
+ *
+ * @param {string} code A sample.
+ * @returns {object[]} The tokens.
+ */
+function tokenize(code) {
+  let at = 0;
+  let line = 0;
+  const lines = (from, to) => {
+    for (let i = from; i < to; i += 1) if (code[i] === "\n") line += 1;
+  };
+  const read = (inTemplate) => {
+    const tokens = [];
+    let depth = 0;
+    while (at < code.length) {
+      const c = code[at];
+      const next = code[at + 1];
+      if (c === "\n") {
+        line += 1;
+        at += 1;
+      } else if (/\s/.test(c)) {
+        at += 1;
+      } else if (c === "/" && next === "/") {
+        const end = code.indexOf("\n", at);
+        at = end === -1 ? code.length : end;
+      } else if (c === "/" && next === "*") {
+        const end = code.indexOf("*/", at + 2);
+        const stop = end === -1 ? code.length : end + 2;
+        lines(at, stop);
+        at = stop;
+      } else if (c === '"' || c === "'") {
+        let value = "";
+        at += 1;
+        while (at < code.length && code[at] !== c && code[at] !== "\n") {
+          if (code[at] === "\\") at += 1;
+          value += code[at] ?? "";
+          at += 1;
+        }
+        // Past the closing quote; an unclosed string ends at the newline, which is read next.
+        if (code[at] === c) at += 1;
+        tokens.push({ type: "string", value, line });
+      } else if (c === "`") {
+        const start = line;
+        const parts = [];
+        at += 1;
+        while (at < code.length && code[at] !== "`") {
+          if (code[at] === "\\") {
+            lines(at, at + 2);
+            at += 2;
+          } else if (code[at] === "$" && code[at + 1] === "{") {
+            at += 2;
+            parts.push(read(true));
+          } else {
+            lines(at, at + 1);
+            at += 1;
+          }
+        }
+        at += 1;
+        tokens.push({ type: "template", parts, line: start });
+      } else if (inTemplate && c === "}" && depth === 0) {
+        at += 1;
+        return tokens;
+      } else if (c === "/" && regexAllowed(tokens.at(-1))) {
+        let inClass = false;
+        at += 1;
+        while (at < code.length && code[at] !== "\n") {
+          const r = code[at];
+          if (r === "\\") at += 1;
+          else if (r === "[") inClass = true;
+          else if (r === "]") inClass = false;
+          else if (r === "/" && !inClass) break;
+          at += 1;
+        }
+        // Past the closing slash; the flags after it read as a name, which no list holds.
+        if (code[at] === "/") at += 1;
+        tokens.push({ type: "regex", line });
+      } else if (NAME_CHAR.test(c)) {
+        NAME.lastIndex = at;
+        const value = NAME.exec(code)[0];
+        at += value.length;
+        tokens.push({ type: "ident", value, line });
+      } else {
+        let value = PUNCTUATION.find((p) => code.startsWith(p, at)) ?? c;
+        // `a ?.5 : b` is a conditional with a number, not an optional chain.
+        if (value === "?." && /\d/.test(code[at + 2])) value = "?";
+        if (value === "{") depth += 1;
+        if (value === "}") depth -= 1;
+        at += value.length;
+        tokens.push({ type: "punct", value, line });
+      }
+    }
+    return tokens;
+  };
+  return read(false);
+}
+
+/**
+ * Whether a `/` after this token starts a regular expression.
+ *
+ * @param {object | undefined} previous The token before it.
+ * @returns {boolean} True when it cannot be a division.
+ */
+function regexAllowed(previous) {
+  if (previous === undefined) return true;
+  if (previous.type === "punct") return !")]}".includes(previous.value);
+  return previous.type === "ident" && REGEX_AFTER.has(previous.value);
+}
+
+/**
+ * Tokens nested into groups: each `(...)`, `[...]` and `{...}` becomes one node holding its
+ * children, and each template's parts are grouped the same way. A closer with no opener is dropped;
+ * an opener with no closer runs to the end.
+ *
+ * @param {object[]} tokens The tokens.
+ * @returns {object[]} The nodes.
+ */
+function nest(tokens) {
+  const root = [];
+  const stack = [{ children: root, close: null }];
+  for (const token of tokens) {
+    const top = stack.at(-1);
+    if (token.type === "template") {
+      top.children.push({ ...token, parts: token.parts.map(nest) });
+    } else if (token.type === "punct" && Object.hasOwn(CLOSERS, token.value)) {
+      const group = { type: "group", open: token.value, line: token.line, children: [] };
+      top.children.push(group);
+      stack.push({ children: group.children, close: CLOSERS[token.value] });
+    } else if (token.type === "punct" && ")]}".includes(token.value)) {
+      const open = stack.findLastIndex((frame) => frame.close === token.value);
+      if (open !== -1) stack.length = open;
+    } else {
+      top.children.push(token);
+    }
+  }
+  return root;
+}
+
+/**
+ * Whether a node is a given punctuation.
+ *
+ * @param {object | undefined} node A node.
+ * @param {string} value The punctuation.
+ * @returns {boolean} True when it is.
+ */
+function isPunct(node, value) {
+  return node?.type === "punct" && node.value === value;
+}
+
+/**
+ * Nodes split at each top-level separator.
+ *
+ * @param {object[]} nodes The nodes.
+ * @param {string} separator The punctuation to split at.
+ * @returns {object[][]} The parts; one empty part for no nodes.
+ */
+function splitAt(nodes, separator) {
+  const parts = [[]];
+  for (const node of nodes) {
+    if (isPunct(node, separator)) parts.push([]);
+    else parts.at(-1).push(node);
+  }
+  return parts;
+}
+
+/**
+ * The lists the rule reads, compared forms, with a library's own entries added.
+ *
+ * @param {{ accessors?: readonly string[], wholeValues?: readonly string[], printers?: readonly string[] }} [extra]
+ * @returns {{ accessors: { entry: string, parts: string[] }[], wholeValues: Map<string, string>, printers: Set<string> }}
+ */
+function printLists(extra = {}) {
+  const accessors = [...IDENTIFYING_ACCESSORS, ...(extra.accessors ?? [])].map((entry) => ({
+    entry,
+    parts: entry.split(".").map(comparable),
+  }));
+  const wholeValues = new Map(
+    [...WHOLE_VALUES, ...(extra.wholeValues ?? [])].map((entry) => [comparable(entry), entry]),
+  );
+  return { accessors, wholeValues, printers: new Set(extra.printers ?? []) };
+}
+
+/**
+ * Whether a call by these dotted names prints.
+ *
+ * @param {string[]} names The callee, as dotted names (`console`, `log`).
+ * @param {Set<string>} printers A library's own printers.
+ * @returns {boolean} True for a console method, a stream write, a logger method or a library's own.
+ */
+function isPrinter(names, printers) {
+  const joined = names.join(".");
+  if (names.length === 2 && names[0] === "console") return CONSOLE_METHODS.includes(names[1]);
+  if (STREAM_PRINTERS.includes(joined) || printers.has(joined)) return true;
+  // A single name has no object: `names.at(-2)` is undefined, which LOGGER_NAME reads as "undefined".
+  return LOGGER_NAME.test(names.at(-2)) && LOGGER_METHODS.includes(names.at(-1));
+}
+
+/**
+ * What an expression prints that identifies a person, or null when it prints nothing that does.
+ *
+ * @param {object[]} nodes The expression.
+ * @param {ReturnType<typeof printLists>} lists The lists.
+ * @param {boolean} whole Whether a whole value here is printed whole.
+ * @returns {{ kind: "accessor" | "whole", entry: string } | null} The first fault.
+ */
+function expressionFault(nodes, lists, whole) {
+  const arrow = nodes.findIndex((node) => isPunct(node, "=>"));
+  if (arrow !== -1) return expressionFault(nodes.slice(arrow + 1), lists, whole);
+  // A conditional prints one of its branches, and its condition is only read. Each condition is the
+  // part before a `?`, so past the first `?` the parts between `:` are branches, or a nested
+  // conditional whose own condition the next reading drops.
+  const question = nodes.findIndex((node) => isPunct(node, "?"));
+  if (question !== -1) return listFault(nodes.slice(question + 1), ":", lists, whole);
+  const boolean = nodes.some(
+    (node) =>
+      (node.type === "punct" && COMPARISONS.has(node.value)) ||
+      (node.type === "ident" && (node.value === "instanceof" || node.value === "in")),
+  );
+  if (boolean || isPunct(nodes[0], "!") || nodes[0]?.value === "typeof") return null;
+  for (let i = 0; i < nodes.length;) {
+    const { fault, end } = chainFault(nodes, i, lists, whole);
+    if (fault !== null) return fault;
+    i = end;
+  }
+  return null;
+}
+
+/**
+ * What the value starting at a node prints: a name and the members, calls and indexes after it, or
+ * a group, a template or a literal.
+ *
+ * @param {object[]} nodes The expression.
+ * @param {number} start Where the value starts.
+ * @param {ReturnType<typeof printLists>} lists The lists.
+ * @param {boolean} whole Whether a whole value here is printed whole.
+ * @returns {{ fault: { kind: "accessor" | "whole", entry: string } | null, end: number }}
+ */
+function chainFault(nodes, start, lists, whole) {
+  const node = nodes[start];
+  const members = [];
+  if (node.type === "ident") {
+    members.push({ name: node.value, called: false });
+  } else if (node.type === "group") {
+    const inner =
+      node.open === "{"
+        ? objectFault(node.children, lists, whole)
+        : listFault(node.children, ",", lists, whole);
+    if (inner !== null) return { fault: inner, end: start + 1 };
+  } else if (node.type === "template") {
+    // What a template interpolates is printed as text, whole.
+    for (const part of node.parts) {
+      const inner = expressionFault(part, lists, true);
+      if (inner !== null) return { fault: inner, end: start + 1 };
+    }
+    return { fault: null, end: start + 1 };
+  } else {
+    return { fault: null, end: start + 1 };
+  }
+  let at = start + 1;
+  while (at < nodes.length) {
+    const next = nodes[at];
+    const after = nodes[at + 1];
+    if ((isPunct(next, ".") || isPunct(next, "?.")) && after?.type === "ident") {
+      members.push({ name: after.value, called: false });
+      at += 2;
+    } else if (isPunct(next, "?.") || isPunct(next, "!")) {
+      // `a?.(x)`, `a?.[k]`, and TypeScript's `a!.b`: the group or member after it reads on.
+      at += 1;
+    } else if (next.type === "group" && next.open === "(") {
+      const callee = members.at(-1);
+      if (callee !== undefined) callee.called = true;
+      const prints = whole && SERIALIZER.test(String(callee?.name));
+      const inner = listFault(next.children, ",", lists, prints);
+      if (inner !== null) return { fault: inner, end: at + 1 };
+      at += 1;
+    } else if (next.type === "group" && next.open === "[") {
+      const key = next.children.length === 1 ? next.children[0] : null;
+      if (key?.type === "string") members.push({ name: key.value, called: false });
+      at += 1;
+    } else {
+      break;
+    }
+  }
+  return { fault: membersFault(members, lists, whole), end: at };
+}
+
+/**
+ * What a list prints: arguments, array items or a parenthesized expression, split at commas, or a
+ * conditional's branches, split at colons.
+ *
+ * @param {object[]} children The list's nodes.
+ * @param {string} separator What the items are split at.
+ * @param {ReturnType<typeof printLists>} lists The lists.
+ * @param {boolean} whole Whether a whole value here is printed whole.
+ * @returns {{ kind: "accessor" | "whole", entry: string } | null} The first fault.
+ */
+function listFault(children, separator, lists, whole) {
+  for (const item of splitAt(children, separator)) {
+    const inner = expressionFault(item, lists, whole);
+    if (inner !== null) return inner;
+  }
+  return null;
+}
+
+/**
+ * What an object literal prints: each value, never a key.
+ *
+ * @param {object[]} children The object's nodes.
+ * @param {ReturnType<typeof printLists>} lists The lists.
+ * @param {boolean} whole Whether a whole value here is printed whole.
+ * @returns {{ kind: "accessor" | "whole", entry: string } | null} The first fault.
+ */
+function objectFault(children, lists, whole) {
+  for (const entry of splitAt(children, ",")) {
+    const keyed = isPunct(entry[1], ":");
+    const inner = expressionFault(keyed ? entry.slice(2) : entry, lists, whole);
+    if (inner !== null) return inner;
+  }
+  return null;
+}
+
+/**
+ * What a chain of members prints: an identifying accessor anywhere in it, unless a safe read
+ * follows; or, as the value printed, a whole value.
+ *
+ * @param {{ name: string, called: boolean }[]} members The chain, from its first name.
+ * @param {ReturnType<typeof printLists>} lists The lists.
+ * @param {boolean} whole Whether a whole value here is printed whole.
+ * @returns {{ kind: "accessor" | "whole", entry: string } | null} The fault.
+ */
+function membersFault(members, lists, whole) {
+  const names = members.map((member) => comparable(member.name));
+  for (const { entry, parts } of lists.accessors) {
+    for (let at = 0; at + parts.length <= names.length; at += 1) {
+      if (!parts.every((part, k) => names[at + k] === part)) continue;
+      const rest = members.slice(at + parts.length);
+      if (!rest.some((member) => SAFE_READS.includes(member.name))) {
+        return { kind: "accessor", entry };
+      }
+    }
+  }
+  if (!whole) return null;
+  let last = members.length - 1;
+  // Stryker disable next-line EqualityOperator: a chain that is only a to-text call is no whole value whether it is stepped past or not, so `>=` reads the same.
+  while (last > 0 && TO_TEXT.has(members[last].name) && members[last].called) last -= 1;
+  // `error.message` and `warning.message` are the text of an error or a warning, not a message.
+  if (last > 0 && names[last] === "message") return null;
+  const entry = lists.wholeValues.get(names[last]);
+  return entry === undefined ? null : { kind: "whole", entry };
+}
+
+/**
+ * The findings of one sample: each console, logger or printer call whose argument prints an
+ * identifying value. A finding names the line and the list entry it matched, never the argument.
+ *
+ * @param {string} code A TypeScript or JavaScript sample.
+ * @param {{ accessors?: readonly string[], wholeValues?: readonly string[], printers?: readonly string[] }} [extra]
+ *   A library's own entries, added to the lists.
+ * @returns {{ line: number, entry: string, message: string }[]} Each finding, its line 1-based in
+ *   the sample.
+ */
+export function samplePrintFindings(code, extra = {}) {
+  const lists = printLists(extra);
+  const findings = [];
+  const walk = (nodes) => {
+    for (let i = 0; i < nodes.length; i += 1) {
+      const node = nodes[i];
+      if (node.type === "group") walk(node.children);
+      if (node.type === "template") node.parts.forEach(walk);
+      if (node.type !== "ident" || isPunct(nodes[i - 1], ".") || isPunct(nodes[i - 1], "?.")) {
+        continue;
+      }
+      const names = [node.value];
+      let at = i + 1;
+      while (isPunct(nodes[at], ".") && nodes[at + 1]?.type === "ident") {
+        names.push(nodes[at + 1].value);
+        at += 2;
+      }
+      const call = nodes[at];
+      if (call?.type !== "group" || call.open !== "(" || !isPrinter(names, lists.printers))
+        continue;
+      const fault = listFault(call.children, ",", lists, true);
+      if (fault === null) continue;
+      const callee = names.join(".");
+      findings.push({
+        line: node.line + 1,
+        entry: fault.entry,
+        message:
+          fault.kind === "accessor"
+            ? `${callee} prints what "${fault.entry}" reads, which identifies a person: read it ` +
+              "into a variable or assert on it, with its synthetic value in a comment"
+            : `${callee} prints "${fault.entry}" whole, a message, segment, resource or person: ` +
+              "print a type, a code or a count from it instead",
+      });
+    }
+  };
+  walk(nest(tokenize(code)));
+  return findings;
+}
+
+/** A fence opener at any indent, as in a list item, with its language. */
+const SAMPLE_OPENER = /^\s*(`{3,}|~{3,})[ \t]*([^\s`]*)/;
+
+/** A fence closer at any indent. */
+const SAMPLE_CLOSER = /^\s*(`{3,}|~{3,})\s*$/;
+
+/**
+ * The TypeScript and JavaScript samples of a Markdown page: each fenced block whose language is in
+ * SAMPLE_LANGUAGES, with the 1-based page line of its first code line. An unclosed fence runs to
+ * the end of the page.
+ *
+ * @param {string} text A page.
+ * @returns {{ line: number, code: string }[]} The samples.
+ */
+export function sampleBlocks(text) {
+  const blocks = [];
+  let fence = null;
+  const close = () => {
+    if (SAMPLE_LANGUAGES.includes(fence.language)) {
+      blocks.push({ line: fence.line, code: fence.body.join("\n") });
+    }
+    fence = null;
+  };
+  for (const [index, line] of text.split(/\r?\n/).entries()) {
+    if (fence === null) {
+      const open = SAMPLE_OPENER.exec(line);
+      if (open !== null) {
+        fence = { run: open[1], language: open[2].toLowerCase(), line: index + 2, body: [] };
+      }
+      continue;
+    }
+    const run = SAMPLE_CLOSER.exec(line)?.[1];
+    if (run !== undefined && run[0] === fence.run[0] && run.length >= fence.run.length) close();
+    else fence.body.push(line);
+  }
+  if (fence !== null) close();
+  return blocks;
+}
+
+/**
+ * The print rule's findings in a repository's README and the pages at the top of docs-content/.
+ *
+ * @param {{ pages: { name: string, text: string }[], readme?: string | null }} input The pages, and
+ *   the README's text or null.
+ * @param {{ accessors?: readonly string[], wholeValues?: readonly string[], printers?: readonly string[] }} [extra]
+ *   A library's own entries.
+ * @returns {{ file: string, line: number, rule: "example-print", message: string }[]} Each finding,
+ *   its file relative to the repository root.
+ */
+export function examplePrintFindings(input, extra = {}) {
+  const files = [];
+  if (typeof input.readme === "string") files.push({ file: "README.md", text: input.readme });
+  for (const page of input.pages) {
+    files.push({ file: `${DOCS_DIR}/${page.name}.md`, text: page.text });
+  }
+  const findings = [];
+  for (const { file, text } of files) {
+    for (const block of sampleBlocks(text)) {
+      for (const found of samplePrintFindings(block.code, extra)) {
+        findings.push({
+          file,
+          line: block.line + found.line - 1,
+          rule: PRINT_RULE,
+          message: found.message,
+        });
+      }
+    }
+  }
+  return findings;
+}
+
+/**
+ * Read the print rule's settings from cosyte-docs-content.config.json at a repository root. With
+ * no file, the rule is advisory and its lists are the defaults.
+ *
+ * @param {string} root The repository root.
+ * @returns {{ required: boolean, accessors: string[], wholeValues: string[], printers: string[] }}
+ * @throws {DocsContentRefusal} When the file is not a regular file, is not JSON, or holds a key or a
+ *   value the rule does not take.
+ */
+export function readPrintConfig(root) {
+  const settings = { required: false, accessors: [], wholeValues: [], printers: [] };
+  const path = join(root, PRINT_CONFIG_FILE);
+  const stats = lstatSync(path, { throwIfNoEntry: false });
+  if (stats === undefined) return settings;
+  const text = readOrRefuse(path, stats);
+  const refuse = (what) => new DocsContentRefusal(`${PRINT_CONFIG_FILE} ${what}.`);
+  let config;
+  try {
+    config = JSON.parse(text);
+  } catch (error) {
+    throw refuse(`is not JSON (${error.message})`);
+  }
+  if (!isRecord(config)) throw refuse("is not a JSON object");
+  for (const key of Object.keys(config)) {
+    if (key !== PRINT_CONFIG_KEY) {
+      throw refuse(`holds "${key}"; the only key it takes is "${PRINT_CONFIG_KEY}"`);
+    }
+  }
+  const rule = config[PRINT_CONFIG_KEY] ?? {};
+  if (!isRecord(rule)) throw refuse(`holds "${PRINT_CONFIG_KEY}" that is not an object`);
+  for (const [key, value] of Object.entries(rule)) {
+    const where = `"${PRINT_CONFIG_KEY}.${key}"`;
+    if (!PRINT_CONFIG_KEYS.includes(key)) {
+      throw refuse(`holds ${where}; it takes only ${PRINT_CONFIG_KEYS.join(", ")}`);
+    }
+    if (key === "required") {
+      if (typeof value !== "boolean") throw refuse(`holds ${where} that is not true or false`);
+      settings.required = value;
+    } else {
+      const names =
+        Array.isArray(value) && value.every((item) => typeof item === "string" && item.trim());
+      if (!names) throw refuse(`holds ${where} that is not a list of names`);
+      settings[key] = value;
+    }
+  }
+  return settings;
+}
+
+/**
+ * The README at a repository root, or null when there is none.
+ *
+ * @param {string} root The repository root.
+ * @returns {string | null} Its text.
+ * @throws {DocsContentRefusal} When it is there and is not a regular file it can read.
+ */
+export function readReadme(root) {
+  const path = join(root, "README.md");
+  const stats = lstatSync(path, { throwIfNoEntry: false });
+  return stats === undefined ? null : readOrRefuse(path, stats);
+}
+
 /**
  * Read docs-content/ under a repository root.
  *
@@ -1782,7 +2541,8 @@ function readOrRefuse(path, entry) {
  *
  * The findings of the ratcheted rules are held to the counts the ratchet records for the library
  * (the name in the repository's package.json); warnings, held findings and counts that can be
- * lowered go to stdout, and never change the exit code.
+ * lowered go to stdout, and never change the exit code. The print rule's findings go to stdout too
+ * while it is advisory, and fail once cosyte-docs-content.config.json requires it.
  *
  * @param {{ argv?: string[], dir?: string, stdout?: { write(text: string): unknown }, stderr?: { write(text: string): unknown }, ratchet?: Readonly<Record<string, Readonly<Record<string, number>>>> }} [options]
  * @returns {number} 0 clean, 1 a finding, 2 the check could not run.
@@ -1808,6 +2568,8 @@ export function runDocsContentCheck(options = {}) {
     }
   }
   let input;
+  let print;
+  let readme;
   try {
     if (write) {
       for (const file of writeExamplePages(resolve(dir))) {
@@ -1815,6 +2577,8 @@ export function runDocsContentCheck(options = {}) {
       }
     }
     input = readDocsContent(resolve(dir));
+    print = readPrintConfig(resolve(dir));
+    readme = readReadme(resolve(dir));
   } catch (error) {
     // Every way reading fails is a refusal: the folder, a listing and a file each raise one.
     stderr.write(`docs-content: ${error.message} Nothing was checked.\n`);
@@ -1830,8 +2594,20 @@ export function runDocsContentCheck(options = {}) {
   );
   const where = (f) =>
     `  ${DOCS_DIR}/${f.file}${f.line > 0 ? `:${f.line}` : ""} [${f.rule}] ${f.message}`;
+  // A print finding's file is relative to the repository root: it may be the README.
+  const printed = examplePrintFindings({ pages: input.pages, readme }, print).map(
+    (f) => `  ${f.file}:${f.line} [${f.rule}] ${f.message}`,
+  );
+  const failingPrints = print.required ? printed : [];
   const notes = [];
   for (const warning of docsContentWarnings(input)) notes.push(`${where(warning)} (a warning)`);
+  if (!print.required && printed.length > 0) {
+    notes.push(
+      `docs-content: ${printed.length} sample print(s) of an identifying value, advisory until ` +
+        `${PRINT_CONFIG_FILE} sets "${PRINT_CONFIG_KEY}": { "required": true }:`,
+      ...printed,
+    );
+  }
   if (held.length > 0) {
     notes.push(
       `docs-content: ${held.length} finding(s) held by the ratchet for ${library}, at or under ` +
@@ -1846,7 +2622,7 @@ export function runDocsContentCheck(options = {}) {
     );
   }
   if (notes.length > 0) stdout.write(`${notes.join("\n")}\n`);
-  if (failing.length === 0) {
+  if (failing.length === 0 && failingPrints.length === 0) {
     stdout.write(`docs-content: OK (${input.pages.length} page(s) checked)\n`);
     return 0;
   }
@@ -1856,8 +2632,9 @@ export function runDocsContentCheck(options = {}) {
       `${library ?? "this repository"}, so each one fails.`,
   );
   stderr.write(
-    `docs-content: ${failing.length} finding(s) in ${input.pages.length} page(s).\n` +
-      failing.map(where).join("\n") +
+    `docs-content: ${failing.length + failingPrints.length} finding(s) in ` +
+      `${input.pages.length} page(s).\n` +
+      [...failing.map(where), ...failingPrints].join("\n") +
       "\n" +
       overLines.map((line) => `${line}\n`).join(""),
   );

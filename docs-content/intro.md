@@ -2,11 +2,12 @@
 id: intro
 title: The standards every Cosyte package is held to
 sidebar_label: Overview
-description: "The testing and performance standards that every Cosyte library's quality pages are measured against."
+description: "The testing, performance and docs-content standards that every Cosyte library's pages are measured against."
 ---
 
 A Cosyte library's "Testing and quality" and "Performance" pages give its own numbers and link here
-for the method behind them. These pages hold that method:
+for the method behind them, and every library's pages follow one shape. These pages hold that method
+and that shape:
 
 - [The testing standard](./testing-standard.md): what we test and why, the coverage floor that
   only rises, a change's own code at 100%, mutation testing, property-based testing, and what each
@@ -14,7 +15,10 @@ for the method behind them. These pages hold that method:
 - [The performance standard](./performance-standard.md): what we measure (throughput, latency,
   memory, import time and bundle size), with which instrument, how much noise each instrument has,
   and what it cannot detect.
+- [The docs-content standard](./docs-content-standard.md): the kinds of page every library has and
+  where they go, samples that run, a page for each runnable example, what an example may print, and
+  the checks that hold each library to it.
 
-Both are decision records in [cosyte/config](https://github.com/cosyte/config), the repository that
+Each is a decision record in [cosyte/config](https://github.com/cosyte/config), the repository that
 publishes the shared toolchain the libraries build, lint and test with. The record is the source,
 and each page here is written from it, so the two cannot disagree.

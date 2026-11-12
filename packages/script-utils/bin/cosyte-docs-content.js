@@ -37,6 +37,14 @@ runs, and without --write a Code section that differs from the file is a finding
 creates a page; what an example shows, how to run it and what it prints are written by hand. The
 ratchet holds these rules too, at each library's recorded count of examples with no page.
 
+Each TypeScript or JavaScript sample in README.md and the pages is read for what it prints: a
+console, logger or printer call never passes a value that identifies a person, such as
+msg.patient.mrn, or a whole message, segment, resource or person. A finding names the file, the
+line and the list entry it matched, never the value. It is advisory, listed and never failing,
+until cosyte-docs-content.config.json at the repository root sets
+"examplePrint": { "required": true }; that file's "accessors", "wholeValues" and "printers" add a
+library's own names to the lists.
+
 It does not read links (the shared CI's docs-content link check does), the generated pages under
 api/ (cosyte-docs-reference checks those), or whether a sample runs (the sample runner in
 @cosyte/vitest-config does). Exit 0 clean, 1 a finding, 2 the check could not run.

@@ -48,9 +48,10 @@ actionlint
 Outside CI, set `RUNNER_TEMP` to a scratch directory, and run `drift-check.js` from a checkout whose
 directory is named `config`: under any other name it exits 2, "nothing was graded".
 
-`docs-content/` holds the testing and performance standards as pages for docs.cosyte.com.
-`testing-standard.md` and `performance-standard.md` are written from
-`documentation/decisions/0004-the-testing-standard.md` and `0005-the-performance-standard.md` by
+`docs-content/` holds the testing, performance and docs-content standards as pages for
+docs.cosyte.com. `testing-standard.md`, `performance-standard.md` and `docs-content-standard.md` are
+written from `documentation/decisions/0004-the-testing-standard.md`,
+`0005-the-performance-standard.md` and `0006-the-docs-content-standard.md` by
 `node scripts/standards-pages.mjs`: change the record, then run it. CI also runs the shared
 docs-content link check over the folder, and each release attaches it as `docs-content.tar.gz`
 (`scripts/pack-docs-content.sh`).

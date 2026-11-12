@@ -3,10 +3,12 @@
 - **Status:** Proposed (2026-11-10), for review before merge. Revised the same day from what the
   pilot on `hl7` found (section 11). Revised on 2026-11-12 with the rules on what each kind of page
   holds, from a Diataxis audit of every library's pages (section 12). Revised on 2026-11-12 again
-  with a page for each runnable example, under an Examples category (section 13).
+  with a page for each runnable example, under an Examples category (section 13). Revised on
+  2026-11-12 a third time with what an example may print (section 14).
 - **Scope:** the `docs-content/` folder of every `@cosyte/*` library: the pages docs.cosyte.com
   renders from each release's `docs-content.tar.gz`. It does not reach a package's README, which
-  `scripts/readme-check.mjs` governs.
+  `scripts/readme-check.mjs` governs, except for what a sample may print (section 14), which holds
+  for the README's samples as for the pages'.
 - **Relates to:** [`packages/script-utils/docs-content.js`](../../packages/script-utils/docs-content.js)
   (the structure check) · [`packages/process/src/docs-reference.ts`](../../packages/process/src/docs-reference.ts)
   (the reference generator) · [`packages/vitest-config/snippets.js`](../../packages/vitest-config/snippets.js)
@@ -258,6 +260,7 @@ release" with the reason, never left out.
 | Check                                                        | Catches                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Cannot catch                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `cosyte-docs-content` (`@cosyte/script-utils`)               | the sidebar's shape and order; a page not listed, listed twice, or listed and missing; a missing required page; missing or empty front matter keys, an `id` that is not the file name, a description over 160 characters, `sidebar_position`; a page name or place outside the rules; a quality page with no "Current numbers" section, or with anything in it but the placeholder; a link into the reference whose page is not generated or whose anchor no heading on it gets; each pattern section 12 gives for what a kind of page holds; a runnable example with no page, an example page with no example or outside Examples, and a Code section that differs from the example's file (section 13) | whether a page holds what its kind asks beyond those patterns (section 12 lists what each cannot see); whether an example page's expected output is what the example prints, or its prose is true of it (section 13); any other broken link (the shared CI's docs-content link check resolves those); a heading the generator writes in a form the slug reading does not know (setext, an explicit `{#id}`, HTML or an entity in the heading); a brace that breaks the MDX build; prose quality |
+| `cosyte-docs-content`, the print rule (section 14)           | a console, logger or printer call in a README or page sample whose argument reads an identifying accessor or is a whole message, segment, resource or person                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | a value carried under another name; a field the lists do not name; a value printed by a call the check does not know as a printer; whether a value it allows is in fact safe                                                                                                                                                                                                                                                                                                                    |
 | `cosyte-docs-reference` (`@cosyte/process`)                  | an export with no TSDoc summary; a markdown heading in any TSDoc comment; committed reference pages that no longer match the source                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | an undocumented member; a comment that is wrong; an `@example` that does not run; a heading inside a list or a quote in a comment                                                                                                                                                                                                                                                                                                                                                               |
 | `docSnippetSuite({ every: true })` (`@cosyte/vitest-config`) | a sample that throws, fails an `// =>` assertion, does not compile as JavaScript, or a `throws` sample that does not throw; a TypeScript sample with a type error against the package's built types; a `no-run` or `no-typecheck` with no reason                                                                                                                                                                                                                                                                                                                                                                                                                                                         | a sample whose output is right but whose prose is wrong; whether the data in a sample is synthetic; a sample that runs but proves nothing because it asserts nothing; the types of a JavaScript sample                                                                                                                                                                                                                                                                                          |
 
@@ -462,6 +465,95 @@ umbrella pinned that day; `pathways` has none. So every runnable example has a p
 not. A library that takes this version needs no page at once; it writes them as it can, and its
 count is lowered with each.
 
+### 14. What an example may print
+
+Each library's README and pages print fields from their samples with `console.log`, and on
+2026-11-12 several printed a patient's name, record number or date of birth. The values are
+synthetic, but the page is published, and a reader copies what it does into code that runs on real
+messages: an example that logs a patient's name teaches a reader to log one. So the rule is the
+same everywhere:
+
+- **An example never passes a value that identifies a patient or another person to `console.log`
+  or any other logger or printer:** a name, a record or member number, a date of birth, an address,
+  a phone number, an email, a free-text note, or a whole message, segment or resource.
+- **To show what a field holds, the example reads it into a variable or asserts on it,** with the
+  synthetic value in a comment beside it, marked as synthetic.
+- **What an example prints is what is safe to log:** message types, codes from a code system,
+  counts, lengths, positions, the precision of a date, warning and error codes, and booleans.
+- **Every sample still runs** (section 7): a print is replaced by a read or an assertion, never
+  removed, so no example becomes code that nothing executes.
+
+Wrong, since it prints the record number and the whole message:
+
+```ts
+const msg = parseMessage(SAMPLE);
+console.log("Record number:", msg.patient?.mrn);
+console.log(msg);
+```
+
+Right, since it prints a type and a count, and shows the record number in a comment:
+
+```ts
+const msg = parseMessage(SAMPLE);
+const mrn = msg.patient?.mrn; // "SYN-000123", synthetic
+console.log("Message type:", msg.meta.type);
+console.log("Warnings:", msg.warnings.length);
+```
+
+An assertion shows a field as well, with the same mark: `msg.patient?.mrn; // => "SYN-000123"`,
+on a line under a comment that says the value is synthetic.
+
+**The check.** `cosyte-docs-content` reads each TypeScript and JavaScript sample (the fences of
+section 7) in the README and in the pages at the top of `docs-content/`, example pages included. It
+finds each call that prints: the `console` methods that print, `process.stdout.write` and
+`process.stderr.write`, and the printing methods (`info`, `warn`, `error` and the like) of any object
+named `log`, `logger` or ending in `Logger`. A call is a finding, under the rule `example-print`, when
+an argument:
+
+- reads an identifying accessor anywhere in its chain (`msg.patient.mrn`, `doc.getMrn()`,
+  `row["mrn"]`, `{ mrn }`, or a template that interpolates one), unless a `length`, `size` or
+  `precision` read follows it. The list is `IDENTIFYING_ACCESSORS` in `@cosyte/script-utils`. A name
+  is matched with any `get` prefix, case, `_` and `-` set aside, and a dotted entry such as
+  `patient.id` or `name.family` matches those members in a row, for a name that identifies a person
+  only after another;
+- or is a whole message, segment, resource or person, as the value printed: `console.log(msg)`, a
+  template that interpolates `segment`, `JSON.stringify(bundle)` or `msg.toString()`. The list is
+  `WHOLE_VALUES`. A field of one (`msg.meta.type`) is not a whole value, and `error.message` is the
+  text of an error, not a message.
+
+A comparison, a negation, `typeof`, the condition of a conditional, a string literal, a comment and
+an object's keys are not read as printed values. A finding names the file, the line and the list
+entry it matched, never the argument, which may hold a synthetic value.
+
+**Each library extends the lists** in `cosyte-docs-content.config.json` at its repository root,
+for the accessors, whole values and printers its own API has:
+
+```json
+{
+  "examplePrint": {
+    "accessors": ["practiceAssignedId"],
+    "wholeValues": ["dataset"],
+    "printers": ["out.print"]
+  }
+}
+```
+
+The file takes only the key `examplePrint`, and under it only `required`, `accessors`, `wholeValues`
+and `printers`; anything else, or a file that is not JSON, stops the check with exit 2, so a
+misspelled key is not silently ignored.
+
+**Advisory, then required.** The rule lands advisory: its findings are listed on stdout and never
+change the exit code, so no library goes red the day it takes the release. Each library sweeps its
+README and pages, one pull request each, and in the same pull request turns the rule on by setting
+`"required": true` under `examplePrint`; from then on each finding fails the check. Unlike the rules
+the ratchet holds (section 12), it has no count to fall from: a library is advisory or required.
+
+**What it cannot catch.** It reads a sample as tokens, not as a program, so it cannot see a value
+carried under another name (`const id = msg.patient.mrn; console.log(id)`), a field its lists do not
+name, a value read by a path string (`get("PID-5")`), or a print through a function it does not know
+as a printer. Nor can it tell whether a value it allows, such as a free-text field under another
+name, is safe to print. Review reads for those.
+
 ## Consequences
 
 - Every library's docs-content changes: pages move between categories, the two quality pages are
@@ -469,6 +561,8 @@ count is lowered with each.
 - A pull request that changes an export also changes `docs-content/api/`, and review sees it.
 - A pull request that changes an example also changes its page's Code section, and a new example
   comes with its page (section 13).
+- Every library sweeps its README and pages for samples that print an identifying value, and turns
+  the print rule on once they are clean (section 14).
 - docs.cosyte.com has to accept the four new category labels before the first library releases
   with them. It generates its own reference from the source asset today and keeps doing so; it can
   read the committed pages instead later, which would also let the reference carry its source links.
@@ -502,5 +596,13 @@ count is lowered with each.
 - **Leave the example rules out of the ratchet.** Every library holding examples would fail the
   check the day it took the release, until it wrote a page for each of its examples (66 in all);
   the ratchet holds today's missing pages and still fails a new example without one.
+- **Make the print rule required the day it lands.** Every library whose samples hold a finding
+  would fail until it was swept, and no other change could merge there first; so the rule starts
+  advisory, and each library turns it on with its sweep.
+- **Parse samples with the TypeScript compiler for the print rule.** It would follow a value from
+  one name to another, but `@cosyte/script-utils` takes no dependencies, and the lists of names are
+  the part that needs review whichever way the code is read.
+- **Look for the synthetic values themselves rather than the accessors.** A value differs in every
+  sample and every library; the accessors that read one are few and are the same across samples.
 - **Warn on every rule instead of failing.** A warning in a log is read once and then not at all;
   only the measured-number rule, which a check cannot read reliably, is a warning.

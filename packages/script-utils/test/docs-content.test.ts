@@ -24,6 +24,7 @@ import {
   NUMBERS_HEADING,
   NUMBERS_PLACEHOLDER,
   parseFrontMatter,
+  PRINT_RULE,
   QUALITY_PAGES,
   RATCHETED_RULES,
   readDocsContent,
@@ -186,6 +187,7 @@ describe("the standard's constants", () => {
       ...EXAMPLE_RULES,
       ...RATCHETED_RULES.filter((rule) => !(EXAMPLE_RULES as readonly string[]).includes(rule)),
       ...WARNING_RULES,
+      PRINT_RULE,
     ]);
     expect(Object.fromEntries(STRUCTURE_RULES.map((r) => [r, DOCS_CONTENT_RULES[r]]))).toEqual({
       sidebar: "sidebars.json holds one `docs` sidebar in the standard shape",

@@ -94,7 +94,8 @@ export type DocsContentRule =
   | "reference-link"
   | DocsContentExampleRule
   | DocsContentRatchetedRule
-  | DocsContentWarningRule;
+  | DocsContentWarningRule
+  | "example-print";
 
 /** Every rule, with what it requires. */
 export declare const DOCS_CONTENT_RULES: Readonly<Record<DocsContentRule, string>>;
@@ -399,9 +400,145 @@ export interface DocsContentCheckOptions {
 /**
  * Check docs-content/ in a repository and report. Findings of the ratcheted rules are held to the
  * counts the ratchet records for the library; warnings, held findings and counts that can be
- * lowered go to stdout and never change the exit code.
+ * lowered go to stdout and never change the exit code. The print rule reads the samples in the
+ * README and the pages: its findings go to stdout while it is advisory, and fail once the
+ * library's cosyte-docs-content.config.json sets `"examplePrint": { "required": true }`.
  *
  * @param options - Arguments, the root and the streams.
  * @returns 0 clean, 1 a finding, 2 the check could not run.
  */
 export declare function runDocsContentCheck(options?: DocsContentCheckOptions): 0 | 1 | 2;
+
+/** The rule a finding on what a sample prints carries. */
+export declare const PRINT_RULE: "example-print";
+
+/** The file at the repository root that turns the print rule on and extends its lists. */
+export declare const PRINT_CONFIG_FILE: "cosyte-docs-content.config.json";
+
+/** The key in that file the print rule reads. */
+export declare const PRINT_CONFIG_KEY: "examplePrint";
+
+/** The keys the print rule's object in that file takes. */
+export declare const PRINT_CONFIG_KEYS: readonly [
+  "required",
+  "accessors",
+  "wholeValues",
+  "printers",
+];
+
+/** The fence languages of a sample, as the sample runner reads them. */
+export declare const SAMPLE_LANGUAGES: readonly string[];
+
+/**
+ * The accessors whose value identifies a patient or another person. A member is matched with any
+ * `get` prefix, case, `_` and `-` set aside; a dotted entry (`patient.id`) matches those members in
+ * a row. A library adds its own in cosyte-docs-content.config.json.
+ */
+export declare const IDENTIFYING_ACCESSORS: readonly string[];
+
+/** The names of a whole message, segment, resource or person, a finding when printed whole. */
+export declare const WHOLE_VALUES: readonly string[];
+
+/** What a sample may read after an identifying accessor and print: `length`, `size`, `precision`. */
+export declare const SAFE_READS: readonly string[];
+
+/** The console methods that print. */
+export declare const CONSOLE_METHODS: readonly string[];
+
+/** The methods of a logger (`log`, `logger`, `this.logger`, `auditLogger`) that print. */
+export declare const LOGGER_METHODS: readonly string[];
+
+/** The stream writes that print. */
+export declare const STREAM_PRINTERS: readonly ["process.stdout.write", "process.stderr.write"];
+
+/** A library's own entries for the print rule's lists. */
+export interface PrintListExtras {
+  /** Identifying accessors, added to {@link IDENTIFYING_ACCESSORS}. */
+  accessors?: readonly string[];
+  /** Whole values, added to {@link WHOLE_VALUES}. */
+  wholeValues?: readonly string[];
+  /** Printers, as dotted call names (`out.print`). */
+  printers?: readonly string[];
+}
+
+/** The print rule's settings, as read from cosyte-docs-content.config.json. */
+export interface PrintSettings {
+  /** Whether a finding fails the check. Default false: the rule is advisory. */
+  required: boolean;
+  accessors: string[];
+  wholeValues: string[];
+  printers: string[];
+}
+
+/** A finding in one sample. */
+export interface SamplePrintFinding {
+  /** The 1-based line of the call, in the sample. */
+  line: number;
+  /** The list entry the argument matched. */
+  entry: string;
+  /** What is wrong, naming the call and the entry, never the argument. */
+  message: string;
+}
+
+/** A finding of the print rule in a repository. */
+export interface PrintFinding {
+  /** The file, relative to the repository root: `README.md` or `docs-content/<page>.md`. */
+  file: string;
+  /** The 1-based line of the call in that file. */
+  line: number;
+  rule: "example-print";
+  message: string;
+}
+
+/**
+ * The findings of one sample: each console, logger or printer call whose argument prints an
+ * identifying value.
+ *
+ * @param code - A TypeScript or JavaScript sample.
+ * @param extra - A library's own entries, added to the lists.
+ * @returns Each finding.
+ */
+export declare function samplePrintFindings(
+  code: string,
+  extra?: PrintListExtras,
+): SamplePrintFinding[];
+
+/**
+ * The TypeScript and JavaScript samples of a Markdown page, each with the 1-based page line of its
+ * first code line.
+ *
+ * @param text - A page.
+ * @returns The samples.
+ */
+export declare function sampleBlocks(text: string): { line: number; code: string }[];
+
+/**
+ * The print rule's findings in a repository's README and the pages at the top of docs-content/.
+ *
+ * @param input - The pages, and the README's text or null.
+ * @param extra - A library's own entries.
+ * @returns Each finding.
+ */
+export declare function examplePrintFindings(
+  input: { pages: { name: string; text: string }[]; readme?: string | null },
+  extra?: PrintListExtras,
+): PrintFinding[];
+
+/**
+ * Read the print rule's settings from cosyte-docs-content.config.json at a repository root.
+ *
+ * @param root - The repository root.
+ * @returns The settings; advisory with the default lists when there is no file.
+ * @throws {@link DocsContentRefusal} When the file is not a regular file, is not JSON, or holds a
+ *   key or value the rule does not take.
+ */
+export declare function readPrintConfig(root: string): PrintSettings;
+
+/**
+ * The README at a repository root, or null when there is none.
+ *
+ * @param root - The repository root.
+ * @returns Its text.
+ * @throws {@link DocsContentRefusal} When it is there and is not a regular file it can read.
+ */
+export declare function readReadme(root: string): string | null;
