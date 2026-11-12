@@ -21,6 +21,12 @@
 // findings under these rules are held by the ratchet (docs-content-ratchet.json) at the counts it
 // had when they landed, which only fall. A measured number outside "Current numbers" is a warning.
 //
+// It reads the runnable examples at the top of examples/: each has a page, example-<name>.md, listed
+// under Examples, whose Code section is the example's file. `--write` writes that section from the
+// file (writeExamplePages); the check fails when it differs, so the code is never pasted by hand.
+// The ratchet holds these rules too, at each library's count of examples with no page when they
+// landed.
+//
 // WHAT IT DOES NOT CHECK. Any other link, and images: the shared CI's docs-content link check
 // resolves those. The pages under `api/` themselves: the reference generator writes them and checks
 // them itself; here they are only read for their headings. Whether a sample runs: the sample runner
@@ -32,7 +38,16 @@
 // Zero dependencies, like the rest of this package: the front matter is read by hand, for the one
 // form the standard allows (one `key: value` per line), rather than by a YAML parser.
 
-import { lstatSync, readFileSync, readdirSync } from "node:fs";
+import {
+  closeSync,
+  constants,
+  ftruncateSync,
+  lstatSync,
+  openSync,
+  readFileSync,
+  readdirSync,
+  writeSync,
+} from "node:fs";
 import { join, resolve } from "node:path";
 
 /** The folder this check reads, at the repository root. */
@@ -66,6 +81,7 @@ export const CATEGORIES = Object.freeze([
   Object.freeze({ label: "Quickstart", required: true, first: "quickstart" }),
   Object.freeze({ label: "Tutorials", required: false, first: null }),
   Object.freeze({ label: "How-to guides", required: true, first: null }),
+  Object.freeze({ label: "Examples", required: false, first: null }),
   Object.freeze({ label: "Explanation", required: true, first: null }),
   Object.freeze({ label: "Reference", required: false, first: null }),
   Object.freeze({ label: "Troubleshooting", required: true, first: "troubleshooting" }),
@@ -111,6 +127,11 @@ export const DOCS_CONTENT_RULES = Object.freeze({
   numbers: `both quality pages carry the "${NUMBERS_HEADING.slice(3)}" section, holding only the placeholder`,
   "reference-link":
     "a link into the generated reference names a page under api/ and, after #, a heading on it",
+  "example-page":
+    "every runnable example in examples/ has a page, example-<name>, listed under Examples, " +
+    "with the headings What it shows, Run it, Expected output (holding a fenced block) and Code",
+  "example-code":
+    "an example page's Code section is the example's file, written by cosyte-docs-content --write",
   "howto-title": "a how-to guide's title states its goal and begins with a verb in the imperative",
   "howto-steps":
     "a how-to holds steps; how and why it works goes in an explanation it links. A how-to has " +
@@ -134,9 +155,43 @@ export const DOCS_CONTENT_RULES = Object.freeze({
 });
 
 /**
- * The rules that read whether a page holds what its kind asks. A library's findings under them are
- * held by the ratchet up to the counts it records for that library (docs-content-ratchet.json), so
- * a library can only have fewer.
+ * The rules on example pages. The ratchet holds them too: a library's examples with no page are held
+ * at the count it had when the rules landed, which only falls, so no library fails the day it takes
+ * them and none can add an example without a page. No library records an `example-code` count, so a
+ * Code section that differs from its file fails everywhere; `cosyte-docs-content --write` fixes it.
+ */
+export const EXAMPLE_RULES = Object.freeze(["example-page", "example-code"]);
+
+/** The folder at the repository root whose top-level scripts are the library's runnable examples. */
+export const EXAMPLES_DIR = "examples";
+
+/** The sidebar category that lists the example pages. */
+export const EXAMPLES_CATEGORY = "Examples";
+
+/** How an example page's id starts: `example-<name>`, the name being the file's without extension. */
+export const EXAMPLE_PAGE_PREFIX = "example-";
+
+/** The H2 headings every example page has, in this order. The last one's section is generated. */
+export const EXAMPLE_HEADINGS = Object.freeze([
+  "What it shows",
+  "Run it",
+  "Expected output",
+  "Code",
+]);
+
+/** The heading the generated part of an example page starts at, which runs to the end of the page. */
+export const CODE_HEADING = "## Code";
+
+/** The extensions of a runnable example, with the fence language its code is shown in. */
+const EXAMPLE_LANGUAGES = Object.freeze({ ".ts": "ts", ".mts": "ts", ".js": "js", ".mjs": "js" });
+
+/** The reason the sample runner reads after `no-run` in an example's code fence. */
+const EXAMPLE_NO_RUN = "the example file itself, which the library runs from examples/";
+
+/**
+ * The rules that read whether a page holds what its kind asks, and the rules on example pages. A
+ * library's findings under them are held by the ratchet up to the counts it records for that
+ * library (docs-content-ratchet.json), so a library can only have fewer.
  */
 export const RATCHETED_RULES = Object.freeze([
   "howto-title",
@@ -146,6 +201,7 @@ export const RATCHETED_RULES = Object.freeze([
   "tutorial-steps",
   "page-id",
   "reference-source",
+  ...EXAMPLE_RULES,
 ]);
 
 /** The rules that only warn: a check can only approximate them, so a hit never fails. */
@@ -1105,6 +1161,322 @@ export function docsContentWarnings(input) {
 }
 
 /**
+ * Whether a file at the top of examples/ is a runnable example: a `.ts`, `.mts`, `.js` or `.mjs`
+ * script whose name does not begin with `_` or `.` (a helper the examples import), and that is not a
+ * declaration file, a test or a tool's configuration (`eslint.config.js`).
+ *
+ * @param {string} name The file name.
+ * @returns {boolean} True for a runnable example.
+ */
+export function isExampleFile(name) {
+  if (name.startsWith("_") || name.startsWith(".")) return false;
+  if (/\.d\.m?ts$/.test(name) || /\.(?:test|spec|config)\./.test(name)) return false;
+  const dot = name.lastIndexOf(".");
+  return dot > 0 && Object.hasOwn(EXAMPLE_LANGUAGES, name.slice(dot));
+}
+
+/**
+ * An example's name: its file name without the extension. Its page is `example-<name>.md`.
+ *
+ * @param {string} file The example's file name.
+ * @returns {string} The name.
+ */
+export function exampleStem(file) {
+  const dot = file.lastIndexOf(".");
+  return dot > 0 ? file.slice(0, dot) : file;
+}
+
+/**
+ * The fence language an example's code is shown in: `ts` for `.ts` and `.mts`, else `js`.
+ *
+ * @param {string} file The example's file name.
+ * @returns {"ts" | "js"} The language.
+ */
+export function exampleLanguage(file) {
+  return EXAMPLE_LANGUAGES[file.slice(file.lastIndexOf("."))] ?? "js";
+}
+
+/**
+ * The generated Code section of an example page: the whole file, in a fence one backtick longer than
+ * its longest backtick run, titled with its path and marked `no-run`, since the sample runner would
+ * otherwise run it away from the files it imports. Line endings are read as LF, and the file's
+ * trailing blank lines are dropped.
+ *
+ * @param {string} file The example's file name, under examples/.
+ * @param {string} text The file's text.
+ * @returns {string} The section, from its heading to the end of the page, ending in one newline.
+ */
+export function exampleCodeSection(file, text) {
+  const code = text.replaceAll("\r\n", "\n").replace(/\n+$/, "");
+  const longest = Math.max(0, ...(code.match(/`+/g) ?? []).map((run) => run.length));
+  const fence = "`".repeat(Math.max(3, longest + 1));
+  const path = `${EXAMPLES_DIR}/${file}`;
+  return (
+    `${CODE_HEADING}\n\n` +
+    `The whole of \`${path}\`, included from the file: \`cosyte-docs-content --write\` writes ` +
+    "this section, and the check fails when it differs from the file, so it is never edited by " +
+    "hand.\n\n" +
+    `${fence}${exampleLanguage(file)} title="${path}" no-run ${EXAMPLE_NO_RUN}\n` +
+    `${code}\n${fence}\n`
+  );
+}
+
+/**
+ * The examples a page can be made for, by name, and a finding for each that cannot: a name that is
+ * not a page name, or two files with one name.
+ *
+ * @param {{ file: string, text: string }[]} examples The runnable examples.
+ * @param {(file: string, line: number, rule: string, message: string) => void} [add] Records a finding.
+ * @returns {Map<string, { file: string, text: string }>} Each example a page is made for, by name.
+ */
+function examplesByName(examples, add = () => {}) {
+  const byName = new Map();
+  for (const example of examples) {
+    const name = exampleStem(example.file);
+    if (!PAGE_NAME.test(name)) {
+      add(
+        `${EXAMPLE_PAGE_PREFIX}${name}.md`,
+        0,
+        "example-page",
+        `${EXAMPLES_DIR}/${example.file}: an example's name is lower-case words joined by single ` +
+          `hyphens, since its page is ${EXAMPLE_PAGE_PREFIX}<name>.md: rename the file`,
+      );
+      continue;
+    }
+    byName.set(name, [...(byName.get(name) ?? []), example]);
+  }
+  const usable = new Map();
+  for (const [name, files] of byName) {
+    if (files.length === 1) {
+      usable.set(name, files[0]);
+      continue;
+    }
+    const paths = files.map((example) => `${EXAMPLES_DIR}/${example.file}`).sort();
+    add(
+      `${EXAMPLE_PAGE_PREFIX}${name}.md`,
+      0,
+      "example-page",
+      `${paths.join(" and ")} would share the page ${EXAMPLE_PAGE_PREFIX}${name}.md: rename one`,
+    );
+  }
+  return usable;
+}
+
+/** The four headings of an example page, as a reader is told them. */
+const EXAMPLE_HEADINGS_TEXT = `${EXAMPLE_HEADINGS.slice(0, -1).join(", ")} and ${EXAMPLE_HEADINGS.at(-1)}, in that order`;
+
+/**
+ * Check every example page against its example: each example has its page, listed under Examples,
+ * with the four headings in order, a fenced block under Expected output, and a Code section that is
+ * what the generator writes from the file; each example page has its example; and the Examples
+ * category holds example pages only.
+ *
+ * @param {{ name: string, text: string }[]} pages The pages.
+ * @param {Map<string, string>} kinds Each listed page's top-level category.
+ * @param {{ file: string, text: string }[]} examples The runnable examples.
+ * @param {(file: string, line: number, rule: string, message: string) => void} add Records a finding.
+ */
+function checkExamples(pages, kinds, examples, add) {
+  const byName = examplesByName(examples, add);
+  const stems = new Set(examples.map((example) => exampleStem(example.file)));
+  const byPage = new Map(pages.map((page) => [page.name, page]));
+  for (const [name, example] of byName) {
+    const id = `${EXAMPLE_PAGE_PREFIX}${name}`;
+    const file = `${id}.md`;
+    const page = byPage.get(id);
+    if (page === undefined) {
+      add(
+        file,
+        0,
+        "example-page",
+        `${EXAMPLES_DIR}/${example.file} has no page: write ${DOCS_DIR}/${file} with the headings ` +
+          `${EXAMPLE_HEADINGS.slice(0, -1).join(", ")} and ${EXAMPLE_HEADINGS.at(-1)}, list it ` +
+          `under ${EXAMPLES_CATEGORY} in ${SIDEBARS_FILE}, and run cosyte-docs-content --write to ` +
+          "fill in its Code section",
+      );
+      continue;
+    }
+    checkExamplePage(page, example, add);
+  }
+  for (const page of pages) {
+    const file = `${page.name}.md`;
+    const kind = kinds.get(page.name);
+    if (page.name.startsWith(EXAMPLE_PAGE_PREFIX)) {
+      const name = page.name.slice(EXAMPLE_PAGE_PREFIX.length);
+      if (!stems.has(name)) {
+        const tried = Object.keys(EXAMPLE_LANGUAGES)
+          .join(", ")
+          .replace(/, ([^,]*)$/, " or $1");
+        add(
+          file,
+          0,
+          "example-page",
+          `there is no example for this page: no ${EXAMPLES_DIR}/${name}${tried}`,
+        );
+      } else if (kind !== undefined && kind !== EXAMPLES_CATEGORY) {
+        add(
+          file,
+          0,
+          "example-page",
+          `the page is listed in "${kind}": an example page is listed under ${EXAMPLES_CATEGORY}`,
+        );
+      }
+    } else if (kind === EXAMPLES_CATEGORY) {
+      add(
+        file,
+        0,
+        "example-page",
+        `the ${EXAMPLES_CATEGORY} category holds only example pages, ${EXAMPLE_PAGE_PREFIX}<name>, ` +
+          `one for each example in ${EXAMPLES_DIR}/`,
+      );
+    }
+  }
+}
+
+/**
+ * Check one example page: its four headings in order, a fenced block under Expected output, and a
+ * Code section that is what the generator writes from the example.
+ *
+ * @param {{ name: string, text: string }} page The page.
+ * @param {{ file: string, text: string }} example Its example.
+ * @param {(file: string, line: number, rule: string, message: string) => void} add Records a finding.
+ */
+function checkExamplePage(page, example, add) {
+  const file = `${page.name}.md`;
+  const text = page.text.replaceAll("\r\n", "\n");
+  const sections = headings(text).filter((heading) => heading.level === 2);
+  const found = EXAMPLE_HEADINGS.map((want) => sections.find((h) => h.text === want));
+  let complete = true;
+  found.forEach((heading, index) => {
+    if (heading === undefined) {
+      complete = false;
+      add(
+        file,
+        0,
+        "example-page",
+        `the page has no "## ${EXAMPLE_HEADINGS[index]}" heading: an example page has the ` +
+          `headings ${EXAMPLE_HEADINGS_TEXT}`,
+      );
+    }
+  });
+  if (!complete) return;
+  for (let i = 1; i < found.length; i += 1) {
+    if (found[i].line < found[i - 1].line) {
+      add(
+        file,
+        found[i].line,
+        "example-page",
+        `the heading "${found[i].text}" is out of order: an example page has the headings ` +
+          EXAMPLE_HEADINGS_TEXT,
+      );
+      return;
+    }
+  }
+  const lines = text.split("\n");
+  const output = found[2];
+  // The section ends at the next H2, which is there: Code comes after it.
+  const next = sections.find((heading) => heading.line > output.line);
+  const body = lines.slice(output.line, next.line - 1);
+  if (!body.some((line) => FENCE.test(line))) {
+    add(
+      file,
+      output.line,
+      "example-page",
+      `the ${EXAMPLE_HEADINGS[2]} section holds no fenced block: put what the example prints in ` +
+        "one, as it prints it",
+    );
+  }
+  const code = found[3];
+  if (lines.slice(code.line - 1).join("\n") !== exampleCodeSection(example.file, example.text)) {
+    add(
+      file,
+      code.line,
+      "example-code",
+      `the Code section differs from ${EXAMPLES_DIR}/${example.file}: run cosyte-docs-content ` +
+        "--write and commit what it writes",
+    );
+  }
+}
+
+/**
+ * Read the runnable examples at the top of a repository's examples/, in name order. A repository
+ * without examples/ has none.
+ *
+ * @param {string} root The repository root.
+ * @returns {{ file: string, text: string }[]} Each example's file name and text.
+ * @throws {DocsContentRefusal} When examples/ is not a directory, or an example cannot be read.
+ */
+function readExamples(root) {
+  const dir = join(root, EXAMPLES_DIR);
+  const stat = lstatSync(dir, { throwIfNoEntry: false });
+  if (stat === undefined) return [];
+  if (!stat.isDirectory()) throw new DocsContentRefusal(`${dir} is not a directory.`);
+  const examples = [];
+  for (const entry of readdirOrRefuse(dir)) {
+    if (entry.isDirectory() || !isExampleFile(entry.name)) continue;
+    examples.push({ file: entry.name, text: readOrRefuse(join(dir, entry.name), entry) });
+  }
+  // In name order: Node lists a directory sorted on Linux and macOS, as readDocsContent relies on.
+  return examples;
+}
+
+/**
+ * Write the Code section of every example page from its example: the page from its "## Code" heading
+ * to the end is replaced, or the section is added at the end when the page has none. A page is only
+ * ever written when its text changes, and a page that does not exist is never written: what an
+ * example shows, how to run it and what it prints are written by hand.
+ *
+ * @param {string} root The repository root.
+ * @returns {string[]} The pages written, relative to docs-content/.
+ * @throws {DocsContentRefusal} When docs-content/ or examples/ cannot be read, or a page cannot be written.
+ */
+export function writeExamplePages(root) {
+  const docs = join(root, DOCS_DIR);
+  if (!isDirectory(docs)) throw new DocsContentRefusal(`${docs} is not a directory.`);
+  const written = [];
+  for (const [name, example] of examplesByName(readExamples(root))) {
+    const file = `${EXAMPLE_PAGE_PREFIX}${name}.md`;
+    const path = join(docs, file);
+    // One descriptor for the read and the write, so the page written is the page read. A link is
+    // not followed where the platform can refuse one, and a folder fails to open for writing.
+    let fd;
+    try {
+      fd = openSync(path, constants.O_RDWR | (constants.O_NOFOLLOW ?? 0));
+    } catch (error) {
+      if (error.code === "ENOENT") continue;
+      throw new DocsContentRefusal(`${path} could not be written (${error.code}).`);
+    }
+    try {
+      const text = readFileSync(fd, "utf8");
+      const want = examplePageText(text, example);
+      if (want === text) continue;
+      ftruncateSync(fd, 0);
+      writeSync(fd, want, 0);
+    } finally {
+      closeSync(fd);
+    }
+    written.push(file);
+  }
+  return written;
+}
+
+/**
+ * An example page with its Code section written from its example: the page from its "## Code"
+ * heading to the end replaced, or the section added at the end when the page has none.
+ *
+ * @param {string} text The page.
+ * @param {{ file: string, text: string }} example Its example.
+ * @returns {string} The page as it should be, with LF line endings.
+ */
+function examplePageText(text, example) {
+  const normal = text.replaceAll("\r\n", "\n");
+  const lines = normal.split("\n");
+  const code = headings(normal).find((h) => h.level === 2 && h.text === EXAMPLE_HEADINGS.at(-1));
+  const hand = code === undefined ? normal : lines.slice(0, code.line - 1).join("\n");
+  return `${hand.replace(/\n+$/, "")}\n\n${exampleCodeSection(example.file, example.text)}`;
+}
+
+/**
  * Hold a library's findings under the ratcheted rules to the counts recorded for it. A rule whose
  * findings are at or under its count is held, and does not fail; over it, every finding under the
  * rule fails. A rule under its count is loose: the count can be lowered.
@@ -1140,12 +1512,13 @@ export function applyDocsContentRatchet(findings, allowance = {}) {
  * Every finding is returned, the ratcheted rules' included: applyDocsContentRatchet sorts out which
  * of those fail for a library. The rules on kinds run once the sidebar parses.
  *
- * @param {{ pages: { name: string, text: string }[], sidebars: string | null, misplaced?: string[], reference?: Map<string, string>, sources?: Map<string, string> }} input
+ * @param {{ pages: { name: string, text: string }[], sidebars: string | null, misplaced?: string[], reference?: Map<string, string>, sources?: Map<string, string>, examples?: { file: string, text: string }[] }} input
  *   `pages` are the `.md` files at the top of docs-content/, by file name without `.md`; `sidebars`
  *   is the text of sidebars.json, or null when there is none; `misplaced` are the paths, relative to
  *   docs-content/, of markdown that is not a top-level `.md` page and is not under api/;
  *   `reference` holds the generated `.md` pages, by their path under api/; `sources` holds the
- *   files `held_by` names, by their path from the repository root.
+ *   files `held_by` names, by their path from the repository root; `examples` holds the runnable
+ *   examples at the top of examples/, by file name.
  * @returns {{ file: string, line: number, rule: keyof typeof DOCS_CONTENT_RULES, message: string }[]}
  *   Every finding, in a stable order.
  */
@@ -1269,7 +1642,9 @@ export function checkDocsContent(input) {
       add(`${page.name}.md`, 0, "listing", "the sidebar does not list it");
   }
 
-  checkKinds(input.pages, pageKinds(sidebars), input.sources ?? new Map(), add);
+  const kinds = pageKinds(sidebars);
+  checkKinds(input.pages, kinds, input.sources ?? new Map(), add);
+  checkExamples(input.pages, kinds, input.examples ?? [], add);
   return findings;
 }
 
@@ -1277,7 +1652,7 @@ export function checkDocsContent(input) {
  * Read docs-content/ under a repository root.
  *
  * @param {string} root The repository root.
- * @returns {{ pages: { name: string, text: string }[], sidebars: string | null, misplaced: string[], reference: Map<string, string>, sources: Map<string, string>, library: string | null }}
+ * @returns {{ pages: { name: string, text: string }[], sidebars: string | null, misplaced: string[], reference: Map<string, string>, sources: Map<string, string>, examples: { file: string, text: string }[], library: string | null }}
  * @throws {DocsContentRefusal} When the folder is missing or a file in it cannot be read.
  */
 export function readDocsContent(root) {
@@ -1320,7 +1695,16 @@ export function readDocsContent(root) {
     if (lstatSync(path, { throwIfNoEntry: false })?.isFile() !== true) continue;
     sources.set(held, readOrRefuse(path, { isFile: () => true }));
   }
-  return { pages, sidebars, misplaced, reference, sources, library: readLibraryName(root) };
+  const examples = readExamples(root);
+  return {
+    pages,
+    sidebars,
+    misplaced,
+    reference,
+    sources,
+    examples,
+    library: readLibraryName(root),
+  };
 }
 
 /**
@@ -1392,21 +1776,29 @@ export function runDocsContentCheck(options = {}) {
   const stdout = options.stdout ?? process.stdout;
   const stderr = options.stderr ?? process.stderr;
   let dir = options.dir ?? process.cwd();
+  let write = false;
   const argv = options.argv ?? [];
   for (let i = 0; i < argv.length; i += 1) {
     if (argv[i] === "--dir" && typeof argv[i + 1] === "string") {
       dir = argv[i + 1];
       i += 1;
+    } else if (argv[i] === "--write") {
+      write = true;
     } else {
       stderr.write(
         `docs-content: ${JSON.stringify(argv[i])} is not an argument this check accepts (only ` +
-          `--dir <repository root>). Nothing was checked.\n`,
+          `--dir <repository root> and --write). Nothing was checked.\n`,
       );
       return 2;
     }
   }
   let input;
   try {
+    if (write) {
+      for (const file of writeExamplePages(resolve(dir))) {
+        stdout.write(`docs-content: wrote ${DOCS_DIR}/${file}\n`);
+      }
+    }
     input = readDocsContent(resolve(dir));
   } catch (error) {
     // Every way reading fails is a refusal: the folder, a listing and a file each raise one.

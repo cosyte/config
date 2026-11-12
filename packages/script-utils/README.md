@@ -454,10 +454,11 @@ repository). Run it from a package script:
 ```sh
 cosyte-docs-content                # docs-content/ in the working directory
 cosyte-docs-content --dir <path>   # another repository
+cosyte-docs-content --write        # write each example page's Code section, then check
 ```
 
 It checks the sidebar's shape (`intro`, then Installation, Quickstart, Tutorials, How-to guides,
-Explanation, Reference and Troubleshooting in that order, then `testing-and-quality` and
+Examples, Explanation, Reference and Troubleshooting in that order, then `testing-and-quality` and
 `performance`), that every page is listed once and every listed id is a page, the required pages,
 each page's front matter, page names, and the "Current numbers" section on both quality pages,
 which holds only the placeholder sentence until the release fills in the numbers. It also resolves
@@ -485,6 +486,22 @@ when the rules landed. At or under its count, a rule's findings are listed on st
 it, each one fails. The counts only fall: when a library fixes pages, the check says which count to
 lower. A number with a measured unit outside a "Current numbers" section (a percentage, `ms`, a size
 in bytes, a rate a second) is a warning on stdout, and never fails.
+
+Every runnable example has a page. A runnable example is a `.ts`, `.mts`, `.js` or `.mjs` file at
+the top of `examples/` whose name does not begin with `_` or `.` and that is not a `.d.ts`, a test
+or a `*.config.*` file (`isExampleFile`). Its page is `docs-content/example-<name>.md`, listed under
+the Examples category, with the H2 headings What it shows, Run it, Expected output (holding a fenced
+block with what the example prints) and Code, in that order. The Code section runs to the end of the
+page and is the example's file, which `cosyte-docs-content --write` writes and the check compares,
+so the code on the page is never pasted by hand. Its fence is marked `no-run` with a reason, since
+the example runs from `examples/` in the library's own CI, not as a docs sample. A missing page, a
+page whose example is gone, and a Code section that differs from the file each fail, under the
+rules `example-page` and `example-code`. The ratchet holds both, at the count of examples with no
+page each library had when they landed, so a library is not failed for its existing examples and
+fails once it adds one without a page; no library has an `example-code` count. `--write` never
+creates a page: what the example shows, how to run it and what it prints are written by hand. It
+reads and writes each page through one file descriptor, without following a symbolic link; on
+Windows, where Node.js has no `O_NOFOLLOW`, that protection does not apply.
 
 ```ts runnable
 import { checkDocsContent } from "@cosyte/script-utils/docs-content";

@@ -60,8 +60,15 @@ export declare const DESCRIPTION_LIMIT: 160;
 export declare const PAGE_NAME: RegExp;
 
 /**
- * A rule that reads whether a page holds what its kind asks, the kind being the sidebar category it
- * is listed in. A library's findings under these are held by the ratchet up to its recorded counts.
+ * A rule on example pages: every runnable example has its page, and the page's Code section is the
+ * example's file. The ratchet holds these, at each library's recorded counts.
+ */
+export type DocsContentExampleRule = "example-page" | "example-code";
+
+/**
+ * A rule the ratchet holds: one that reads whether a page holds what its kind asks, the kind being
+ * the sidebar category it is listed in, or a rule on example pages. A library's findings under
+ * these are held by the ratchet up to its recorded counts.
  */
 export type DocsContentRatchetedRule =
   | "howto-title"
@@ -70,7 +77,8 @@ export type DocsContentRatchetedRule =
   | "limitations"
   | "tutorial-steps"
   | "page-id"
-  | "reference-source";
+  | "reference-source"
+  | DocsContentExampleRule;
 
 /** A rule that only warns: a measured number outside a "Current numbers" section. */
 export type DocsContentWarningRule = "measured-number";
@@ -84,11 +92,82 @@ export type DocsContentRule =
   | "file-name"
   | "numbers"
   | "reference-link"
+  | DocsContentExampleRule
   | DocsContentRatchetedRule
   | DocsContentWarningRule;
 
 /** Every rule, with what it requires. */
 export declare const DOCS_CONTENT_RULES: Readonly<Record<DocsContentRule, string>>;
+
+/** The rules on example pages, which the ratchet also holds. */
+export declare const EXAMPLE_RULES: readonly DocsContentExampleRule[];
+
+/** The folder at the repository root whose top-level scripts are the library's runnable examples. */
+export declare const EXAMPLES_DIR: "examples";
+
+/** The sidebar category that lists the example pages, after How-to guides. */
+export declare const EXAMPLES_CATEGORY: "Examples";
+
+/** How an example page's id starts: `example-<name>`, the name being the file's without extension. */
+export declare const EXAMPLE_PAGE_PREFIX: "example-";
+
+/** The H2 headings every example page has, in this order. The last one's section is generated. */
+export declare const EXAMPLE_HEADINGS: readonly [
+  "What it shows",
+  "Run it",
+  "Expected output",
+  "Code",
+];
+
+/** The heading the generated part of an example page starts at; it runs to the end of the page. */
+export declare const CODE_HEADING: "## Code";
+
+/**
+ * Whether a file at the top of examples/ is a runnable example: a `.ts`, `.mts`, `.js` or `.mjs`
+ * script whose name does not begin with `_` or `.`, and that is not a declaration file, a test or a
+ * tool's configuration.
+ *
+ * @param name - The file name.
+ * @returns True for a runnable example.
+ */
+export declare function isExampleFile(name: string): boolean;
+
+/**
+ * An example's name: its file name without the extension. Its page is `example-<name>.md`.
+ *
+ * @param file - The example's file name.
+ * @returns The name.
+ */
+export declare function exampleStem(file: string): string;
+
+/**
+ * The fence language an example's code is shown in.
+ *
+ * @param file - The example's file name.
+ * @returns `ts` for `.ts` and `.mts`, else `js`.
+ */
+export declare function exampleLanguage(file: string): "ts" | "js";
+
+/**
+ * The generated Code section of an example page: the whole file in a fence titled with its path and
+ * marked `no-run`, from the "## Code" heading to the end of the page.
+ *
+ * @param file - The example's file name, under examples/.
+ * @param text - The file's text.
+ * @returns The section, ending in one newline.
+ */
+export declare function exampleCodeSection(file: string, text: string): string;
+
+/**
+ * Write the Code section of every example page from its example, replacing the page from its
+ * "## Code" heading to the end, or adding the section when the page has none. A page that does not
+ * exist is never written.
+ *
+ * @param root - The repository root.
+ * @returns The pages written, relative to docs-content/.
+ * @throws {@link DocsContentRefusal} When docs-content/ or examples/ cannot be read, or a page cannot be written.
+ */
+export declare function writeExamplePages(root: string): string[];
 
 /** The rules the ratchet holds, in the order the check reports them. */
 export declare const RATCHETED_RULES: readonly DocsContentRatchetedRule[];
@@ -188,6 +267,11 @@ export interface DocsContentInput {
   sources?: Map<string, string>;
   /** The name in the repository's package.json, which the ratchet records counts under. */
   library?: string | null;
+  /**
+   * The runnable examples at the top of examples/, by file name, as read. Without it, the check
+   * sees no examples, and any example page is one whose example is gone.
+   */
+  examples?: { file: string; text: string }[];
 }
 
 /** One finding. */
@@ -280,11 +364,13 @@ export declare function applyDocsContentRatchet(
 
 /**
  * Read docs-content/ under a repository root: the pages, the sidebar, the generated pages under
- * api/ for their headings, the files each `held_by` names, and the library's name from package.json.
+ * api/ for their headings, the files each `held_by` names, the runnable examples at the top of
+ * examples/, and the library's name from package.json.
  *
  * @param root - The repository root.
  * @returns The tree, read.
- * @throws {@link DocsContentRefusal} When the folder is missing or a file in it cannot be read.
+ * @throws {@link DocsContentRefusal} When the folder is missing, a file in it cannot be read, or
+ *   examples/ is there and is not a directory.
  */
 export declare function readDocsContent(root: string): Required<DocsContentInput>;
 
@@ -295,7 +381,10 @@ export interface DocsContentStream {
 
 /** What {@link runDocsContentCheck} takes. */
 export interface DocsContentCheckOptions {
-  /** CLI arguments; only `--dir <path>` is accepted. */
+  /**
+   * CLI arguments: `--dir <path>`, and `--write`, which writes each example page's Code section from
+   * its example before the check reads the tree.
+   */
   argv?: string[];
   /** The repository root. Default: the working directory. */
   dir?: string;
