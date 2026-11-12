@@ -244,8 +244,8 @@ jobs:
   # with @cosyte/vitest-config/stryker, and the ratchet then requires every mutant in changed code to be
   # killed, unless an inline exception names its reason. It runs beside `verify` rather than in it,
   # because a large changed file takes minutes to mutate. Not yet a required check. No job here runs
-  # a full mutation run: a weekly one, which would compare each package's whole score with its
-  # floor, is future work in the shared workflows.
+  # a full mutation run: full-mutation.yml does, when someone starts it, and compares each package's
+  # whole score with its floor.
   mutation:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
