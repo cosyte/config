@@ -13,6 +13,16 @@ flag is about npm publishability and says nothing about repository visibility: *
 public**, which is what makes npm provenance and protected-environment required reviewers available
 here at all.
 
+A Version Packages PR never edits the root manifest either. The root takes `@cosyte/process` from
+npm at an exact version (the README says why), and `@changesets/cli` 3 rewrites a root dependency
+range that a release moves past, which version 2 did not: a release of `@cosyte/process` once moved
+that pin without touching `pnpm-lock.yaml`, so `pnpm install --frozen-lockfile` failed on the PR as
+generated. `"bumpVersionsWithWorkspaceProtocolOnly": true` in `.changeset/config.json` limits
+Changesets to `workspace:` ranges, which every internal range a published package carries already
+is, so what gets published is unchanged. `test/changeset-version-root.test.ts` runs
+`changeset version` over a copy of the manifests and holds both. The root's pin moves only as an
+ordinary devDependency bump, lockfile included.
+
 ## What changed on 2026-08-22, and why
 
 Until 2026-08-22 the whole release workflow was a single job carrying `environment: release`, so
