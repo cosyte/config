@@ -229,38 +229,16 @@ const ORDINAL =
   "twenty-first|twenty-second|twenty-third|twenty-fourth|\\d+(?:st|nd|rd|th))";
 
 /**
- * A plain lowercase word as a pattern that matches it in any case, for the one phase pattern that
- * must run case-sensitively. Only letters are expanded, so `stud` becomes `[Ss][Tt][Uu][Dd]`.
- *
- * @param {string} word Lowercase letters only.
- * @returns {string} The pattern.
- */
-function anyCase(word) {
-  return word.replace(/[a-z]/g, (letter) => `[${letter.toUpperCase()}${letter}]`);
-}
-
-/**
  * Lookbehinds that drop the clinical senses of `phase` before the rule ever sees it.
  *
  * `phase` is real clinical vocabulary: the Clinical Study Phase segment's field names are literally
  * `Study Phase Identifier` and `Study Phase Start Date/Time`, and "the acute phase reactant" is
  * ordinary reference material. A rule that flags those tells a remediator to rewrite a field name,
- * which is trap (1) arriving through the phase rule instead of the identifier rule. Written in any
- * case so the case-sensitive phase pattern reads them the way the case-insensitive one does.
+ * which is trap (1) arriving through the phase rule instead of the identifier rule.
  */
-const PHASE_NOT_CLINICAL = [
-  "study",
-  "clinical",
-  "trial",
-  "acute",
-  "chronic",
-  "luteal",
-  "follicular",
-  "liquid",
-  "gas",
-]
-  .map((word) => `(?<!${anyCase(word)} )`)
-  .join("");
+const PHASE_NOT_CLINICAL =
+  "(?<!study )(?<!clinical )(?<!trial )(?<!acute )(?<!chronic )(?<!luteal )(?<!follicular )" +
+  "(?<!liquid )(?<!gas )";
 
 /**
  * Lookbehind that drops `phase` as the second half of a compound word.
@@ -281,107 +259,67 @@ const PHASE_NOT_COMPOUND = "(?<![A-Za-z]-)";
  * phase is named by what follows the word, and none of these words names one.
  */
 const PHASE_NOT_FIELD =
-  "(?!(?:" +
-  [
-    "of",
-    "with",
-    "in",
-    "out",
-    "the",
-    "and",
-    "is",
-    "for",
-    "to",
-    "identifier",
-    "start",
-    "end",
-    "evaluability",
-    "number",
-    "where",
-    "are",
-    "was",
-    "were",
-    "during",
-    "at",
-  ]
-    .map(anyCase)
-    .join("|") +
-  ")\\b|(?:[Ii]{1,3}|[Ii][Vv])\\s+(?:" +
-  ["trial", "stud", "clinical", "oncolog"].map(anyCase).join("|") +
-  "))";
-
-/** The units a tens word takes after a hyphen, as in `twenty-one`. */
-const NUMBER_UNITS = ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
+  "(?!of\\b|with\\b|in\\b|out\\b|the\\b|and\\b|is\\b|for\\b|to\\b|identifier\\b|start\\b|end\\b|" +
+  "evaluability\\b|number\\b|where\\b|are\\b|was\\b|were\\b|during\\b|at\\b|" +
+  "(?:I{1,3}|IV)\\s+(?:trial|stud|clinical|oncolog))";
 
 /**
- * Every English number word a phase could be named by: zero to nineteen, the tens to ninety (each
- * with an optional hyphenated unit, `twenty-one`), and hundred. The tens come first so that
- * `twenty-one` is read whole rather than as `twenty`.
+ * The lowercase words that still name a phase, so the noun excuse below never covers them: every
+ * number word (zero to nineteen, the tens and hundred; a hyphenated one such as `twenty-one` is
+ * never excused, because a hyphen after the word ends the excuse), every written ordinal, the 24
+ * Greek letter names, a roman numeral made of `i v x l c d m` in any count with at most one letter
+ * after it (`iv`, `iib`, `xxiii`), and a single letter.
+ *
+ * The roman numeral form is wide on purpose. It keeps refusing a few ordinary words that are made
+ * of those letters, `phase via`, `phase mix`, `phase did`, `phase mild` and `phase civil` among
+ * them, exactly as the rule did before the excuse existed: a numeral that names a phase is the
+ * mistake that matters, and a remediator can reword one of those sentences.
  */
-const NUMBER_WORDS = [
-  `(?:${["twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"]
-    .map(anyCase)
-    .join("|")})(?:-(?:${NUMBER_UNITS.map(anyCase).join("|")}))?`,
-  ...[
-    "zero",
-    ...NUMBER_UNITS,
-    "ten",
-    "eleven",
-    "twelve",
-    "thirteen",
-    "fourteen",
-    "fifteen",
-    "sixteen",
-    "seventeen",
-    "eighteen",
-    "nineteen",
-    "hundred",
-  ].map(anyCase),
-];
+const NAMES_A_PHASE = new RegExp(
+  "^(?:" +
+    [
+      "zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen",
+      "fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy",
+      "eighty|ninety|hundred",
+      "first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|eleventh|twelfth",
+      "thirteenth|fourteenth|fifteenth|sixteenth|seventeenth|eighteenth|nineteenth|twentieth",
+      "alpha|beta|gamma|delta|epsilon|zeta|eta|theta|iota|kappa|lambda|mu|nu|xi|omicron|pi|rho",
+      "sigma|tau|upsilon|phi|chi|psi|omega",
+      "[ivxlcdm]+[a-z]?",
+      "[a-z]",
+    ].join("|") +
+    ")$",
+);
 
-/** All 24 Greek letter names. */
-const GREEK_LETTERS = [
-  "alpha",
-  "beta",
-  "gamma",
-  "delta",
-  "epsilon",
-  "zeta",
-  "eta",
-  "theta",
-  "iota",
-  "kappa",
-  "lambda",
-  "mu",
-  "nu",
-  "xi",
-  "omicron",
-  "pi",
-  "rho",
-  "sigma",
-  "tau",
-  "upsilon",
-  "phi",
-  "chi",
-  "psi",
-  "omega",
-].map(anyCase);
+/** A phase hit that is `phase` or `phases`, one space, and a word of lowercase ASCII letters. */
+const PHASE_BEFORE_LOWERCASE_WORD = /^[Pp][Hh][Aa][Ss][Ee][Ss]? ([a-z]+)$/;
+
+/** A character that would make the word after `phase` longer than what the hit holds. */
+const WORD_GOES_ON = /^[-\p{L}\p{N}\p{M}]$/u;
 
 /**
- * What names a phase whatever the case of the word in front of it: a token with a digit in it
- * (`2`, `5b`, `v2`), a single letter (`W`, `L`), a number word (`one`, `thirteen`, `twenty-one`),
- * a roman numeral (`IV`), or a Greek letter name (`beta`, `omega`).
+ * Whether one hit of the phase rule is `phase` used as a noun in a sentence, not a phase's name.
+ *
+ * The rule's own pattern decides what is a candidate, unchanged; this only excuses some of them,
+ * so the rule refuses everything it refused before except what this returns `true` for. A hit is
+ * excused only when it is `phase` or `phases`, a single space, and then a word made only of
+ * lowercase ASCII letters that ends there and is none of {@link NAMES_A_PHASE}. That is how a
+ * standard's own text reads: HL7 table 0003's `CRM - Correct/update phase information` and
+ * `MFN/MFK - Clinical study without phases but with schedules master file`, and imaging's `phase
+ * encoding`. Any capital, digit, hyphen, other gap or longer word in that position leaves the hit
+ * refused, so `Phase Atlas`, `phase 2b`, `phase-by-phase`, `phase iib` and `phase twenty-one`
+ * still are. The case of `phase` itself does not matter: only the word after it is read.
+ *
+ * @param {RegExpExecArray} found One match of the rule's patterns, with its `input` and `index`.
+ * @returns {boolean} `true` when the hit is excused.
  */
-const PHASE_NAME =
-  "(?:[A-Za-z]*\\d[A-Za-z0-9]*|[A-Za-z]|[IVXivx]{2,4}|" +
-  [...NUMBER_WORDS, ...GREEK_LETTERS].join("|") +
-  ")\\b";
-
-/**
- * What stands between `phase` and its name: a hyphen, or a run of spaces, tabs and no-break spaces,
- * so a name typed with two spaces or pasted with a no-break space reads as one with a single space.
- */
-const PHASE_GAP = "(?:[ \\t\\u00a0]+|-)";
+function excusePhaseNoun(found) {
+  const shape = PHASE_BEFORE_LOWERCASE_WORD.exec(found[0]);
+  if (shape === null) return false;
+  const next = found.input.codePointAt(found.index + found[0].length);
+  if (next !== undefined && WORD_GOES_ON.test(String.fromCodePoint(next))) return false;
+  return !NAMES_A_PHASE.test(shape[1]);
+}
 
 /**
  * Imaging vocabulary that follows `slice` in reference material rather than in our jargon.
@@ -494,26 +432,12 @@ export function compileCanonicalRules(resolved) {
       id: "phase-or-wave",
       name: "phase or wave language",
       patterns: [
-        // `phase-by-phase` is named on its own: the word after its first `phase` is an ordinary
-        // lowercase one, which the name reading below lets through.
         new RegExp(
-          `\\b(?:roadmap phases?\\b[ ]?[A-Za-z0-9]*|phase-by-phase|${PHASE_NOT_CLINICAL}${PHASE_NOT_COMPOUND}phases?${PHASE_GAP}` +
-            `${PHASE_NOT_FIELD}${PHASE_NAME}|wave \\d+\\b|the \\w+ and final phase\\b|` +
+          `\\b(?:roadmap phases?\\b[ ]?[A-Za-z0-9]*|${PHASE_NOT_CLINICAL}${PHASE_NOT_COMPOUND}phases?[ -]` +
+            `${PHASE_NOT_FIELD}` +
+            `[A-Za-z0-9]+[a-z]?\\b|wave \\d+\\b|the \\w+ and final phase\\b|` +
             `documentation residual\\b|${ORDINAL} (?:slice|wave)\\b)`,
           "gi",
-        ),
-        // A phase named by a word, read case-sensitively because the case of that word is what
-        // decides it. A capitalized word after `phase` is a name, whatever the case of `phase`
-        // (`Phase Atlas`, `phase Atlas`, `Phase Information`). An ordinary lowercase word after it
-        // makes `phase` a noun in a sentence: HL7 table 0003's `Correct/update phase information`
-        // and `Clinical study without phases but with schedules`, and the imaging `phase encoding`
-        // and `Phase contrast angiography`. The names the pattern above catches, and
-        // `PHASE-BY-PHASE`, are left to it, so one name is one hit.
-        new RegExp(
-          `\\b${PHASE_NOT_CLINICAL}${PHASE_NOT_COMPOUND}` +
-            `[Pp](?:hases?|HASES?)${PHASE_GAP}${PHASE_NOT_FIELD}(?!${PHASE_NAME}|${anyCase("by")}-${anyCase("phase")})` +
-            `[A-Z][A-Za-z0-9]*\\b`,
-          "g",
         ),
         // Taken from dicom's gate: the adjective forms (`in subsequent phases`, `a later wave`), a
         // plural wave count, and a citation of the roadmap. `of` after the noun is the clinical
@@ -525,6 +449,8 @@ export function compileCanonicalRules(resolved) {
           "gi",
         ),
       ],
+      // Only the first pattern's `phase` hits can be excused; the second never starts with `phase`.
+      excuse: excusePhaseNoun,
       positives: [
         "Phase 5b closes it (Phase W, Phase-L and the thirteenth slice landed earlier, in wave 2)",
         // The plural, which ten of the eleven per-repository copies matched (`phases?[ -]`).
@@ -536,10 +462,12 @@ export function compileCanonicalRules(resolved) {
         "The helpers are populated in subsequent phases",
         "It arrives in a later wave, after waves 2 and 3",
         "Obsolete codes are tracked by the roadmap",
-        // What the case reading must still catch: a name after a lowercase phase in a standard's
-        // own sentence, and a capitalized name made of an ordinary word.
-        "CRM - Correct/update phase one, then phases 2 and 3",
-        "Phase Information and phase Atlas shipped",
+        // What the noun excuse must still leave refused: a lowercase number word, roman numeral
+        // with a letter after it, and Greek letter name, each in the sentences a standard uses.
+        "CRM - Correct/update phase one",
+        "MFN/MFK - Clinical study without phases two but with schedules",
+        "The work ships in phase iib",
+        "The master file lands in phase beta",
       ],
       negatives: [
         "CSP-1 Study Phase Identifier, CSP-2 Study Phase Start Date/Time, CSP-3 Study Phase End " +
@@ -555,10 +483,10 @@ export function compileCanonicalRules(resolved) {
         // The clinical senses of the adjective forms.
         "A later phase of the disease, the next wave of infections, and the previous phase of " +
           "the trial",
-        // Clinical study phase wording in a standard's own data: two HL7 table 0003 display texts.
+        // The noun excuse: clinical study phase wording in a standard's own data, HL7 table
+        // 0003's display texts, and imaging and signal vocabulary after a lowercase `phase`.
         "CRM - Correct/update phase information",
         "MFN/MFK - Clinical study without phases but with schedules master file",
-        // A lowercase phase before an ordinary word, in imaging and signal vocabulary.
         "The phase encoding direction, phase contrast flow, a phase shift and a phase lag",
       ],
     },
@@ -1005,22 +933,63 @@ function buildRules(resolved) {
 // The self-test floor
 // ---------------------------------------------------------------------------
 
-/** Does any of a rule's patterns match this text? */
-function matches(rule, text) {
-  return rule.patterns.some((pattern) => {
-    pattern.lastIndex = 0;
-    return pattern.test(text);
-  });
+/**
+ * The first match of one pattern in this text that the rule does not excuse, or `null`.
+ *
+ * After an excused match the search starts again one character on, not after the match, so a hit
+ * that starts inside an excused one is still found: in `phases phase 2` the excused `phases phase`
+ * would otherwise hide `phase 2`. A rule with no excuse reads exactly as `exec` does.
+ *
+ * @param {{ excuse?: (found: RegExpExecArray) => boolean }} rule The rule the pattern belongs to.
+ * @param {RegExp} pattern One of its patterns, global.
+ * @param {string} text The text.
+ * @param {number} from Where to start.
+ * @returns {RegExpExecArray | null} The match.
+ */
+function nextUnexcused(rule, pattern, text, from) {
+  pattern.lastIndex = from;
+  for (;;) {
+    const found = pattern.exec(text);
+    if (found === null || rule.excuse === undefined || !rule.excuse(found)) return found;
+    pattern.lastIndex = found.index + 1;
+  }
 }
 
-/** The first thing one of a rule's patterns matched in this text, or `null`. */
+/** Does any of a rule's patterns match this text, once its excuse is applied? */
+function matches(rule, text) {
+  return rule.patterns.some((pattern) => nextUnexcused(rule, pattern, text, 0) !== null);
+}
+
+/** The first thing one of a rule's patterns matched in this text and the rule kept, or `null`. */
 function firstMatch(rule, text) {
   for (const pattern of rule.patterns) {
-    pattern.lastIndex = 0;
-    const found = pattern.exec(text);
+    const found = nextUnexcused(rule, pattern, text, 0);
     if (found !== null) return found[0];
   }
   return null;
+}
+
+/**
+ * Every hit one compiled rule reports in a text, pattern by pattern, with the rule's excuse applied.
+ *
+ * Exported so a caller or a test reads a rule the way the gate does: a rule's `patterns` alone
+ * can name a candidate that its `excuse` lets through.
+ *
+ * @param {{ patterns: RegExp[], excuse?: (found: RegExpExecArray) => boolean }} rule The rule.
+ * @param {string} text The text.
+ * @returns {string[]} The matched text of each hit, in pattern order and then text order.
+ */
+export function ruleHits(rule, text) {
+  const hits = [];
+  for (const pattern of rule.patterns) {
+    let found = nextUnexcused(rule, pattern, text, 0);
+    while (found !== null) {
+      hits.push(found[0]);
+      const end = found.index + found[0].length;
+      found = nextUnexcused(rule, pattern, text, end > found.index ? end : end + 1);
+    }
+  }
+  return hits;
 }
 
 /**

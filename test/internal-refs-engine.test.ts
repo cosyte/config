@@ -282,6 +282,25 @@ describe("the phase rule on clinical study phase wording, through the gate", () 
     expect(nearResult.code).toBe(1);
     expect(nearResult.err).toContain("[phase or wave language]");
   });
+
+  it("gives a caller no excuse of its own: an extra rule carrying one still reports its hits", () => {
+    const repo = scratch("irefs-extra-excuse", "# Scratch\n\nThe Zebrafish lane ships next.\n");
+    const result = runGate({
+      ...baseConfig(repo),
+      extraRules: [
+        {
+          id: "zebrafish",
+          name: "zebrafish lane",
+          patterns: ["\\bZebrafish lane\\b"],
+          positives: ["The Zebrafish lane"],
+          negatives: ["A zebra"],
+          excuse: () => true,
+        },
+      ],
+    });
+    expect(result.code).toBe(1);
+    expect(result.err).toContain("[zebrafish lane]");
+  });
 });
 
 /**
