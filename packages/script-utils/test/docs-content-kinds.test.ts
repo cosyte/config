@@ -659,7 +659,9 @@ describe("reference-source", () => {
 
   it.each([
     ["an extensionless script with a #! line", "bin/gen-config", "#!/bin/sh\n"],
+    ["a script at the repository root", "gen.mjs", ""],
     ["a script in a dotted folder", "scripts.d/gen.mjs", ""],
+    ["a script with .md inside its name", "scripts/readme.md.mjs", ""],
     ["a dotfile with an extension", "scripts/.gen.mjs", ""],
     ["a file whose name ends in txt", "scripts/gentxt.mjs", ""],
     ["a file whose extension holds txt", "scripts/gen.txts", ""],
