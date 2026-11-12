@@ -1,5 +1,5 @@
 {
-  "$comment": "Coverage and mutation floors, raised by `cosyte-ratchet raise` and never lowered. documentation/decisions/0004-the-testing-standard.md is the standard. packages/process has no mutation floor until its first full run; packages/script-utils mutates phi-scan.js, ratchet.js and changes.js so far.",
+  "$comment": "Coverage and mutation floors, raised by `cosyte-ratchet raise` and never lowered. documentation/decisions/0004-the-testing-standard.md is the standard. packages/process has no mutation floor until its first full run; packages/script-utils mutates phi-scan.js, ratchet.js, changes.js and docs-content.js so far; its mutation floor was measured before docs-content.js joined, and rises with the next full run.",
   "packages": {
     "packages/process": {
       "coverage": {
