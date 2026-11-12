@@ -507,6 +507,22 @@ creates a page: what the example shows, how to run it and what it prints are wri
 reads and writes each page through one file descriptor, without following a symbolic link; on
 Windows, where Node.js has no `O_NOFOLLOW`, that protection does not apply.
 
+Under the rule `example-print`, no TypeScript or JavaScript sample in the README or the pages
+passes an identifying value (`IDENTIFYING_ACCESSORS`, a field through `PERSON_PATHS`, a whole
+`WHOLE_VALUES`) to a printer, however named, or a thrown error; a finding never echoes it. It is
+advisory until `cosyte-docs-content.config.json` sets `{ "examplePrint": { "required": true } }`,
+whose `accessors`, `wholeValues` and `printers` extend the lists. A type, code or count read
+through a person passes (`PERSON_SAFE_ENDS`); a sample nested past `PRINT_NESTING_LIMIT` exits 2. It
+misses a printer passed by reference (`.then(console.log)`), a loop or callback variable, a
+helper's arguments and a value copied into a neutral name. Decision 0006, section 14.
+
+```ts runnable
+import { samplePrintFindings } from "@cosyte/script-utils/docs-content";
+
+samplePrintFindings("console.log(msg.patient.mrn);")[0]?.entry; // => "mrn"
+samplePrintFindings("console.log(msg.meta.type, msg.warnings.length);").length; // => 0
+```
+
 ```ts runnable
 import { checkDocsContent } from "@cosyte/script-utils/docs-content";
 

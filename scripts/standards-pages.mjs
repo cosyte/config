@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 // scripts/standards-pages.mjs
 //
-// THE TESTING AND PERFORMANCE STANDARDS AS docs.cosyte.com PAGES, WRITTEN FROM THEIR DECISION
-// RECORDS SO THERE IS ONE SOURCE.
+// THE TESTING, PERFORMANCE AND DOCS-CONTENT STANDARDS AS docs.cosyte.com PAGES, WRITTEN FROM THEIR
+// DECISION RECORDS SO THERE IS ONE SOURCE.
 //
 // Every library's "Testing and quality" and "Performance" pages send a reader to the standard they
-// are measured against. Those standards are decision records in this repository's
+// are measured against, and every library's pages follow the docs-content standard. Those standards are decision records in this repository's
 // `documentation/decisions/`, which docs.cosyte.com does not render. This writes each one as a page
 // under `docs-content/`, the folder a release packs into `docs-content.tar.gz` for the site, so the
 // libraries can link to the site instead of to GitHub.
@@ -60,6 +60,14 @@ export const PAGES = Object.freeze([
     sidebarLabel: "Performance standard",
     description:
       "How every Cosyte package measures its speed, memory, import time and bundle size, how much noise each instrument has, and what it cannot detect.",
+  }),
+  Object.freeze({
+    id: "docs-content-standard",
+    record: "0006-the-docs-content-standard.md",
+    title: "The docs-content standard",
+    sidebarLabel: "Docs-content standard",
+    description:
+      "How every Cosyte library's documentation is laid out and checked: the kinds of page, the sidebar, samples that run, and what an example may print.",
   }),
 ]);
 
