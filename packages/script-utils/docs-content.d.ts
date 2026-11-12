@@ -441,12 +441,26 @@ export declare const WHOLE_VALUES: readonly string[];
 
 /**
  * The names of a person or of a person's name that a chain reads through: any field read after one
- * is a finding, whatever its own name (`patient.gender`), unless the chain ends in a safe read.
+ * is a finding, whatever its own name (`patient.gender`), unless the chain ends in a safe read or
+ * in one of {@link PERSON_SAFE_ENDS}.
  */
 export declare const PERSON_PATHS: readonly string[];
 
 /** A chain that ends in one of these is safe to print: `length`, `size`, `precision`. */
 export declare const SAFE_READS: readonly string[];
+
+/**
+ * What a path through a person or a name may end in and be printed (`patient.type`,
+ * `patient.resourceType`): a kind of record, a code or a count. An identifying accessor in the path
+ * is still a finding.
+ */
+export declare const PERSON_SAFE_ENDS: readonly string[];
+
+/**
+ * How many groups and templates deep the print rule reads a sample; a sample nested deeper is
+ * refused with a {@link DocsContentRefusal}, and the command exits 2.
+ */
+export declare const PRINT_NESTING_LIMIT: 200;
 
 /** The console methods that print. */
 export declare const CONSOLE_METHODS: readonly string[];
@@ -503,6 +517,8 @@ export interface PrintFinding {
  * @param code - A TypeScript or JavaScript sample.
  * @param extra - A library's own entries, added to the lists.
  * @returns Each finding.
+ * @throws {@link DocsContentRefusal} When the sample nests groups and templates past
+ *   {@link PRINT_NESTING_LIMIT}.
  */
 export declare function samplePrintFindings(
   code: string,
@@ -524,6 +540,8 @@ export declare function sampleBlocks(text: string): { line: number; code: string
  * @param input - The pages, and the README's text or null.
  * @param extra - A library's own entries.
  * @returns Each finding.
+ * @throws {@link DocsContentRefusal} When a sample nests past {@link PRINT_NESTING_LIMIT}, naming the
+ *   file and line.
  */
 export declare function examplePrintFindings(
   input: { pages: { name: string; text: string }[]; readme?: string | null },

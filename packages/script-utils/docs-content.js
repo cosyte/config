@@ -1808,7 +1808,7 @@ export const WHOLE_VALUES = Object.freeze([
 /**
  * The names of a person, or of a person's name, that a chain reads through: any field read after one
  * is a finding, whatever its own name (`patient.gender`, `res.name[0].text`), unless the chain ends
- * in a safe read. A call that is not a getter starts the chain afresh, so `patients.map(...)` and
+ * in a safe read or in one of PERSON_SAFE_ENDS. A call that is not a getter starts the chain afresh, so `patients.map(...)` and
  * `patient(msg).code` read no field of a person.
  */
 export const PERSON_PATHS = Object.freeze([
@@ -1826,6 +1826,31 @@ export const PERSON_PATHS = Object.freeze([
  * date is, which say nothing about the person.
  */
 export const SAFE_READS = Object.freeze(["length", "size", "precision"]);
+
+/**
+ * What a path through a person or a name may end in and be printed: what kind of record it is, a
+ * code, or a count (`patient.type` on a DICOMDIR record, `patient.resourceType`). An identifying
+ * accessor in the path is still a finding (`patient.name.type`), and so is a whole person.
+ */
+export const PERSON_SAFE_ENDS = Object.freeze(["type", "resourceType", "kind", "code", "count"]);
+
+/**
+ * How many groups and templates deep the print rule reads a sample. Code nests far less; a sample
+ * nested deeper is refused with exit 2 rather than read to a stack overflow.
+ */
+export const PRINT_NESTING_LIMIT = 200;
+
+/** A sample nested past PRINT_NESTING_LIMIT, at a 1-based line of the sample. */
+class SampleTooDeep extends DocsContentRefusal {
+  /** @param {number} at The 0-based line where the group or template past the limit opens. */
+  constructor(at) {
+    super(
+      `a sample nests groups and templates more than ${PRINT_NESTING_LIMIT} deep, at its line ` +
+        `${at + 1}.`,
+    );
+    this.line = at + 1;
+  }
+}
 
 /** The console methods that print. */
 export const CONSOLE_METHODS = Object.freeze([
@@ -1928,6 +1953,7 @@ function comparable(name) {
 function tokenize(code) {
   let at = 0;
   let line = 0;
+  let templates = 0;
   const lines = (from, to) => {
     for (let i = from; i < to; i += 1) if (code[i] === "\n") line += 1;
   };
@@ -1971,7 +1997,10 @@ function tokenize(code) {
             at += 2;
           } else if (code[at] === "$" && code[at + 1] === "{") {
             at += 2;
+            templates += 1;
+            if (templates > PRINT_NESTING_LIMIT) throw new SampleTooDeep(line);
             parts.push(read(true));
+            templates -= 1;
           } else {
             lines(at, at + 1);
             at += 1;
@@ -2035,17 +2064,24 @@ function regexAllowed(previous) {
  * an opener with no closer runs to the end.
  *
  * @param {object[]} tokens The tokens.
+ * @param {number} [outer] How many groups and templates the tokens are inside.
  * @returns {object[]} The nodes.
+ * @throws {SampleTooDeep} When a group or a template opens past PRINT_NESTING_LIMIT.
  */
-function nest(tokens) {
+function nest(tokens, outer = 0) {
   // Stryker disable next-line ArrayDeclaration: a seeded node is a string, which no reading of a node takes for anything, so it changes no finding.
   const root = [];
   const stack = [{ children: root, close: null }];
   for (const token of tokens) {
     const top = stack.at(-1);
     const punct = token.type === "punct" ? token.value : null;
+    // How deep a group or a template opened here would be: the groups open, and what is outside.
+    const depth = outer + stack.length;
+    if ((token.type === "template" || OPENERS.includes(punct)) && depth > PRINT_NESTING_LIMIT) {
+      throw new SampleTooDeep(token.line);
+    }
     if (token.type === "template") {
-      top.children.push({ ...token, parts: token.parts.map(nest) });
+      top.children.push({ ...token, parts: token.parts.map((part) => nest(part, depth)) });
     } else if (OPENERS.includes(punct)) {
       const group = { type: "group", open: punct, line: token.line, children: [] };
       top.children.push(group);
@@ -2095,17 +2131,26 @@ function splitAt(nodes, separator) {
  */
 function printLists(extra = {}) {
   // Stryker disable next-line ArrayDeclaration: a seeded entry holds spaces, which no name read from a sample does, so it changes no finding.
-  const accessors = [...IDENTIFYING_ACCESSORS, ...(extra.accessors ?? [])].map((entry) => ({
+  const ownAccessors = extra.accessors ?? [];
+  // Stryker disable next-line ArrayDeclaration: a seeded entry holds spaces, which no name read from a sample does, so it changes no finding.
+  const ownWholeValues = extra.wholeValues ?? [];
+  const accessors = [...IDENTIFYING_ACCESSORS, ...ownAccessors].map((entry) => ({
     entry,
     parts: entry.split(".").map(comparable),
   }));
   const wholeValues = new Map(
-    // Stryker disable next-line ArrayDeclaration: a seeded entry holds spaces, which no name read from a sample does, so it changes no finding.
-    [...WHOLE_VALUES, ...(extra.wholeValues ?? [])].map((entry) => [comparable(entry), entry]),
+    [...WHOLE_VALUES, ...ownWholeValues].map((entry) => [comparable(entry), entry]),
   );
   const personPaths = new Map(PERSON_PATHS.map((entry) => [comparable(entry), entry]));
   // Stryker disable next-line ArrayDeclaration: a seeded printer holds spaces, which no call read from a sample does, so it changes no finding.
-  return { accessors, wholeValues, personPaths, printers: new Set(extra.printers ?? []) };
+  const safeEnds = new Set(PERSON_SAFE_ENDS.map(comparable));
+  return {
+    accessors,
+    wholeValues,
+    personPaths,
+    safeEnds,
+    printers: new Set(extra.printers ?? []),
+  };
 }
 
 /**
@@ -2168,6 +2213,9 @@ function chainFault(nodes, start, lists, whole) {
   const members = [];
   // Where the chain of fields starts: after the last call that is not a getter.
   let from = 0;
+  // What a call's arguments print, which the call's result carries unless the chain ends in a
+  // safe read: `serializeResource(bundle).length` prints a count.
+  let carried = null;
   if (node.type === "ident") {
     members.push(node.value);
   } else if (node.type === "group") {
@@ -2193,7 +2241,7 @@ function chainFault(nodes, start, lists, whole) {
     } else if (next.open === "(") {
       const callee = members.at(-1);
       const inner = listFault(next.children, ",", lists, whole && SERIALIZER.test(String(callee)));
-      if (inner !== null) return { fault: inner };
+      carried ??= inner;
       // `msg.toString()` is the message itself, as text.
       if (TO_TEXT.has(callee)) members.pop();
       else if (!/^get[A-Z]/.test(callee)) from = members.length;
@@ -2206,6 +2254,7 @@ function chainFault(nodes, start, lists, whole) {
       break;
     }
   }
+  if (carried !== null && !SAFE_READS.includes(members.at(-1))) return { fault: carried };
   return { fault: membersFault(members, from, lists, whole), end: at };
 }
 
@@ -2246,10 +2295,13 @@ function membersFault(members, from, lists, whole) {
     const found = names.some((_, at) => parts.every((part, k) => names[at + k] === part));
     if (found) return { entry, whole: false };
   }
-  // A person or a name read through, judged by the whole path and not by its last name.
-  const through = names.slice(from, -1).find((name) => lists.personPaths.has(name));
-  if (through !== undefined) return { entry: lists.personPaths.get(through), whole: false };
   const last = names.at(-1);
+  // A person or a name read through, judged by the whole path and not by its last name, unless that
+  // name says only what kind of record it is, a code or a count.
+  const through = names.slice(from, -1).find((name) => lists.personPaths.has(name));
+  if (through !== undefined && !lists.safeEnds.has(last)) {
+    return { entry: lists.personPaths.get(through), whole: false };
+  }
   // `error.message` and `warning.message` are the text of an error or a warning, not a message.
   if (names.length > 1 && last === "message") return null;
   const entry = whole ? lists.wholeValues.get(last) : undefined;
@@ -2265,6 +2317,7 @@ function membersFault(members, from, lists, whole) {
  *   A library's own entries, added to the lists.
  * @returns {{ line: number, entry: string, message: string }[]} Each finding, its line 1-based in
  *   the sample.
+ * @throws {DocsContentRefusal} When the sample nests groups and templates past PRINT_NESTING_LIMIT.
  */
 export function samplePrintFindings(code, extra = {}) {
   const lists = printLists(extra);
@@ -2291,8 +2344,13 @@ export function samplePrintFindings(code, extra = {}) {
       // that any printer starts with, so it is no printer.
       if (isPunct(nodes[i - 1], ".") || isPunct(nodes[i - 1], "?.")) continue;
       if (node.type === "ident" && node.value === "throw") {
-        // What a thrown error carries is printed when nothing catches it: read up to the `;`.
-        const thrown = expressionFault(splitAt(nodes.slice(i + 1), ";")[0], lists, true);
+        // What a thrown error carries is printed when nothing catches it: read up to the `;`, or
+        // the next `throw`, so many throws are each read once and not each to the sample's end.
+        let end = i + 1;
+        while (end < nodes.length && !isPunct(nodes[end], ";") && nodes[end].value !== "throw") {
+          end += 1;
+        }
+        const thrown = expressionFault(nodes.slice(i + 1, end), lists, true);
         if (thrown !== null) report(node, "a thrown error", "carries", thrown);
         continue;
       }
@@ -2467,6 +2525,7 @@ export function sampleBlocks(text) {
  *   A library's own entries.
  * @returns {{ file: string, line: number, rule: "example-print", message: string }[]} Each finding,
  *   its file relative to the repository root.
+ * @throws {DocsContentRefusal} When a sample nests past PRINT_NESTING_LIMIT, naming the file and line.
  */
 export function examplePrintFindings(input, extra = {}) {
   const files = [];
@@ -2477,7 +2536,17 @@ export function examplePrintFindings(input, extra = {}) {
   const findings = [];
   for (const { file, text } of files) {
     for (const block of sampleBlocks(text)) {
-      for (const found of samplePrintFindings(block.code, extra)) {
+      let sample;
+      try {
+        sample = samplePrintFindings(block.code, extra);
+      } catch (error) {
+        if (!(error instanceof SampleTooDeep)) throw error;
+        throw new DocsContentRefusal(
+          `${file}:${block.line + error.line - 1} nests groups and templates more than ` +
+            `${PRINT_NESTING_LIMIT} deep; the print rule reads no deeper.`,
+        );
+      }
+      for (const found of sample) {
         findings.push({
           file,
           line: block.line + found.line - 1,
@@ -2518,7 +2587,7 @@ export function readPrintConfig(root) {
       throw refuse(`holds "${key}"; the only key it takes is "${PRINT_CONFIG_KEY}"`);
     }
   }
-  const rule = config[PRINT_CONFIG_KEY] ?? {};
+  const rule = Object.hasOwn(config, PRINT_CONFIG_KEY) ? config[PRINT_CONFIG_KEY] : {};
   if (!isRecord(rule)) throw refuse(`holds "${PRINT_CONFIG_KEY}" that is not an object`);
   for (const [key, value] of Object.entries(rule)) {
     const where = `"${PRINT_CONFIG_KEY}.${key}"`;
@@ -2700,6 +2769,7 @@ export function runDocsContentCheck(options = {}) {
   let input;
   let print;
   let readme;
+  let printed;
   try {
     if (write) {
       for (const file of writeExamplePages(resolve(dir))) {
@@ -2709,8 +2779,13 @@ export function runDocsContentCheck(options = {}) {
     input = readDocsContent(resolve(dir));
     print = readPrintConfig(resolve(dir));
     readme = readReadme(resolve(dir));
+    // A print finding's file is relative to the repository root: it may be the README.
+    printed = examplePrintFindings({ pages: input.pages, readme }, print).map(
+      (f) => `  ${f.file}:${f.line} [${f.rule}] ${f.message}`,
+    );
   } catch (error) {
-    // Every way reading fails is a refusal: the folder, a listing and a file each raise one.
+    // Every way reading fails is a refusal: the folder, a listing, a file and a sample nested past
+    // the print rule's limit each raise one.
     stderr.write(`docs-content: ${error.message} Nothing was checked.\n`);
     return 2;
   }
@@ -2724,10 +2799,6 @@ export function runDocsContentCheck(options = {}) {
   );
   const where = (f) =>
     `  ${DOCS_DIR}/${f.file}${f.line > 0 ? `:${f.line}` : ""} [${f.rule}] ${f.message}`;
-  // A print finding's file is relative to the repository root: it may be the README.
-  const printed = examplePrintFindings({ pages: input.pages, readme }, print).map(
-    (f) => `  ${f.file}:${f.line} [${f.rule}] ${f.message}`,
-  );
   const failingPrints = print.required ? printed : [];
   const notes = [];
   for (const warning of docsContentWarnings(input)) notes.push(`${where(warning)} (a warning)`);

@@ -17,13 +17,16 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   CONSOLE_METHODS,
   DOCS_CONTENT_RULES,
+  DocsContentRefusal,
   examplePrintFindings,
   IDENTIFYING_ACCESSORS,
   LOGGER_METHODS,
   NUMBERS_HEADING,
   NUMBERS_PLACEHOLDER,
   PERSON_PATHS,
+  PERSON_SAFE_ENDS,
   PRINT_CONFIG_FILE,
+  PRINT_NESTING_LIMIT,
   PRINT_CONFIG_KEY,
   PRINT_CONFIG_KEYS,
   PRINT_RULE,
@@ -56,6 +59,8 @@ describe("the rule's lists", () => {
     expect(PRINT_CONFIG_KEYS).toEqual(["required", "accessors", "wholeValues", "printers"]);
     expect(SAMPLE_LANGUAGES).toEqual(["ts", "typescript", "tsx", "js", "javascript", "mjs"]);
     expect(SAFE_READS).toEqual(["length", "size", "precision"]);
+    expect(PERSON_SAFE_ENDS).toEqual(["type", "resourceType", "kind", "code", "count"]);
+    expect(PRINT_NESTING_LIMIT).toBe(200);
     expect(STREAM_PRINTERS).toEqual(["process.stdout.write", "process.stderr.write"]);
   });
 
@@ -407,6 +412,17 @@ describe("reading the code as written", () => {
       "ds",
     ]);
   });
+
+  it("keeps every default entry when a library adds its own", () => {
+    const extra = { accessors: ["practiceAssignedId"], wholeValues: ["ds"] };
+    for (const entry of IDENTIFYING_ACCESSORS) {
+      const chain = entry.split(".").join("?.");
+      expect(entries(`console.log(record.${chain});`, extra), entry).toEqual([entry]);
+    }
+    for (const entry of WHOLE_VALUES) {
+      expect(entries(`console.log(${entry});`, extra), entry).toEqual([entry]);
+    }
+  });
 });
 
 describe("the whole path, not its last name", () => {
@@ -434,6 +450,30 @@ describe("the whole path, not its last name", () => {
     expect(
       entries("console.log(patients.map((p) => p.code), patients.widgetCount().code);"),
     ).toEqual([]);
+  });
+
+  it("allows a type, a kind, a code or a count read through a person", () => {
+    // A DICOMDIR record in a loop is often named patient, and its type is "PATIENT", a code.
+    expect(entries('console.log(patient.type, image.referencedFileId?.join("/"));')).toEqual([]);
+    expect(entries("console.log(patient.resourceType, msg.patient.kind);")).toEqual([]);
+    expect(entries("console.log(bundle.patients[0].code, person.count);")).toEqual([]);
+    expect(entries("console.log(patient.resource_type, Patient.Type);")).toEqual([]);
+  });
+
+  it("allows a length or a size read from what a call returns", () => {
+    expect(entries('console.log(serializeResource(bundle).length, "bytes");')).toEqual([]);
+    expect(entries("console.log(JSON.stringify(msg).length, lookup(p.mrn).size);")).toEqual([]);
+    expect(entries("console.log(JSON.stringify(msg).trim());")).toEqual(["msg"]);
+    expect(entries("console.log(lookup(p.mrn).code);")).toEqual(["mrn"]);
+    expect(entries("console.log(String(segment).length.x);")).toEqual(["segment"]);
+  });
+
+  it("still flags an identifying field, or the whole person, that ends in a safe name", () => {
+    expect(entries("console.log(patient.name.type);")).toEqual(["patient.name"]);
+    expect(entries("console.log(patient.address[0].type);")).toEqual(["address"]);
+    expect(entries("console.log(patient.telecom[0].code);")).toEqual(["telecom"]);
+    expect(entries("console.log(patient.type.display);")).toEqual(["patient"]);
+    expect(entries("console.log(patient);")).toEqual(["patient"]);
   });
 
   it("names the person or the name it read through", () => {
@@ -605,6 +645,46 @@ describe("a thrown error", () => {
   });
 });
 
+describe("the bounds on a sample", () => {
+  const deep = (open: string, close: string, levels: number): string =>
+    `${open.repeat(levels)}x${close.repeat(levels)}`;
+
+  it("reads a sample nested to the limit", () => {
+    const inside = "console.log(p.mrn)";
+    const groups =
+      "(".repeat(PRINT_NESTING_LIMIT - 1) + inside + ")".repeat(PRINT_NESTING_LIMIT - 1);
+    expect(entries(groups)).toEqual(["mrn"]);
+    const templates =
+      "`${".repeat(PRINT_NESTING_LIMIT - 1) + inside + "}`".repeat(PRINT_NESTING_LIMIT - 1);
+    expect(entries(templates)).toEqual(["mrn"]);
+  });
+
+  it("refuses a sample nested past the limit, naming its line and never its text", () => {
+    for (const [label, code] of [
+      ["groups", deep("(", ")", PRINT_NESTING_LIMIT + 1)],
+      ["brackets", deep("[{", "}]", 10_000)],
+      ["templates", deep("`${", "}`", PRINT_NESTING_LIMIT + 1)],
+      ["many templates", deep("`${", "}`", 10_000)],
+      ["templates in groups", deep("(`${", "}`)", 10_000)],
+    ]) {
+      expect(() => samplePrintFindings(`\n${code}`), label).toThrow(DocsContentRefusal);
+      expect(() => samplePrintFindings(`\n${code}`), label).toThrow(
+        `nests groups and templates more than ${PRINT_NESTING_LIMIT} deep, at its line 2`,
+      );
+    }
+  });
+
+  // Read to the end of the sample for each throw, 40,000 throws took far past this timeout.
+  it(
+    "reads a thrown error on each of many lines in time linear in the sample",
+    { timeout: 5_000 },
+    () => {
+      const code = "throw error;\n".repeat(40_000) + "throw p.mrn;\nthrow p.mrn\nthrow error";
+      expect(entries(code)).toEqual(["mrn", "mrn"]);
+    },
+  );
+});
+
 describe("the samples of a page", () => {
   it("reads each TypeScript and JavaScript fence, with the line of its first code line", () => {
     const text = [
@@ -749,6 +829,7 @@ describe("the files it reads", () => {
       ["null", "null", /is not a JSON object/],
       ["other-key", '{"other":1}', /holds "other"; the only key it takes is "examplePrint"/],
       ["rule-array", '{"examplePrint":[]}', /holds "examplePrint" that is not an object/],
+      ["rule-null", '{"examplePrint":null}', /holds "examplePrint" that is not an object/],
       [
         "unknown-key",
         '{"examplePrint":{"strict":true}}',
@@ -926,6 +1007,17 @@ describe("the command line", () => {
       }),
     });
     expect(cli(dir)).toMatchObject({ code: 1, out: "" });
+  });
+
+  it("exits 2 on a sample nested past the limit, naming the file and line", () => {
+    const nested = "```ts\n\n" + "(".repeat(PRINT_NESTING_LIMIT + 1) + "secret\n```\n";
+    const result = cli(tree("too-deep", nested));
+    expect(result.code).toBe(2);
+    expect(result.out).toBe("");
+    expect(result.err).toBe(
+      "docs-content: docs-content/quickstart.md:12 nests groups and templates more than " +
+        `${PRINT_NESTING_LIMIT} deep; the print rule reads no deeper. Nothing was checked.\n`,
+    );
   });
 
   it("exits 2 when the settings file cannot be read, checking nothing", () => {

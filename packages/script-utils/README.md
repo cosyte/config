@@ -511,7 +511,10 @@ Under the rule `example-print`, no TypeScript or JavaScript sample in the README
 passes an identifying value (`IDENTIFYING_ACCESSORS`, a field through `PERSON_PATHS`, a whole
 `WHOLE_VALUES`) to a printer, however named, or a thrown error; a finding never echoes it. It is
 advisory until `cosyte-docs-content.config.json` sets `{ "examplePrint": { "required": true } }`,
-whose `accessors`, `wholeValues` and `printers` extend the lists. Decision 0006, section 14.
+whose `accessors`, `wholeValues` and `printers` extend the lists. A type, code or count read
+through a person passes (`PERSON_SAFE_ENDS`); a sample nested past `PRINT_NESTING_LIMIT` exits 2. It
+misses a printer passed by reference (`.then(console.log)`), a loop or callback variable, a
+helper's arguments and a value copied into a neutral name. Decision 0006, section 14.
 
 ```ts runnable
 import { samplePrintFindings } from "@cosyte/script-utils/docs-content";
