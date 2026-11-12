@@ -98,7 +98,8 @@ export declare const WARNING_RULES: readonly DocsContentWarningRule[];
 
 /**
  * The front matter key a configuration or command reference names its generator or test in: a path
- * from the repository root to a file that names the page's file.
+ * from the repository root to a file that names the page's file as a whole path segment. It never
+ * names a page: a Markdown or MDX file, or any file under docs-content/, is a finding.
  */
 export declare const HELD_BY_KEY: "held_by";
 
@@ -113,7 +114,8 @@ export declare const KIND_PREFIXES: readonly string[];
 
 /**
  * The verbs a how-to guide's title may begin with, lower-case. A title that begins with any other
- * word is a finding; a verb a guide needs and this lacks is added here.
+ * word is a finding; a verb a guide needs and this lacks is added here. Words read first as nouns
+ * (release, support, report, list and the like) are left out, so "Release notes" is a finding.
  */
 export declare const IMPERATIVE_VERBS: readonly string[];
 

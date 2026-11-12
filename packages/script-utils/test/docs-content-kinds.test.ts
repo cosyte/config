@@ -11,6 +11,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -34,6 +35,12 @@ import {
   TUTORIAL_ENDING,
   WARNING_RULES,
 } from "../docs-content.js";
+
+/** The repository's root, which git reads the ratchet's history from. */
+const REPO_ROOT = fileURLToPath(new URL("../../..", import.meta.url));
+
+/** The ratchet file, by its path from the repository's root. */
+const RATCHET_PATH = "packages/script-utils/docs-content-ratchet.json";
 
 type Page = { name: string; text: string };
 type Finding = { file: string; line: number; rule: string; message: string };
@@ -226,6 +233,34 @@ describe("howto-title", () => {
         "begins with a verb in the imperative (a verb missing from IMPERATIVE_VERBS is added there)",
       'recipes.md:3 [howto-title] the title begins "Recipes": a how-to guide\'s title begins ' +
         "with a verb in the imperative (a verb missing from IMPERATIVE_VERBS is added there)",
+    ]);
+  });
+
+  it.each([
+    "Release notes",
+    "Support matrix",
+    "Report formats",
+    "Record layouts",
+    "List of codes",
+    "Index of segments",
+    "Order messages",
+    "Process overview",
+    "Batch files",
+    "Cache settings",
+    "Plan limits",
+    "Log format",
+    "Patch levels",
+    "Review checklist",
+    "Schedule types",
+    "View options",
+    "Work queue",
+    "Control characters",
+    "Request lifecycle",
+  ])("reports %j, a title that begins with a word read first as a noun", (title) => {
+    const first = title.split(" ")[0];
+    expect(found("howto-title", [{ kind: "How-to guides", page: page("notes", title) }])).toEqual([
+      `notes.md:3 [howto-title] the title begins "${first}": a how-to guide's title begins with ` +
+        "a verb in the imperative (a verb missing from IMPERATIVE_VERBS is added there)",
     ]);
   });
 
@@ -573,6 +608,64 @@ describe("reference-source", () => {
   ])("reads %j as a held_by path inside the repository: %s", (path, ok) => {
     expect(isHeldByPath(path)).toBe(ok);
   });
+
+  it.each([
+    ["the page itself", "docs-content/configuration-reference.md"],
+    ["another docs page", "docs-content/settings-index.md"],
+    ["a Markdown file outside the docs", "README.md"],
+    ["an MDX file", "notes/config.mdx"],
+    ["a Markdown file in upper case", "NOTES.MD"],
+    ["any file under docs-content", "docs-content/sidebars.json"],
+  ])("refuses a held_by that names %s, even when it names the page", (_label, path) => {
+    const sources = new Map([[path, "docs-content/configuration-reference.md"]]);
+    expect(
+      found(
+        "reference-source",
+        [{ kind: "Reference", page: configuration(`held_by: ${path}\n`) }],
+        sources,
+      ),
+    ).toEqual([
+      `configuration-reference.md:6 [reference-source] held_by names "${path}", which is a ` +
+        "page, not the generator or the test that holds the reference to the code",
+    ]);
+  });
+
+  it.each([
+    ["a longer file name that ends with it", "see docs-content/old-configuration-reference.md"],
+    ["a file name with a dot before it", "see v2.configuration-reference.md"],
+    ["the MDX file of the same name", "see docs-content/configuration-reference.mdx"],
+    ["a longer extension", "see configuration-reference.md5"],
+    ["a name with a suffix", "see configuration-reference.md-old"],
+  ])("does not take %s for the page's file", (_label, text) => {
+    const sources = new Map([["test/docs.test.ts", text]]);
+    expect(
+      found(
+        "reference-source",
+        [{ kind: "Reference", page: configuration("held_by: test/docs.test.ts\n") }],
+        sources,
+      ),
+    ).toEqual([
+      'configuration-reference.md:6 [reference-source] held_by names "test/docs.test.ts", which never names configuration-reference.md',
+    ]);
+  });
+
+  it.each([
+    ["alone", "configuration-reference.md"],
+    ["under docs-content", 'read("docs-content/configuration-reference.md")'],
+    ["joined as a segment", 'join(docs, "configuration-reference.md")'],
+    ["at the end of a sentence", "checks configuration-reference.md."],
+    ["in a Markdown link", "(./configuration-reference.md)"],
+    ["after a backslash", "docs-content\\configuration-reference.md"],
+  ])("takes the page's file named %s", (_label, text) => {
+    const sources = new Map([["test/docs.test.ts", text]]);
+    expect(
+      found(
+        "reference-source",
+        [{ kind: "Reference", page: configuration("held_by: test/docs.test.ts\n") }],
+        sources,
+      ),
+    ).toEqual([]);
+  });
 });
 
 describe("docsContentWarnings", () => {
@@ -718,37 +811,69 @@ describe("the ratchet file", () => {
   });
 
   // The counts only fall. Against main's copy of the file, no library gains a rule or a count, and
-  // no library is added. CI checks out the whole history, so main's copy is there to read; before
-  // the file is on main there is nothing to compare, and the test says so by its name.
-  const base = (() => {
-    try {
-      return JSON.parse(
-        execFileSync(
-          "git",
-          ["show", "origin/main:packages/script-utils/docs-content-ratchet.json"],
-          {
-            encoding: "utf8",
-            stdio: ["ignore", "pipe", "ignore"],
-          },
-        ),
-      ) as typeof file;
-    } catch {
-      return null;
-    }
-  })();
+  // no library is added. CI checks out the whole history, so main's copy is there to read, and in
+  // CI a main it cannot read fails the test rather than skipping it. Only a main that has no copy
+  // of the file, the change that adds it, has nothing to compare.
+  type Base =
+    | { kind: "read"; file: typeof file }
+    | { kind: "absent" }
+    | { kind: "unreadable"; reason: string };
 
-  it.skipIf(base === null)(
-    "never raises a count main records, nor adds a library or a rule",
-    () => {
-      const recorded = base?.libraries ?? {};
-      for (const [library, counts] of Object.entries(file.libraries)) {
-        expect(Object.keys(recorded)).toContain(library);
-        for (const [rule, count] of Object.entries(counts)) {
-          expect(count).toBeLessThanOrEqual(recorded[library]?.[rule] ?? 0);
-        }
+  /** The ratchet file as `ref` holds it. */
+  function readRatchetAt(ref: string, path = RATCHET_PATH): Base {
+    const git = (args: string[]) =>
+      execFileSync("git", args, {
+        cwd: REPO_ROOT,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    try {
+      if (git(["ls-tree", "--full-tree", "--name-only", ref, "--", path]).trim() === "") {
+        return { kind: "absent" };
       }
-    },
-  );
+      return { kind: "read", file: JSON.parse(git(["show", `${ref}:${path}`])) as typeof file };
+    } catch (error) {
+      return { kind: "unreadable", reason: (error as Error).message.split("\n")[0] ?? "" };
+    }
+  }
+
+  /** What the only-tightens test does with main's copy: compare, pass, skip, or fail. */
+  function baseOutcome(base: Base, ci: boolean): "compare" | "nothing on main" | "skip" | "fail" {
+    if (base.kind === "read") return "compare";
+    if (base.kind === "absent") return "nothing on main";
+    return ci ? "fail" : "skip";
+  }
+
+  it("reads the file at a ref, names a ref that has none, and names one it cannot read", () => {
+    expect(readRatchetAt("HEAD").kind).toBe("read");
+    expect(readRatchetAt("HEAD", "packages/script-utils/no-such-ratchet.json").kind).toBe("absent");
+    expect(readRatchetAt("refs/heads/no-such-branch-for-this-test").kind).toBe("unreadable");
+  });
+
+  it("fails in CI on a main it cannot read, and skips only outside CI", () => {
+    const unreadable: Base = { kind: "unreadable", reason: "no ref" };
+    expect(baseOutcome(unreadable, true)).toBe("fail");
+    expect(baseOutcome(unreadable, false)).toBe("skip");
+    expect(baseOutcome({ kind: "absent" }, true)).toBe("nothing on main");
+    expect(baseOutcome({ kind: "read", file }, true)).toBe("compare");
+  });
+
+  it("never raises a count main records, nor adds a library or a rule", (context) => {
+    const base = readRatchetAt("origin/main");
+    const outcome = baseOutcome(base, process.env.CI !== undefined && process.env.CI !== "");
+    if (outcome === "fail" && base.kind === "unreadable") {
+      expect.fail(`cannot read main's copy of the ratchet in CI: ${base.reason}`);
+    }
+    if (outcome === "skip") context.skip("main's copy of the ratchet cannot be read here");
+    if (base.kind !== "read") return;
+    const recorded = base.file.libraries;
+    for (const [library, counts] of Object.entries(file.libraries)) {
+      expect(Object.keys(recorded)).toContain(library);
+      for (const [rule, count] of Object.entries(counts)) {
+        expect(count).toBeLessThanOrEqual(recorded[library]?.[rule] ?? 0);
+      }
+    }
+  });
 });
 
 describe("readDocsContent and the command line", () => {
@@ -878,6 +1003,32 @@ describe("readDocsContent and the command line", () => {
     expect(cli(anonymous, { "@cosyte/example": { "page-id": 2 } }).err).toContain(
       "docs-content: [page-id] has 2 finding(s), over the 0 recorded for this repository, so each one fails.\n",
     );
+  });
+
+  it("fails a reference held by itself, or by a file that names only a longer file name", () => {
+    const held = (name: string, title: string, path: string) =>
+      page(name, title, "Text.\n", `held_by: ${path}\n`);
+    const input = tree([
+      {
+        kind: "Reference",
+        page: held("configuration", "Configuration", "docs-content/configuration.md"),
+      },
+      { kind: "Reference", page: held("options", "Options", "README.md") },
+      { kind: "Reference", page: held("cli-settings", "CLI settings", "scripts/gen.mjs") },
+    ]);
+    const dir = repo("held-by-itself", input, {
+      "README.md": "See docs-content/cli-options.md and cli-settings.md for the flags.\n",
+      "scripts/gen.mjs": "// writes docs-content/old-cli-settings.md\n",
+    });
+    const findings = checkDocsContent(readDocsContent(dir)).filter(
+      (f) => f.rule === "reference-source",
+    );
+    expect(lines(findings).sort()).toEqual([
+      'cli-settings.md:6 [reference-source] held_by names "scripts/gen.mjs", which never names cli-settings.md',
+      'configuration.md:6 [reference-source] held_by names "docs-content/configuration.md", which is a page, not the generator or the test that holds the reference to the code',
+      'options.md:6 [reference-source] held_by names "README.md", which is a page, not the generator or the test that holds the reference to the code',
+    ]);
+    expect(cli(dir, {}).code).toBe(1);
   });
 
   it("reads the shipped ratchet by default", () => {

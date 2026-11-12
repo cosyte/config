@@ -315,8 +315,9 @@ structure check reads each one from the page's category, its title, its id and i
 
 1. **A how-to guide's title states its goal and begins with a verb in the imperative.** The check
    reads the title's first word against a list of verbs, `IMPERATIVE_VERBS` in
-   `@cosyte/script-utils`; a guide that needs a verb the list lacks adds it there. It cannot tell
-   whether the rest of the title states a goal.
+   `@cosyte/script-utils`; a guide that needs a verb the list lacks adds it there. Words read first
+   as nouns (release, support, report, list, index and the like) are not on it, so a noun title
+   such as "Release notes" is a finding. It cannot tell whether the rest of the title states a goal.
 2. **A how-to holds steps; how and why it works goes in an explanation it links.** A how-to has no
    heading (H2 or H3) that begins How, Why or The alternatives. It cannot see explanation written
    under any other heading.
@@ -338,8 +339,11 @@ structure check reads each one from the page's category, its title, its id and i
    generated from the code, or a test holds every entry to it.** A Reference page whose id names
    configuration, options, settings, environment, a command or the CLI, or that holds a settings
    table, names that generator or test in its front matter, `held_by: test/docs-content.test.ts`,
-   a path from the repository root; the file must exist and name the page's file. It cannot tell
-   whether the test holds every entry; review does.
+   a path from the repository root; the file must exist and name the page's file as a whole path
+   segment (`configuration.md` is not named by `cli-configuration.md` or `configuration.mdx`). It
+   is never a page: a Markdown or MDX file, or any file under `docs-content/`, is refused, so a page
+   cannot hold itself or lean on a README. It cannot tell whether the test holds every entry; review
+   does.
 8. **A measured number appears only in a "Current numbers" section, never in prose.** A check can
    only approximate it: a number followed by a measured unit (a percentage, `ms`, `µs`, `ns`, a size
    in bytes, a rate a second, "times faster"), in prose outside code and outside that section, on a

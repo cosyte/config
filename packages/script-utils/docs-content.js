@@ -166,29 +166,30 @@ export const KIND_PREFIXES = Object.freeze(["guides-", "concepts-", "core-concep
 /**
  * The verbs a how-to guide's title may begin with, lower-case. A title that begins with any other
  * word is a finding: add a verb here, in @cosyte/script-utils, when a guide needs one this lacks.
+ * Words read first as nouns (release, support, report, list and the like) are left out, so a noun
+ * title such as "Release notes" is a finding; a guide that means the verb picks another one.
  */
 export const IMPERATIVE_VERBS = Object.freeze(
   [
     "accept acknowledge add adopt allow analyze annotate answer apply archive assert assign attach",
-    "audit authenticate authorize avoid batch bill branch bring build bundle cache calculate call",
-    "cancel capture catch chain change check choose clean clear close collect combine compare",
-    "compose compute configure confirm connect contribute control convert copy correct count create",
-    "customize de-identify debug decide declare decode decrypt define delete deploy describe detect",
-    "diagnose diff disable discover dispatch display draw drive drop edit emit enable encode encrypt",
-    "enforce enrich ensure escape evaluate exclude expand export extend extract fetch filter find",
-    "fix flag follow format forward generate get give group guard handle hash hide host identify",
-    "ignore implement import include index inspect install integrate join keep label launch link",
-    "list listen load locate lock log look make manage map mask match measure merge migrate mock",
-    "modify monitor move name navigate normalize notify observe open order organize override parse",
-    "pass patch pause persist pin plan plug post prepare preserve prevent print process",
-    "property-test protect prove provide publish pull push put query queue read rebuild receive",
-    "record recover redact reduce refresh register reject release reload remove rename render",
-    "reorder repair replace replay report request resend reset resolve respond restart restore",
-    "retry return reuse review rotate route run sanitize save scale scan schedule search secure",
-    "select send separate serialize serve set share ship show sign simulate skip sort split start",
-    "stop store stream strip subscribe supply support swap switch sync take tell test throttle",
-    "tokenize tolerate trace track transform translate triage trim troubleshoot tune turn type undo",
-    "unpack update upgrade upload use validate verify view wait walk warn watch work wrap write",
+    "audit authenticate authorize avoid bill branch bring build bundle calculate call cancel",
+    "capture catch chain change check choose clean clear close collect combine compare compose",
+    "compute configure confirm connect contribute convert copy correct count create customize",
+    "de-identify debug decide declare decode decrypt define delete deploy describe detect diagnose",
+    "diff disable discover dispatch display draw drive drop edit emit enable encode encrypt enforce",
+    "enrich ensure escape evaluate exclude expand export extend extract fetch filter find fix flag",
+    "follow format forward generate get give group guard handle hash hide host identify ignore",
+    "implement import include inspect install integrate join keep label launch link listen load",
+    "locate lock look make manage map mask match measure merge migrate mock modify monitor move",
+    "name navigate normalize notify observe open organize override parse pass pause persist pin",
+    "plug post prepare preserve prevent print property-test protect prove provide publish pull push",
+    "put query queue read rebuild receive recover redact reduce refresh register reject reload",
+    "remove rename render reorder repair replace replay resend reset resolve respond restart",
+    "restore retry return reuse rotate route run sanitize save scale scan search secure select send",
+    "separate serialize serve set share ship show sign simulate skip sort split start stop store",
+    "stream strip subscribe supply swap switch sync take tell test throttle tokenize tolerate trace",
+    "track transform translate triage trim troubleshoot tune turn type undo unpack update upgrade",
+    "upload use validate verify wait walk warn watch wrap write",
   ]
     .join(" ")
     .split(" "),
@@ -848,6 +849,32 @@ export function isHeldByPath(path) {
 }
 
 /**
+ * A `held_by` path that names a page rather than a generator or a test: a Markdown or MDX file, or
+ * any file under docs-content/. A page cannot hold itself, or another page, to the code.
+ *
+ * @param {string} path The front matter value.
+ * @returns {boolean} True when the path names a page.
+ */
+function isPagePath(path) {
+  return /\.mdx?$/i.test(path) || path.startsWith(`${DOCS_DIR}/`);
+}
+
+/**
+ * Whether a file's text names a page's file as a whole path segment: the name with no letter,
+ * digit, dot, hyphen or underscore before it, and none after it but a dot that ends a sentence.
+ * "configuration.md" is not named by "cli-configuration.md", "v2.configuration.md",
+ * "configuration.mdx" or "configuration.md5".
+ *
+ * @param {string} text The text of the file `held_by` names.
+ * @param {string} file The page's file name, such as "configuration.md".
+ * @returns {boolean} True when the text names the file.
+ */
+function namesFile(text, file) {
+  const escaped = file.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?<![\\w.-])${escaped}(?![\\w-]|\\.\\w)`, "u").test(text);
+}
+
+/**
  * The findings of the rules that read whether each page holds what its kind asks.
  *
  * @param {{ name: string, text: string }[]} pages The pages.
@@ -1016,7 +1043,15 @@ function checkKinds(pages, kinds, sources, add) {
             "reference-source",
             `${HELD_BY_KEY} names "${held.value}", which is not a file in the repository`,
           );
-        } else if (!sources.get(held.value).includes(file)) {
+        } else if (isPagePath(held.value)) {
+          add(
+            file,
+            held.line,
+            "reference-source",
+            `${HELD_BY_KEY} names "${held.value}", which is a page, not the generator or the ` +
+              "test that holds the reference to the code",
+          );
+        } else if (!namesFile(sources.get(held.value), file)) {
           add(
             file,
             held.line,

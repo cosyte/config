@@ -11,7 +11,8 @@ has a limitations heading (`limitations`); a tutorial's H2s are numbered steps e
 built" and "Next" (`tutorial-steps`); a page id shares a word with its title and does not begin
 `guides-`, `concepts-` or `core-concepts` (`page-id`); and a configuration or command reference
 names the generator or test that holds it to the code in `held_by:` in its front matter
-(`reference-source`). A number with a measured unit outside "Current numbers" is a warning
+(`reference-source`); that file names the page's file as a whole path segment, and it is never a
+page (a Markdown or MDX file, or any file under `docs-content/`). A number with a measured unit outside "Current numbers" is a warning
 (`measured-number`) and never fails.
 
 A library's findings under the seven rules are held by a ratchet, `docs-content-ratchet.json`,
