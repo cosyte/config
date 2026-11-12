@@ -186,6 +186,11 @@
       "key": "changesets:updateInternalDependencies",
       "value": "patch",
       "why": "How Changesets bumps intra-workspace dependency ranges. It decides what version of a sibling a published package asks for."
+    },
+    {
+      "key": "changesets:bumpVersionsWithWorkspaceProtocolOnly",
+      "value": true,
+      "why": "Changesets rewrites only `workspace:` dependency ranges. @changesets/cli 3 also rewrites the private root manifest, whose exact npm pin of @cosyte/process a release moved without pnpm-lock.yaml, so the Version Packages pull request failed its frozen-lockfile install. Every internal range a published package carries is `workspace:^`, so this changes no published manifest; test/changeset-version-root.test.ts runs `changeset version` with and without it to hold that. Turning it off brings the root rewrite back."
     }
   ],
   "require": [
