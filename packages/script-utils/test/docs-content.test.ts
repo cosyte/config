@@ -18,6 +18,7 @@ import {
   DESCRIPTION_LIMIT,
   DOCS_CONTENT_RULES,
   DocsContentRefusal,
+  EXAMPLE_RULES,
   GENERATED_DIR,
   headingAnchors,
   NUMBERS_HEADING,
@@ -166,6 +167,7 @@ describe("the standard's constants", () => {
       ["Quickstart", true, "quickstart"],
       ["Tutorials", false, null],
       ["How-to guides", true, null],
+      ["Examples", false, null],
       ["Explanation", true, null],
       ["Reference", false, null],
       ["Troubleshooting", true, "troubleshooting"],
@@ -181,6 +183,7 @@ describe("the standard's constants", () => {
     expect(DESCRIPTION_LIMIT).toBe(160);
     expect(Object.keys(DOCS_CONTENT_RULES)).toEqual([
       ...STRUCTURE_RULES,
+      ...EXAMPLE_RULES,
       ...RATCHETED_RULES,
       ...WARNING_RULES,
     ]);
@@ -299,7 +302,7 @@ describe("sidebar", () => {
     );
     expect(lines(check({ sidebars: sidebar, pages: [...minimalPages(), page("guide")] }))).toEqual([
       'sidebars.json:0 [sidebar] at /docs/4: "Guides" is not a category of the standard ' +
-        "(Installation, Quickstart, Tutorials, How-to guides, Explanation, Reference, Troubleshooting)",
+        "(Installation, Quickstart, Tutorials, How-to guides, Examples, Explanation, Reference, Troubleshooting)",
     ]);
   });
 
@@ -310,7 +313,7 @@ describe("sidebar", () => {
     });
     expect(lines(check({ sidebars: sidebar }))).toEqual([
       'sidebars.json:0 [sidebar] at /docs/4: "How-to guides" is out of order: the categories run ' +
-        "Installation, Quickstart, Tutorials, How-to guides, Explanation, Reference, Troubleshooting",
+        "Installation, Quickstart, Tutorials, How-to guides, Examples, Explanation, Reference, Troubleshooting",
       'sidebars.json:0 [sidebar] at /docs: the category "How-to guides" is missing',
     ]);
   });
@@ -321,7 +324,7 @@ describe("sidebar", () => {
     );
     expect(lines(check({ sidebars: sidebar, pages: [...minimalPages(), page("guide")] }))).toEqual([
       'sidebars.json:0 [sidebar] at /docs/4: "How-to guides" is out of order: the categories run ' +
-        "Installation, Quickstart, Tutorials, How-to guides, Explanation, Reference, Troubleshooting",
+        "Installation, Quickstart, Tutorials, How-to guides, Examples, Explanation, Reference, Troubleshooting",
     ]);
   });
 
@@ -1261,7 +1264,7 @@ describe("readDocsContent and the command line", () => {
       expect(r.code).toBe(2);
       expect(r.err).toBe(
         `docs-content: ${JSON.stringify(argv[0])} is not an argument this check accepts (only ` +
-          "--dir <repository root>). Nothing was checked.\n",
+          "--dir <repository root> and --write). Nothing was checked.\n",
       );
     }
   });

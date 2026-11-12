@@ -2,7 +2,8 @@
 
 - **Status:** Proposed (2026-11-10), for review before merge. Revised the same day from what the
   pilot on `hl7` found (section 11). Revised on 2026-11-12 with the rules on what each kind of page
-  holds, from a Diataxis audit of every library's pages (section 12).
+  holds, from a Diataxis audit of every library's pages (section 12). Revised on 2026-11-12 again
+  with a page for each runnable example, under an Examples category (section 13).
 - **Scope:** the `docs-content/` folder of every `@cosyte/*` library: the pages docs.cosyte.com
   renders from each release's `docs-content.tar.gz`. It does not reach a package's README, which
   `scripts/readme-check.mjs` governs.
@@ -60,7 +61,8 @@ Two pages are fixed, and every library has both:
 `quickstart`, `troubleshooting`, `testing-and-quality` and `performance`; at least one how-to guide
 and at least one explanation; a `limitations` page, in Reference (section 12); and the generated
 reference (section 6). Tutorials beyond the quickstart and other hand-written reference pages are
-added when a library has them.
+added when a library has them, and a library with runnable examples has a page for each one
+(section 13).
 
 ### 3. The sidebar
 
@@ -75,6 +77,7 @@ listed is a page.
     { "type": "category", "label": "Quickstart", "items": ["quickstart"] },
     { "type": "category", "label": "Tutorials", "items": ["build-an-ack"] },
     { "type": "category", "label": "How-to guides", "items": ["read-identifiers"] },
+    { "type": "category", "label": "Examples", "items": ["example-extract-patient-info"] },
     { "type": "category", "label": "Explanation", "items": ["the-message-model"] },
     { "type": "category", "label": "Reference", "items": ["warning-codes"] },
     { "type": "category", "label": "Troubleshooting", "items": ["troubleshooting"] },
@@ -86,7 +89,8 @@ listed is a page.
 
 - `intro` comes first, as a page, not a category.
 - The categories come in the order above. Installation, Quickstart, How-to guides, Explanation and
-  Troubleshooting are required; Tutorials and Reference appear when a library has those pages.
+  Troubleshooting are required; Tutorials and Reference appear when a library has those pages, and
+  Examples when it has runnable examples (section 13).
   Installation opens with `installation`, Quickstart with `quickstart`, Troubleshooting with
   `troubleshooting`.
 - Installation and Quickstart stay as their own categories because docs.cosyte.com requires both
@@ -101,8 +105,8 @@ listed is a page.
 
 **What this needs from docs.cosyte.com.** Its build checks each library's top-level sidebar labels
 against its own list, which today has Core concepts and Guides and not Tutorials, How-to guides,
-Explanation or Reference. That list has to accept the four before a library releases with this
-sidebar; until then a release with it fails the site's deploy build.
+Explanation or Reference. That list has to accept the four, and Examples (section 13), before a
+library releases with this sidebar; until then a release with it fails the site's deploy build.
 
 ### 4. Front matter and file names
 
@@ -251,11 +255,11 @@ release" with the reason, never left out.
 
 ### 9. The checks, and what each one cannot catch
 
-| Check                                                        | Catches                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Cannot catch                                                                                                                                                                                                                                                                                                                                                                     |
-| ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `cosyte-docs-content` (`@cosyte/script-utils`)               | the sidebar's shape and order; a page not listed, listed twice, or listed and missing; a missing required page; missing or empty front matter keys, an `id` that is not the file name, a description over 160 characters, `sidebar_position`; a page name or place outside the rules; a quality page with no "Current numbers" section, or with anything in it but the placeholder; a link into the reference whose page is not generated or whose anchor no heading on it gets; each pattern section 12 gives for what a kind of page holds | whether a page holds what its kind asks beyond those patterns (section 12 lists what each cannot see); any other broken link (the shared CI's docs-content link check resolves those); a heading the generator writes in a form the slug reading does not know (setext, an explicit `{#id}`, HTML or an entity in the heading); a brace that breaks the MDX build; prose quality |
-| `cosyte-docs-reference` (`@cosyte/process`)                  | an export with no TSDoc summary; a markdown heading in any TSDoc comment; committed reference pages that no longer match the source                                                                                                                                                                                                                                                                                                                                                                                                          | an undocumented member; a comment that is wrong; an `@example` that does not run; a heading inside a list or a quote in a comment                                                                                                                                                                                                                                                |
-| `docSnippetSuite({ every: true })` (`@cosyte/vitest-config`) | a sample that throws, fails an `// =>` assertion, does not compile as JavaScript, or a `throws` sample that does not throw; a TypeScript sample with a type error against the package's built types; a `no-run` or `no-typecheck` with no reason                                                                                                                                                                                                                                                                                             | a sample whose output is right but whose prose is wrong; whether the data in a sample is synthetic; a sample that runs but proves nothing because it asserts nothing; the types of a JavaScript sample                                                                                                                                                                           |
+| Check                                                        | Catches                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Cannot catch                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cosyte-docs-content` (`@cosyte/script-utils`)               | the sidebar's shape and order; a page not listed, listed twice, or listed and missing; a missing required page; missing or empty front matter keys, an `id` that is not the file name, a description over 160 characters, `sidebar_position`; a page name or place outside the rules; a quality page with no "Current numbers" section, or with anything in it but the placeholder; a link into the reference whose page is not generated or whose anchor no heading on it gets; each pattern section 12 gives for what a kind of page holds; a runnable example with no page, an example page with no example or outside Examples, and a Code section that differs from the example's file (section 13) | whether a page holds what its kind asks beyond those patterns (section 12 lists what each cannot see); whether an example page's expected output is what the example prints, or its prose is true of it (section 13); any other broken link (the shared CI's docs-content link check resolves those); a heading the generator writes in a form the slug reading does not know (setext, an explicit `{#id}`, HTML or an entity in the heading); a brace that breaks the MDX build; prose quality |
+| `cosyte-docs-reference` (`@cosyte/process`)                  | an export with no TSDoc summary; a markdown heading in any TSDoc comment; committed reference pages that no longer match the source                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | an undocumented member; a comment that is wrong; an `@example` that does not run; a heading inside a list or a quote in a comment                                                                                                                                                                                                                                                                                                                                                               |
+| `docSnippetSuite({ every: true })` (`@cosyte/vitest-config`) | a sample that throws, fails an `// =>` assertion, does not compile as JavaScript, or a `throws` sample that does not throw; a TypeScript sample with a type error against the package's built types; a `no-run` or `no-typecheck` with no reason                                                                                                                                                                                                                                                                                                                                                                                                                                                         | a sample whose output is right but whose prose is wrong; whether the data in a sample is synthetic; a sample that runs but proves nothing because it asserts nothing; the types of a JavaScript sample                                                                                                                                                                                                                                                                                          |
 
 Measured on 2026-11-10, on each library's checked-out `main` at the time:
 
@@ -382,11 +386,58 @@ the rules that read a kind find little there yet; its pages meet them when it mo
 kinds. The audit's other findings, the pages to split and the pages each library is missing, are
 work on each library's pages, not rules.
 
+### 13. A page for each runnable example
+
+Each library's `examples/` folder holds small programs that run against the built package, and none
+of them appeared on docs.cosyte.com: a reader of the site could not find them. On 2026-11-12, 14 of
+the 15 libraries held 3 to 14 runnable examples each, 66 in all, read from the checkouts the
+umbrella pinned that day; `pathways` has none. So every runnable example has a page:
+
+- **Which files.** A runnable example is a `.ts`, `.mts`, `.js` or `.mjs` file at the top of
+  `examples/`, whose name does not begin with `_` or `.` (a helper the examples import, such as
+  `_cosyte.ts`) and that is not a `.d.ts` file, a test (`*.test.*`, `*.spec.*`) or a tool's
+  configuration (`*.config.*`, such as `eslint.config.js`). Folders under `examples/` are not read:
+  they hold the fixtures and helpers the examples import, or a project of their own with its own
+  README.
+- **The page.** `docs-content/example-<name>.md`, the name being the file's without its extension,
+  listed under the Examples category, which comes after How-to guides and holds example pages only.
+  Its H2 headings are, in this order: **What it shows** (what the example does and which part of the
+  package it uses), **Run it** (the commands, from the repository root), **Expected output** (a
+  fenced block holding what it prints, as it prints it) and **Code**. The first three are written by
+  hand.
+- **The code is included from the file, never pasted.** The Code section runs from its heading to
+  the end of the page and is the example's whole file, in a fence titled with its path.
+  `cosyte-docs-content --write` writes it from the file, replacing the section or adding it to a page
+  that has none, and the check compares it: a Code section that differs from the file by one
+  character fails, so a change to an example is a change to its page, committed with it. Docusaurus
+  cannot include a file at build time here, because the site renders `docs-content.tar.gz` alone,
+  without the repository; so the generator copies the file in, the way the Terraform modules'
+  generators copy their examples' files into their pages. The fence is marked
+  `no-run the example file itself, which the library runs from examples/`, so the sample runner
+  (section 7) lists it as skipped with that reason rather than running it away from the files it
+  imports.
+- **What fails.** A runnable example with no page, an example page whose example is gone, an
+  example page listed outside Examples, a page under Examples that is not an example page, an
+  example whose name is not a page name (lower-case words joined by hyphens), two examples with one
+  name (`a.ts` and `a.mjs`), a missing or misplaced heading, an Expected output section with no
+  fenced block, and a Code section that differs from the file. The ratchet holds none of these: a
+  page is written once, and a stale Code section is written again by `--write`.
+- **What it cannot catch.** Whether the expected output is what the example prints today, and
+  whether the prose under What it shows and Run it is true of the example. Each of the 14 libraries
+  has a `pnpm examples` script that runs its examples, and some examples assert their own output;
+  holding the page's expected output to a run is left for later, since it needs the package built
+  and every example run, which the structure check does not do.
+
+`--write` never creates a page, since a page that only repeats the file says nothing the file does
+not. A library that takes this version writes one page per example in that change.
+
 ## Consequences
 
 - Every library's docs-content changes: pages move between categories, the two quality pages are
   written, front matter is completed, and samples that cannot run are made to run or given a reason.
 - A pull request that changes an export also changes `docs-content/api/`, and review sees it.
+- A pull request that changes an example also changes its page's Code section, and a new example
+  comes with its page (section 13).
 - docs.cosyte.com has to accept the four new category labels before the first library releases
   with them. It generates its own reference from the source asset today and keeps doing so; it can
   read the committed pages instead later, which would also let the reference carry its source links.
@@ -405,6 +456,13 @@ work on each library's pages, not rules.
   the check into a backlog, not a gate.
 - **No exceptions to "every sample runs".** Some samples cannot run in a test (a listener that never
   closes); a `no-run` with its reason in the fence keeps each one visible in the report.
+- **Include an example's code at build time** (a raw-loader import or a remote code block). It
+  would never go stale, but docs.cosyte.com renders the release's `docs-content.tar.gz` alone, which
+  holds no `examples/`; copying the file in at the check, as the Terraform modules do, keeps the page
+  whole in the asset and the copy exact.
+- **Generate the whole example page from the file's leading comment.** No page to write by hand,
+  but a comment written for a reader of the code says neither the expected output nor how to run it
+  in the words a page needs, and the site would show the comment twice.
 - **A `kind` key in the front matter.** The sidebar category already says what kind a page is, and
   a second statement of the same fact is one more thing to keep in agreement.
 - **Turn the rules on what a kind holds on at full strength.** All fifteen libraries would go red
