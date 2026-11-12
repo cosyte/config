@@ -23,6 +23,7 @@ const COMMANDS = {
   catalog: ["cosyte-catalog", "the catalog check, for the library here"],
   ratchet: ["cosyte-ratchet", "the coverage and mutation ratchet, over the floor file here"],
   "docs-content": ["cosyte-docs-content", "the docs-content structure check, for the library here"],
+  "release-pr": ["cosyte-release-pr", "the release pull request check, for the library here"],
 };
 
 const HELP = `script-utils: run one of the @cosyte/script-utils gates over the working directory.

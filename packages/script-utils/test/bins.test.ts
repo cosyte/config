@@ -35,6 +35,7 @@ const GATE_BINS = [
   "cosyte-catalog",
   "cosyte-ratchet",
   "cosyte-docs-content",
+  "cosyte-release-pr",
 ];
 
 let root: string;
@@ -302,6 +303,25 @@ describe("cosyte-docs-content reaches its check", () => {
   });
 });
 
+describe("cosyte-release-pr reaches its check", () => {
+  it("refuses a version script that skips the API reference, and exits 2 with no package.json", () => {
+    const dir = fixture("release-pr", {
+      "package.json": JSON.stringify({
+        name: "@cosyte/demo",
+        scripts: { version: "changeset version && cosyte-process sync-version" },
+      }),
+      "src/index.ts": 'export const VERSION: string = "0.0.0";\n',
+    });
+    const r = run("cosyte-release-pr", [], dir);
+    expect(r.code, r.out).toBe(1);
+    expect(r.out).toContain("package.json [version-script]");
+    expect(r.out).toContain("cosyte-docs-reference");
+    expect(r.out).toContain("test/ [version-test]");
+    expect(run("cosyte-release-pr", [], fixture("no-package", { "a.txt": "a\n" })).code).toBe(2);
+    expect(run("script-utils", ["release-pr", "--dir", dir], root).code).toBe(1);
+  });
+});
+
 describe("script-utils, the dispatcher npx runs by the package's name", () => {
   it("lists every command with --help, and exits 2 with none", () => {
     const help = run("script-utils", ["--help"], root);
@@ -317,6 +337,7 @@ describe("script-utils, the dispatcher npx runs by the package's name", () => {
       "catalog",
       "ratchet",
       "docs-content",
+      "release-pr",
     ]) {
       expect(help.out, command).toContain(command);
     }

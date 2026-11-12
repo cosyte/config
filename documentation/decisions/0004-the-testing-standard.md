@@ -4,7 +4,8 @@
 - **Scope:** every `@cosyte/*` package, and the shared pieces in this repository that carry the
   standard: the `./stryker` and `./mutate` entry points and the `cosyte-mutate` bin of
   `@cosyte/vitest-config` (new), the `cosyte-ratchet` bin and the `./ratchet` and
-  `./changes` entry points of `@cosyte/script-utils`, the property runners of `@cosyte/test-utils`,
+  `./changes` entry points of `@cosyte/script-utils`, its `cosyte-release-pr` bin and `./release-pr`
+  entry point, the property runners of `@cosyte/test-utils`,
   and the coverage reporters of `@cosyte/vitest-config`. The CI jobs that run them in the other
   repositories live in the shared workflows of cosyte/.github and are not decided here.
 - **Relates to:** ADR 0001 (performance measurement; its section 6 keeps clock-reading tests out
@@ -320,6 +321,9 @@ only.
 5. Export `/arbitraries`, and prove the three properties with them.
 6. Add every inline exception's reason when the ratchet asks for it, and list them in the pull
    request.
+7. Give the library the two pieces section 9 asks for, a fresh-import `VERSION` test and a
+   version script that regenerates the API reference, and run `cosyte-release-pr` on every pull
+   request.
 
 This repository adopted it in the same change: `quality-floor.json` holds today's measured scores
 for `packages/process`, `packages/script-utils`, `packages/test-utils` and `packages/vitest-config`,
@@ -328,6 +332,78 @@ pull request that lowers or removes a floor. Two limits,
 stated rather than hidden: `@cosyte/script-utils` mutates only the PHI-scan engine and the ratchet
 so far (its other gates join as their floors are recorded), and `@cosyte/process` has no mutation
 floor until its first full run.
+
+### 9. A release pull request passes its own checks
+
+The Version Packages pull request that Changesets opens is a pull request like any other, and every
+check above runs on it. Five of our libraries' release pull requests were blocked on one night for
+two mechanical reasons, each fixed by hand in its own repository. Both fixes are now part of the
+standard, the parser template carries both, and a shared check fails a library that lacks either.
+
+**The exported `VERSION` string is pinned by a test the mutation run can link.** A release changes
+`VERSION` in `src/index.ts` (or wherever it is declared), so the changed-files mutation run mutates
+that line, and four libraries' release pull requests went red on the surviving mutant. Each had a
+test comparing `VERSION` with package.json, and it did not help. `VERSION` is set once, when its
+module is first evaluated, and per-test coverage links a mutant only to the tests that run while
+its line is evaluated. A test file with a static import of the source evaluates the module while
+the file loads, before any test starts, so no test is linked to the line and the mutant survives
+however exactly a test compares it. Importing the source again inside a test of that file does not
+help either: the module cache returns the copy the static import already evaluated. What works is a
+test file that:
+
+- has no static import of the source (a type-only import is fine);
+- calls `vi.resetModules()`, then imports the source inside the test body,
+  `await import("../src/index.js")`;
+- compares `VERSION` with the version read from package.json at test time.
+
+The parser template's `test/version.test.ts` is that file.
+
+**The version script regenerates the API reference.** The generated reference under
+`docs-content/api/` prints `VERSION`, and its drift check (`cosyte-docs-reference --check`) failed a
+release pull request whose version script bumped the version and synced `VERSION` but left the
+reference as it was. The version script runs, in this order:
+
+```sh
+changeset version && cosyte-process sync-version && cosyte-docs-reference && cosyte-process format
+```
+
+`changeset version` bumps package.json, the sync writes the new version into `VERSION`, and the
+reference is generated from the synced source, all in the commit Changesets makes.
+
+**A changeset's opening sentence fits a release bullet.** A third defect wedged a release after its
+pull request had merged: the shared release workflow makes one bullet of each changeset's opening
+sentence and refuses one over 400 characters, and it refuses it after the Version Packages pull
+request has merged and consumed the changeset, when the fix is a revert. The check below reads the
+pending changesets on the pull request that adds them.
+
+**The check.** `cosyte-release-pr`, in `@cosyte/script-utils`, reads a library's tree and fails it
+(exit 1) for each of these: a version script that does not run the three steps in order, no test
+file of the shape above (it names each test that reads `VERSION` and what it lacks), and a pending
+changeset whose opening sentence could become a bullet over 400 characters. The version rules apply
+when `src/` declares an exported `VERSION`. It reads text, so it cannot tell that the test it
+accepts passes; the test's own run does that. The parser template runs it in its own CI job on every
+pull request, and the root suite here grades what the scaffolder emits with it.
+
+**Who still lacks one, for the sweep.** Measured on 2026-11-12 by running the check over each
+library's `main`:
+
+| library       | version script misses the reference | no fresh-import `VERSION` test |
+| ------------- | ----------------------------------- | ------------------------------ |
+| `astm`        | yes                                 | yes                            |
+| `ccda`        | yes                                 | yes                            |
+| `cli`         | yes                                 | yes                            |
+| `deid`        | no                                  | yes                            |
+| `dicom`       | yes                                 | yes                            |
+| `ncpdp`       | yes                                 | yes                            |
+| `synth`       | no                                  | yes                            |
+| `terminology` | yes                                 | yes                            |
+| `transform`   | yes                                 | yes                            |
+| `x12`         | no                                  | yes                            |
+
+The commits read: astm `18b6b5d`, ccda `dd801d4`, cli `71fff3e`, deid `60f6570`, dicom `3b0abd5`,
+ncpdp `f2c8169`, synth `243b991`, terminology `c5da7fe`, transform `2374b5f`, x12 `f8cc2fb`. `hl7`
+(`c3bf85d`), `mllp` (`5bc58e1`) and `fhir` (`707ba32`) pass. No library's pending changesets were
+over the cap. Each library takes the check into its own CI in the change that clears its row.
 
 ## Consequences
 
