@@ -22,6 +22,15 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { checkReadme } from "../packages/script-utils/readme.js";
 import { exemptionReasons, parseYamlSubset } from "../scripts/install-hardening.mjs";
 
+import {
+  SCOPED_COMMIT,
+  SCOPED_REFERENCE,
+  SCOPED_TITLE,
+  dependabotTitles,
+  ecosystemOf,
+  updateBlocks,
+} from "./support/shared-workflows.js";
+
 const REPO_ROOT = process.cwd();
 const SCAFFOLDER = join(REPO_ROOT, "scripts", "scaffold-parser.mjs");
 const NAME = "probe";
@@ -178,6 +187,18 @@ describe("Dependabot", () => {
       /\n {4}ignore:\n(?:(?: {6}#.*| {6}- dependency-name: .*)\n)*? {6}- dependency-name: "cosyte\/\.github\*"(?:\n|$)/,
     );
   });
+
+  it("titles every Dependabot pull request in the scoped form the title check requires", () => {
+    // Dependabot's title is its commit message. Without `prefix: chore` and `include: scope` it is
+    // `Bump ...` or `chore: bump ...`, which the shared title check refuses, so every Dependabot
+    // pull request in a new repository would open red.
+    const blocks = updateBlocks(config());
+    expect(blocks.map(ecosystemOf)).toEqual(["npm", "github-actions"]);
+    for (const block of blocks) {
+      for (const title of dependabotTitles(block))
+        expect(title, ecosystemOf(block)).toMatch(SCOPED_TITLE);
+    }
+  });
 });
 
 describe("releases", () => {
@@ -245,9 +266,17 @@ describe("workflows", () => {
         }
       }
     }
-    expect(callers).toBe(5);
+    expect(callers).toBe(6);
     expect(refs.size, [...refs].join("\n")).toBe(1);
-    expect([...refs][0]).toMatch(/ # workflows-\d{4}-\d{2}-\d{2}-[0-9a-f]{12}$/);
+    expect([...refs][0]).toBe(`${SCOPED_COMMIT} # ${SCOPED_REFERENCE}`);
+  });
+
+  it("checks every pull request title with the shared check that requires a scope", () => {
+    const check = read(".github/workflows/pr-title.yml");
+    expect(check).toContain("types: [opened, synchronize, reopened, edited]");
+    expect(check).toContain(
+      `uses: cosyte/.github/.github/workflows/pr-title.yml@${SCOPED_COMMIT} # ${SCOPED_REFERENCE}`,
+    );
   });
 
   it("puts a timeout on every job that runs steps of its own", () => {

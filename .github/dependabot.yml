@@ -39,7 +39,7 @@ updates:
       # `actionlint` job runs the official rhysd/actionlint release, checked by its SHA-256, instead.
       - dependency-name: "reviewdog/action-actionlint"
       # The cosyte/.github reusable workflows are pinned to the commit of a published `workflows-*`
-      # reference and move by hand, with every caller, together (ST37). Left to Dependabot, a commit
+      # reference and move by hand, with every caller, together. Left to Dependabot, a commit
       # pin with no version tag is offered the newest commit on cosyte/.github's main, which is not a
       # published reference.
       - dependency-name: "cosyte/.github*"

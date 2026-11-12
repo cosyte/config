@@ -1,0 +1,29 @@
+name: PR title
+
+# Checks every pull request title against Conventional Commits through the shared workflow, at the
+# same published reference as every other shared workflow this repository calls, pinned by its
+# commit. Merges are squash merges, so the title is the subject that lands on main. A title is
+# `type(scope): description`, and the scope is required: `fix(parser): keep the escape sequence`
+# passes, `fix: keep the escape sequence` does not. The release workflow's own pull request is titled
+# `chore(release): version packages`, and Dependabot's are `chore(deps)` and `chore(deps-dev)`, from
+# `include: scope` in dependabot.yml.
+#
+# No `concurrency:` block, deliberately. One cancels a queued run when a title is edited right after
+# a push, as Dependabot does, and a cancelled run counts as failing, which blocks the pull request
+# until someone re-runs it. A job that calls a reusable workflow cannot set `timeout-minutes`; the
+# shared job sets its own.
+
+on:
+  pull_request:
+    branches: [main]
+    # `edited` is load-bearing: a title changed after the last push is the title that lands.
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  pr-title:
+    permissions:
+      contents: read
+    uses: cosyte/.github/.github/workflows/pr-title.yml@398cd4ded647dddd9f2e220ceb042840f59e1426 # workflows-2026-11-10-398cd4ded647

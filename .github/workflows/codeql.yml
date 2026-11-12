@@ -13,9 +13,9 @@ name: CodeQL
 # multi-package release shape cannot use the shared pipeline); that argument is about the CI entry
 # point and does not reach the security workflows, which take no repository-shaped input at all.
 #
-# THE REFERENCE IS A PUBLISHED ONE, PINNED BY ITS COMMIT (ST37 in the umbrella's plans/standards.md):
-# `workflows-2026-11-08-c0db8d8e5927`, the reference every library and the scaffold this file is
-# derived from call. A reference at `@main` would deliver every later change to the shared workflow on
+# THE REFERENCE IS A PUBLISHED ONE, PINNED BY ITS COMMIT: `workflows-2026-11-10-398cd4ded647`, the
+# reference every shared-workflow call in this repository and in the scaffold this file is derived
+# from names. test/shared-workflow-pins.test.ts fails when any of them differs. A reference at `@main` would deliver every later change to the shared workflow on
 # cosyte/.github's clock, reviewed by nobody here. The reference moves by hand, with every caller
 # together; dependabot.yml keeps Dependabot from offering cosyte/.github's main in its place.
 #
@@ -57,4 +57,4 @@ jobs:
       security-events: write # upload the SARIF to the Security tab
       contents: read # required to resolve the reusable workflow (else contents:none is a startup failure)
       actions: read # read this run's own workflow metadata, which the SARIF upload attaches
-    uses: cosyte/.github/.github/workflows/codeql.yml@c0db8d8e5927269820de4401b3b5ad6141854b76 # workflows-2026-11-08-c0db8d8e5927
+    uses: cosyte/.github/.github/workflows/codeql.yml@398cd4ded647dddd9f2e220ceb042840f59e1426 # workflows-2026-11-10-398cd4ded647

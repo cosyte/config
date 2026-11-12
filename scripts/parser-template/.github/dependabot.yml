@@ -12,6 +12,11 @@ updates:
     cooldown:
       default-days: 1
     open-pull-requests-limit: 5
+    # Conventional Commits titles with a scope, which the PR title check requires: chore(deps) and
+    # chore(deps-dev). Without `include: scope` the title is `chore: bump ...`, which it refuses.
+    commit-message:
+      prefix: chore
+      include: scope
     groups:
       dev-dependencies:
         dependency-type: development
@@ -29,6 +34,9 @@ updates:
       interval: weekly
     cooldown:
       default-days: 1
+    commit-message:
+      prefix: chore
+      include: scope
     groups:
       github-actions:
         patterns:

@@ -1,6 +1,6 @@
 name: Em-dash gate
 
-# The em and en dash gate (ST8, ST34): the shared implementation in @cosyte/script-utils, run by the
+# The em and en dash gate: the shared implementation in @cosyte/script-utils, run by the
 # shared workflow over every tracked file and over the PR title, body and commit messages. What
 # this repository leaves out, if anything, goes in scripts/check-no-emdash.exclude, which the gate
 # reads for itself. The workflow installs from the lockfile first: the gate lives in node_modules.
@@ -22,6 +22,6 @@ permissions:
 
 jobs:
   no-emdash:
-    uses: cosyte/.github/.github/workflows/gate-no-emdash-install.yml@c0db8d8e5927269820de4401b3b5ad6141854b76 # workflows-2026-11-08-c0db8d8e5927
+    uses: cosyte/.github/.github/workflows/gate-no-emdash-install.yml@398cd4ded647dddd9f2e220ceb042840f59e1426 # workflows-2026-11-10-398cd4ded647
     permissions:
       contents: read

@@ -1156,6 +1156,7 @@ describe("S0228: the two provenance corrections", () => {
       "ci.yml",
       "codeql.yml",
       "no-emdash.yml",
+      "pr-title.yml",
       "release.yml",
       "scorecard.yml",
     ]);
