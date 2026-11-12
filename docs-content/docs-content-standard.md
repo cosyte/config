@@ -537,8 +537,12 @@ catches it. A call is a finding, under the rule `example-print`, when an argumen
   path afresh, so `patients.map((p) => p.code)` reads no field of a person;
 - or is a whole message, segment, resource or person, as the value printed: `console.log(msg)`, a
   template that interpolates `segment`, `JSON.stringify(bundle)` or `msg.toString()`. The list is
-  `WHOLE_VALUES`. A field of one (`msg.meta.type`) is not a whole value, and `error.message` is the
-  text of an error, not a message. A length or a size read from what a call returns
+  `WHOLE_VALUES`. A field of one (`msg.meta.type`) is not a whole value, and any field named
+  `message` (`error.message`, `warning.message`, and `result.message` as well) is taken as the text
+  of an error or a warning, not a message. A whole value read off a locus or a position
+  (`f.locus.segment`, `w.position.segment`; the list `LOCATION_NAMES`) names where a finding is,
+  such as the segment name `PID`, and is allowed; read off anything else (`w.segment`) it is still a
+  finding, so an example reads it off the locus. A person read off a locus is still a finding. A length or a size read from what a call returns
   (`serializeResource(bundle).length`) is a count, and is allowed.
 
 A comparison, a negation, `typeof`, the condition of a conditional, a string literal, a comment and
@@ -562,7 +566,10 @@ for the accessors, whole values and printers its own API has:
 
 The file takes only the key `examplePrint`, and under it only `required`, `accessors`, `wholeValues`
 and `printers`; anything else, or a file that is not JSON, stops the check with exit 2, so a
-misspelled key is not silently ignored.
+misspelled key is not silently ignored. A list entry is a name, or for an accessor or a printer
+names joined by dots (`patient.id`, `out.print`); a whole value is a single name, since it is
+compared with a chain's last name only. An entry that could never match, such as one that holds a
+space, stops the check with exit 2 too. A library adds entries; it cannot remove a default one.
 
 **Advisory, then required.** The rule lands advisory: its findings are listed on stdout and never
 change the exit code, so no library goes red the day it takes the release. Each library sweeps its
@@ -583,7 +590,11 @@ each of these ways, each shown here with a sample it gives no finding for:
   `show(msg.patient.mrn);`
 - a field read after a call that is not a getter: `console.log(patients.find(f).gender);`
 - a value read by a path string: `console.log(get("PID-5"));`
-- a field its lists do not name, under a name that is not a person: `console.log(pid.name);`
+- a field its lists do not name, under a name that is not a person: `console.log(pid.name);` and
+  `console.log(JSON.stringify(res.name));`
+- a name destructured from a person: `const { name } = patient; console.log(name);`
+- a whole message under a field named `message`, since any such field is read as an error's text:
+  `console.log(parsed.message);`
 
 Nor can it tell whether a value it allows, such as a free-text field under another name, is safe to
 print. Review reads for those. It reads a sample nested up to 200 groups and templates deep

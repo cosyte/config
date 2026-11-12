@@ -20,6 +20,7 @@ import {
   DocsContentRefusal,
   examplePrintFindings,
   IDENTIFYING_ACCESSORS,
+  LOCATION_NAMES,
   LOGGER_METHODS,
   NUMBERS_HEADING,
   NUMBERS_PLACEHOLDER,
@@ -60,6 +61,7 @@ describe("the rule's lists", () => {
     expect(SAMPLE_LANGUAGES).toEqual(["ts", "typescript", "tsx", "js", "javascript", "mjs"]);
     expect(SAFE_READS).toEqual(["length", "size", "precision"]);
     expect(PERSON_SAFE_ENDS).toEqual(["type", "resourceType", "kind", "code", "count"]);
+    expect(LOCATION_NAMES).toEqual(["locus", "position", "location", "loc", "pos"]);
     expect(PRINT_NESTING_LIMIT).toBe(200);
     expect(STREAM_PRINTERS).toEqual(["process.stdout.write", "process.stderr.write"]);
   });
@@ -292,6 +294,10 @@ describe("the prints the rule allows", () => {
     ["a call on a printer's result", "console.log(sum(rows));"],
     ["an empty call", "console.log();"],
     ["a name like a field's", "console.log(cityCount, mrnLength, given);"],
+    ["any field named message", "console.log(result.message, parsed?.message);"],
+    // A string key may hold spaces, and no list entry does: these kill a seeded entry in a list.
+    ["a string key with spaces", 'console.log(p["Stryker was here"], x["Stryker was here"]);'],
+    ["a string called", '"Stryker was here"(patient);\nconst p = "Stryker was here";\np(patient);'],
   ];
   for (const [kind, code] of allowed) {
     it(`allows ${kind}`, () => {
@@ -474,6 +480,22 @@ describe("the whole path, not its last name", () => {
     expect(entries("console.log(patient.telecom[0].code);")).toEqual(["telecom"]);
     expect(entries("console.log(patient.type.display);")).toEqual(["patient"]);
     expect(entries("console.log(patient);")).toEqual(["patient"]);
+  });
+
+  it("allows a segment or a message named by a locus or a position, which says where", () => {
+    expect(entries("console.log(f.code, f.locus.segment, w.position?.segment);")).toEqual([]);
+    expect(entries("console.warn(`${w.code} at ${w.locus.segment}`);")).toEqual([]);
+    expect(entries('console.log(f.Locus.segments, at.location["segment"]);')).toEqual([]);
+    expect(entries("console.log(e.loc.resource, e.pos.message);")).toEqual([]);
+  });
+
+  it("still flags a segment read off anything else, and a person off a locus", () => {
+    expect(entries("console.log(w.segment);")).toEqual(["segment"]);
+    expect(entries("console.log(`${w.code} at ${w.segment}`);")).toEqual(["segment"]);
+    expect(entries("console.log(locus, segment);")).toEqual(["segment"]);
+    expect(entries("console.log(f.locus.patient);")).toEqual(["patient"]);
+    expect(entries("console.log(f.locus.segment.fields);")).toEqual([]);
+    expect(entries("console.log(f.locator.segment);")).toEqual(["segment"]);
   });
 
   it("names the person or the name it read through", () => {
@@ -830,8 +852,8 @@ describe("the files it reads", () => {
     const settings = {
       required: true,
       accessors: ["practiceAssignedId"],
-      wholeValues: ["ds"],
-      printers: ["out.print"],
+      wholeValues: ["ds", "$dataSet_2"],
+      printers: ["out.print", "print"],
     };
     expect(readPrintConfig(tree("config", config({ examplePrint: settings })))).toEqual(settings);
   });
@@ -862,7 +884,27 @@ describe("the files it reads", () => {
       [
         "list-blank",
         '{"examplePrint":{"printers":["out.print"," "]}}',
-        /holds "examplePrint.printers" that is not a list of names/,
+        /holds "examplePrint.printers" entry " ", which is not a dotted name/,
+      ],
+      [
+        "list-space",
+        '{"examplePrint":{"accessors":["first name"]}}',
+        /holds "examplePrint.accessors" entry "first name", which is not a dotted name/,
+      ],
+      [
+        "list-dot",
+        '{"examplePrint":{"printers":["."]}}',
+        /holds "examplePrint.printers" entry ".", which is not a dotted name/,
+      ],
+      [
+        "list-empty-part",
+        '{"examplePrint":{"accessors":["patient..id"]}}',
+        /holds "examplePrint.accessors" entry "patient..id", which is not a dotted name/,
+      ],
+      [
+        "whole-dotted",
+        '{"examplePrint":{"wholeValues":["msg.body"]}}',
+        /holds "examplePrint.wholeValues" entry "msg.body", which is not a single name/,
       ],
       [
         "list-number",
@@ -1032,6 +1074,19 @@ describe("the command line", () => {
       "docs-content: docs-content/quickstart.md:12 nests groups and templates more than " +
         `${PRINT_NESTING_LIMIT} deep; the print rule reads no deeper. Nothing was checked.\n`,
     );
+  });
+
+  it("exits 2 on a list entry that can never match, checking nothing", () => {
+    const dir = tree("spaced-entry", printing, {
+      [PRINT_CONFIG_FILE]: JSON.stringify({ examplePrint: { accessors: ["patient id"] } }),
+    });
+    expect(cli(dir)).toEqual({
+      code: 2,
+      out: "",
+      err:
+        'docs-content: cosyte-docs-content.config.json holds "examplePrint.accessors" entry ' +
+        '"patient id", which is not a dotted name such as patient.id. Nothing was checked.\n',
+    });
   });
 
   it("exits 2 when the settings file cannot be read, checking nothing", () => {

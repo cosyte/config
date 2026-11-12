@@ -1835,6 +1835,13 @@ export const SAFE_READS = Object.freeze(["length", "size", "precision"]);
 export const PERSON_SAFE_ENDS = Object.freeze(["type", "resourceType", "kind", "code", "count"]);
 
 /**
+ * The names of a locus or a position, which says where a finding is: a whole value read off one
+ * (`f.locus.segment`, `w.position.segment`) is the name of a segment or a message, not the value,
+ * and is allowed. A person read off one is still a finding.
+ */
+export const LOCATION_NAMES = Object.freeze(["locus", "position", "location", "loc", "pos"]);
+
+/**
  * How many groups and templates deep the print rule reads a sample. Code nests far less; a sample
  * nested deeper is refused with exit 2 rather than read to a stack overflow.
  */
@@ -1927,6 +1934,10 @@ const CLOSERS = ")]}";
 /** A character of a name, and a name. A number reads as a name, which no list holds. */
 const NAME_CHAR = /[\p{L}\p{N}_$]/u;
 const NAME = /[\p{L}\p{N}_$]+/uy;
+
+/** A list entry a library may add: a name, or for an accessor or a printer, names joined by dots. */
+const SINGLE_NAME = /^[\p{L}\p{N}_$]+$/u;
+const DOTTED_NAME = /^[\p{L}\p{N}_$]+(?:\.[\p{L}\p{N}_$]+)*$/u;
 
 /**
  * A name as the lists compare it: any `get` prefix before a capital, case, `_` and `-` set aside.
@@ -2127,12 +2138,10 @@ function splitAt(nodes, separator) {
  * The lists the rule reads, compared forms, with a library's own entries added.
  *
  * @param {{ accessors?: readonly string[], wholeValues?: readonly string[], printers?: readonly string[] }} [extra]
- * @returns {{ accessors: { entry: string, parts: string[] }[], wholeValues: Map<string, string>, personPaths: Map<string, string>, printers: Set<string> }}
+ * @returns {{ accessors: { entry: string, parts: string[] }[], wholeValues: Map<string, string>, personPaths: Map<string, string>, safeEnds: Set<string>, locations: Set<string>, printers: Set<string> }}
  */
 function printLists(extra = {}) {
-  // Stryker disable next-line ArrayDeclaration: a seeded entry holds spaces, which no name read from a sample does, so it changes no finding.
   const ownAccessors = extra.accessors ?? [];
-  // Stryker disable next-line ArrayDeclaration: a seeded entry holds spaces, which no name read from a sample does, so it changes no finding.
   const ownWholeValues = extra.wholeValues ?? [];
   const accessors = [...IDENTIFYING_ACCESSORS, ...ownAccessors].map((entry) => ({
     entry,
@@ -2143,12 +2152,13 @@ function printLists(extra = {}) {
   );
   const personPaths = new Map(PERSON_PATHS.map((entry) => [comparable(entry), entry]));
   const safeEnds = new Set(PERSON_SAFE_ENDS.map(comparable));
+  const locations = new Set(LOCATION_NAMES.map(comparable));
   return {
     accessors,
     wholeValues,
     personPaths,
     safeEnds,
-    // Stryker disable next-line ArrayDeclaration: a seeded printer holds spaces, which no call read from a sample does, so it changes no finding.
+    locations,
     printers: new Set(extra.printers ?? []),
   };
 }
@@ -2302,8 +2312,12 @@ function membersFault(members, from, lists, whole) {
   if (through !== undefined && !lists.safeEnds.has(last)) {
     return { entry: lists.personPaths.get(through), whole: false };
   }
-  // `error.message` and `warning.message` are the text of an error or a warning, not a message.
+  // Any field named message, `error.message` and `warning.message` among them, is taken as the text
+  // of an error or a warning, not a message.
   if (names.length > 1 && last === "message") return null;
+  // A whole value read off a locus or a position names where something is (`f.locus.segment` is a
+  // segment's name, such as "PID"), unless it is a person.
+  if (lists.locations.has(names.at(-2)) && !lists.personPaths.has(last)) return null;
   const entry = whole ? lists.wholeValues.get(last) : undefined;
   return entry === undefined ? null : { entry, whole: true };
 }
@@ -2566,7 +2580,8 @@ export function examplePrintFindings(input, extra = {}) {
  * @param {string} root The repository root.
  * @returns {{ required: boolean, accessors: string[], wholeValues: string[], printers: string[] }}
  * @throws {DocsContentRefusal} When the file is not a regular file, is not JSON, or holds a key or a
- *   value the rule does not take.
+ *   value the rule does not take, or a list entry that is not a name (a dotted one for an accessor
+ *   or a printer), which could never match.
  */
 export function readPrintConfig(root) {
   const settings = { required: false, accessors: [], wholeValues: [], printers: [] };
@@ -2598,9 +2613,19 @@ export function readPrintConfig(root) {
       if (typeof value !== "boolean") throw refuse(`holds ${where} that is not true or false`);
       settings.required = value;
     } else {
-      const names =
-        Array.isArray(value) && value.every((item) => typeof item === "string" && item.trim());
+      const names = Array.isArray(value) && value.every((item) => typeof item === "string");
       if (!names) throw refuse(`holds ${where} that is not a list of names`);
+      // An entry is compared with the names a sample reads, so one that is not a name, or a dotted
+      // whole value, which is compared with a chain's last name only, could never match.
+      const single = key === "wholeValues";
+      const shape = single ? SINGLE_NAME : DOTTED_NAME;
+      const wrong = value.find((item) => !shape.test(item));
+      if (wrong !== undefined) {
+        throw refuse(
+          `holds ${where} entry ${JSON.stringify(wrong)}, which is not ` +
+            (single ? "a single name such as dataset" : "a dotted name such as patient.id"),
+        );
+      }
       settings[key] = value;
     }
   }

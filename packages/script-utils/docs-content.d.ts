@@ -457,6 +457,12 @@ export declare const SAFE_READS: readonly string[];
 export declare const PERSON_SAFE_ENDS: readonly string[];
 
 /**
+ * The names of a locus or a position: a whole value read off one (`f.locus.segment`) names where a
+ * finding is and is allowed. A person read off one is still a finding.
+ */
+export declare const LOCATION_NAMES: readonly string[];
+
+/**
  * How many groups and templates deep the print rule reads a sample; a sample nested deeper is
  * refused with a {@link DocsContentRefusal}, and the command exits 2.
  */
@@ -554,7 +560,8 @@ export declare function examplePrintFindings(
  * @param root - The repository root.
  * @returns The settings; advisory with the default lists when there is no file.
  * @throws {@link DocsContentRefusal} When the file is not a regular file, is not JSON, or holds a
- *   key or value the rule does not take.
+ *   key or value the rule does not take, or a list entry that is not a name (a dotted one for an
+ *   accessor or a printer), which could never match.
  */
 export declare function readPrintConfig(root: string): PrintSettings;
 
