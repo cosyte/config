@@ -507,22 +507,32 @@ on a line under a comment that says the value is synthetic.
 section 7) in the README and in the pages at the top of `docs-content/`, example pages included. It
 finds each call that prints: the `console` methods that print, `process.stdout.write` and
 `process.stderr.write`, and the printing methods (`info`, `warn`, `error` and the like) of any object
-named `log`, `logger` or ending in `Logger`. A call is a finding, under the rule `example-print`, when
-an argument:
+named `log`, `logger` or ending in `Logger`. It finds them however the sample calls them:
+`console["log"]`, `console?.log`, `console.log?.()`, a name given to one (`const print =
+console.log`, `console.log.bind(console)`, `const { info } = logger`), and a logger under another
+name (`const c = console`, `const audit = pino()`, `winston.createLogger()`, `logger.child()`,
+`new Console()`). A thrown error is read the same way, since what it carries is printed when nothing
+catches it. A call is a finding, under the rule `example-print`, when an argument:
 
 - reads an identifying accessor anywhere in its chain (`msg.patient.mrn`, `doc.getMrn()`,
   `row["mrn"]`, `{ mrn }`, or a template that interpolates one), unless the chain ends in a
-  `length`, `size` or `precision` read (`msg.patient.mrn.length`). The list is `IDENTIFYING_ACCESSORS` in `@cosyte/script-utils`. A name
-  is matched with any `get` prefix, case, `_` and `-` set aside, and a dotted entry such as
-  `patient.id` or `name.family` matches those members in a row, for a name that identifies a person
-  only after another;
+  `length`, `size` or `precision` read (`msg.patient.mrn.length`). The list is
+  `IDENTIFYING_ACCESSORS` in `@cosyte/script-utils`. A name is matched with any `get` prefix, case,
+  `_` and `-` set aside, and a dotted entry such as `patient.id` or `name.family` matches those
+  members in a row, for a name that identifies a person only after another;
+- reads a field through a person or a name, judged by the whole path and not by its last name:
+  `patient.gender`, `res.name[0].text`, and, through an identifying accessor,
+  `patient.address[0].line` and `patient.photo[0].url`. The list is `PERSON_PATHS`. A call that is
+  not a getter starts the path afresh, so `patients.map((p) => p.code)` reads no field of a person;
 - or is a whole message, segment, resource or person, as the value printed: `console.log(msg)`, a
   template that interpolates `segment`, `JSON.stringify(bundle)` or `msg.toString()`. The list is
   `WHOLE_VALUES`. A field of one (`msg.meta.type`) is not a whole value, and `error.message` is the
   text of an error, not a message.
 
 A comparison, a negation, `typeof`, the condition of a conditional, a string literal, a comment and
-an object's keys are not read as printed values. A finding names the file, the line and the list
+an object's keys are not read as printed values. A thrown error's message is read as printed, but a
+whole value passed to an error is not, since `new Error(msg)` is most often a message's text; one
+interpolated into its message (``new Error(`at ${segment}`)``) is. A finding names the file, the line and the list
 entry it matched, never the argument, which may hold a synthetic value.
 
 **Each library extends the lists** in `cosyte-docs-content.config.json` at its repository root,
@@ -550,8 +560,8 @@ the ratchet holds (section 12), it has no count to fall from: a library is advis
 
 **What it cannot catch.** It reads a sample as tokens, not as a program, so it cannot see a value
 carried under another name (`const id = msg.patient.mrn; console.log(id)`), a field its lists do not
-name, a value read by a path string (`get("PID-5")`), or a print through a function it does not know
-as a printer. Nor can it tell whether a value it allows, such as a free-text field under another
+name, a value read by a path string (`get("PID-5")`), a field read after a call that is not a getter
+(`patients.find(f).gender`), or a print through a function it does not know as a printer. Nor can it tell whether a value it allows, such as a free-text field under another
 name, is safe to print. Review reads for those.
 
 ## Consequences

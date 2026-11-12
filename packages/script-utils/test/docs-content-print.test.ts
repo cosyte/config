@@ -22,6 +22,7 @@ import {
   LOGGER_METHODS,
   NUMBERS_HEADING,
   NUMBERS_PLACEHOLDER,
+  PERSON_PATHS,
   PRINT_CONFIG_FILE,
   PRINT_CONFIG_KEY,
   PRINT_CONFIG_KEYS,
@@ -117,6 +118,9 @@ describe("each kind of call", () => {
       "write",
       "process.stdout.end",
       "expect",
+      'console("log")',
+      'console["log", 1]',
+      "console[log]",
     ]) {
       expect(entries(`${call}(${read});`), call).toEqual([]);
     }
@@ -402,6 +406,198 @@ describe("reading the code as written", () => {
       "practiceAssignedId",
       "ds",
     ]);
+  });
+});
+
+describe("the whole path, not its last name", () => {
+  it("flags a safe last name on a path through a person, a name or an identifying field", () => {
+    expect(entries("console.log(patient.address[0].line);")).toEqual(["address"]);
+    expect(entries("console.log(patient.photo[0].url);")).toEqual(["photo"]);
+    expect(entries("console.log(patient.telecom[0].system);")).toEqual(["telecom"]);
+    expect(entries("console.log(res.name[0].text);")).toEqual(["name"]);
+    expect(entries("console.log(msg.patient.gender);")).toEqual(["patient"]);
+    expect(entries("console.log(doc.getPatient().race);")).toEqual(["patient"]);
+    expect(entries("console.log(bundle.patients[0].gender);")).toEqual(["patients"]);
+  });
+
+  it("flags every person path it lists, with a safe name after it", () => {
+    for (const entry of PERSON_PATHS) {
+      expect(entries(`console.log(record.${entry}[0].url);`), entry).toEqual([entry]);
+    }
+  });
+
+  it("still allows a length, a size or a precision on such a path, and the path's end", () => {
+    expect(entries("console.log(msg.patient.name.length, patient.address.size);")).toEqual([]);
+    expect(entries("console.log(msg.patient.birthDate.precision);")).toEqual([]);
+    expect(entries("console.log(code.name, segment.name, field.name);")).toEqual([]);
+    expect(entries("console.log(patient(msg)?.code, patient(msg).gender);")).toEqual([]);
+    expect(
+      entries("console.log(patients.map((p) => p.code), patients.widgetCount().code);"),
+    ).toEqual([]);
+  });
+
+  it("names the person or the name it read through", () => {
+    expect(samplePrintFindings("console.log(msg.patient.gender);")[0]?.message).toBe(
+      'console.log prints what "patient" reads, which identifies a person: read it into a ' +
+        "variable or assert on it, with its synthetic value in a comment",
+    );
+  });
+});
+
+describe("every way to call a printer", () => {
+  const read = "p.mrn";
+
+  it("flags a printer read by a string key or an optional chain", () => {
+    for (const call of [
+      'console["log"]',
+      "console['warn']",
+      "console?.log",
+      "console?.['log']",
+      "console.log?.",
+      'process["stdout"].write',
+      "process.stderr?.write",
+      "logger?.info",
+      'this["logger"].error',
+    ]) {
+      expect(entries(`${call}(${read});`), call).toEqual(["mrn"]);
+    }
+  });
+
+  it("names the printer as the code calls it, and never the argument", () => {
+    expect(samplePrintFindings(`console["log"](${read});`)[0]?.message).toMatch(
+      /^console\.log prints what "mrn" reads/,
+    );
+  });
+
+  it("flags an alias of a console or logger method", () => {
+    for (const code of [
+      "const print = console.log;\nprint(p.mrn);",
+      "let say = logger.info;\nsay(p.mrn);",
+      "var out = process.stdout.write;\nout(p.mrn);",
+      "const say = console.log.bind(console);\nsay(p.mrn);",
+      "print = console.error;\nprint(p.mrn);",
+      "const a = console.log;\nconst b = a;\nb(p.mrn);",
+      "const { log } = console;\nlog(p.mrn);",
+      "const { info: say, warn } = logger;\nsay(p.mrn);",
+      "const out = row.print;\nout(p.mrn);",
+      "print(p.mrn);\nconst print = console.log",
+      "function f() { const print = console.log; print(p.mrn); }",
+      "let { log } = console;\nlog(p.mrn);",
+      "var { warn } = console;\nwarn(p.mrn);",
+    ]) {
+      expect(entries(code, { printers: ["row.print"] }), code).toEqual(["mrn"]);
+    }
+    const [aliased] = samplePrintFindings("const print = console.log;\nprint(p.mrn);");
+    expect(aliased).toMatchObject({ line: 2, entry: "mrn" });
+    expect(aliased?.message).toMatch(/^print prints what "mrn" reads/);
+  });
+
+  it("flags a logger under another name", () => {
+    for (const code of [
+      "const c = console;\nc.log(p.mrn);",
+      "const audit = pino();\naudit.info(p.mrn);",
+      "const audit = pino({ level: 'info' }).child({ app: 'x' });\naudit.warn(p.mrn);",
+      "const svc = new Logger('x');\nsvc.error(p.mrn);",
+      "const out = winston.createLogger({});\nout.info(p.mrn);",
+      "const l = log4js.getLogger();\nl.debug(p.mrn);",
+      "const kid = logger.child({ id: 1 });\nkid.info(p.mrn);",
+      "const sink = this.logger;\nsink.info(p.mrn);",
+      "const out = bunyan.createLogger({ name: 'x' });\nout.fatal(p.mrn);",
+      "const out = consola.create({});\nout.info(p.mrn);",
+      "const out = new Console(process.stdout);\nout.log(p.mrn);",
+      "const c = console;\nconst { info } = c;\ninfo(p.mrn);",
+    ]) {
+      expect(entries(code), code).toEqual(["mrn"]);
+    }
+  });
+
+  it("keeps a logger by its own name when it is set to something it does not know", () => {
+    for (const code of [
+      "const logger = config.sink;\nlogger.info(p.mrn);",
+      "const logger = rows.bind(x);\nlogger.info(p.mrn);",
+      "const logger = parse(text);\nlogger.info(p.mrn);",
+      "const { count: log } = console;\nlog.info(p.mrn);",
+    ]) {
+      expect(entries(code), code).toEqual(["mrn"]);
+    }
+  });
+
+  it("does not take a name for a printer that is set to something else", () => {
+    for (const code of [
+      "const print = format;\nprint(p.mrn);",
+      "const out = parse(text);\nout.info(p.mrn);",
+      "const out = records.child({});\nout.info(p.mrn);",
+      "const { mrn } = p;\nmrn(1);",
+      "const { info } = catalog;\ninfo(p.mrn);",
+      "a.print = console.log;\nprint(p.mrn);",
+      "const n = 1;\nn(p.mrn);",
+      "const n = 1 + console.log;\nn(p.mrn);",
+      "const print = console.log(1);\nprint(p.mrn);",
+      "const c = console.log.apply(console, []);\nc(p.mrn);",
+      "const out = pinocchio();\nout.info(p.mrn);",
+      "const out = jalapino();\nout.info(p.mrn);",
+      "const [log] = console;\nlog(p.mrn);",
+      "const print =",
+      "const {} = console;",
+      "const { log: [a] } = console;\n(f)(p.mrn);",
+      "const { log: } = console;",
+      "const out = this.records;\nout.info(p.mrn);",
+      "x == console.log;\nx(p.mrn);",
+      "const { [k]: say } = console;\nsay(p.mrn);",
+      "{ log } = console;\nlog(p.mrn);",
+      "const = console.log;\nprint(p.mrn);",
+    ]) {
+      expect(entries(code), code).toEqual([]);
+    }
+  });
+
+  it("still allows a safe print through an alias", () => {
+    expect(entries("const print = console.log;\nprint(msg.meta.type);")).toEqual([]);
+    expect(entries("const { log } = console;\nlog(msg.warnings.length);")).toEqual([]);
+  });
+});
+
+describe("a thrown error", () => {
+  it("flags a thrown error whose message carries an identifying field", () => {
+    for (const code of [
+      "throw new Error(`no record for ${p.mrn}`);",
+      'throw new TypeError("bad " + p.email);',
+      "throw Error(`at ${segment}`);",
+      "throw new errors.ParseError({ detail: p.dateOfBirth });",
+      "throw p.mrn;",
+      "throw segment;",
+    ]) {
+      expect(entries(code), code).toHaveLength(1);
+    }
+    expect(samplePrintFindings("throw new Error(`no record for ${p.mrn}`);")).toEqual([
+      {
+        line: 1,
+        entry: "mrn",
+        message:
+          'a thrown error carries what "mrn" reads, which identifies a person: read it into a ' +
+          "variable or assert on it, with its synthetic value in a comment",
+      },
+    ]);
+    expect(entries('console.log("throw", p.mrn);')).toEqual(["mrn"]);
+    expect(samplePrintFindings("throw segment;")[0]?.message).toBe(
+      'a thrown error carries "segment" whole, a message, segment, resource or person: print a ' +
+        "type, a code or a count from it instead",
+    );
+  });
+
+  it("allows a thrown error that carries no identifying value", () => {
+    for (const code of [
+      "throw new Error(`unknown code ${code}`);",
+      "throw new Error(error.message);",
+      "throw new Error(msg);",
+      "throw error;",
+      "throw error;\nconst copy = segment;",
+      "throw",
+      "throw new",
+      "const thrown = p.mrn;",
+    ]) {
+      expect(entries(code), code).toEqual([]);
+    }
   });
 });
 

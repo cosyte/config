@@ -439,6 +439,12 @@ export declare const IDENTIFYING_ACCESSORS: readonly string[];
 /** The names of a whole message, segment, resource or person, a finding when printed whole. */
 export declare const WHOLE_VALUES: readonly string[];
 
+/**
+ * The names of a person or of a person's name that a chain reads through: any field read after one
+ * is a finding, whatever its own name (`patient.gender`), unless the chain ends in a safe read.
+ */
+export declare const PERSON_PATHS: readonly string[];
+
 /** A chain that ends in one of these is safe to print: `length`, `size`, `precision`. */
 export declare const SAFE_READS: readonly string[];
 

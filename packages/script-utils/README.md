@@ -508,11 +508,10 @@ reads and writes each page through one file descriptor, without following a symb
 Windows, where Node.js has no `O_NOFOLLOW`, that protection does not apply.
 
 Under the rule `example-print`, no TypeScript or JavaScript sample in the README or the pages
-passes a value that identifies a person (`IDENTIFYING_ACCESSORS`, such as `msg.patient.mrn`, or a
-whole message, `WHOLE_VALUES`) to a console, logger or printer call; a finding never echoes the
-value. It is advisory until `cosyte-docs-content.config.json` at the repository root sets
-`{ "examplePrint": { "required": true } }`, whose `accessors`, `wholeValues` and `printers` extend
-the lists. Section 14 of decision record 0006 is the rule.
+passes an identifying value (`IDENTIFYING_ACCESSORS`, a field through `PERSON_PATHS`, a whole
+`WHOLE_VALUES`) to a printer, however named, or a thrown error; a finding never echoes it. It is
+advisory until `cosyte-docs-content.config.json` sets `{ "examplePrint": { "required": true } }`,
+whose `accessors`, `wholeValues` and `printers` extend the lists. Decision 0006, section 14.
 
 ```ts runnable
 import { samplePrintFindings } from "@cosyte/script-utils/docs-content";

@@ -8,7 +8,13 @@ docs-content pages prints, under the new rule `example-print`. A `console` metho
 `logger` or ending in `Logger` is a finding when an argument reads an identifying accessor (a name,
 a record or member number, a date of birth, an address, a phone number, an email or a free-text
 note, such as `msg.patient.mrn` or `doc.getMrn()`) or prints a whole message, segment, resource or
-person (`console.log(msg)`, `JSON.stringify(bundle)`). A chain that ends in a `length`, `size` or
+person (`console.log(msg)`, `JSON.stringify(bundle)`). A field read through a person or a name is
+a finding whatever its last name (`patient.gender`, `res.name[0].text`, `patient.photo[0].url`;
+the list is `PERSON_PATHS`). A printer is found however the sample calls it: `console["log"]`,
+`console?.log`, `console.log?.()`, a name given to it (`const print = console.log`, `.bind`,
+`const { info } = logger`), and a logger under another name (`const c = console`, `pino()`,
+`createLogger()`, `logger.child()`, `new Console()`). A thrown error whose message carries an
+identifying value is a finding too. A chain that ends in a `length`, `size` or
 `precision` read, a comparison, a type, a count and a code are allowed. A finding names the file, the
 line and the list entry it matched, never the value.
 

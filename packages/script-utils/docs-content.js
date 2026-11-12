@@ -28,8 +28,9 @@
 // landed.
 //
 // It reads what each TypeScript or JavaScript sample in the README and the pages prints: a console,
-// logger or printer call never passes a value that identifies a person (an identifying accessor, or
-// a whole message, segment, resource or person). Each library can add names to the lists in
+// logger or printer call, however it is named, and a thrown error never pass a value that identifies
+// a person (an identifying accessor, a field read through a person or a name, or a whole message,
+// segment, resource or person). Each library can add names to the lists in
 // cosyte-docs-content.config.json. The rule is advisory, its findings listed on stdout, until that
 // file sets "examplePrint": { "required": true }, after the library's samples are swept.
 //
@@ -1674,9 +1675,10 @@ export function checkDocsContent(input) {
 // WHAT AN EXAMPLE MAY PRINT. A sample in a README or a docs-content page never passes a value that
 // identifies a patient or another person to a console, logger or printer call: the page is
 // published, and readers copy what it does. The check reads each TypeScript or JavaScript sample
-// without a parser, as tokens, so it reads the code as written: a call by a known printer name
-// whose argument reads an identifying accessor (`msg.patient.mrn`, `getMrn()`, `{ mrn }`) or prints a
-// whole message, segment, resource or person. A finding names the file, the line and the list entry
+// without a parser, as tokens, so it reads the code as written: a call by a known printer name, a
+// string key, an optional chain or a name the sample gives it, or a thrown error, whose argument
+// reads an identifying accessor (`msg.patient.mrn`, `getMrn()`, `{ mrn }`), reads a field through a
+// person or a name (`patient.gender`), or prints a whole message, segment, resource or person. A finding names the file, the line and the list entry
 // it matched, never the argument, which may hold a synthetic value. It is advisory until a library
 // turns it on in cosyte-docs-content.config.json, after its samples are swept.
 
@@ -1776,6 +1778,7 @@ export const IDENTIFYING_ACCESSORS = Object.freeze([
   "comments",
   "freeText",
   "narrative",
+  "photo",
 ]);
 
 /**
@@ -1800,6 +1803,22 @@ export const WHOLE_VALUES = Object.freeze([
   "subscriber",
   "guarantor",
   "nextOfKin",
+]);
+
+/**
+ * The names of a person, or of a person's name, that a chain reads through: any field read after one
+ * is a finding, whatever its own name (`patient.gender`, `res.name[0].text`), unless the chain ends
+ * in a safe read. A call that is not a getter starts the chain afresh, so `patients.map(...)` and
+ * `patient(msg).code` read no field of a person.
+ */
+export const PERSON_PATHS = Object.freeze([
+  "patient",
+  "patients",
+  "person",
+  "subscriber",
+  "guarantor",
+  "nextOfKin",
+  "name",
 ]);
 
 /**
@@ -1843,6 +1862,15 @@ export const STREAM_PRINTERS = Object.freeze(["process.stdout.write", "process.s
 
 /** The name of an object whose methods in LOGGER_METHODS print. */
 const LOGGER_NAME = /^(?:log|logger|[\w$]*Logger)$/;
+
+/**
+ * A call whose result is a logger, by any of its names (`pino()`, `winston.createLogger()`,
+ * `new Console(...)`, `consola.create()`): a name it is given is a logger.
+ */
+const LOGGER_FACTORY = /^(?:pino|bunyan|consola|Console|[\w$]*Logger)$/;
+
+/** The words that declare a name, before a destructuring `{ ... } =`. */
+const DECLARATIONS = new Set(["const", "let", "var"]);
 
 /** A call that turns its arguments into text, so a whole value passed to it is printed whole. */
 const SERIALIZER = /^(?:stringify|inspect|format|String|serialize\w*|encode\w*)$/;
@@ -2063,7 +2091,7 @@ function splitAt(nodes, separator) {
  * The lists the rule reads, compared forms, with a library's own entries added.
  *
  * @param {{ accessors?: readonly string[], wholeValues?: readonly string[], printers?: readonly string[] }} [extra]
- * @returns {{ accessors: { entry: string, parts: string[] }[], wholeValues: Map<string, string>, printers: Set<string> }}
+ * @returns {{ accessors: { entry: string, parts: string[] }[], wholeValues: Map<string, string>, personPaths: Map<string, string>, printers: Set<string> }}
  */
 function printLists(extra = {}) {
   // Stryker disable next-line ArrayDeclaration: a seeded entry holds spaces, which no name read from a sample does, so it changes no finding.
@@ -2075,8 +2103,9 @@ function printLists(extra = {}) {
     // Stryker disable next-line ArrayDeclaration: a seeded entry holds spaces, which no name read from a sample does, so it changes no finding.
     [...WHOLE_VALUES, ...(extra.wholeValues ?? [])].map((entry) => [comparable(entry), entry]),
   );
+  const personPaths = new Map(PERSON_PATHS.map((entry) => [comparable(entry), entry]));
   // Stryker disable next-line ArrayDeclaration: a seeded printer holds spaces, which no call read from a sample does, so it changes no finding.
-  return { accessors, wholeValues, printers: new Set(extra.printers ?? []) };
+  return { accessors, wholeValues, personPaths, printers: new Set(extra.printers ?? []) };
 }
 
 /**
@@ -2137,6 +2166,8 @@ function chainFault(nodes, start, lists, whole) {
   const node = nodes[start];
   if (isPunct(nodes[start + 1], "=>")) return { fault: null, end: start + 2 };
   const members = [];
+  // Where the chain of fields starts: after the last call that is not a getter.
+  let from = 0;
   if (node.type === "ident") {
     members.push(node.value);
   } else if (node.type === "group") {
@@ -2165,6 +2196,7 @@ function chainFault(nodes, start, lists, whole) {
       if (inner !== null) return { fault: inner };
       // `msg.toString()` is the message itself, as text.
       if (TO_TEXT.has(callee)) members.pop();
+      else if (!/^get[A-Z]/.test(callee)) from = members.length;
       at += 1;
     } else if (next.open === "[") {
       const key = next.children.length === 1 ? next.children[0] : null;
@@ -2174,7 +2206,7 @@ function chainFault(nodes, start, lists, whole) {
       break;
     }
   }
-  return { fault: membersFault(members, lists, whole), end: at };
+  return { fault: membersFault(members, from, lists, whole), end: at };
 }
 
 /**
@@ -2198,20 +2230,25 @@ function listFault(children, separator, lists, whole) {
 
 /**
  * What a chain of member names prints: nothing when it ends in a length, a size or a precision;
- * otherwise an identifying accessor anywhere in it, or, as the value printed, a whole value.
+ * otherwise an identifying accessor anywhere in it, a field read through a person or a name, or, as
+ * the value printed, a whole value.
  *
  * @param {string[]} members The chain's names, from its first.
+ * @param {number} from Where its fields start, after the last call that is not a getter.
  * @param {ReturnType<typeof printLists>} lists The lists.
  * @param {boolean} whole Whether a whole value here is printed whole.
  * @returns {{ entry: string, whole: boolean } | null} The fault.
  */
-function membersFault(members, lists, whole) {
+function membersFault(members, from, lists, whole) {
   if (SAFE_READS.includes(members.at(-1))) return null;
   const names = members.map(comparable);
   for (const { entry, parts } of lists.accessors) {
     const found = names.some((_, at) => parts.every((part, k) => names[at + k] === part));
     if (found) return { entry, whole: false };
   }
+  // A person or a name read through, judged by the whole path and not by its last name.
+  const through = names.slice(from, -1).find((name) => lists.personPaths.has(name));
+  if (through !== undefined) return { entry: lists.personPaths.get(through), whole: false };
   const last = names.at(-1);
   // `error.message` and `warning.message` are the text of an error or a warning, not a message.
   if (names.length > 1 && last === "message") return null;
@@ -2231,7 +2268,20 @@ function membersFault(members, lists, whole) {
  */
 export function samplePrintFindings(code, extra = {}) {
   const lists = printLists(extra);
+  const tree = nest(tokenize(code));
+  const aliases = printerAliases(tree, lists.printers);
   const findings = [];
+  const report = (node, callee, verb, fault) => {
+    findings.push({
+      line: node.line + 1,
+      entry: fault.entry,
+      message: fault.whole
+        ? `${callee} ${verb} "${fault.entry}" whole, a message, segment, resource or person: ` +
+          "print a type, a code or a count from it instead"
+        : `${callee} ${verb} what "${fault.entry}" reads, which identifies a person: read it ` +
+          "into a variable or assert on it, with its synthetic value in a comment",
+    });
+  };
   const walk = (nodes) => {
     for (let i = 0; i < nodes.length; i += 1) {
       const node = nodes[i];
@@ -2240,30 +2290,133 @@ export function samplePrintFindings(code, extra = {}) {
       // A call's names start at a node no `.` comes before. A node that is not a name has no name
       // that any printer starts with, so it is no printer.
       if (isPunct(nodes[i - 1], ".") || isPunct(nodes[i - 1], "?.")) continue;
-      const names = [node.value];
-      let at = i + 1;
-      while (isPunct(nodes[at], ".") && nodes[at + 1]?.type === "ident") {
-        names.push(nodes[at + 1].value);
-        at += 2;
+      if (node.type === "ident" && node.value === "throw") {
+        // What a thrown error carries is printed when nothing catches it: read up to the `;`.
+        const thrown = expressionFault(splitAt(nodes.slice(i + 1), ";")[0], lists, true);
+        if (thrown !== null) report(node, "a thrown error", "carries", thrown);
+        continue;
       }
-      const call = nodes[at];
-      if (call?.open !== "(" || !isPrinter(names, lists.printers)) continue;
+      const { names, end } = calleePath(nodes, i);
+      const call = nodes[end];
+      if (call?.open !== "(" || !isPrinter(resolveAlias(names, aliases), lists.printers)) continue;
       const fault = listFault(call.children, ",", lists, true);
-      if (fault === null) continue;
-      const callee = names.join(".");
-      findings.push({
-        line: node.line + 1,
-        entry: fault.entry,
-        message: fault.whole
-          ? `${callee} prints "${fault.entry}" whole, a message, segment, resource or person: ` +
-            "print a type, a code or a count from it instead"
-          : `${callee} prints what "${fault.entry}" reads, which identifies a person: read it ` +
-            "into a variable or assert on it, with its synthetic value in a comment",
-      });
+      if (fault !== null) report(node, names.join("."), "prints", fault);
     }
   };
-  walk(nest(tokenize(code)));
+  walk(tree);
   return findings;
+}
+
+/**
+ * Whether a node is a key written as a string: `["log"]`.
+ *
+ * @param {object | undefined} node A node.
+ * @returns {boolean} True when it is.
+ */
+function isStringKey(node) {
+  return node?.open === "[" && node.children.length === 1 && node.children[0].type === "string";
+}
+
+/**
+ * The dotted names of a path that starts at a node, read through `.`, `?.` and string keys
+ * (`console?.["log"]` is `console`, `log`), and where it ends: past a last `?.`, so the call in
+ * `console.log?.(x)` is the node at the end.
+ *
+ * @param {object[]} nodes The nodes.
+ * @param {number} start Where the path starts.
+ * @returns {{ names: string[], end: number }} The names, and the index after the path.
+ */
+function calleePath(nodes, start) {
+  const names = [nodes[start].value];
+  let at = start + 1;
+  for (;;) {
+    const next = nodes[at];
+    const after = nodes[at + 1];
+    if ((isPunct(next, ".") || isPunct(next, "?.")) && after?.type === "ident") {
+      names.push(after.value);
+      at += 2;
+    } else if (isStringKey(next)) {
+      names.push(next.children[0].value);
+      at += 1;
+    } else if (isPunct(next, "?.")) {
+      at += 1;
+    } else {
+      return { names, end: at };
+    }
+  }
+}
+
+/**
+ * A path with its first name read through the aliases.
+ *
+ * @param {string[]} names The path.
+ * @param {Map<string, string[]>} aliases The aliases.
+ * @returns {string[]} The path it stands for.
+ */
+function resolveAlias(names, aliases) {
+  return [...(aliases.get(names[0]) ?? names.slice(0, 1)), ...names.slice(1)];
+}
+
+/**
+ * Whether a path names a console or a logger, an object whose printing methods print.
+ *
+ * @param {string[]} names The path, its aliases read.
+ * @returns {boolean} True for `console`, or a name LOGGER_NAME matches at its end.
+ */
+function isLoggerObject(names) {
+  return names.join(".") === "console" || LOGGER_NAME.test(names.at(-1));
+}
+
+/**
+ * The names a sample gives a printer, a console or a logger, each with the path it stands for:
+ * `const print = console.log`, `console.log.bind(console)`, `const { log } = console`,
+ * `const c = console`, `const audit = pino()` and `logger.child(...)`. The sample is read in order,
+ * so an alias of an alias stands for what the first stands for.
+ *
+ * @param {object[]} tree The sample's nodes.
+ * @param {Set<string>} printers A library's own printers.
+ * @returns {Map<string, string[]>} Each alias and the path it stands for.
+ */
+function printerAliases(tree, printers) {
+  const aliases = new Map();
+  const target = (nodes, start) => {
+    const { names, end } = calleePath(nodes, start);
+    const path = resolveAlias(names, aliases);
+    if (nodes[end]?.open !== "(") {
+      return isPrinter(path, printers) || isLoggerObject(path) ? path : null;
+    }
+    const callee = path.slice(0, -1);
+    if (path.at(-1) === "bind" && isPrinter(callee, printers)) return callee;
+    const made =
+      (path.at(-1) === "child" && isLoggerObject(callee)) ||
+      path.some((name) => LOGGER_FACTORY.test(name));
+    return made ? ["logger"] : null;
+  };
+  const visit = (nodes) => {
+    for (let i = 0; i < nodes.length; i += 1) {
+      const node = nodes[i];
+      if (node.type === "group") visit(node.children);
+      if (!isPunct(nodes[i + 1], "=") || isPunct(nodes[i - 1], ".")) continue;
+      const start = i + (nodes[i + 2]?.value === "new" ? 3 : 2);
+      if (nodes[start] === undefined) continue;
+      const path = target(nodes, start);
+      if (path === null) continue;
+      if (node.type === "ident") {
+        aliases.set(node.value, path);
+      } else if (node.open === "{" && DECLARATIONS.has(nodes[i - 1]?.value)) {
+        // `const { log, info: say } = console`: each name destructured from a console or a logger.
+        for (const item of splitAt(node.children, ",")) {
+          const local = isPunct(item[1], ":") ? item[2] : item[0];
+          const method = [...path, item[0]?.value];
+          if (local?.type === "ident" && isPrinter(method, printers)) {
+            aliases.set(local.value, method);
+          }
+        }
+      }
+    }
+  };
+  visit(tree);
+  return aliases;
 }
 
 /** A fence opener at any indent, as in a list item, with its language. */
