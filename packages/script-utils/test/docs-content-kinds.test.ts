@@ -633,6 +633,49 @@ describe("reference-source", () => {
   });
 
   it.each([
+    ["a .markdown file", "notes/config.markdown", ""],
+    ["a .markdown file in upper case", "NOTES.MARKDOWN", ""],
+    ["a text file", "notes/config.txt", ""],
+    ["a text file in upper case", "NOTES.TXT", ""],
+    ["an extensionless file", "NOTES", ""],
+    ["an extensionless file in a folder", "notes/config", ""],
+    ["an extensionless dotfile", "notes/.config", ""],
+    ["an extensionless file whose folder has a dot", "notes.d/config", ""],
+    ["an extensionless file with #! after its first line", "bin/gen", "\n#!/bin/sh\n"],
+  ])("refuses a held_by that names %s, even when it names the page", (_label, path, head) => {
+    const text = `${head}docs-content/configuration-reference.md`;
+    const sources = new Map([[path, text]]);
+    expect(
+      found(
+        "reference-source",
+        [{ kind: "Reference", page: configuration(`held_by: ${path}\n`) }],
+        sources,
+      ),
+    ).toEqual([
+      `configuration-reference.md:6 [reference-source] held_by names "${path}", which is a ` +
+        "text file, not the generator or the test that holds the reference to the code",
+    ]);
+  });
+
+  it.each([
+    ["an extensionless script with a #! line", "bin/gen-config", "#!/bin/sh\n"],
+    ["a script in a dotted folder", "scripts.d/gen.mjs", ""],
+    ["a dotfile with an extension", "scripts/.gen.mjs", ""],
+    ["a file whose name ends in txt", "scripts/gentxt.mjs", ""],
+    ["a file whose extension holds txt", "scripts/gen.txts", ""],
+    ["a file whose extension holds markdown", "scripts/gen.markdowns", ""],
+  ])("takes a held_by that names %s", (_label, path, head) => {
+    const sources = new Map([[path, `${head}docs-content/configuration-reference.md`]]);
+    expect(
+      found(
+        "reference-source",
+        [{ kind: "Reference", page: configuration(`held_by: ${path}\n`) }],
+        sources,
+      ),
+    ).toEqual([]);
+  });
+
+  it.each([
     ["a longer file name that ends with it", "see docs-content/old-configuration-reference.md"],
     ["a file name with a dot before it", "see v2.configuration-reference.md"],
     ["the MDX file of the same name", "see docs-content/configuration-reference.mdx"],

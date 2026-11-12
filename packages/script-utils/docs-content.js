@@ -916,6 +916,21 @@ function isPagePath(path) {
 }
 
 /**
+ * A `held_by` path that names a text file rather than a generator or a test: a `.markdown` or
+ * `.txt` file, or a file whose name has no extension (a dot at its start does not count), unless
+ * its text begins with `#!`, as a script does. Such a file can only name the page, never hold it.
+ *
+ * @param {string} path The front matter value.
+ * @param {string} text The text of the file it names.
+ * @returns {boolean} True when the path names a text file.
+ */
+function isTextPath(path, text) {
+  const name = path.slice(path.lastIndexOf("/") + 1);
+  if (/\.(?:markdown|txt)$/i.test(name)) return true;
+  return !name.slice(1).includes(".") && !text.startsWith("#!");
+}
+
+/**
  * Whether a file's text names a page's file as a whole path segment: the name with no letter,
  * digit, dot, hyphen or underscore before it, and none after it but a dot that ends a sentence.
  * "configuration.md" is not named by "cli-configuration.md", "v2.configuration.md",
@@ -1106,6 +1121,14 @@ function checkKinds(pages, kinds, sources, add) {
             "reference-source",
             `${HELD_BY_KEY} names "${held.value}", which is a page, not the generator or the ` +
               "test that holds the reference to the code",
+          );
+        } else if (isTextPath(held.value, sources.get(held.value))) {
+          add(
+            file,
+            held.line,
+            "reference-source",
+            `${HELD_BY_KEY} names "${held.value}", which is a text file, not the generator or ` +
+              "the test that holds the reference to the code",
           );
         } else if (!namesFile(sources.get(held.value), file)) {
           add(
