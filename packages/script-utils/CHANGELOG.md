@@ -1,5 +1,119 @@
 # Changelog
 
+## 0.1.13
+
+### Patch Changes
+
+- 04ae7b9: `cosyte-docs-content` now reads what each TypeScript and JavaScript sample in a library's README and
+  docs-content pages prints, under the new rule `example-print`. A `console` method that prints,
+  `process.stdout.write`, `process.stderr.write`, or a printing method of an object named `log`,
+  `logger` or ending in `Logger` is a finding when an argument reads an identifying accessor (a name,
+  a record or member number, a date of birth, an address, a phone number, an email or a free-text
+  note, such as `msg.patient.mrn` or `doc.getMrn()`) or prints a whole message, segment, resource or
+  person (`console.log(msg)`, `JSON.stringify(bundle)`). A field read through a person or a name is
+  a finding whatever its last name (`patient.gender`, `res.name[0].text`, `patient.photo[0].url`;
+  the list is `PERSON_PATHS`), unless it ends in what kind of record it is, a code or a count
+  (`patient.type`, `patient.resourceType`; the list is `PERSON_SAFE_ENDS`). A printer is found however the sample calls it: `console["log"]`,
+  `console?.log`, `console.log?.()`, a name given to it (`const print = console.log`, `.bind`,
+  `const { info } = logger`), and a logger under another name (`const c = console`, `pino()`,
+  `createLogger()`, `logger.child()`, `new Console()`). A thrown error whose message carries an
+  identifying value is a finding too. A chain that ends in a `length`, `size` or
+  `precision` read (`serializeResource(bundle).length` included), a comparison, a type, a count and a
+  code are allowed, and so is any field named `message`, which is taken as an error's or a warning's
+  text, and a segment read off a locus or a position (`f.locus.segment`, which names a segment such as
+  `PID`; the list is `LOCATION_NAMES`). A sample nested more than `PRINT_NESTING_LIMIT` (200) groups and templates deep
+  stops the check with exit 2, naming the file and line. A finding names the file, the
+  line and the list entry it matched, never the value.
+
+  The rule is advisory: its findings are listed on stdout and never change the exit code. A library
+  turns it on, once its samples are swept, with `cosyte-docs-content.config.json` at its repository
+  root: `{ "examplePrint": { "required": true } }`. The same object's `accessors`, `wholeValues` and
+  `printers` add the library's own names to the lists; any other key or value (`"examplePrint": null`
+  included), a list entry that is not a name or dotted names (one that holds a space, say, which
+  could never match; a whole value is a single name), or a file that is not JSON,
+  stops the check with exit 2. New exports: `samplePrintFindings`, `sampleBlocks`,
+  `examplePrintFindings`, `readPrintConfig`, `readReadme` and the lists they read. What a caller
+  changes: nothing until it turns the rule on; then each sample that prints an identifying value reads
+  it into a variable or asserts on it, with the synthetic value in a comment.
+
+  The docs-content standard (decision record 0006) states the rule, with a right and a wrong example,
+  in its new section 14, with what the check cannot catch (a printer passed by reference, a loop or
+  callback variable, a helper's arguments, a value copied into a neutral name, a name destructured
+  from a person), and is now a page on docs.cosyte.com beside the testing and performance
+  standards.
+
+- 13b8aa6: `cosyte-docs-content` now requires a page for each runnable example, with the example's code
+  written into the page from its file, and accepts an Examples category in the sidebar.
+
+  - **The Examples category.** It comes after How-to guides, is optional, and holds example pages
+    only. `CATEGORIES` gains it, and the sidebar check's messages name it.
+  - **A page for each example.** A runnable example is a `.ts`, `.mts`, `.js` or `.mjs` file at the
+    top of `examples/` whose name does not begin with `_` or `.` and that is not a `.d.ts`, a test or
+    a `*.config.*` file (`isExampleFile`). Its page is `docs-content/example-<name>.md`, listed under
+    Examples, with the H2 headings What it shows, Run it, Expected output (holding a fenced block) and
+    Code, in that order. A missing page, a page whose example is gone, a page outside Examples, and a
+    page under Examples that is not an example page fail under the new rule `example-page`.
+  - **The code comes from the file.** The Code section runs to the end of the page and is the whole
+    file in a fence titled with its path and marked `no-run`. `cosyte-docs-content --write` writes it
+    (also `writeExamplePages(root)` and `exampleCodeSection(file, text)`), and a Code section that
+    differs from the file fails under the new rule `example-code`. `--write` never creates a page.
+  - **Held by the ratchet.** `RATCHETED_RULES` gains `example-page` and `example-code`, and
+    `docs-content-ratchet.json` records each library's `example-page` count: its runnable examples
+    with no page, measured with this check at the commit its new `examplesMeasuredAt` names. The file
+    also gains `rules`, the rules it holds. No library records an `example-code` count.
+
+  What a caller must change: nothing at once. A library is not failed on this version for its
+  examples with no page while they are at or under its recorded count; an example added without a
+  page takes it over, and each one fails. It writes each page under an Examples category and runs
+  `cosyte-docs-content --write`; the check then says which count to lower in
+  `docs-content-ratchet.json` here. The type `DocsContentRatchetedRule` now includes
+  `DocsContentExampleRule`. `--write` reads and writes a page through one descriptor without
+  following a symbolic link; on Windows, where Node.js has no `O_NOFOLLOW`, that protection does not
+  apply.
+
+  `readDocsContent` now also reads `examples/` and returns `examples`, and refuses (exit 2) when
+  `examples` is there and is not a directory, or an example is not a regular file. A caller of
+  `checkDocsContent` that builds its input by hand passes `examples` to have them checked; without
+  it, a page named `example-<name>` is reported as having no example. The unknown-argument message
+  now reads "only --dir <repository root> and --write".
+
+- 44d5694: `cosyte-docs-content` now also refuses a `held_by` that names a text file that can only mention the
+  page: a `.markdown` or `.txt` file, or a file with no extension unless its text begins with `#!`, as
+  a script does. Such a reference is reported under `reference-source` with the message "which is a
+  text file, not the generator or the test that holds the reference to the code". What a caller
+  changes: a `held_by` that named such a file names the generator or the test instead.
+- a32b89e: `cosyte-docs-content` now reads whether each page holds what its kind asks, the kind being the
+  sidebar category the page is listed in (decision record 0006, section 12). Seven new rules: a how-to
+  guide's title begins with an imperative verb (`howto-title`) and it has no heading that begins How,
+  Why or The alternatives (`howto-steps`); an explanation has no settings table and no numbered H2
+  (`explanation-content`); each library has one `limitations` page, in Reference, and no other page
+  has a limitations heading (`limitations`); a tutorial's H2s are numbered steps ending in "What you
+  built" and "Next" (`tutorial-steps`); a page id shares a word with its title and does not begin
+  `guides-`, `concepts-` or `core-concepts` (`page-id`); and a configuration or command reference
+  names the generator or test that holds it to the code in `held_by:` in its front matter
+  (`reference-source`); that file names the page's file as a whole path segment, and it is never a
+  page (a Markdown or MDX file, or any file under `docs-content/`). A number with a measured unit outside "Current numbers" is a warning
+  (`measured-number`) and never fails.
+
+  A library's findings under the seven rules are held by a ratchet, `docs-content-ratchet.json`,
+  which records each library's counts as they were on 2026-11-12, so no library goes red when it
+  takes this version. The counts only fall. New exports: `RATCHETED_RULES`, `WARNING_RULES`,
+  `DOCS_CONTENT_RATCHET`, `applyDocsContentRatchet`, `docsContentWarnings`, `pageKinds`,
+  `isHeldByPath`, `HELD_BY_KEY`, `LIMITATIONS_PAGE`, `TUTORIAL_ENDING`, `KIND_PREFIXES` and
+  `IMPERATIVE_VERBS`. `readDocsContent` also returns `sources` and `library`.
+
+  What a caller changes: `checkDocsContent` now returns the seven new rules' findings with the rest,
+  unratcheted, so a caller that treats any finding as a failure passes them through
+  `applyDocsContentRatchet` first, as `runDocsContentCheck` does. Code that switches over
+  `DocsContentRule` sees eight new values.
+
+- 15e7df4: A new check, `cosyte-release-pr` (also `script-utils release-pr` and the `./release-pr` entry point), fails a library whose Version Packages pull request would fail its own checks, and a changeset whose opening sentence the release would refuse.
+
+  - **`version-script`**: the `version` script runs `changeset version`, then the `VERSION` sync, then `cosyte-docs-reference` without `--check`, in that order, so the API reference that prints `VERSION` is regenerated in the release commit. A step may reach a command through another script, such as `pnpm docs:reference`.
+  - **`changeset-bullet`** and **`changeset-shape`**: each pending changeset has a front matter block that is not empty and that the release can read, a summary when it releases a package, and an opening sentence of at most 400 characters, measured conservatively as an upper bound on the bullet the release publishes. An empty changeset, the file `changeset add --empty` writes, is refused, because the release cannot read it once consumed: a change that releases no package gets no changeset at all.
+
+  The version rule applies only when a file under `src/` declares an exported `VERSION`. It does not read tests: a release pull request's mutation job proves the test that pins `VERSION` to package.json. Exit 0 clean, 1 a finding, 2 the package could not be read. Nothing existing changes, so a caller changes nothing; a library adopts the check by adding `"check:release-pr": "cosyte-release-pr"` and running it in CI.
+
 ## 0.1.12
 
 ### Patch Changes
