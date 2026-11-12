@@ -59,6 +59,22 @@ export declare const DESCRIPTION_LIMIT: 160;
 /** A page's file name, without `.md`: lower-case words joined by single hyphens. */
 export declare const PAGE_NAME: RegExp;
 
+/**
+ * A rule that reads whether a page holds what its kind asks, the kind being the sidebar category it
+ * is listed in. A library's findings under these are held by the ratchet up to its recorded counts.
+ */
+export type DocsContentRatchetedRule =
+  | "howto-title"
+  | "howto-steps"
+  | "explanation-content"
+  | "limitations"
+  | "tutorial-steps"
+  | "page-id"
+  | "reference-source";
+
+/** A rule that only warns: a measured number outside a "Current numbers" section. */
+export type DocsContentWarningRule = "measured-number";
+
 /** A rule a finding can carry. */
 export type DocsContentRule =
   | "sidebar"
@@ -67,10 +83,51 @@ export type DocsContentRule =
   | "front-matter"
   | "file-name"
   | "numbers"
-  | "reference-link";
+  | "reference-link"
+  | DocsContentRatchetedRule
+  | DocsContentWarningRule;
 
 /** Every rule, with what it requires. */
 export declare const DOCS_CONTENT_RULES: Readonly<Record<DocsContentRule, string>>;
+
+/** The rules the ratchet holds, in the order the check reports them. */
+export declare const RATCHETED_RULES: readonly DocsContentRatchetedRule[];
+
+/** The rules that only warn. */
+export declare const WARNING_RULES: readonly DocsContentWarningRule[];
+
+/**
+ * The front matter key a configuration or command reference names its generator or test in: a path
+ * from the repository root to a file that names the page's file as a whole path segment. It never
+ * names a page: a Markdown or MDX file, or any file under docs-content/, is a finding.
+ */
+export declare const HELD_BY_KEY: "held_by";
+
+/** The page every library keeps its limitations on, listed in Reference. */
+export declare const LIMITATIONS_PAGE: "limitations";
+
+/** The two sections a tutorial ends with, in this order. */
+export declare const TUTORIAL_ENDING: readonly ["What you built", "Next"];
+
+/** The id prefixes that name a page's kind, not its subject. */
+export declare const KIND_PREFIXES: readonly string[];
+
+/**
+ * The verbs a how-to guide's title may begin with, lower-case. A title that begins with any other
+ * word is a finding; a verb a guide needs and this lacks is added here. Words read first as nouns
+ * (release, support, report, list and the like) are left out, so "Release notes" is a finding.
+ */
+export declare const IMPERATIVE_VERBS: readonly string[];
+
+/** A library's recorded counts, by rule. A rule not named may have no findings. */
+export type DocsContentAllowance = Readonly<Partial<Record<DocsContentRatchetedRule, number>>>;
+
+/**
+ * The counts the ratchet holds each library to, by package name: the findings each had under the
+ * ratcheted rules when they landed, which a library may only lower. Read from
+ * docs-content-ratchet.json, which ships beside this module.
+ */
+export declare const DOCS_CONTENT_RATCHET: Readonly<Record<string, DocsContentAllowance>>;
 
 /** Raised when the check cannot read its input; the command line turns it into exit 2. */
 export declare class DocsContentRefusal extends Error {}
@@ -124,6 +181,13 @@ export interface DocsContentInput {
    * reference names. Without it, every such link names a page that is not there.
    */
   reference?: Map<string, string>;
+  /**
+   * The files the front matter key `held_by` names, by their path from the repository root, as
+   * read. A path missing here is reported as not a file in the repository.
+   */
+  sources?: Map<string, string>;
+  /** The name in the repository's package.json, which the ratchet records counts under. */
+  library?: string | null;
 }
 
 /** One finding. */
@@ -139,16 +203,84 @@ export interface DocsContentFinding {
 }
 
 /**
- * Check a docs-content tree that has already been read.
+ * Check a docs-content tree that has already been read: its structure and, once the sidebar parses,
+ * whether each page holds what its kind asks. Every finding is returned, ratcheted rules included;
+ * {@link applyDocsContentRatchet} sorts out which fail for a library.
  *
- * @param input - The pages, the sidebar text and any misplaced markdown.
+ * @param input - The pages, the sidebar text, any misplaced markdown, and the files `held_by` names.
  * @returns Every finding; empty when the tree keeps the standard.
  */
 export declare function checkDocsContent(input: DocsContentInput): DocsContentFinding[];
 
 /**
- * Read docs-content/ under a repository root: the pages, the sidebar, and the generated pages under
- * api/ for their headings.
+ * The top-level sidebar category each listed page is in, by id: the page's kind. A page in a
+ * category one level down takes its parent's label.
+ *
+ * @param sidebars - The parsed sidebars.json.
+ * @returns Each listed page's category label; empty for a sidebar of the wrong shape.
+ */
+export declare function pageKinds(sidebars: unknown): Map<string, string>;
+
+/**
+ * Whether a `held_by` path stays inside the repository: relative, with forward slashes, and no
+ * empty, `.` or `..` segment.
+ *
+ * @param path - The front matter value.
+ * @returns True when the path may be read.
+ */
+export declare function isHeldByPath(path: string): boolean;
+
+/** One warning: a line that reads as a measured number. */
+export interface DocsContentWarning extends DocsContentFinding {
+  rule: DocsContentWarningRule;
+}
+
+/**
+ * Every prose line, outside code and outside a "Current numbers" section, that carries a number
+ * with a measured unit (a percentage, ms, µs, ns, a size in bytes, a rate a second, "times faster"),
+ * on every page not listed in Reference. A warning never fails the check.
+ *
+ * @param input - The pages and the sidebar text.
+ * @returns Each warning, in page order.
+ */
+export declare function docsContentWarnings(
+  input: Pick<DocsContentInput, "pages" | "sidebars">,
+): DocsContentWarning[];
+
+/** A ratcheted rule and its count, against what the library's record allows. */
+export interface DocsContentRatchetCount {
+  rule: DocsContentRatchetedRule;
+  count: number;
+  allowed: number;
+}
+
+/** What {@link applyDocsContentRatchet} sorted. */
+export interface DocsContentRatchetResult {
+  /** The findings that fail: every rule not ratcheted, and every ratcheted rule over its count. */
+  failing: DocsContentFinding[];
+  /** The findings of ratcheted rules at or under their counts. */
+  held: DocsContentFinding[];
+  /** The ratcheted rules over their counts. */
+  over: DocsContentRatchetCount[];
+  /** The ratcheted rules under their counts, whose counts can be lowered. */
+  loose: DocsContentRatchetCount[];
+}
+
+/**
+ * Hold a library's findings under the ratcheted rules to its recorded counts.
+ *
+ * @param findings - Every finding of {@link checkDocsContent}.
+ * @param allowance - The library's counts. Default: none, so every finding fails.
+ * @returns The findings that fail, the ones held, and the rules over or under their counts.
+ */
+export declare function applyDocsContentRatchet(
+  findings: DocsContentFinding[],
+  allowance?: DocsContentAllowance,
+): DocsContentRatchetResult;
+
+/**
+ * Read docs-content/ under a repository root: the pages, the sidebar, the generated pages under
+ * api/ for their headings, the files each `held_by` names, and the library's name from package.json.
  *
  * @param root - The repository root.
  * @returns The tree, read.
@@ -171,10 +303,14 @@ export interface DocsContentCheckOptions {
   stdout?: DocsContentStream;
   /** Where findings and refusals go. Default: the process's stderr. */
   stderr?: DocsContentStream;
+  /** The counts to hold each library to, by package name. Default: {@link DOCS_CONTENT_RATCHET}. */
+  ratchet?: Readonly<Record<string, DocsContentAllowance>>;
 }
 
 /**
- * Check docs-content/ in a repository and report.
+ * Check docs-content/ in a repository and report. Findings of the ratcheted rules are held to the
+ * counts the ratchet records for the library; warnings, held findings and counts that can be
+ * lowered go to stdout and never change the exit code.
  *
  * @param options - Arguments, the root and the streams.
  * @returns 0 clean, 1 a finding, 2 the check could not run.

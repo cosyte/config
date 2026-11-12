@@ -18,6 +18,15 @@ is a page, the required pages exist, every page opens with front matter carrying
 name), title, sidebar_label and description (at most 160 characters), page names are lower-case
 and hyphenated, and both quality pages carry a "## Current numbers" section.
 
+It also reads whether each page holds what its kind asks, the kind being its sidebar category: a
+how-to guide's title begins with an imperative verb and it has no How, Why or alternatives heading;
+an explanation has no settings table and no numbered H2; a tutorial's H2s are numbered steps ending
+in "What you built" and "Next"; the one limitations page is in Reference; a page id shares a word
+with its title; a configuration or command reference names its generator or test in "held_by". A
+library's findings under these are held at the counts docs-content-ratchet.json records for it
+(the name in package.json), which only fall. A measured number outside "Current numbers" is a
+warning and never fails.
+
 It does not read links (the shared CI's docs-content link check does), the generated pages under
 api/ (cosyte-docs-reference checks those), or whether a sample runs (the sample runner in
 @cosyte/vitest-config does). Exit 0 clean, 1 a finding, 2 the check could not run.

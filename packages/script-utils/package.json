@@ -108,6 +108,7 @@
     "changes.d.ts",
     "docs-content.js",
     "docs-content.d.ts",
+    "docs-content-ratchet.json",
     "check-no-emdash.sh",
     "bin",
     "README.md",
