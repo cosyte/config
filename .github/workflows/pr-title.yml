@@ -3,11 +3,13 @@ name: PR title
 # Checks every pull request title against Conventional Commits (ST24 in the umbrella's
 # plans/standards.md) through the shared workflow, at the published reference codeql.yml and
 # scorecard.yml call, pinned by its commit (ST37). Merges here are squash-only, so the title is the
-# subject that lands on main.
+# subject that lands on main. A title is `type(scope): description`, and the scope is required:
+# `fix(phi-scan): name the rule in a finding` passes, `fix: name the rule in a finding` does not.
+# test/pr-title-pin.test.ts holds the pin below at the shared commit that requires the scope.
 #
 # The release workflow's own PR is titled "chore(release): version packages" for this check
-# (release.yml, the changesets/action `title` input). Dependabot's titles start with `chore`
-# (dependabot.yml).
+# (release.yml, the changesets/action `title` input). Dependabot's titles are `chore(deps)` and
+# `chore(deps-dev)`, from `include: scope` in dependabot.yml.
 #
 # NO `concurrency:` BLOCK, DELIBERATELY. One cancels a queued run when a title is edited right after a
 # push, as Dependabot does, and a cancelled run counts as failing, which blocks the pull request until
@@ -31,4 +33,4 @@ jobs:
   pr-title:
     permissions:
       contents: read
-    uses: cosyte/.github/.github/workflows/pr-title.yml@c0db8d8e5927269820de4401b3b5ad6141854b76 # workflows-2026-11-08-c0db8d8e5927
+    uses: cosyte/.github/.github/workflows/pr-title.yml@398cd4ded647dddd9f2e220ceb042840f59e1426 # workflows-2026-11-10-398cd4ded647
