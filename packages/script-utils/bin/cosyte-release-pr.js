@@ -10,13 +10,10 @@ const HELP = `cosyte-release-pr: check that a release pull request made from thi
 
   cosyte-release-pr [--dir <package root>]
 
-When src/ declares an exported VERSION, it reads two things the Version Packages pull request
-needs. The "version" script runs \`changeset version\`, then the VERSION sync
-(\`cosyte-process sync-version\`), then \`cosyte-docs-reference\` without --check, in that order, so
-the API reference that prints VERSION is regenerated in the same commit. And one test file pins
-VERSION where the mutation run can link it: it has no static import of the source, calls
-\`vi.resetModules()\`, imports the source inside the test body and compares VERSION with
-package.json's version.
+When src/ declares an exported VERSION, it reads the "version" script the Version Packages pull
+request runs: \`changeset version\`, then the VERSION sync (\`cosyte-process sync-version\`), then
+\`cosyte-docs-reference\` without --check, in that order, so the API reference that prints VERSION
+is regenerated in the same commit.
 
 On every package it reads each pending changeset under .changeset/: its opening sentence becomes a
 release bullet, and the release refuses one over 400 characters after the Version Packages pull

@@ -3,22 +3,9 @@
 // THE RELEASE PULL REQUEST CHECK: a library's "Version Packages" pull request must pass its own
 // checks, and a changeset must not wedge the release that consumes it.
 //
-// Three defects reached our libraries' release pull requests, each after the change that caused it
+// Two defects reached our libraries' release pull requests, each after the change that caused it
 // had merged green, and each was fixed by hand in its own repository:
 //
-//   version-test      The mutation run on a Version Packages pull request mutates the exported
-//                     `VERSION` string, and no test it links to that line pinned it to package.json.
-//                     `VERSION` is set once, when its module is first evaluated, and the mutation run
-//                     links a mutant only to the tests that run while its line is evaluated. A test
-//                     file with a static import of the source evaluates it before any test starts, so
-//                     the mutant survives however exactly a test compares it. What works: a test file
-//                     with no static import of the source, that resets the module cache
-//                     (`vi.resetModules()`) and then imports the source inside the test body, and
-//                     compares `VERSION` with package.json's version. The rule is an allow list: the
-//                     file is parsed with the TypeScript compiler, it passes only in a shape the rule
-//                     recognises, and anything it cannot classify (a module mock, a load it cannot
-//                     follow, a helper referred to other than by a direct call from a test body) is a
-//                     finding, not a pass.
 //   version-script    The version script did not regenerate the generated API reference, which prints
 //                     `VERSION`, so the Version Packages pull request failed the reference's own
 //                     drift check. The script runs `changeset version`, then the `VERSION` sync, then
@@ -45,23 +32,19 @@
 // release can pass a few this refuses, and those carry commas in parentheses or an internal reference
 // that a few characters less would fit.
 //
-// WHAT IT DOES NOT DO. It reads text, so it cannot tell that a test it accepts runs, or that its
-// assertion is right: the test's own run does that. It does not read the release workflow's other
-// refusals (internal identifiers, phase language), and it does not check the API reference itself:
-// `cosyte-docs-reference --check` does.
+// WHAT IT DOES NOT DO. It reads text. It does not read the release workflow's other refusals
+// (internal identifiers, phase language), it does not check the API reference itself
+// (`cosyte-docs-reference --check` does), and it does not check the test that pins `VERSION` to
+// package.json: a release pull request's mutation job is what proves that test today.
 //
 // EXIT CODES, the contract every gate here keeps: 0 clean, 1 at least one finding, 2 the check could
 // not read its input (no package.json, an unreadable file, an argument it does not know).
 //
-// ZERO DEPENDENCIES AND NO BUILD STEP, like the rest of this package. The TypeScript compiler the
-// version-test rule parses with is the checked library's own: from its root, else through
-// `@cosyte/process` (which depends on it), else from wherever this package is installed. The command
-// line is the bin `cosyte-release-pr`.
+// ZERO DEPENDENCIES AND NO BUILD STEP, like the rest of this package. The command line is the bin
+// `cosyte-release-pr`.
 
 import { lstatSync, readdirSync, readFileSync } from "node:fs";
-import { createRequire } from "node:module";
-import { join, posix, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join, resolve } from "node:path";
 
 /** The longest release bullet the shared release workflow publishes, in characters. */
 export const RELEASE_BULLET_LIMIT = 400;
@@ -70,9 +53,6 @@ export const RELEASE_BULLET_LIMIT = 400;
 export const RELEASE_PR_RULES = Object.freeze({
   "version-script":
     "the version script runs `changeset version`, then the VERSION sync, then `cosyte-docs-reference`",
-  "version-test":
-    "a test file that mocks no module and loads the source only in a test body, after resetting the " +
-    "module cache, compares VERSION with package.json",
   "changeset-bullet": `a changeset opens with a sentence of at most ${RELEASE_BULLET_LIMIT} characters`,
   "changeset-shape":
     "a changeset has a front matter block that is not empty, names a package and bump on each line, " +
@@ -81,10 +61,7 @@ export const RELEASE_PR_RULES = Object.freeze({
 
 const EM_DASH = String.fromCodePoint(0x2014);
 
-/** The folders tests are read from, relative to the package root. */
-const TEST_DIRS = ["test", "src"];
-
-/** A test file: `*.test.*` or `*.spec.*`, in TypeScript or JavaScript. */
+/** A test file: `*.test.*` or `*.spec.*`, in TypeScript or JavaScript: never a source file. */
 const TEST_FILE = /\.(?:test|spec)\.[cm]?[jt]s$/;
 
 /** A source file under `src/`: TypeScript or JavaScript, not a declaration file. */
@@ -181,518 +158,6 @@ export function checkVersionScript(scripts) {
  */
 export function declaresVersion(text) {
   return /^export const VERSION\b/m.test(String(text));
-}
-
-/**
- * Whether a relative import specifier, written in the file at `path`, points at the source folder.
- *
- * @param {string} path The importing file, relative to the package root, with `/` separators.
- * @param {string} specifier The specifier, `.` or `..` or starting with `./` or `../`.
- * @returns {boolean}
- */
-function intoSource(path, specifier) {
-  const target = posix.normalize(posix.join(posix.dirname(path), specifier));
-  return target === "src" || target.startsWith("src/");
-}
-
-/** This module's own path: the last place the TypeScript compiler is looked for. */
-const HERE = fileURLToPath(import.meta.url);
-
-/**
- * The TypeScript compiler the version-test rule parses with: the package's own, else the one
- * `@cosyte/process` depends on (a scaffold lists no `typescript` of its own), else one resolvable
- * from each of `fallbacks`.
- *
- * @param {string} root The package root.
- * @param {string[]} [fallbacks] Further paths to resolve from; this module's own by default.
- * @returns {any} The `typescript` module.
- * @throws {Error} When none of them resolves it.
- */
-export function loadTypeScript(root, fallbacks = [HERE]) {
-  const manifest = join(resolve(root), "package.json");
-  const bases = [manifest];
-  try {
-    bases.push(createRequire(manifest).resolve("@cosyte/process/package.json"));
-  } catch {
-    // No @cosyte/process here: the other places are tried.
-  }
-  for (const base of [...bases, ...fallbacks]) {
-    try {
-      return createRequire(base)("typescript");
-    } catch {
-      // Not resolvable from this place: the next one is tried.
-    }
-  }
-  throw new Error(
-    "the version-test rule parses test files with the TypeScript compiler, and the typescript " +
-      "package could not be found from the package, its @cosyte/process or @cosyte/script-utils. " +
-      "Add typescript to devDependencies.",
-  );
-}
-
-/** The literal text of a string or plain template literal node, else undefined. */
-function literalText(ts, node) {
-  if (
-    node !== undefined &&
-    (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node))
-  ) {
-    return node.text;
-  }
-  return undefined;
-}
-
-/** The names the test runners give their mocker: `vi`, its alias `vitest`, and `jest`. */
-const MOCKERS = new Set(["vi", "vitest", "jest"]);
-
-/** The mocker calls that cannot replace or skip a module, the only ones a VERSION test may make. */
-const MOCKER_CALLS = new Set([
-  "resetModules",
-  "doUnmock",
-  "unmock",
-  "fn",
-  "spyOn",
-  "restoreAllMocks",
-  "clearAllMocks",
-  "resetAllMocks",
-  "useFakeTimers",
-  "useRealTimers",
-  "isMockFunction",
-  "unstubAllGlobals",
-  "unstubAllEnvs",
-]);
-
-/** The mocker calls that replace a module: accepted only with a pass-through factory. */
-const MOCK_CALLS = new Set(["mock", "doMock"]);
-
-/** The modifiers of `it`, `test` and `describe` under which the callback still runs. */
-const RUN_MODIFIERS = new Set(["each", "concurrent", "sequential"]);
-
-/** The names that register a test, and a suite. */
-const TESTS = new Set(["it", "test"]);
-const SUITES = new Set(["describe", "suite"]);
-
-/** Names that load or run code by a route the check cannot follow. */
-const LOADERS = new Set(["require", "createRequire", "eval", "Function"]);
-
-/** The `import.meta` properties that load nothing. */
-const META = new Set(["url", "dirname", "filename", "env", "resolve"]);
-
-/** The modules whose namespace carries the mocker. */
-const RUNNER_MODULES = new Set(["vitest", "@jest/globals"]);
-
-/** A package specifier: a name or a scoped name, then any subpath. */
-const PACKAGE_SPECIFIER = /^(?:@[a-z0-9][\w.-]*\/)?[a-z0-9][\w.-]*(?:\/.*)?$/i;
-
-/**
- * What a module specifier, written in the file at `path`, names: `source` (under `src/`), `data` (a
- * JSON file, which runs nothing), `package` (a built-in or a package), `local` (another file of the
- * repository), or `unknown` (no literal, or a specifier an alias may point anywhere: `#x`, `/x`,
- * `@/x`, `src/x`).
- *
- * @param {string} path The importing file.
- * @param {string | undefined} specifier The specifier, or undefined when it is not a literal.
- * @returns {"source" | "data" | "package" | "local" | "unknown"}
- */
-function specifierKind(path, specifier) {
-  if (specifier === undefined) return "unknown";
-  if (specifier.endsWith(".json")) return "data";
-  if (specifier.startsWith("node:")) return "package";
-  if (/^\.\.?(?:\/|$)/.test(specifier)) return intoSource(path, specifier) ? "source" : "local";
-  if (PACKAGE_SPECIFIER.test(specifier) && !/^src(?:\/|$)/.test(specifier)) return "package";
-  return "unknown";
-}
-
-/** A source path without its extension, `src` itself read as `src/index`. */
-function sourceKey(target) {
-  const bare = target.replace(/\.[cm]?[jt]sx?$/, "");
-  return bare === "src" ? "src/index" : bare;
-}
-
-/**
- * The callee chain of a call: the identifier it starts from and the property names after it, so
- * `it.each([1])("x", fn)` is `it` with `each`.
- */
-function calleeChain(ts, call) {
-  const modifiers = [];
-  let callee = call.expression;
-  for (;;) {
-    if (ts.isPropertyAccessExpression(callee)) {
-      modifiers.push(callee.name.text);
-      callee = callee.expression;
-    } else if (ts.isCallExpression(callee)) {
-      callee = callee.expression;
-    } else {
-      break;
-    }
-  }
-  return { root: ts.isIdentifier(callee) ? callee.text : undefined, modifiers };
-}
-
-/** The line, from 1, a node starts on. */
-function lineOf(file, node) {
-  return file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1;
-}
-
-/** The function a declaration names: `function f() {}`, `const f = () => {}`, or none. */
-function namedFunction(ts, node) {
-  if (ts.isFunctionDeclaration(node) && node.name !== undefined && node.body !== undefined) {
-    return { name: node.name.text, fn: node, nameNode: node.name };
-  }
-  if (
-    ts.isVariableDeclaration(node) &&
-    ts.isIdentifier(node.name) &&
-    node.initializer !== undefined
-  ) {
-    const init = node.initializer;
-    if (ts.isArrowFunction(init) || ts.isFunctionExpression(init))
-      return { name: node.name.text, fn: init, nameNode: node.name };
-  }
-  return undefined;
-}
-
-/**
- * Whether a mock call's factory hands back the real module unchanged: `(importOriginal) =>
- * importOriginal()`, awaited or not, as an expression body or as the one `return` that ends a block.
- * Its parameter is used nowhere else, so it cannot be swapped for a stand-in. Then the mocked module
- * is still evaluated, and a test that counts the evaluations (mllp's) may use it.
- */
-function passThroughMock(ts, call) {
-  const factory = call.arguments[1];
-  if (call.arguments.length !== 2 || factory === undefined) return false;
-  if (!ts.isArrowFunction(factory) && !ts.isFunctionExpression(factory)) return false;
-  const [param, ...rest] = factory.parameters;
-  if (param === undefined || rest.length > 0 || !ts.isIdentifier(param.name)) return false;
-  if (param.dotDotDotToken !== undefined || param.initializer !== undefined) return false;
-  const name = param.name.text;
-  let uses = 0;
-  let returns = 0;
-  const count = (node) => {
-    if (ts.isIdentifier(node) && node.text === name) uses += 1;
-    if (ts.isReturnStatement(node)) returns += 1;
-    ts.forEachChild(node, count);
-  };
-  count(factory);
-  const original = (node) => {
-    let e = node;
-    while (e !== undefined && (ts.isAwaitExpression(e) || ts.isParenthesizedExpression(e))) {
-      e = e.expression;
-    }
-    return (
-      e !== undefined &&
-      ts.isCallExpression(e) &&
-      ts.isIdentifier(e.expression) &&
-      e.expression.text === name &&
-      e.arguments.length === 0
-    );
-  };
-  if (uses !== 2) return false;
-  if (!ts.isBlock(factory.body)) return returns === 0 && original(factory.body);
-  const last = factory.body.statements.at(-1);
-  return (
-    returns === 1 && last !== undefined && ts.isReturnStatement(last) && original(last.expression)
-  );
-}
-
-/**
- * What one test file lacks to pin VERSION through a fresh import. Empty when it does.
- *
- * An allow list: the file passes only in a shape the check recognises, and what it cannot classify
- * is a gap, not a pass. The file is parsed, so a comment or a string satisfies nothing.
- *
- * - Nothing mocks or stubs a module: no `vi.mock`, `vi.doMock`, `vi.hoisted`, `vi.stubGlobal` or
- *   their `jest` equivalents, and the mocker is used only as `vi.<call>(...)` with a call that cannot
- *   replace a module. The one mock accepted hands back the real module unchanged.
- * - Every load is classified: a static import is type-only, of a package or of JSON; a dynamic
- *   import or `require()` has a literal specifier; nothing loads through `createRequire`, `eval`,
- *   `import.meta.glob` or an alias (`#x`, `@/x`).
- * - The source is loaded only by a dynamic import after `vi.resetModules()` in the same test body:
- *   the callback of an `it` or `test` call that runs, or a named function every reference to which
- *   is a direct call from such a body. An alias, `.call`, a name passed to a hook or anything else,
- *   a second function of the same name, or a call at module load each disqualifies the function.
- * - One such body imports the module that declares VERSION (`src/index` by default) and reads
- *   `VERSION`, and the file reads package.json.
- *
- * @param {string} path The test file, relative to the package root, with `/` separators.
- * @param {string} text Its text.
- * @param {any} [ts] The TypeScript compiler; found from this module when not given.
- * @param {string[]} [versionModules] The source files that declare VERSION, which a fresh import
- *   may name besides `src/index`.
- * @returns {string[]} One sentence per gap.
- */
-export function freshVersionTestGaps(
-  path,
-  text,
-  ts = loadTypeScript(process.cwd()),
-  versionModules = [],
-) {
-  const kind = /\.[cm]?ts$/.test(path) ? ts.ScriptKind.TS : ts.ScriptKind.JS;
-  const file = ts.createSourceFile(path, String(text), ts.ScriptTarget.Latest, true, kind);
-  const entries = new Set(["src/index", ...versionModules.map(sourceKey)]);
-  let staticLine = 0;
-  let readsManifest = false;
-  /** Lines that mock, stub or use the mocker unrecognised, and lines that load unclassified. */
-  const mocks = [];
-  const unknown = [];
-  /** The test callbacks that run. */
-  const tests = new Set();
-  /** The named functions. */
-  const helpers = [];
-  /** Every identifier, with the unit it sits in. */
-  const idents = [];
-  /** Per unit (a test callback, a named function, or null for anything else): what it does. */
-  const units = new Map();
-  const unitOf = (unit) => {
-    if (!units.has(unit)) units.set(unit, { resets: [], loads: [], version: false });
-    return units.get(unit);
-  };
-  const at = (node) => `line ${lineOf(file, node)}`;
-
-  /** A static load: an import, an export from, or `import x = require()`. */
-  const staticLoad = (node, specifierNode) => {
-    const kind = specifierKind(path, literalText(ts, specifierNode));
-    if (kind === "source") staticLine ||= lineOf(file, node);
-    else if (kind === "local" || kind === "unknown") unknown.push(at(node));
-  };
-
-  /** The mocker named by an identifier: fine only as `vi.<call>(...)` or `import { vi }`. */
-  const mockerUse = (node) => {
-    const parent = node.parent;
-    if (ts.isImportSpecifier(parent)) {
-      if (parent.propertyName !== undefined) mocks.push(`${at(node)}: ${node.text} renamed`);
-      return;
-    }
-    if (ts.isPropertyAccessExpression(parent) && parent.expression === node) {
-      const member = parent.name.text;
-      const call = parent.parent;
-      const called = ts.isCallExpression(call) && call.expression === parent;
-      if (called && MOCKER_CALLS.has(member)) return;
-      if (called && MOCK_CALLS.has(member) && passThroughMock(ts, call)) return;
-      mocks.push(`${at(node)}: ${node.text}.${member}`);
-      return;
-    }
-    mocks.push(`${at(node)}: ${node.text}`);
-  };
-
-  const visit = (node, unit, dead) => {
-    if (literalText(ts, node)?.endsWith("package.json")) readsManifest = true;
-    const named = namedFunction(ts, node);
-    if (named !== undefined) {
-      // A named function is its own unit: what it does counts where it is called from.
-      helpers.push({ ...named, decl: node });
-      // The name of `const f = () => {}` is outside the function: kept, so a second `f` is seen.
-      if (named.fn !== node) idents.push({ node: named.nameNode, unit });
-      ts.forEachChild(named.fn, (child) => visit(child, named.fn, dead));
-      return;
-    }
-    if (ts.isIdentifier(node)) {
-      idents.push({ node, unit });
-      if (node.text === "VERSION") unitOf(unit).version = true;
-      if (MOCKERS.has(node.text)) mockerUse(node);
-      const parent = node.parent;
-      const directRequire =
-        node.text === "require" && ts.isCallExpression(parent) && parent.expression === node;
-      if (LOADERS.has(node.text) && !directRequire) unknown.push(`${at(node)}: ${node.text}`);
-      return;
-    }
-    if (ts.isImportDeclaration(node)) {
-      if (!node.importClause?.isTypeOnly) staticLoad(node, node.moduleSpecifier);
-      const bindings = node.importClause?.namedBindings;
-      const runner = literalText(ts, node.moduleSpecifier);
-      if (bindings && ts.isNamespaceImport(bindings) && RUNNER_MODULES.has(runner)) {
-        mocks.push(`${at(node)}: a namespace import of ${runner}`);
-      }
-    } else if (ts.isExportDeclaration(node) && !node.isTypeOnly && node.moduleSpecifier) {
-      staticLoad(node, node.moduleSpecifier);
-    } else if (ts.isImportEqualsDeclaration(node) && !node.isTypeOnly) {
-      const ref = node.moduleReference;
-      if (ts.isExternalModuleReference(ref)) staticLoad(node, ref.expression);
-    } else if (
-      ts.isPropertyAccessExpression(node) &&
-      ts.isMetaProperty(node.expression) &&
-      node.expression.keywordToken === ts.SyntaxKind.ImportKeyword &&
-      !META.has(node.name.text)
-    ) {
-      unknown.push(`${at(node)}: import.meta.${node.name.text}`);
-    } else if (ts.isCallExpression(node)) {
-      const callee = node.expression;
-      const dynamic = callee.kind === ts.SyntaxKind.ImportKeyword;
-      const required = ts.isIdentifier(callee) && callee.text === "require";
-      if (dynamic || required) {
-        const specifier = literalText(ts, node.arguments[0]);
-        const kind = specifierKind(path, specifier);
-        if (dynamic && kind === "source") {
-          const target = posix.normalize(posix.join(posix.dirname(path), specifier));
-          unitOf(unit).loads.push({
-            at: node.getStart(file),
-            line: lineOf(file, node),
-            entry: entries.has(sourceKey(target)),
-          });
-        } else if (kind !== "package" && kind !== "data") {
-          unknown.push(at(node));
-        }
-      }
-      if (
-        ts.isPropertyAccessExpression(callee) &&
-        ts.isIdentifier(callee.expression) &&
-        MOCKERS.has(callee.expression.text) &&
-        callee.name.text === "resetModules"
-      ) {
-        unitOf(unit).resets.push(node.getStart(file));
-      }
-      const chain = calleeChain(ts, node);
-      const runs = chain.modifiers.every((m) => RUN_MODIFIERS.has(m));
-      if (TESTS.has(chain.root)) {
-        const live = !dead && runs;
-        visit(callee, unit, dead);
-        for (const arg of node.arguments) {
-          if (live && (ts.isArrowFunction(arg) || ts.isFunctionExpression(arg))) {
-            tests.add(arg);
-            visit(arg, arg, dead);
-          } else {
-            visit(arg, unit, dead);
-          }
-        }
-        return;
-      }
-      if (SUITES.has(chain.root) && !runs) {
-        ts.forEachChild(node, (child) => visit(child, unit, true));
-        return;
-      }
-    }
-    ts.forEachChild(node, (child) => visit(child, unit, dead));
-  };
-  visit(file, null, false);
-
-  // Each reference to a named function that is not its own name: a direct call (`f()`), or anything
-  // else. A member name (`x.f`) is another binding and is left out.
-  const references = (helper) =>
-    idents.filter(
-      ({ node }) =>
-        node.text === helper.name &&
-        node !== helper.nameNode &&
-        !(ts.isPropertyAccessExpression(node.parent) && node.parent.name === node),
-    );
-  const exported = (helper) =>
-    (ts.getCombinedModifierFlags(helper.decl) & ts.ModifierFlags.Export) !== 0;
-  const directCall = ({ node }) =>
-    ts.isCallExpression(node.parent) && node.parent.expression === node;
-
-  // A named function runs in a test when it is not exported, is referred to at least once, and every
-  // reference is a direct call from a test body or from a named function already known to.
-  const inTest = new Set(tests);
-  for (let grew = true; grew;) {
-    grew = false;
-    for (const helper of helpers) {
-      if (inTest.has(helper.fn) || exported(helper)) continue;
-      const refs = references(helper);
-      if (refs.length > 0 && refs.every((r) => directCall(r) && inTest.has(r.unit))) {
-        inTest.add(helper.fn);
-        grew = true;
-      }
-    }
-  }
-
-  const gaps = [];
-  const inside = [...units].filter(([unit]) => inTest.has(unit)).map(([, u]) => u);
-  const outside = [...units]
-    .filter(([unit]) => !inTest.has(unit))
-    .flatMap(([, u]) => u.loads.map((l) => l.line));
-  const loads = inside.flatMap((u) => u.loads.map((l) => ({ ...l, unit: u })));
-  const stale = loads.filter((l) => !l.unit.resets.some((r) => r < l.at));
-  const freshUnits = inside.filter((u) =>
-    u.loads.some((l) => l.entry && u.resets.some((r) => r < l.at)),
-  );
-  if (!inside.some((u) => u.version)) gaps.push("it never reads VERSION in a test body");
-  else if (freshUnits.length > 0 && !freshUnits.some((u) => u.version)) {
-    gaps.push("it never reads VERSION in the test body that imports the source afresh");
-  }
-  if (!readsManifest) gaps.push("it never reads package.json");
-  if (staticLine > 0) {
-    gaps.push(
-      `it imports the source statically (line ${staticLine}), so the module is evaluated before ` +
-        "any test runs and the mutation run links the VERSION line to no test",
-    );
-  }
-  if (mocks.length > 0) {
-    gaps.push(
-      `it mocks or stubs a module, or uses the mocker in a way the check does not recognise ` +
-        `(${mocks.join(", ")}), so the source it imports may never be evaluated; the one mock ` +
-        "accepted is a pass-through, `vi.doMock(path, (importOriginal) => importOriginal())`",
-    );
-  }
-  if (unknown.length > 0) {
-    gaps.push(
-      `it loads code the check cannot classify (${unknown.join(", ")}), which may evaluate the ` +
-        "source outside a test body; import packages, built-in modules and JSON statically, and the " +
-        "source only dynamically, each with a literal specifier",
-    );
-  }
-  for (const helper of helpers) {
-    if (inTest.has(helper.fn) || (units.get(helper.fn)?.loads.length ?? 0) === 0) continue;
-    const bad = references(helper).filter((r) => !directCall(r) || !inTest.has(r.unit));
-    if (exported(helper)) bad.unshift({ node: helper.nameNode });
-    if (bad.length === 0) continue;
-    gaps.push(
-      `it refers to ${helper.name} other than by a direct call from a test body ` +
-        `(${[...new Set(bad.map((r) => at(r.node)))].join(", ")}), so the function may run outside ` +
-        "a test",
-    );
-  }
-  if (outside.length > 0) {
-    gaps.push(
-      `it loads the source outside a test body (line ${outside.sort((a, b) => a - b).join(", line ")}), ` +
-        "so the module is evaluated while the file is collected or not in a test",
-    );
-  }
-  if (loads.length === 0) {
-    gaps.push(
-      "it has no dynamic import of the source inside a test body, " +
-        '`await import("../src/index.js")` in an `it` or `test` callback',
-    );
-  } else if (stale.length > 0) {
-    gaps.push(
-      "it does not call `vi.resetModules()` before its dynamic import of the source, in the same " +
-        `test body (line ${stale.map((l) => l.line).join(", line ")})`,
-    );
-  } else if (freshUnits.length === 0) {
-    gaps.push(
-      "it imports afresh only other modules under src, not `src/index` or the module that " +
-        "declares VERSION",
-    );
-  }
-  return gaps;
-}
-
-/**
- * The `version-test` rule over a package's test files: at least one must pin VERSION through a
- * fresh import.
- *
- * @param {Array<{path: string, text: string}>} tests The test files.
- * @param {any} [ts] The TypeScript compiler; found from this module when not given.
- * @param {string[]} [versionModules] The source files that declare VERSION.
- * @returns {Array<{rule: string, file: string, message: string}>} No finding, or one.
- */
-export function checkVersionTests(tests, ts = loadTypeScript(process.cwd()), versionModules = []) {
-  const readers = [];
-  for (const test of tests) {
-    const gaps = freshVersionTestGaps(test.path, test.text, ts, versionModules);
-    if (gaps.length === 0) return [];
-    if (/\bVERSION\b/.test(test.text)) readers.push(`${test.path}: ${gaps.join("; ")}`);
-  }
-  const named =
-    readers.length === 0
-      ? "No test file reads VERSION."
-      : `The test files that read VERSION, and what each lacks:\n    ${readers.join("\n    ")}`;
-  return [
-    finding(
-      "version-test",
-      "test/",
-      "no test pins VERSION to package.json where the mutation run can link it, so the mutant " +
-        "that changes VERSION survives on the Version Packages pull request. Add a test file with " +
-        "no static import of the source that calls `vi.resetModules()`, then imports the source " +
-        `inside the test body and compares VERSION with package.json's version. ${named}`,
-    ),
-  ];
 }
 
 /**
@@ -811,19 +276,13 @@ export function checkChangeset(path, text) {
 /**
  * Every rule over a package's input.
  *
- * @param {{scripts: Record<string, unknown>, declaresVersion: boolean, versionModules?: string[],
- *   tests: Array<{path: string, text: string}>, changesets: Array<{path: string, text: string}>}} input
- * @param {any} [ts] The TypeScript compiler; found from this module when not given and needed.
+ * @param {{scripts: Record<string, unknown>, declaresVersion: boolean,
+ *   changesets: Array<{path: string, text: string}>}} input
  * @returns {Array<{rule: string, file: string, message: string}>}
  */
-export function checkReleasePr(input, ts) {
+export function checkReleasePr(input) {
   const found = [];
-  if (input.declaresVersion) {
-    found.push(
-      ...checkVersionScript(input.scripts),
-      ...checkVersionTests(input.tests, ts, input.versionModules),
-    );
-  }
+  if (input.declaresVersion) found.push(...checkVersionScript(input.scripts));
   for (const c of input.changesets) found.push(...checkChangeset(c.path, c.text));
   return found;
 }
@@ -859,11 +318,11 @@ function filesUnder(root, rel, pattern) {
 
 /**
  * Read what the check needs from a package root: its scripts, whether `src/` declares an exported
- * VERSION, its test files and its pending changesets.
+ * VERSION, and its pending changesets.
  *
  * @param {string} root The package root.
- * @returns {{scripts: Record<string, unknown>, declaresVersion: boolean, versionModules: string[],
- *   tests: Array<{path: string, text: string}>, changesets: Array<{path: string, text: string}>}}
+ * @returns {{scripts: Record<string, unknown>, declaresVersion: boolean,
+ *   changesets: Array<{path: string, text: string}>}}
  * @throws {Error} When package.json cannot be read or parsed, or a file cannot be read.
  */
 export function readReleasePrInput(root) {
@@ -872,16 +331,12 @@ export function readReleasePrInput(root) {
   const sources = filesUnder(root, "src", SOURCE_FILE).filter(
     (p) => !TEST_FILE.test(p) && !/\.d\.[cm]?ts$/.test(p),
   );
-  const tests = TEST_DIRS.flatMap((dir) => filesUnder(root, dir, TEST_FILE)).map(read);
   const changesets = filesUnder(root, ".changeset", /\.md$/)
     .filter((p) => p !== ".changeset/README.md")
     .map(read);
-  const versionModules = sources.filter((p) => declaresVersion(read(p).text));
   return {
     scripts: manifest?.scripts ?? {},
-    declaresVersion: versionModules.length > 0,
-    versionModules,
-    tests: tests.sort((a, b) => a.path.localeCompare(b.path)),
+    declaresVersion: sources.some((p) => declaresVersion(read(p).text)),
     changesets,
   };
 }
@@ -911,17 +366,15 @@ export function runReleasePrCheck(options = {}) {
     }
   }
   let input;
-  let ts;
   try {
     input = readReleasePrInput(resolve(dir));
-    if (input.declaresVersion) ts = loadTypeScript(resolve(dir));
   } catch (error) {
     stderr.write(
       `release-pr: could not read the package in ${dir}: ${error.message} Nothing was checked.\n`,
     );
     return 2;
   }
-  const found = checkReleasePr(input, ts);
+  const found = checkReleasePr(input);
   if (found.length > 0) {
     const report = found.map((f) => `  ${f.file} [${f.rule}] ${f.message}`).join("\n");
     stderr.write(
@@ -932,8 +385,8 @@ export function runReleasePrCheck(options = {}) {
     return 1;
   }
   const version = input.declaresVersion
-    ? "the version script and a fresh-import VERSION test are in place"
-    : "the package exports no VERSION under src/, so the version rules do not apply";
+    ? "the version script is in place"
+    : "the package exports no VERSION under src/, so the version rule does not apply";
   stdout.write(
     `release-pr: OK, ${version}; ${input.changesets.length} changeset(s) open within ` +
       `${RELEASE_BULLET_LIMIT} characters.\n`,

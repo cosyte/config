@@ -17,7 +17,6 @@ import {
   checkChangeset,
   checkReleasePr,
   checkVersionScript,
-  checkVersionTests,
   declaresVersion,
   openingSentence,
   readReleasePrInput,
@@ -25,8 +24,6 @@ import {
   RELEASE_PR_RULES,
   runReleasePrCheck,
   scriptSteps,
-  freshVersionTestGaps,
-  loadTypeScript,
 } from "../release-pr.js";
 
 const EM_DASH = String.fromCodePoint(0x2014);
@@ -34,23 +31,6 @@ const EM_DASH = String.fromCodePoint(0x2014);
 /** The version script the template carries. */
 const GOOD_SCRIPT =
   "changeset version && cosyte-process sync-version && cosyte-docs-reference && cosyte-process format";
-
-/** A test file that pins VERSION through a fresh import, the shape the check asks for. */
-const GOOD_TEST = [
-  'import { readFileSync } from "node:fs";',
-  'import { describe, expect, it, vi } from "vitest";',
-  "",
-  'const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));',
-  "",
-  'describe("VERSION", () => {',
-  '  it("equals package.json", async () => {',
-  "    vi.resetModules();",
-  '    const { VERSION } = await import("../src/index.js");',
-  "    expect(VERSION).toBe(pkg.version);",
-  "  });",
-  "});",
-  "",
-].join("\n");
 
 /** A changeset with this summary. */
 function changeset(summary: string, front = '"@cosyte/demo": patch'): string {
@@ -77,12 +57,11 @@ function sink(): { stream: { write: (s: string) => boolean }; text: () => string
 }
 
 describe("the rules", () => {
-  it("names four rules, each with what it requires", () => {
+  it("names three rules, each with what it requires", () => {
     expect(Object.keys(RELEASE_PR_RULES).sort()).toEqual([
       "changeset-bullet",
       "changeset-shape",
       "version-script",
-      "version-test",
     ]);
     for (const text of Object.values(RELEASE_PR_RULES)) expect(text.length).toBeGreaterThan(20);
     expect(RELEASE_BULLET_LIMIT).toBe(400);
@@ -198,592 +177,6 @@ describe("version-script", () => {
 
   it("reports every gap at once", () => {
     expect(checkVersionScript({ version: "prettier --write ." })).toHaveLength(3);
-  });
-});
-
-describe("freshVersionTestGaps", () => {
-  it("finds no gap in a test that pins VERSION through a fresh import", () => {
-    expect(freshVersionTestGaps("test/version.test.ts", GOOD_TEST)).toEqual([]);
-  });
-
-  it("accepts a source path with no extension, and the declaring module itself", () => {
-    const bare = GOOD_TEST.replace("../src/index.js", "../src");
-    expect(freshVersionTestGaps("test/version.test.ts", bare)).toEqual([]);
-    const nested = GOOD_TEST.replace("../src/index.js", "../../src/version.js");
-    const declaring = ["src/version.ts"];
-    expect(freshVersionTestGaps("test/unit/version.test.ts", nested, undefined, declaring)).toEqual(
-      [],
-    );
-  });
-
-  it("names a static import of the source (the hl7, fhir, dicom and mllp defect)", () => {
-    const text = `import { VERSION } from "../src/index.js";\n${GOOD_TEST}`;
-    expect(freshVersionTestGaps("test/sanity.test.ts", text)).toEqual([
-      expect.stringContaining("imports the source statically"),
-    ]);
-    const sideEffect = `import "../src/setup.js";\n${GOOD_TEST}`;
-    expect(freshVersionTestGaps("test/a.test.ts", sideEffect)).toHaveLength(1);
-    const reexport = `export { VERSION } from "../src/index.js";\n${GOOD_TEST}`;
-    expect(freshVersionTestGaps("test/a.test.ts", reexport)).toHaveLength(1);
-    const multiline = `import {\n  VERSION,\n} from "../src/index.js";\n${GOOD_TEST}`;
-    expect(freshVersionTestGaps("test/a.test.ts", multiline)).toHaveLength(1);
-  });
-
-  it("allows a type-only import of the source and a static import of a package", () => {
-    const text = `import type { Parsed } from "../src/index.js";\nimport { x } from "fast-check";\n${GOOD_TEST}`;
-    expect(freshVersionTestGaps("test/a.test.ts", text)).toEqual([]);
-  });
-
-  it("does not read an import written in a comment", () => {
-    const text = `/*\n * import { VERSION } from "../src/index.js";\n */\n${GOOD_TEST}`;
-    expect(freshVersionTestGaps("test/a.test.ts", text)).toEqual([]);
-  });
-
-  it("names a test with no module-cache reset, or one that resets only after the import", () => {
-    const none = GOOD_TEST.replace("    vi.resetModules();\n", "");
-    expect(freshVersionTestGaps("test/a.test.ts", none)).toEqual([
-      expect.stringContaining("resetModules"),
-    ]);
-    const late = none.replace("    expect(VERSION)", "    vi.resetModules();\n    expect(VERSION)");
-    expect(freshVersionTestGaps("test/a.test.ts", late)).toEqual([
-      expect.stringContaining("resetModules"),
-    ]);
-  });
-
-  it("names a test with no dynamic import of the source", () => {
-    const outside = GOOD_TEST.replace("../src/index.js", "../dist/index.js");
-    expect(freshVersionTestGaps("test/a.test.ts", outside)).toEqual([
-      expect.stringContaining("cannot classify"),
-      expect.stringContaining("dynamic import"),
-    ]);
-    const bare = GOOD_TEST.replace("../src/index.js", "@cosyte/demo");
-    expect(freshVersionTestGaps("test/a.test.ts", bare)).toEqual([
-      expect.stringContaining("dynamic import"),
-    ]);
-    const prefixed = GOOD_TEST.replace("../src/index.js", "../srcx/index.js");
-    expect(freshVersionTestGaps("test/a.test.ts", prefixed)).toContainEqual(
-      expect.stringContaining("no dynamic import of the source"),
-    );
-  });
-
-  it("names a dynamic import at the top of the file, outside any test body", () => {
-    // Evaluated while the file is collected, before any test runs: the static import's defect.
-    const text = [
-      'import pkg from "../package.json";',
-      "vi.resetModules();",
-      'const { VERSION } = await import("../src/index.js");',
-      'it("x", () => expect(VERSION).toBe(pkg.version));',
-    ].join("\n");
-    const gaps = freshVersionTestGaps("test/v.test.ts", text);
-    expect(gaps).toContainEqual(expect.stringContaining("outside a test body"));
-    expect(gaps).toContainEqual(expect.stringContaining("no dynamic import of the source inside"));
-  });
-
-  it("names an import in a describe callback or a hook, which is not a test body", () => {
-    const inDescribe = GOOD_TEST.replace(
-      'describe("VERSION", () => {',
-      'describe("VERSION", async () => {\n  await import("../src/index.js");',
-    );
-    expect(freshVersionTestGaps("test/a.test.ts", inDescribe)).toEqual([
-      expect.stringContaining("outside a test body"),
-    ]);
-    const inHook = GOOD_TEST.replace(
-      'describe("VERSION", () => {',
-      'describe("VERSION", () => {\n  beforeAll(() => import("../src/index.js"));',
-    );
-    expect(freshVersionTestGaps("test/a.test.ts", inHook)).toEqual([
-      expect.stringContaining("outside a test body"),
-    ]);
-  });
-
-  it("is not satisfied by a comment or a string", () => {
-    const comment = [
-      '// VERSION package.json vi.resetModules() await import("../src/index.js")',
-      'it("x", () => {});',
-    ].join("\n");
-    const fromComment = freshVersionTestGaps("test/v.test.ts", comment);
-    expect(fromComment).toContainEqual(expect.stringContaining("no dynamic import"));
-    expect(fromComment).toContainEqual(expect.stringContaining("package.json"));
-    const strings = GOOD_TEST.replace(
-      '    vi.resetModules();\n    const { VERSION } = await import("../src/index.js");',
-      "    const s = 'vi.resetModules(); await import(\"../src/index.js\")';\n    const VERSION = s;",
-    );
-    expect(freshVersionTestGaps("test/a.test.ts", strings)).toEqual([
-      expect.stringContaining("no dynamic import"),
-    ]);
-  });
-
-  it("names a reset and an import that sit in two different test bodies", () => {
-    const split = GOOD_TEST.replace(
-      "    vi.resetModules();\n",
-      '    expect(1).toBe(1);\n  });\n  it("other", async () => {\n    vi.resetModules();\n',
-    ).replace(
-      '  it("equals package.json", async () => {',
-      '  it("equals package.json", async () => {\n    await import("../src/index.js");',
-    );
-    // The first body imports without a reset: refused, though the second resets, imports and reads
-    // VERSION, since every load of the source must be fresh.
-    expect(freshVersionTestGaps("test/a.test.ts", split)).toEqual([
-      expect.stringContaining("resetModules"),
-    ]);
-    const apart = [
-      'import pkg from "../package.json";',
-      'it("a", () => { vi.resetModules(); });',
-      'it("b", async () => { const { VERSION } = await import("../src/index.js"); expect(VERSION).toBe(pkg.version); });',
-    ].join("\n");
-    expect(freshVersionTestGaps("test/a.test.ts", apart)).toEqual([
-      expect.stringContaining("resetModules"),
-    ]);
-  });
-
-  it("names a VERSION read only outside the body that imports the source", () => {
-    const text = [
-      'import pkg from "../package.json";',
-      "const VERSION = pkg.version;",
-      'it("a", async () => { vi.resetModules(); await import("../src/index.js"); });',
-    ].join("\n");
-    expect(freshVersionTestGaps("test/a.test.ts", text)).toEqual([
-      expect.stringContaining("never reads VERSION"),
-    ]);
-    const elsewhere = text
-      .replace("const VERSION = pkg.version;\n", "")
-      .concat('\nit("b", () => { const VERSION = pkg.version; });');
-    expect(freshVersionTestGaps("test/a.test.ts", elsewhere)).toEqual([
-      expect.stringContaining("never reads VERSION in the test body that imports the source"),
-    ]);
-  });
-
-  it("names a require of the source at the top of the file, and a static import of its folder", () => {
-    const required = `const { VERSION } = require("../src/index.js");\n${GOOD_TEST}`;
-    expect(freshVersionTestGaps("test/a.test.ts", required)).toEqual([
-      expect.stringContaining("cannot classify (line 1)"),
-    ]);
-    const folder = `import { VERSION } from "../src";\n${GOOD_TEST}`;
-    expect(freshVersionTestGaps("test/a.test.ts", folder)).toEqual([
-      expect.stringContaining("imports the source statically"),
-    ]);
-    const equals = `import src = require("../src/index.js");\n${GOOD_TEST}`;
-    expect(freshVersionTestGaps("test/a.test.ts", equals)).toEqual([
-      expect.stringContaining("imports the source statically"),
-    ]);
-    const two = `const VERSION = 1;\nfunction h() { return import("../src/b.js"); }\nawait import("../src/a.js");\n${GOOD_TEST}`;
-    expect(freshVersionTestGaps("test/a.test.ts", two)).toEqual([
-      expect.stringContaining("outside a test body (line 2, line 3)"),
-    ]);
-    const alias = `namespace N { export const x = 1; }\nimport X = N.x;\n${GOOD_TEST}`;
-    expect(freshVersionTestGaps("test/a.test.ts", alias)).toEqual([]);
-  });
-
-  it("accepts the test written with test(), it.each and a template-literal specifier, in JavaScript", () => {
-    const viaTest = GOOD_TEST.replace('  it("equals', '  test("equals');
-    expect(freshVersionTestGaps("test/a.test.ts", viaTest)).toEqual([]);
-    const each = GOOD_TEST.replace(
-      '  it("equals package.json", async () => {',
-      '  it.each([1])("equals %s", async () => {',
-    );
-    expect(freshVersionTestGaps("test/a.test.ts", each)).toEqual([]);
-    const template = GOOD_TEST.replace('import("../src/index.js")', "import(`../src/index.js`)");
-    expect(freshVersionTestGaps("test/a.test.js", template)).toEqual([]);
-    const property = GOOD_TEST.replace(
-      '    const { VERSION } = await import("../src/index.js");\n    expect(VERSION)',
-      '    const mod = await import("../src/index.js");\n    expect(mod.VERSION)',
-    );
-    expect(freshVersionTestGaps("test/a.test.mjs", property)).toEqual([]);
-  });
-
-  it("does not count a skipped test, which never runs", () => {
-    const skipped = GOOD_TEST.replace('  it("equals', '  it.skip("equals');
-    expect(freshVersionTestGaps("test/a.test.ts", skipped)).toContainEqual(
-      expect.stringContaining("outside a test body"),
-    );
-    const todo = GOOD_TEST.replace('  it("equals', '  test.todo("equals');
-    expect(freshVersionTestGaps("test/a.test.ts", todo)).toContainEqual(
-      expect.stringContaining("outside a test body"),
-    );
-  });
-
-  it("accepts a named helper that only test bodies call, the shape hl7 and fhir use", () => {
-    const helper = [
-      'import { readFileSync } from "node:fs";',
-      'import { expect, it, vi } from "vitest";',
-      "async function freshVersion(): Promise<string> {",
-      "  vi.resetModules();",
-      '  const { VERSION } = await import("../src/index.js");',
-      "  return VERSION;",
-      "}",
-      'const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));',
-      'it("pins VERSION", async () => {',
-      "  expect(await freshVersion()).toBe(pkg.version);",
-      "});",
-    ].join("\n");
-    expect(freshVersionTestGaps("test/sanity.test.ts", helper)).toEqual([]);
-    const arrow = helper
-      .replace(
-        "async function freshVersion(): Promise<string> {",
-        "const freshVersion = async (): Promise<string> => {",
-      )
-      .replace("  return VERSION;\n}", "  return VERSION;\n};");
-    expect(freshVersionTestGaps("test/sanity.test.ts", arrow)).toEqual([]);
-    const throughTwo = helper
-      .replace("async function freshVersion()", "async function inner()")
-      .replace("const pkg", "async function freshVersion() { return inner(); }\nconst pkg");
-    expect(freshVersionTestGaps("test/sanity.test.ts", throughTwo)).toEqual([]);
-    // Passed by name, even to a test, it is a reference the check does not follow.
-    const passed = helper.replace(
-      'it("pins VERSION", async () => {\n  expect(await freshVersion()).toBe(pkg.version);\n});',
-      'it("pins VERSION", freshVersion);\npkg;',
-    );
-    expect(freshVersionTestGaps("test/sanity.test.ts", passed)).toContainEqual(
-      expect.stringContaining("refers to freshVersion"),
-    );
-  });
-
-  it("names a helper that runs outside a test body, or never runs", () => {
-    const helper = [
-      'import pkg from "../package.json";',
-      "async function freshVersion() {",
-      "  vi.resetModules();",
-      '  const { VERSION } = await import("../src/index.js");',
-      "  return VERSION;",
-      "}",
-    ].join("\n");
-    const topLevel = `${helper}\nconst v = await freshVersion();\nit("x", () => expect(v).toBe(pkg.version));`;
-    expect(freshVersionTestGaps("test/a.test.ts", topLevel)).toContainEqual(
-      expect.stringContaining("outside a test body (line 4)"),
-    );
-    const inHook = `${helper}\nbeforeAll(async () => { await freshVersion(); });\nit("x", async () => expect(await freshVersion()).toBe(pkg.version));`;
-    expect(freshVersionTestGaps("test/a.test.ts", inHook)).toContainEqual(
-      expect.stringContaining("outside a test body"),
-    );
-    const never = `${helper}\nit("x", () => expect(1).toBe(pkg.version));`;
-    expect(freshVersionTestGaps("test/a.test.ts", never)).toContainEqual(
-      expect.stringContaining("outside a test body"),
-    );
-    const cycle = helper
-      .replace("  return VERSION;", "  return VERSION + (await again());")
-      .concat("\nasync function again() { return freshVersion(); }");
-    expect(freshVersionTestGaps("test/a.test.ts", cycle)).toContainEqual(
-      expect.stringContaining("outside a test body"),
-    );
-  });
-
-  it("refuses an import whose specifier is not a literal, which it cannot classify", () => {
-    const computed = GOOD_TEST.replace('import("../src/index.js")', "import(`../src/${name}.js`)");
-    expect(freshVersionTestGaps("test/a.test.ts", computed)).toEqual([
-      expect.stringContaining("cannot classify"),
-      expect.stringContaining("no dynamic import"),
-    ]);
-  });
-
-  it("names a test that never reads VERSION, or never reads package.json", () => {
-    const noVersion = GOOD_TEST.replaceAll("VERSION", "NAME");
-    expect(freshVersionTestGaps("test/a.test.ts", noVersion)).toEqual([
-      expect.stringContaining("VERSION"),
-    ]);
-    const noManifest = GOOD_TEST.replaceAll("package.json", "manifest.json");
-    expect(freshVersionTestGaps("test/a.test.ts", noManifest)).toEqual([
-      expect.stringContaining("package.json"),
-    ]);
-  });
-});
-
-describe("freshVersionTestGaps refuses what it cannot classify", () => {
-  const PKG =
-    'import { readFileSync } from "node:fs";\n' +
-    'import { expect, it, vi } from "vitest";\n' +
-    'const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));\n';
-  const FRESH =
-    'it("p", async () => { vi.resetModules(); const { VERSION } = await import("../src/index.js"); expect(VERSION).toBe(pkg.version); });';
-  const HELPER =
-    'async function freshVersion() { vi.resetModules(); const { VERSION } = await import("../src/index.js"); return VERSION; }\n';
-  const CALLED = 'it("p", async () => { expect(await freshVersion()).toBe(pkg.version); });';
-
-  /** The gaps of a file at test/version.test.ts. */
-  const gaps = (text: string): string[] => freshVersionTestGaps("test/version.test.ts", text);
-
-  it("accepts the plain shape and the helper shape, the two our libraries use", () => {
-    expect(gaps(PKG + FRESH)).toEqual([]);
-    expect(gaps(PKG + HELPER + CALLED)).toEqual([]);
-    const arrow =
-      'const freshVersion = async () => { vi.resetModules(); return (await import("../src/index.js")).VERSION; };\n';
-    expect(gaps(PKG + arrow + CALLED)).toEqual([]);
-  });
-
-  it("accepts a pass-through mock that still evaluates the real module, the shape mllp uses", () => {
-    const passThrough = [
-      PKG,
-      'afterEach(() => { vi.doUnmock("../src/framing/index.js"); vi.resetModules(); });',
-      'it("p", async () => {',
-      "  vi.resetModules();",
-      "  let n = 0;",
-      '  vi.doMock("../src/framing/index.js", async (importOriginal) => {',
-      "    n += 1;",
-      "    return await importOriginal();",
-      "  });",
-      '  const root = await import("../src/index.js");',
-      "  expect(n).toBe(1);",
-      "  expect(root.VERSION).toBe(pkg.version);",
-      "});",
-    ].join("\n");
-    expect(gaps(passThrough)).toEqual([]);
-    const expression = passThrough.replace(
-      /async \(importOriginal\) => \{[^}]*\}/,
-      "(importOriginal) => importOriginal()",
-    );
-    expect(gaps(expression)).toEqual([]);
-  });
-
-  it("refuses a mock of the source, hoisted or not, as its own finding", () => {
-    const mocked = 'vi.mock("../src/index.js", async () => ({ VERSION: pkg.version }));\n';
-    expect(gaps(PKG + mocked + FRESH)).toEqual([expect.stringContaining("mocks or stubs")]);
-    const doMock = FRESH.replace(
-      "vi.resetModules();",
-      'vi.resetModules(); vi.doMock("../src/index.js", () => ({ VERSION: pkg.version }));',
-    );
-    expect(gaps(PKG + doMock)).toEqual([expect.stringContaining("mocks or stubs")]);
-  });
-
-  it("refuses every other mock, stub or use of the mocker it does not recognise", () => {
-    const shapes = [
-      'vi.mock("../src/index.js");',
-      'vi.mock("./other.js", () => ({}));',
-      'const m = vi.hoisted(() => ({ VERSION: "1" }));',
-      'vi.stubGlobal("import", () => ({}));',
-      'jest.mock("../src/index.js");',
-      'vitest.doMock("../src/index.js", () => ({}));',
-      'const v = vi; v.mock("../src/index.js", () => ({}));',
-      'vi["mock"]("../src/index.js", () => ({}));',
-      "const doIt = vi.doMock;",
-      'globalThis.vi.mock("../src/index.js", () => ({}));',
-      'await vi.importActual("../src/index.js");',
-      'vi.doMock("../src/index.js", (orig) => { const o = orig; return o(); });',
-      'vi.doMock("../src/index.js", (orig) => orig().then(() => ({ VERSION: "1" })));',
-      'vi.doMock("../src/index.js", async (orig) => { if (pkg) return { VERSION: "1" }; return orig(); });',
-      'vi.doMock("../src/index.js", async (orig) => { await orig(); });',
-      'vi.doMock("../src/index.js", (orig) => orig(), { spy: true });',
-      'vi.doMock("../src/index.js", factory);',
-      'vi.doMock("../src/index.js", (...orig) => orig[0]());',
-      'vi.doMock("../src/index.js", (orig) => ({ VERSION: "1" }));',
-      'vi.doMock("../src/index.js", (orig) => { orig = () => ({}); return orig(); });',
-      'vi.doMock("../src/index.js", (orig) => { return; });',
-    ];
-    for (const shape of shapes) {
-      expect(gaps(`${PKG}${shape}\n${FRESH}`), shape).toContainEqual(
-        expect.stringContaining("mocks or stubs"),
-      );
-    }
-    const renamed = `import { vi as v } from "vitest";\n${PKG.replace("expect, it, vi", "expect, it")}${FRESH}`;
-    expect(gaps(renamed)).toContainEqual(expect.stringContaining("mocks or stubs"));
-    const namespace = `import * as V from "vitest";\n${PKG}${FRESH}`;
-    expect(gaps(namespace)).toContainEqual(expect.stringContaining("mocks or stubs"));
-  });
-
-  it("refuses a helper referred to other than by a direct call from a test body", () => {
-    const shapes = {
-      hookByRef: "beforeAll(freshVersion);",
-      topCallDotCall: "const v = await freshVersion.call(null);",
-      apply: "const v = await freshVersion.apply(null, []);",
-      aliasTopCall: "const alias = freshVersion; const v = await alias();",
-      passedToTest: 'it("q", freshVersion);',
-      passedToOther: "setTimeout(freshVersion, 0);",
-      inArray: "const all = [freshVersion];",
-      shorthand: "const o = { freshVersion };",
-      exported: "export { freshVersion };",
-      newed: "new freshVersion();",
-      reassigned: "freshVersion = async () => pkg.version;",
-      topLevel: "await freshVersion();",
-      inDescribe: 'describe("d", () => { freshVersion(); });',
-    };
-    for (const [name, shape] of Object.entries(shapes)) {
-      expect(gaps(`${PKG}${HELPER}${shape}\n${CALLED}`), name).toContainEqual(
-        expect.stringContaining("refers to freshVersion"),
-      );
-    }
-    const exportedDecl = `${PKG}export ${HELPER}${CALLED}`;
-    expect(gaps(exportedDecl)).toContainEqual(expect.stringContaining("refers to freshVersion"));
-  });
-
-  it("refuses two functions of one name, and a name shadowed in an inner scope", () => {
-    const twoHelpers = `${PKG}function a() { function freshVersion() { return 1; } return freshVersion(); }\n${HELPER}const x = a();\n${CALLED}`;
-    expect(gaps(twoHelpers)).toContainEqual(expect.stringContaining("refers to freshVersion"));
-    const shadowed = `${PKG}${HELPER}function outer() { const freshVersion = () => 1; return freshVersion(); }\nouter();\n${CALLED}`;
-    expect(gaps(shadowed)).toContainEqual(expect.stringContaining("refers to freshVersion"));
-  });
-
-  it("refuses a method helper, which is not a named function, and a load through a variable", () => {
-    const method = `${PKG}const h = { async fresh() { vi.resetModules(); return (await import("../src/index.js")).VERSION; } };\nconst v = await h.fresh();\nit("p", async () => { expect(await h.fresh()).toBe(pkg.version); });`;
-    expect(gaps(method)).toContainEqual(expect.stringContaining("outside a test body"));
-    const viaVar = `${PKG}const load = () => import("../src/index.js");\nconst top = load();\n${FRESH}`;
-    expect(gaps(viaVar)).toContainEqual(expect.stringContaining("outside a test body"));
-  });
-
-  it("refuses a static import of a local file, which may load the source", () => {
-    const viaHelperFile = `${PKG}import { VERSION as V } from "./helpers.js";\n${FRESH}`;
-    expect(gaps(viaHelperFile)).toEqual([expect.stringContaining("cannot classify")]);
-    const reexport = `${PKG}export * from "./helpers.js";\n${FRESH}`;
-    expect(gaps(reexport)).toEqual([expect.stringContaining("cannot classify")]);
-    const throughSrc = `${PKG}import { x } from "../src/util.js";\n${FRESH}`;
-    expect(gaps(throughSrc)).toEqual([expect.stringContaining("imports the source statically")]);
-  });
-
-  it("refuses every load it cannot classify", () => {
-    const shapes = [
-      'const h = await import("./helpers.js");',
-      "const h = await import(name);",
-      'const h = require("./helpers.js");',
-      "const h = require(name);",
-      'const r = require; r("../src/index.js");',
-      'const r = createRequire(import.meta.url); r("../src/index.js");',
-      'module.require("../src/index.js");',
-      "eval('import(\"../src/index.js\")');",
-      "new Function('return import(\"../src/index.js\")')();",
-      'const all = import.meta.glob("../src/*.ts", { eager: true });',
-      'import x from "#src/index.js";',
-      'import x from "/abs/src/index.js";',
-      'import x from "src/index.js";',
-      'import x from "@/index.js";',
-    ];
-    for (const shape of shapes) {
-      expect(gaps(`${PKG}${shape}\n${FRESH}`), shape).toContainEqual(
-        expect.stringContaining("cannot classify"),
-      );
-    }
-    const requireInTest = FRESH.replace(
-      'await import("../src/index.js")',
-      'require("../src/index.js")',
-    );
-    expect(gaps(PKG + requireInTest)).toContainEqual(expect.stringContaining("cannot classify"));
-  });
-
-  it("accepts packages, built-in modules and JSON, which do not load the source", () => {
-    const fine = [
-      'import { join } from "node:path";',
-      'import pkg2 from "../package.json" with { type: "json" };',
-      'import * as fc from "fast-check";',
-      'import { x } from "@cosyte/test-utils/fixtures";',
-      'const { join: j } = await import("node:path");',
-      'const os = require("node:os");',
-      'import type { Parsed } from "./helpers.js";',
-      "const here = import.meta.dirname;",
-    ];
-    for (const shape of fine) expect(gaps(`${PKG}${shape}\n${FRESH}`), shape).toEqual([]);
-  });
-
-  it("refuses an import afresh of another module under src, not the one that declares VERSION", () => {
-    const other = FRESH.replace("../src/index.js", "../src/other.js");
-    expect(gaps(PKG + other)).toEqual([expect.stringContaining("declares VERSION")]);
-    expect(
-      freshVersionTestGaps("test/version.test.ts", PKG + other, undefined, ["src/other.ts"]),
-    ).toEqual([]);
-  });
-
-  it("does not count a test that never runs: a skipped suite, an only, a skipIf or a fails", () => {
-    const shapes = [
-      `describe.skip("d", () => { ${FRESH} });`,
-      `describe.todo("d", () => { ${FRESH} });`,
-      `describe.skipIf(true)("d", () => { ${FRESH} });`,
-      FRESH.replace('it("p"', 'it.skipIf(true)("p"'),
-      FRESH.replace('it("p"', 'it.fails("p"'),
-      FRESH.replace('it("p"', 'it.only("p"'),
-    ];
-    for (const shape of shapes) {
-      expect(gaps(PKG + shape), shape).toContainEqual(
-        expect.stringContaining("outside a test body"),
-      );
-    }
-    const each = `describe.each([1])("d %s", () => { ${FRESH} });`;
-    expect(gaps(PKG + each)).toEqual([]);
-  });
-
-  it("refuses an import of the source in a test body before it resets the cache", () => {
-    const twice = FRESH.replace(
-      "vi.resetModules();",
-      'await import("../src/index.js"); vi.resetModules();',
-    );
-    expect(gaps(PKG + twice)).toEqual([expect.stringContaining("resetModules")]);
-  });
-});
-
-describe("loadTypeScript", () => {
-  let root: string;
-
-  beforeAll(() => {
-    root = mkdtempSync(join(tmpdir(), "release-pr-ts-"));
-  });
-
-  afterAll(() => {
-    rmSync(root, { recursive: true, force: true });
-  });
-
-  /** A folder with these files. */
-  function tree(label: string, files: Record<string, string>): string {
-    const dir = join(root, label);
-    for (const [path, text] of Object.entries(files)) {
-      mkdirSync(dirname(join(dir, path)), { recursive: true });
-      writeFileSync(join(dir, path), text);
-    }
-    mkdirSync(dir, { recursive: true });
-    return dir;
-  }
-
-  it("takes the package's own typescript first", () => {
-    const dir = tree("own", {
-      "package.json": "{}",
-      "node_modules/typescript/package.json": '{"name":"typescript","main":"index.js"}',
-      "node_modules/typescript/index.js": 'module.exports = { from: "own" };',
-    });
-    expect(loadTypeScript(dir, [])).toEqual({ from: "own" });
-  });
-
-  it("then the one @cosyte/process carries, which a scaffold has without listing typescript", () => {
-    const dir = tree("process", {
-      "package.json": "{}",
-      "node_modules/@cosyte/process/package.json":
-        '{"name":"@cosyte/process","exports":{"./package.json":"./package.json"}}',
-      "node_modules/@cosyte/process/node_modules/typescript/package.json":
-        '{"name":"typescript","main":"index.js"}',
-      "node_modules/@cosyte/process/node_modules/typescript/index.js":
-        'module.exports = { from: "process" };',
-    });
-    expect(loadTypeScript(dir, [])).toEqual({ from: "process" });
-  });
-
-  it("then this package's own surroundings, and throws naming the fix when none has it", () => {
-    const dir = tree("none", { "package.json": "{}" });
-    expect(loadTypeScript(dir).version).toMatch(/^\d+\./);
-    expect(() => loadTypeScript(dir, [])).toThrow(/typescript/);
-  });
-});
-
-describe("version-test", () => {
-  it("passes when one test file qualifies, whatever the others do", () => {
-    const stale = `import { VERSION } from "../src/index.js";\nVERSION;\n`;
-    expect(
-      checkVersionTests([
-        { path: "test/sanity.test.ts", text: stale },
-        { path: "test/version.test.ts", text: GOOD_TEST },
-      ]),
-    ).toEqual([]);
-  });
-
-  it("refuses a repository where none does, naming each test that reads VERSION and its gap", () => {
-    const stale = `import { VERSION } from "../src/index.js";\nVERSION;\n`;
-    const found = checkVersionTests([
-      { path: "test/sanity.test.ts", text: stale },
-      { path: "test/other.test.ts", text: "it('x', () => {});\n" },
-    ]);
-    expect(found).toHaveLength(1);
-    expect(found[0]?.rule).toBe("version-test");
-    expect(found[0]?.file).toBe("test/");
-    expect(found[0]?.message).toContain("test/sanity.test.ts");
-    expect(found[0]?.message).toContain("imports the source statically");
-    expect(found[0]?.message).not.toContain("test/other.test.ts");
-  });
-
-  it("refuses a repository with no tests at all", () => {
-    const found = checkVersionTests([]);
-    expect(found).toHaveLength(1);
-    expect(found[0]?.message).toContain("No test file reads VERSION");
   });
 });
 
@@ -928,21 +321,21 @@ describe("changesets", () => {
 });
 
 describe("checkReleasePr", () => {
-  it("applies the version rules only to a package that exports VERSION", () => {
+  it("applies the version rule only to a package that exports VERSION", () => {
     const changesets = [{ path: ".changeset/a.md", text: changeset(sentenceOf(401)) }];
-    const without = checkReleasePr({ scripts: {}, declaresVersion: false, tests: [], changesets });
+    const without = checkReleasePr({ scripts: {}, declaresVersion: false, changesets });
     expect(without.map((f) => f.rule)).toEqual(["changeset-bullet"]);
-    const withVersion = checkReleasePr({
-      scripts: {},
+    const withVersion = checkReleasePr({ scripts: {}, declaresVersion: true, changesets });
+    expect(withVersion.map((f) => f.rule)).toEqual(["version-script", "changeset-bullet"]);
+  });
+
+  it("reads no test file: the release pull request's mutation job proves the VERSION test", () => {
+    const found = checkReleasePr({
+      scripts: { version: GOOD_SCRIPT },
       declaresVersion: true,
-      tests: [],
-      changesets,
+      changesets: [],
     });
-    expect(withVersion.map((f) => f.rule)).toEqual([
-      "version-script",
-      "version-test",
-      "changeset-bullet",
-    ]);
+    expect(found).toEqual([]);
   });
 });
 
@@ -971,10 +364,6 @@ describe("the command line", () => {
   const GOOD: Record<string, string> = {
     "package.json": JSON.stringify({ name: "@cosyte/demo", scripts: { version: GOOD_SCRIPT } }),
     "src/index.ts": 'export const VERSION: string = "0.0.0";\n',
-    "src/index.test.ts": "it('x', () => {});\n",
-    "test/version.test.ts": GOOD_TEST,
-    "test/unit/deep.spec.ts": "export {};\n",
-    "test/fixture.txt": "VERSION\n",
     ".changeset/README.md": "Not a changeset, and has no front matter.\n",
     ".changeset/config.json": "{}\n",
     ".changeset/good.md": changeset("A short opening."),
@@ -994,34 +383,31 @@ describe("the command line", () => {
     expect(err.text()).toBe("");
   });
 
-  it("reads tests beside the source and under test/, but not fixtures, and skips node_modules", () => {
-    const dir = repo("read", {
-      ...GOOD,
-      "test/node_modules/x/version.test.ts": GOOD_TEST,
-      "src/version.ts": 'export const VERSION = "1";\n',
-      "src/types.d.ts": "export const VERSION: string;\n",
-    });
-    const input = readReleasePrInput(dir);
-    expect(input.tests.map((t) => t.path).sort()).toEqual([
-      "src/index.test.ts",
-      "test/unit/deep.spec.ts",
-      "test/version.test.ts",
-    ]);
+  it("finds VERSION in any source file, but not in a test, a declaration file or node_modules", () => {
+    const input = readReleasePrInput(
+      repo("read", {
+        ...GOOD,
+        "src/index.ts": "export {};\n",
+        "src/deep/version.ts": 'export const VERSION = "1";\n',
+      }),
+    );
     expect(input.changesets.map((c) => c.path)).toEqual([".changeset/good.md"]);
     expect(input.declaresVersion).toBe(true);
-    expect(input.versionModules).toEqual(["src/index.ts", "src/version.ts"]);
+    const none = repo("read-none", {
+      ...GOOD,
+      "src/index.ts": "export {};\n",
+      "src/index.test.ts": 'export const VERSION = "1";\n',
+      "src/a.spec.mts": 'export const VERSION = "1";\n',
+      "src/types.d.ts": "export const VERSION: string;\n",
+      "src/node_modules/x/index.ts": 'export const VERSION = "1";\n',
+    });
+    expect(readReleasePrInput(none).declaresVersion).toBe(false);
   });
 
   it("reads a package with no src, test or .changeset folder as one with nothing to check", () => {
     const dir = repo("bare", { "package.json": JSON.stringify({ name: "x" }) });
     const input = readReleasePrInput(dir);
-    expect(input).toEqual({
-      scripts: {},
-      declaresVersion: false,
-      versionModules: [],
-      tests: [],
-      changesets: [],
-    });
+    expect(input).toEqual({ scripts: {}, declaresVersion: false, changesets: [] });
     const out = sink();
     expect(
       runReleasePrCheck({ argv: ["--dir", dir], stdout: out.stream, stderr: sink().stream }),
@@ -1030,20 +416,16 @@ describe("the command line", () => {
   });
 
   it("does not follow a symbolic link out of the tree", () => {
-    const outside = repo("outside", { "version.test.ts": GOOD_TEST });
-    const dir = repo("linked", {
-      "package.json": JSON.stringify({ name: "x", scripts: { version: GOOD_SCRIPT } }),
-      "src/index.ts": 'export const VERSION = "1";\n',
-    });
-    symlinkSync(outside, join(dir, "test"), "dir");
-    expect(readReleasePrInput(dir).tests).toEqual([]);
+    const outside = repo("outside", { "index.ts": 'export const VERSION = "1";\n' });
+    const dir = repo("linked", { "package.json": JSON.stringify({ name: "x", scripts: {} }) });
+    symlinkSync(outside, join(dir, "src"), "dir");
+    expect(readReleasePrInput(dir).declaresVersion).toBe(false);
   });
 
   it("exits 1 on each finding, naming the file and the rule on stderr", () => {
     const dir = repo("bad", {
       ...GOOD,
       "package.json": JSON.stringify({ name: "@cosyte/demo", scripts: {} }),
-      "test/version.test.ts": `import { VERSION } from "../src/index.js";\nVERSION;\n`,
       ".changeset/long.md": changeset(sentenceOf(450)),
     });
     const out = sink();
@@ -1055,9 +437,8 @@ describe("the command line", () => {
     });
     expect(code).toBe(1);
     expect(err.text()).toContain("package.json [version-script]");
-    expect(err.text()).toContain("test/ [version-test]");
     expect(err.text()).toContain(".changeset/long.md [changeset-bullet]");
-    expect(err.text()).toContain("3 finding(s)");
+    expect(err.text()).toContain("2 finding(s)");
     expect(out.text()).toBe("");
   });
 

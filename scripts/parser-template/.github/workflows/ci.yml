@@ -31,12 +31,11 @@ jobs:
       node-versions: '["22", "24", "26"]'
       run-phi-scan: true
 
-  # The release pull request check, `cosyte-release-pr` from @cosyte/script-utils. Three defects
+  # The release pull request check, `cosyte-release-pr` from @cosyte/script-utils. Two defects
   # reached our libraries' Version Packages pull requests after the change behind each had merged
-  # green: no test the mutation run could link to the VERSION string, a version script that did not
-  # regenerate the API reference that prints VERSION, and a changeset whose opening sentence the
-  # release refused as a bullet over 400 characters, after the merge, when the fix is a revert. This
-  # job fails each of them on the pull request that brings it in.
+  # green: a version script that did not regenerate the API reference that prints VERSION, and a
+  # changeset whose opening sentence the release refused as a bullet over 400 characters, after the
+  # merge, when the fix is a revert. This job fails each of them on the pull request that brings it in.
   release-pr:
     runs-on: ubuntu-latest
     timeout-minutes: 10

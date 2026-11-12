@@ -316,7 +316,6 @@ describe("cosyte-release-pr reaches its check", () => {
     expect(r.code, r.out).toBe(1);
     expect(r.out).toContain("package.json [version-script]");
     expect(r.out).toContain("cosyte-docs-reference");
-    expect(r.out).toContain("test/ [version-test]");
     expect(run("cosyte-release-pr", [], fixture("no-package", { "a.txt": "a\n" })).code).toBe(2);
     expect(run("script-utils", ["release-pr", "--dir", dir], root).code).toBe(1);
   });

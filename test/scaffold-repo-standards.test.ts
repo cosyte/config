@@ -362,16 +362,24 @@ describe("the install hardening", () => {
 });
 
 describe("the release pull request", () => {
-  // A library's Version Packages pull request went red three ways after the change behind each had
-  // merged green: a VERSION mutant no test was linked to, an API reference the version script did
-  // not regenerate, and a changeset bullet the release refused. A scaffold is born with the fixes,
-  // and graded by the same check its CI runs, `cosyte-release-pr`.
+  // A library's Version Packages pull request went red after the change behind it had merged green:
+  // a VERSION mutant no test was linked to, an API reference the version script did not regenerate,
+  // and a changeset bullet the release refused. A scaffold is born with the fixes, and graded by the
+  // same check its CI runs, `cosyte-release-pr`, on the last two; the release pull request's mutation
+  // job proves the first.
 
   it("passes the release pull request check as it is emitted", () => {
     const input = readReleasePrInput(repo);
     expect(input.declaresVersion, "the scaffold must be graded on the version rules").toBe(true);
-    expect(input.tests.map((t) => t.path)).toContain("test/version.test.ts");
     expect(checkReleasePr(input)).toEqual([]);
+  });
+
+  it("carries a VERSION test that imports the source afresh inside its test body", () => {
+    const text = read("test/version.test.ts");
+    expect(text).not.toMatch(/^import [^\n]*from "\.\.\/src/m);
+    expect(text).toContain(
+      'vi.resetModules();\n    const { VERSION } = await import("../src/index.js");',
+    );
   });
 
   it("declares VERSION in the one form the version script's sync rewrites", () => {
@@ -388,15 +396,10 @@ describe("the release pull request", () => {
     expect(ci).toContain("- run: pnpm check:release-pr");
   });
 
-  it("NEGATIVE CONTROL: the same tree without its fresh-import test, or its reference step, fails", () => {
-    // Without this, the first case passes for a check that finds nothing. Each piece is taken out
-    // of the emitted input in memory, and nothing else changes.
+  it("NEGATIVE CONTROL: the same tree without its reference step fails", () => {
+    // Without this, the first case passes for a check that finds nothing. The step is taken out of
+    // the emitted input in memory, and nothing else changes.
     const input = readReleasePrInput(repo);
-    const noTest = {
-      ...input,
-      tests: input.tests.filter((t) => t.path !== "test/version.test.ts"),
-    };
-    expect(checkReleasePr(noTest).map((f) => f.rule)).toEqual(["version-test"]);
     const scripts = {
       ...input.scripts,
       version: "changeset version && cosyte-process sync-version && cosyte-process format",

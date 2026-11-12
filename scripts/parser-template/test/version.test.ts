@@ -7,8 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 // evaluated. A static import evaluates the module before any test starts, so no test is linked to
 // the VERSION string and a changed literal survives: the Version Packages pull request, whose
 // mutation run mutates that line, goes red. Here the module cache is reset and the source is
-// imported inside the test body, so the evaluation happens in the test. `cosyte-release-pr` checks
-// that a test of this shape exists.
+// imported inside the test body, so the evaluation happens in the test.
 
 /** The `version` field of package.json, read at test time and narrowed without a cast. */
 function manifestVersion(): string {

@@ -329,9 +329,8 @@ only.
 5. Export `/arbitraries`, and prove the three properties with them.
 6. Add every inline exception's reason when the ratchet asks for it, and list them in the pull
    request.
-7. Give the library the two pieces section 9 asks for, a fresh-import `VERSION` test and a
-   version script that regenerates the API reference, and run `cosyte-release-pr` on every pull
-   request.
+7. Give the library the version script section 9 asks for, one that regenerates the API
+   reference, and run `cosyte-release-pr` on every pull request.
 
 This repository adopted it in the same change: `quality-floor.json` holds today's measured scores
 for `packages/process`, `packages/script-utils`, `packages/test-utils` and `packages/vitest-config`,
@@ -345,33 +344,9 @@ floor until its first full run.
 
 The Version Packages pull request that Changesets opens is a pull request like any other, and every
 check above runs on it. Five of our libraries' release pull requests were blocked on one night for
-two mechanical reasons, each fixed by hand in its own repository. Both fixes are now part of the
-standard, the parser template carries both, and a shared check fails a library that lacks either.
-
-**The exported `VERSION` string is pinned by a test the mutation run can link.** A release changes
-`VERSION` in `src/index.ts` (or wherever it is declared), so the changed-files mutation run mutates
-that line, and four libraries' release pull requests went red on the surviving mutant. Each had a
-test comparing `VERSION` with package.json, and it did not help. `VERSION` is set once, when its
-module is first evaluated, and per-test coverage links a mutant only to the tests that run while
-its line is evaluated. A test file with a static import of the source evaluates the module while
-the file loads, before any test starts, so no test is linked to the line and the mutant survives
-however exactly a test compares it. Importing the source again inside a test of that file does not
-help either: the module cache returns the copy the static import already evaluated. What works is a
-test file that:
-
-- has no static import of the source (a type-only import is fine), and loads it nowhere outside a
-  test body: not at the top of the file, in a `describe` callback or in a hook, each of which runs
-  before the test the mutation run links;
-- calls `vi.resetModules()`, then imports the source inside the test body,
-  `await import("../src/index.js")`, or in a helper that test bodies only call directly, never
-  through an alias, a hook or a call at module load;
-- mocks no module, since a mocked source is never evaluated (a pass-through mock that returns
-  `importOriginal()` is fine);
-- compares `VERSION` with the version read from package.json at test time.
-
-The check that enforces this is an allow list: a test file in a shape it cannot classify fails it.
-
-The parser template's `test/version.test.ts` is that file.
+mechanical reasons, each fixed by hand in its own repository. Four went red on a surviving mutant of
+the exported `VERSION` string; a release pull request's mutation job is what proves the test that
+pins `VERSION` to package.json today, and a check that proves it by running it is planned.
 
 **The version script regenerates the API reference.** The generated reference under
 `docs-content/api/` prints `VERSION`, and its drift check (`cosyte-docs-reference --check`) failed a
@@ -385,44 +360,28 @@ changeset version && cosyte-process sync-version && cosyte-docs-reference && cos
 `changeset version` bumps package.json, the sync writes the new version into `VERSION`, and the
 reference is generated from the synced source, all in the commit Changesets makes.
 
-**A changeset's opening sentence fits a release bullet.** A third defect wedged a release after its
+**A changeset's opening sentence fits a release bullet.** Another defect wedged a release after its
 pull request had merged: the shared release workflow makes one bullet of each changeset's opening
 sentence and refuses one over 400 characters, and it refuses it after the Version Packages pull
 request has merged and consumed the changeset, when the fix is a revert. The check below reads the
 pending changesets on the pull request that adds them.
 
 **The check.** `cosyte-release-pr`, in `@cosyte/script-utils`, reads a library's tree and fails it
-(exit 1) for each of these: a version script that does not run the three steps in order, no test
-file of the shape above (it names each test that reads `VERSION` and what it lacks), a pending
+(exit 1) for each of these: a version script that does not run the three steps in order, a pending
 changeset whose opening sentence could become a bullet over 400 characters, and a pending changeset
 the release cannot read, an empty one (`changeset add --empty`) among them: a change that releases
-no package gets no changeset at all. The version rules apply when `src/` declares an exported
-`VERSION`. It parses test files with the TypeScript compiler, so a comment or a string satisfies
-nothing, but it does not run them, so it cannot tell that the test it accepts passes; the test's
-own run does that. It measures a bullet conservatively, as an upper bound on what the release
-publishes. The parser template runs it in its own CI job on every
-pull request, and the root suite here grades what the scaffolder emits with it.
+no package gets no changeset at all. The version rule applies when `src/` declares an exported
+`VERSION`. It measures a bullet conservatively, as an upper bound on what the release publishes.
+The parser template runs it in its own CI job on every pull request, and the root suite here grades
+what the scaffolder emits with it.
 
-**Who still lacks one, for the sweep.** Measured on 2026-11-12 by running the check over a fresh
-clone of each library's `main`:
-
-| library       | version script misses the reference | no fresh-import `VERSION` test |
-| ------------- | ----------------------------------- | ------------------------------ |
-| `astm`        | yes                                 | yes                            |
-| `ccda`        | yes                                 | yes                            |
-| `cli`         | yes                                 | yes                            |
-| `deid`        | no                                  | yes                            |
-| `dicom`       | yes                                 | no                             |
-| `ncpdp`       | yes                                 | yes                            |
-| `synth`       | no                                  | yes                            |
-| `terminology` | yes                                 | yes                            |
-| `transform`   | yes                                 | yes                            |
-| `x12`         | no                                  | yes                            |
-
-The commits read: astm `18b6b5d`, ccda `69b5c5b`, cli `71fff3e`, deid `60f6570`, dicom `6eedfb4`,
-ncpdp `f2c8169`, synth `3156ab8`, terminology `c5da7fe`, transform `2374b5f`, x12 `f8cc2fb`. `hl7`
-(`4d89126`), `mllp` (`d3ebc5d`) and `fhir` (`997d81d`) pass. No library's pending changesets were
-refused. Each library takes the check into its own CI in the change that clears its row.
+**Who still lacks it, for the sweep.** Measured on 2026-11-12 by running the check over a fresh
+clone of each library's `main`, these libraries' version scripts do not regenerate the reference:
+`astm` (`18b6b5d`), `ccda` (`69b5c5b`), `cli` (`71fff3e`), `dicom` (`6eedfb4`), `ncpdp`
+(`f2c8169`), `terminology` (`c5da7fe`) and `transform` (`2374b5f`). `deid` (`60f6570`), `synth`
+(`3156ab8`), `x12` (`f8cc2fb`), `hl7` (`4d89126`), `mllp` (`d3ebc5d`) and `fhir` (`997d81d`) pass.
+No library's pending changesets were refused. Each library takes the check into its own CI in the
+change that clears it.
 
 ## Consequences
 
