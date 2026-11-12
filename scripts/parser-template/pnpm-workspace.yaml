@@ -27,3 +27,22 @@ minimumReleaseAge: 1440
 # version of the same package. Exemptions go in `trustPolicyExclude` below, one entry per line,
 # each with a "# reason: ..." comment above it saying why the hole is acceptable.
 trustPolicy: no-downgrade
+
+# THE SAME EXCLUSIONS config'S OWN pnpm-workspace.yaml CARRIES, AND NO OTHERS. A new repo resolves
+# the same toolchain config does, so it meets the same packages. Without these its first
+# `pnpm install` stops with ERR_PNPM_TRUST_DOWNGRADE. config's test/scaffold-repo-standards.test.ts
+# holds this list equal to config's own, so add or drop an entry in both files at once.
+trustPolicyExclude:
+  # reason: undici-types is reached as a transitive of @types/node. Earlier releases carry a
+  # provenance attestation and 6.21.0 carries none, which is a publisher who stopped attaching
+  # provenance rather than a takeover: the package is a types-only tarball with no runtime code and
+  # no install scripts. Pinned to this one version, so a LATER undici-types release is graded again
+  # rather than inheriting this exemption.
+  - "undici-types@6.21.0"
+  # reason: carried because config's own list carries it. Earlier chokidar releases carry a
+  # provenance attestation and 4.0.3 carries none; pnpm's own documentation uses this exact package
+  # and version as its worked example of a trustPolicyExclude entry
+  # (https://pnpm.io/settings/dependency-resolution). tsup 9, reached through @cosyte/process,
+  # resolves chokidar 5.0.0 today, so this entry matters only to a repo that pins an older tsup.
+  # Pinned to this one version, so no other chokidar release inherits this exemption.
+  - "chokidar@4.0.3"
