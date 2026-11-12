@@ -907,6 +907,11 @@ describe("the files it reads", () => {
         /holds "examplePrint.wholeValues" entry "msg.body", which is not a single name/,
       ],
       [
+        "list-name-then-number",
+        '{"examplePrint":{"accessors":["mrn",1]}}',
+        /holds "examplePrint.accessors" that is not a list of names/,
+      ],
+      [
         "list-number",
         '{"examplePrint":{"wholeValues":[1]}}',
         /holds "examplePrint.wholeValues" that is not a list of names/,
