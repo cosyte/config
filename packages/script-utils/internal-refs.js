@@ -229,16 +229,38 @@ const ORDINAL =
   "twenty-first|twenty-second|twenty-third|twenty-fourth|\\d+(?:st|nd|rd|th))";
 
 /**
+ * A plain lowercase word as a pattern that matches it in any case, for the one phase pattern that
+ * must run case-sensitively. Only letters are expanded, so `stud` becomes `[Ss][Tt][Uu][Dd]`.
+ *
+ * @param {string} word Lowercase letters only.
+ * @returns {string} The pattern.
+ */
+function anyCase(word) {
+  return word.replace(/[a-z]/g, (letter) => `[${letter.toUpperCase()}${letter}]`);
+}
+
+/**
  * Lookbehinds that drop the clinical senses of `phase` before the rule ever sees it.
  *
  * `phase` is real clinical vocabulary: the Clinical Study Phase segment's field names are literally
  * `Study Phase Identifier` and `Study Phase Start Date/Time`, and "the acute phase reactant" is
  * ordinary reference material. A rule that flags those tells a remediator to rewrite a field name,
- * which is trap (1) arriving through the phase rule instead of the identifier rule.
+ * which is trap (1) arriving through the phase rule instead of the identifier rule. Written in any
+ * case so the case-sensitive phase pattern reads them the way the case-insensitive one does.
  */
-const PHASE_NOT_CLINICAL =
-  "(?<!study )(?<!clinical )(?<!trial )(?<!acute )(?<!chronic )(?<!luteal )(?<!follicular )" +
-  "(?<!liquid )(?<!gas )";
+const PHASE_NOT_CLINICAL = [
+  "study",
+  "clinical",
+  "trial",
+  "acute",
+  "chronic",
+  "luteal",
+  "follicular",
+  "liquid",
+  "gas",
+]
+  .map((word) => `(?<!${anyCase(word)} )`)
+  .join("");
 
 /**
  * Lookbehind that drops `phase` as the second half of a compound word.
@@ -259,9 +281,64 @@ const PHASE_NOT_COMPOUND = "(?<![A-Za-z]-)";
  * phase is named by what follows the word, and none of these words names one.
  */
 const PHASE_NOT_FIELD =
-  "(?!of\\b|with\\b|in\\b|out\\b|the\\b|and\\b|is\\b|for\\b|to\\b|identifier\\b|start\\b|end\\b|" +
-  "evaluability\\b|number\\b|where\\b|are\\b|was\\b|were\\b|during\\b|at\\b|" +
-  "(?:I{1,3}|IV)\\s+(?:trial|stud|clinical|oncolog))";
+  "(?!(?:" +
+  [
+    "of",
+    "with",
+    "in",
+    "out",
+    "the",
+    "and",
+    "is",
+    "for",
+    "to",
+    "identifier",
+    "start",
+    "end",
+    "evaluability",
+    "number",
+    "where",
+    "are",
+    "was",
+    "were",
+    "during",
+    "at",
+  ]
+    .map(anyCase)
+    .join("|") +
+  ")\\b|(?:[Ii]{1,3}|[Ii][Vv])\\s+(?:" +
+  ["trial", "stud", "clinical", "oncolog"].map(anyCase).join("|") +
+  "))";
+
+/**
+ * What names a phase whatever the case of the word in front of it: a token with a digit in it
+ * (`2`, `5b`, `v2`), a single letter (`W`, `L`), a number word (`one`), a roman numeral (`IV`), or
+ * a Greek letter (`beta`).
+ */
+const PHASE_NAME =
+  "(?:[A-Za-z]*\\d[A-Za-z0-9]*|[A-Za-z]|[IVXivx]{2,4}|" +
+  [
+    "zero",
+    "one",
+    "two",
+    "three",
+    "four",
+    "five",
+    "six",
+    "seven",
+    "eight",
+    "nine",
+    "ten",
+    "eleven",
+    "twelve",
+    "alpha",
+    "beta",
+    "gamma",
+    "delta",
+  ]
+    .map(anyCase)
+    .join("|") +
+  ")\\b";
 
 /**
  * Imaging vocabulary that follows `slice` in reference material rather than in our jargon.
@@ -376,10 +453,21 @@ export function compileCanonicalRules(resolved) {
       patterns: [
         new RegExp(
           `\\b(?:roadmap phases?\\b[ ]?[A-Za-z0-9]*|${PHASE_NOT_CLINICAL}${PHASE_NOT_COMPOUND}phases?[ -]` +
-            `${PHASE_NOT_FIELD}` +
-            `[A-Za-z0-9]+[a-z]?\\b|wave \\d+\\b|the \\w+ and final phase\\b|` +
+            `${PHASE_NOT_FIELD}${PHASE_NAME}|wave \\d+\\b|the \\w+ and final phase\\b|` +
             `documentation residual\\b|${ORDINAL} (?:slice|wave)\\b)`,
           "gi",
+        ),
+        // A phase named by a word, read case-sensitively because the case of that word is what
+        // decides it. A capitalized word after `phase` is a name, whatever the case of `phase`
+        // (`Phase Atlas`, `phase Atlas`, `Phase Information`). An ordinary lowercase word after it
+        // makes `phase` a noun in a sentence: HL7 table 0003's `Correct/update phase information`
+        // and `Clinical study without phases but with schedules`, and the imaging `phase encoding`
+        // and `Phase contrast angiography`. The names the pattern above catches are left to it, so
+        // one name is one hit.
+        new RegExp(
+          `\\b${PHASE_NOT_CLINICAL}${PHASE_NOT_COMPOUND}` +
+            `[Pp](?:hases?|HASES?)[ -]${PHASE_NOT_FIELD}(?!${PHASE_NAME})[A-Z][A-Za-z0-9]*\\b`,
+          "g",
         ),
         // Taken from dicom's gate: the adjective forms (`in subsequent phases`, `a later wave`), a
         // plural wave count, and a citation of the roadmap. `of` after the noun is the clinical
@@ -402,6 +490,10 @@ export function compileCanonicalRules(resolved) {
         "The helpers are populated in subsequent phases",
         "It arrives in a later wave, after waves 2 and 3",
         "Obsolete codes are tracked by the roadmap",
+        // What the case reading must still catch: a name after a lowercase phase in a standard's
+        // own sentence, and a capitalized name made of an ordinary word.
+        "CRM - Correct/update phase one, then phases 2 and 3",
+        "Phase Information and phase Atlas shipped",
       ],
       negatives: [
         "CSP-1 Study Phase Identifier, CSP-2 Study Phase Start Date/Time, CSP-3 Study Phase End " +
@@ -417,6 +509,11 @@ export function compileCanonicalRules(resolved) {
         // The clinical senses of the adjective forms.
         "A later phase of the disease, the next wave of infections, and the previous phase of " +
           "the trial",
+        // Clinical study phase wording in a standard's own data: two HL7 table 0003 display texts.
+        "CRM - Correct/update phase information",
+        "MFN/MFK - Clinical study without phases but with schedules master file",
+        // A lowercase phase before an ordinary word, in imaging and signal vocabulary.
+        "The phase encoding direction, phase contrast flow, a phase shift and a phase lag",
       ],
     },
     {
