@@ -310,35 +310,78 @@ const PHASE_NOT_FIELD =
   ["trial", "stud", "clinical", "oncolog"].map(anyCase).join("|") +
   "))";
 
+/** The units a tens word takes after a hyphen, as in `twenty-one`. */
+const NUMBER_UNITS = ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
+
 /**
- * What names a phase whatever the case of the word in front of it: a token with a digit in it
- * (`2`, `5b`, `v2`), a single letter (`W`, `L`), a number word (`one`), a roman numeral (`IV`), or
- * a Greek letter (`beta`).
+ * Every English number word a phase could be named by: zero to nineteen, the tens to ninety (each
+ * with an optional hyphenated unit, `twenty-one`), and hundred. The tens come first so that
+ * `twenty-one` is read whole rather than as `twenty`.
  */
-const PHASE_NAME =
-  "(?:[A-Za-z]*\\d[A-Za-z0-9]*|[A-Za-z]|[IVXivx]{2,4}|" +
-  [
+const NUMBER_WORDS = [
+  `(?:${["twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"]
+    .map(anyCase)
+    .join("|")})(?:-(?:${NUMBER_UNITS.map(anyCase).join("|")}))?`,
+  ...[
     "zero",
-    "one",
-    "two",
-    "three",
-    "four",
-    "five",
-    "six",
-    "seven",
-    "eight",
-    "nine",
+    ...NUMBER_UNITS,
     "ten",
     "eleven",
     "twelve",
-    "alpha",
-    "beta",
-    "gamma",
-    "delta",
-  ]
-    .map(anyCase)
-    .join("|") +
+    "thirteen",
+    "fourteen",
+    "fifteen",
+    "sixteen",
+    "seventeen",
+    "eighteen",
+    "nineteen",
+    "hundred",
+  ].map(anyCase),
+];
+
+/** All 24 Greek letter names. */
+const GREEK_LETTERS = [
+  "alpha",
+  "beta",
+  "gamma",
+  "delta",
+  "epsilon",
+  "zeta",
+  "eta",
+  "theta",
+  "iota",
+  "kappa",
+  "lambda",
+  "mu",
+  "nu",
+  "xi",
+  "omicron",
+  "pi",
+  "rho",
+  "sigma",
+  "tau",
+  "upsilon",
+  "phi",
+  "chi",
+  "psi",
+  "omega",
+].map(anyCase);
+
+/**
+ * What names a phase whatever the case of the word in front of it: a token with a digit in it
+ * (`2`, `5b`, `v2`), a single letter (`W`, `L`), a number word (`one`, `thirteen`, `twenty-one`),
+ * a roman numeral (`IV`), or a Greek letter name (`beta`, `omega`).
+ */
+const PHASE_NAME =
+  "(?:[A-Za-z]*\\d[A-Za-z0-9]*|[A-Za-z]|[IVXivx]{2,4}|" +
+  [...NUMBER_WORDS, ...GREEK_LETTERS].join("|") +
   ")\\b";
+
+/**
+ * What stands between `phase` and its name: a hyphen, or a run of spaces, tabs and no-break spaces,
+ * so a name typed with two spaces or pasted with a no-break space reads as one with a single space.
+ */
+const PHASE_GAP = "(?:[ \\t\\u00a0]+|-)";
 
 /**
  * Imaging vocabulary that follows `slice` in reference material rather than in our jargon.
@@ -451,8 +494,10 @@ export function compileCanonicalRules(resolved) {
       id: "phase-or-wave",
       name: "phase or wave language",
       patterns: [
+        // `phase-by-phase` is named on its own: the word after its first `phase` is an ordinary
+        // lowercase one, which the name reading below lets through.
         new RegExp(
-          `\\b(?:roadmap phases?\\b[ ]?[A-Za-z0-9]*|${PHASE_NOT_CLINICAL}${PHASE_NOT_COMPOUND}phases?[ -]` +
+          `\\b(?:roadmap phases?\\b[ ]?[A-Za-z0-9]*|phase-by-phase|${PHASE_NOT_CLINICAL}${PHASE_NOT_COMPOUND}phases?${PHASE_GAP}` +
             `${PHASE_NOT_FIELD}${PHASE_NAME}|wave \\d+\\b|the \\w+ and final phase\\b|` +
             `documentation residual\\b|${ORDINAL} (?:slice|wave)\\b)`,
           "gi",
@@ -462,11 +507,12 @@ export function compileCanonicalRules(resolved) {
         // (`Phase Atlas`, `phase Atlas`, `Phase Information`). An ordinary lowercase word after it
         // makes `phase` a noun in a sentence: HL7 table 0003's `Correct/update phase information`
         // and `Clinical study without phases but with schedules`, and the imaging `phase encoding`
-        // and `Phase contrast angiography`. The names the pattern above catches are left to it, so
-        // one name is one hit.
+        // and `Phase contrast angiography`. The names the pattern above catches, and
+        // `PHASE-BY-PHASE`, are left to it, so one name is one hit.
         new RegExp(
           `\\b${PHASE_NOT_CLINICAL}${PHASE_NOT_COMPOUND}` +
-            `[Pp](?:hases?|HASES?)[ -]${PHASE_NOT_FIELD}(?!${PHASE_NAME})[A-Z][A-Za-z0-9]*\\b`,
+            `[Pp](?:hases?|HASES?)${PHASE_GAP}${PHASE_NOT_FIELD}(?!${PHASE_NAME}|${anyCase("by")}-${anyCase("phase")})` +
+            `[A-Z][A-Za-z0-9]*\\b`,
           "g",
         ),
         // Taken from dicom's gate: the adjective forms (`in subsequent phases`, `a later wave`), a

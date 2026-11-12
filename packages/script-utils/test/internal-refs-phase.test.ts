@@ -76,8 +76,115 @@ describe("the phase rule on clinical study phase wording", () => {
     ["a name in capitals", "It ships in PHASE ATLAS", "PHASE ATLAS"],
     ["a wave count", "The master file ships in wave 3", "wave 3"],
     ["an adjective form", "The schedules arrive in a later phase", "later phase"],
+    ["a phase-by-phase ladder", "The master file lands phase-by-phase from here", "phase-by-phase"],
+    ["a phase-by-phase ladder in capitals", "It ships PHASE-BY-PHASE", "PHASE-BY-PHASE"],
   ])("still refuses roadmap wording: %s", (_label, text, hit) => {
     expect(hits(text)).toEqual([hit]);
+  });
+
+  /** Every English number word a phase could be named by, zero to twenty, the tens and hundred. */
+  const NUMBER_WORDS = [
+    "zero",
+    "one",
+    "two",
+    "three",
+    "four",
+    "five",
+    "six",
+    "seven",
+    "eight",
+    "nine",
+    "ten",
+    "eleven",
+    "twelve",
+    "thirteen",
+    "fourteen",
+    "fifteen",
+    "sixteen",
+    "seventeen",
+    "eighteen",
+    "nineteen",
+    "twenty",
+    "thirty",
+    "forty",
+    "fifty",
+    "sixty",
+    "seventy",
+    "eighty",
+    "ninety",
+    "hundred",
+  ];
+
+  /** All 24 Greek letter names. */
+  const GREEK_LETTERS = [
+    "alpha",
+    "beta",
+    "gamma",
+    "delta",
+    "epsilon",
+    "zeta",
+    "eta",
+    "theta",
+    "iota",
+    "kappa",
+    "lambda",
+    "mu",
+    "nu",
+    "xi",
+    "omicron",
+    "pi",
+    "rho",
+    "sigma",
+    "tau",
+    "upsilon",
+    "phi",
+    "chi",
+    "psi",
+    "omega",
+  ];
+
+  it.each([...NUMBER_WORDS, ...GREEK_LETTERS])("still refuses a phase named %s", (word) => {
+    expect(hits(`The master file ships in phase ${word}.`)).toEqual([`phase ${word}`]);
+    expect(hits(`PHASE ${word.toUpperCase()} ships`)).toEqual([`PHASE ${word.toUpperCase()}`]);
+  });
+
+  it.each([...NUMBER_WORDS, ...GREEK_LETTERS])(
+    "lets %s through as a near miss: the name before phase, or inside a longer word",
+    (word) => {
+      expect(hits(`A ${word} phase offset is a signal property.`)).toEqual([]);
+      expect(hits(`The phase ${word}ish drift is a signal property.`)).toEqual([]);
+    },
+  );
+
+  it.each([
+    "twenty-one",
+    "thirty-two",
+    "forty-three",
+    "fifty-four",
+    "sixty-five",
+    "seventy-six",
+    "eighty-seven",
+    "ninety-nine",
+  ])("still refuses the whole hyphenated number word %s", (word) => {
+    expect(hits(`It ships in phase ${word}, after the rest`)).toEqual([`phase ${word}`]);
+  });
+
+  it.each([
+    ["a no-break space", "phase 2"],
+    ["two spaces", "phase  2"],
+    ["a tab", "phase\t2"],
+    ["spaces and a tab before a word", "phases \t two"],
+    ["a no-break space before a name", "Phase Atlas"],
+  ])("still refuses a phase name after %s", (_label, name) => {
+    expect(hits(`It ships in ${name} next`)).toEqual([name]);
+  });
+
+  it.each([
+    ["a no-break space", "phase information"],
+    ["two spaces", "phase  encoding"],
+    ["a tab", "phases\tbut with schedules"],
+  ])("lets clinical wording through after %s", (_label, text) => {
+    expect(hits(`Correct the ${text} first.`)).toEqual([]);
   });
 
   it("reports one name once, though two patterns could each read it", () => {
