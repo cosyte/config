@@ -2364,7 +2364,7 @@ function resolveAlias(names, aliases) {
  * @returns {boolean} True for `console`, or a name LOGGER_NAME matches at its end.
  */
 function isLoggerObject(names) {
-  return names.join(".") === "console" || LOGGER_NAME.test(names.at(-1));
+  return String(names) === "console" || LOGGER_NAME.test(names.at(-1));
 }
 
 /**
