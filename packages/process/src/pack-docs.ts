@@ -5,11 +5,13 @@ import {
   openSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   statSync,
   writeFileSync,
 } from "node:fs";
-import { join, resolve } from "node:path";
+import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 
+import { loadConfig, OVERRIDE_FILE, type OverrideError } from "./overrides.js";
 import { createTarGz, TarError, type TarMember } from "./tar.js";
 
 /**
@@ -19,6 +21,8 @@ import { createTarGz, TarError, type TarMember } from "./tar.js";
  * Two tarballs, into an output directory named by the first argument and defaulting to
  * `dist-artifacts`: `docs-content.tar.gz` carrying the contents of `docs-content/` at the tarball
  * root, and `source.tar.gz` carrying `src/`, `package.json` and `tsconfig.json` at the tarball root.
+ * The `sourceFiles` option under `pack-docs` in `cosyte-process.config.json` adds further files to
+ * `source.tar.gz`, each at the tarball root under its file name; absent, the archive is unchanged.
  *
  * It fails fast. Every required input is checked and both archives are built in memory before the
  * output directory is created, so a run that refuses leaves the tree exactly as it found it rather
@@ -150,6 +154,98 @@ function member(absolute: string, name: string): TarMember {
   }
 }
 
+/** The option a refusal over one of the further source files names. @internal */
+const SOURCE_FILES_OPTION = `"pack-docs.sourceFiles" in ${OVERRIDE_FILE}`;
+
+/** Whether a path, relative to a root, leaves it. @internal */
+function escapes(root: string, absolute: string): boolean {
+  const path = relative(root, absolute);
+  if (path === ".." || path.startsWith(`..${sep}`)) {
+    return true;
+  }
+  // On Windows, a path on another drive. POSIX never returns an absolute relative path.
+  // Stryker disable next-line ConditionalExpression,BooleanLiteral: equivalent on the POSIX runners.
+  return isAbsolute(path);
+}
+
+/** A refusal over one entry of the `sourceFiles` option. @internal */
+function sourceFileRefusal(cwd: string, path: string, problem: string, action: string): never {
+  throw new PackDocsError(
+    `pack-docs: ${cwd}: ${SOURCE_FILES_OPTION}: ${path}: ${problem}: ${action}, then run ` +
+      `cosyte-process pack-docs again. Nothing was written.`,
+    [path],
+  );
+}
+
+/**
+ * The further members the `sourceFiles` option names, each at the tarball root under its file name.
+ *
+ * Every path has to stay inside the package root twice over: as written, and once every symlink on
+ * the way has been followed. Only then is it read, so a link out of the package is refused rather
+ * than archived. A name the archive already carries is refused rather than written twice, since an
+ * extractor would keep only one of the two. Names are compared without regard to letter case, since
+ * a case-insensitive filesystem (macOS, Windows) extracts `Package.json` over `package.json`. A
+ * path ending in a separator is refused rather than read as the file before it.
+ *
+ * @internal
+ */
+function sourceFileMembers(
+  cwd: string,
+  sourceFiles: readonly string[],
+  taken: ReadonlySet<string>,
+): TarMember[] {
+  // Each name already in the archive, keyed by its case-folded form.
+  const names = new Map([...taken].map((name) => [name.toLowerCase(), name]));
+  const realRoot = realpathSync(cwd);
+  const members: TarMember[] = [];
+  for (const path of sourceFiles) {
+    // Either separator, on every platform: a trailing backslash names no file anyone meant.
+    if (/[/\\]$/.test(path)) {
+      sourceFileRefusal(cwd, path, "ends in a path separator", "name the file without one");
+    }
+    const absolute = resolve(cwd, path);
+    if (isAbsolute(path) || escapes(cwd, absolute)) {
+      sourceFileRefusal(cwd, path, "is outside the package root", "name a path relative to it");
+    }
+    let real: string;
+    try {
+      real = realpathSync(absolute);
+    } catch {
+      sourceFileRefusal(
+        cwd,
+        path,
+        "does not exist",
+        "produce it before this step, or take it off the list",
+      );
+    }
+    if (escapes(realRoot, real)) {
+      sourceFileRefusal(
+        cwd,
+        path,
+        "resolves outside the package root through a symlink",
+        "name a file inside the package",
+      );
+    }
+    if (!statSync(real).isFile()) {
+      sourceFileRefusal(cwd, path, "is not a regular file", "name a file, not a directory");
+    }
+    const name = basename(absolute);
+    const existing = names.get(name.toLowerCase());
+    if (existing !== undefined) {
+      const caseOnly = existing === name ? "" : ", a name that differs only in letter case";
+      sourceFileRefusal(
+        cwd,
+        path,
+        `source.tar.gz already carries "${existing}"${caseOnly}`,
+        "rename the file or take it off the list",
+      );
+    }
+    names.set(name.toLowerCase(), name);
+    members.push(member(real, name));
+  }
+  return members;
+}
+
 /** Members in a stable order, so two runs over the same tree produce the same archive. @internal */
 function sorted(members: readonly TarMember[]): TarMember[] {
   return [...members].sort((left, right) => (left.name < right.name ? -1 : 1));
@@ -184,7 +280,9 @@ function archive(members: readonly TarMember[], cwd: string): Buffer {
  * @param cwd - The invoking package's root.
  * @param outputDir - Output directory, relative to `cwd` unless absolute.
  * @returns The output directory and the archives written.
- * @throws PackDocsError When a required input is absent, before anything is written.
+ * @throws PackDocsError When a required input is absent, the config file is invalid, or a further
+ * source file is absent, outside the package or a second member of one name, before anything is
+ * written.
  * @example
  * packDocs("/repo", "dist-artifacts").artifacts.length; // => 2
  */
@@ -203,6 +301,18 @@ export function packDocs(cwd: string, outputDir: string = DEFAULT_OUTPUT_DIR): P
     );
   }
 
+  let sourceFiles: readonly string[];
+  try {
+    sourceFiles = loadConfig(cwd).packDocs.sourceFiles ?? [];
+  } catch (error: unknown) {
+    // loadConfig throws nothing else: an unreadable file and malformed JSON are OverrideErrors too.
+    throw new PackDocsError(
+      `pack-docs: ${(error as OverrideError).message}: correct the file, then run ` +
+        `cosyte-process pack-docs again. Nothing was written.`,
+      [OVERRIDE_FILE],
+    );
+  }
+
   // Both archives are built before the output directory exists: a refusal over the second one would
   // otherwise leave the first behind, which is the half-built artifact set this command promises a
   // release job will never find.
@@ -212,6 +322,7 @@ export function packDocs(cwd: string, outputDir: string = DEFAULT_OUTPUT_DIR): P
       ...membersUnder(join(cwd, "src"), "src/"),
       member(join(cwd, "package.json"), "package.json"),
       member(join(cwd, "tsconfig.json"), "tsconfig.json"),
+      ...sourceFileMembers(cwd, sourceFiles, new Set(["src", "package.json", "tsconfig.json"])),
     ]),
     cwd,
   );

@@ -24,11 +24,16 @@ export {
 } from "./modifiers.js";
 export {
   applyOverride,
+  loadConfig,
   loadOverrides,
   OVERRIDE_FILE,
   OVERRIDE_KEYS,
   OverrideError,
   type Overrides,
+  PACK_DOCS_CONFIG_KEY,
+  PACK_DOCS_KEYS,
+  type PackDocsOptions,
+  type ProcessConfig,
   type VerbOverride,
 } from "./overrides.js";
 export {

@@ -52,25 +52,48 @@ describe("AC-C7: an unchanged consumer keeps working", () => {
 });
 
 describe("AC-C7: an entry point is not an overridable verb", () => {
-  it.each(ENTRY_POINTS)("refuses %s as a top-level override key", (entry) => {
+  it("refuses sync-version as a top-level override key", () => {
     const dir = useFixture("wired");
     const file = join(dir, OVERRIDE_FILE);
-    writeFileSync(file, `${JSON.stringify({ [entry]: { flags: ["--x"] } }, null, 2)}\n`);
+    writeFileSync(file, `${JSON.stringify({ "sync-version": { flags: ["--x"] } }, null, 2)}\n`);
     for (const verb of VERBS) {
       const result = runCli([verb], dir);
       expect(result.code, `${verb} must refuse the override file`).not.toBe(0);
       expect(result.stderr).toContain(file);
-      expect(result.stderr).toContain(`unknown verb name "${entry}"`);
+      expect(result.stderr).toContain('unknown verb name "sync-version"');
     }
   });
 
-  it.each(ENTRY_POINTS)("refuses %s the same way it refuses any other unknown key", (entry) => {
+  // pack-docs has a key of its own for its options, and that key takes no verb override.
+  it.each(["flags", "globs"])("refuses %s under pack-docs, for every verb", (key) => {
     const dir = useFixture("wired");
-    writeFileSync(join(dir, OVERRIDE_FILE), `${JSON.stringify({ [entry]: {} })}\n`);
+    const file = join(dir, OVERRIDE_FILE);
+    writeFileSync(file, `${JSON.stringify({ "pack-docs": { [key]: ["--x"] } }, null, 2)}\n`);
+    for (const verb of VERBS) {
+      const result = runCli([verb], dir);
+      expect(result.code, `${verb} must refuse the override file`).not.toBe(0);
+      expect(result.stderr).toContain(file);
+      expect(result.stderr).toContain(`unknown key "${key}" under "pack-docs"`);
+    }
+  });
+
+  it("refuses sync-version the same way it refuses any other unknown key", () => {
+    const dir = useFixture("wired");
+    writeFileSync(join(dir, OVERRIDE_FILE), `${JSON.stringify({ "sync-version": {} })}\n`);
     const refusal = (): unknown => loadOverrides(dir);
     expect(refusal).toThrow(OverrideError);
     writeFileSync(join(dir, OVERRIDE_FILE), '{ "buidl": {} }\n');
     expect(refusal).toThrow(OverrideError);
+  });
+
+  it("keeps pack-docs options out of the verb overrides", () => {
+    const dir = useFixture("wired");
+    writeFileSync(
+      join(dir, OVERRIDE_FILE),
+      `${JSON.stringify({ "pack-docs": { sourceFiles: ["inventory.json"] } })}\n`,
+    );
+    expect(loadOverrides(dir)).toEqual({});
+    expect(runCli(["check"], dir).code).toBe(0);
   });
 
   it("keeps the accepted top-level keys at exactly the five delegated verbs", () => {

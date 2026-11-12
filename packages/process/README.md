@@ -114,9 +114,10 @@ Wire either one where the script it replaces was wired:
 }
 ```
 
-Neither is graded by `cosyte-process check`, and neither is an overridable verb: the override file's
-top-level keys stay `build`, `test`, `lint`, `typecheck` and `format`. Carrying no script for either
-one is conforming, exactly as before they existed.
+Neither is graded by `cosyte-process check`, and neither is an overridable verb: the override file
+takes no `globs` or `flags` for either. `pack-docs` has one option of its own in that file,
+`sourceFiles`, under a `pack-docs` key (see [`cosyte-process pack-docs`](#cosyte-process-pack-docs)).
+Carrying no script for either one is conforming, exactly as before they existed.
 
 ## Entry points
 
@@ -154,9 +155,11 @@ Repo-specific deviation lives in one file, `cosyte-process.config.json`, at the 
 
 The rules, in full:
 
-- Top-level keys are verb names, among `build`, `test`, `lint`, `typecheck`, `format`. `check` is
-  never overridable.
-- Each value is an object with optional `globs` and optional `flags`, each an array of strings.
+- Top-level keys are verb names, among `build`, `test`, `lint`, `typecheck`, `format`, plus
+  `pack-docs` for that entry point's own option (below). `check` is never overridable.
+- Each verb's value is an object with optional `globs` and optional `flags`, each an array of
+  strings. The `pack-docs` value is an object with optional `sourceFiles`, an array of non-empty
+  strings.
 - `globs` replaces that verb's baseline glob tokens; `flags` replaces its baseline flag tokens. An
   absent key keeps the baseline tokens.
 - The tool name and the core tokens are never added, removed, replaced or reordered. A `test` flags
@@ -301,6 +304,39 @@ refuses the same way and names the member. Members are written in a stable order
 entries, so two runs over the same tree produce the same archive. Any other failure, an output path
 that is already a file for instance, is a refusal in the same shape rather than a crash: the path,
 the entry point, what the system reported in structural terms, and the action available.
+
+#### Further files in `source.tar.gz`
+
+`sourceFiles`, under `pack-docs` in `cosyte-process.config.json`, names further files to carry in
+`source.tar.gz`, such as a dependency inventory an earlier release step wrote:
+
+```json
+{
+  "pack-docs": { "sourceFiles": ["dist-artifacts/dependency-inventory.cdx.json"] }
+}
+```
+
+- Each path is relative to the package root, and each file lands at the tarball root under its file
+  name: the entry above becomes `dependency-inventory.cdx.json` beside `package.json`.
+- Each path is checked before anything is written, and the run refuses, naming the path, when it:
+  - does not exist;
+  - is absolute, or leaves the package root (`../inventory.json`);
+  - ends in a path separator (`build/inventory.json/`), rather than be read as the file before it;
+  - resolves outside the package root through a symlink, the file itself or a directory on the way;
+  - is not a regular file;
+  - would carry a name the archive already has: `src`, `package.json`, `tsconfig.json`, or the file
+    name of an earlier entry. Names are compared without regard to letter case, so
+    `build/Package.json` is refused too: a case-insensitive filesystem would extract one over the
+    other.
+- A symlink that stays inside the package is followed, and the archive carries the file it points
+  to under the link's name.
+- `docs-content.tar.gz` is never changed by the option.
+- Absent, or an empty list, `source.tar.gz` is byte for byte what it was before the option existed.
+
+A malformed option (not an array, or an entry that is not a non-empty string) refuses the run
+naming the file, as it refuses every verb. `pack-docs` reads `cosyte-process.config.json` whenever
+the file exists, so a file that is not valid JSON, or that breaks the schema anywhere, exits 1 under
+`pack-docs` too, which ignored the file before the option existed.
 
 ### `cosyte-docs-reference`
 

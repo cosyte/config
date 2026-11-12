@@ -29,6 +29,32 @@ export interface VerbOverride {
 export type Overrides = { readonly [K in DelegatedVerb]?: VerbOverride };
 
 /**
+ * The one entry point that takes options from the file, under its own name. It is not a verb: it
+ * takes no `globs` and no `flags`, only the keys in {@link PACK_DOCS_KEYS}.
+ */
+export const PACK_DOCS_CONFIG_KEY = "pack-docs";
+
+/** The keys the `pack-docs` object may carry. Nothing else is accepted under it. */
+export const PACK_DOCS_KEYS: readonly string[] = ["sourceFiles"];
+
+/** The options `cosyte-process pack-docs` reads from the file. */
+export interface PackDocsOptions {
+  /**
+   * Further files for `source.tar.gz`, as paths relative to the package root. Each is carried at
+   * the tarball root under its file name.
+   */
+  readonly sourceFiles?: readonly string[];
+}
+
+/** The whole file, parsed: the verb overrides and the `pack-docs` options. */
+export interface ProcessConfig {
+  /** The verb overrides, at most one per delegated verb. */
+  readonly overrides: Overrides;
+  /** The `pack-docs` options, empty when the file carries none. */
+  readonly packDocs: PackDocsOptions;
+}
+
+/**
  * A term-7 schema violation, or an unreadable/malformed override file.
  *
  * Its message always names the file and the first violation, which is what every verb prints before
@@ -88,26 +114,57 @@ function parseVerbOverride(file: string, verb: string, value: unknown): VerbOver
   return result;
 }
 
+/** Validate the `pack-docs` object. @internal */
+function parsePackDocsOptions(file: string, value: unknown): PackDocsOptions {
+  if (!isPlainObject(value)) {
+    throw new OverrideError(file, `the value of "${PACK_DOCS_CONFIG_KEY}" must be an object`);
+  }
+  let sourceFiles: readonly string[] | undefined;
+  for (const key of Object.keys(value)) {
+    if (!PACK_DOCS_KEYS.includes(key)) {
+      throw new OverrideError(
+        file,
+        `unknown key "${key}" under "${PACK_DOCS_CONFIG_KEY}" (the only key it takes is "sourceFiles")`,
+      );
+    }
+    const paths: unknown = value[key];
+    const violation = `"${PACK_DOCS_CONFIG_KEY}.${key}" must be an array of non-empty strings`;
+    if (!Array.isArray(paths)) {
+      throw new OverrideError(file, violation);
+    }
+    const strings: string[] = [];
+    for (const path of paths) {
+      if (typeof path !== "string" || path === "") {
+        throw new OverrideError(file, violation);
+      }
+      strings.push(path);
+    }
+    sourceFiles = strings;
+  }
+  return sourceFiles === undefined ? {} : { sourceFiles };
+}
+
 /**
- * Read and validate the override file for a working directory (term 7).
+ * Read and validate the whole file for a working directory: the verb overrides (term 7) and the
+ * `pack-docs` options.
  *
- * An absent file is the ordinary case and yields no overrides. A present but invalid file throws,
- * and the caller turns that into a non-zero exit for EVERY verb, not just the overridden one.
+ * An absent file is the ordinary case and yields neither. A present but invalid file throws, and
+ * the caller turns that into a non-zero exit for EVERY verb and for `pack-docs`.
  *
  * @param cwd - The consumer's working directory.
- * @returns The validated overrides, empty when the file is absent.
- * @throws OverrideError When the file is unreadable, is not JSON, or violates the term-7 schema.
+ * @returns The validated overrides and `pack-docs` options, both empty when the file is absent.
+ * @throws OverrideError When the file is unreadable, is not JSON, or violates its schema.
  * @example
- * loadOverrides("/repo/with/no/override/file"); // => {}
+ * loadConfig("/repo/with/no/override/file"); // => { overrides: {}, packDocs: {} }
  */
-export function loadOverrides(cwd: string): Overrides {
+export function loadConfig(cwd: string): ProcessConfig {
   const file = join(cwd, OVERRIDE_FILE);
   let text: string;
   try {
     text = readFileSync(file, "utf8");
   } catch (error: unknown) {
     if (isPlainObject(error) && error["code"] === "ENOENT") {
-      return {};
+      return { overrides: {}, packDocs: {} };
     }
     throw new OverrideError(file, `cannot be read (${describe(error)})`);
   }
@@ -124,19 +181,43 @@ export function loadOverrides(cwd: string): Overrides {
   }
 
   const overrides: { [K in DelegatedVerb]?: VerbOverride } = {};
+  let packDocs: PackDocsOptions = {};
   for (const key of Object.keys(parsed)) {
     if (key === "check") {
       throw new OverrideError(file, '"check" is not overridable');
     }
+    if (key === PACK_DOCS_CONFIG_KEY) {
+      packDocs = parsePackDocsOptions(file, parsed[key]);
+      continue;
+    }
     if (!isDelegatedVerb(key)) {
       throw new OverrideError(
         file,
-        `unknown verb name "${key}" (expected one of ${DELEGATED_VERBS.join(", ")})`,
+        `unknown verb name "${key}" (expected one of ${DELEGATED_VERBS.join(", ")}, ` +
+          `or "${PACK_DOCS_CONFIG_KEY}" for its options)`,
       );
     }
     overrides[key] = parseVerbOverride(file, key, parsed[key]);
   }
-  return overrides;
+  return { overrides, packDocs };
+}
+
+/**
+ * Read and validate the override file for a working directory (term 7).
+ *
+ * An absent file is the ordinary case and yields no overrides. A present but invalid file throws,
+ * and the caller turns that into a non-zero exit for EVERY verb, not just the overridden one. The
+ * `pack-docs` options are validated too, since they live in the same file, and left out of the
+ * result.
+ *
+ * @param cwd - The consumer's working directory.
+ * @returns The validated overrides, empty when the file is absent.
+ * @throws OverrideError When the file is unreadable, is not JSON, or violates its schema.
+ * @example
+ * loadOverrides("/repo/with/no/override/file"); // => {}
+ */
+export function loadOverrides(cwd: string): Overrides {
+  return loadConfig(cwd).overrides;
 }
 
 /** Best-effort message for an unknown thrown value. @internal */

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 
 import { cleanupTempDirs, makeTempDir } from "./helpers.js";
-import { loadOverrides, OVERRIDE_FILE, OverrideError } from "../src/overrides.js";
+import { loadConfig, loadOverrides, OVERRIDE_FILE, OverrideError } from "../src/overrides.js";
 
 /**
  * Term 7's schema, and the rule that any violation makes EVERY verb fail naming the file and the
@@ -61,6 +61,25 @@ describe("valid override files", () => {
       test: { flags: ["--coverage"] },
       lint: { globs: ["lib/**/*.ts"] },
       format: { globs: ["docs/**/*.md"], flags: ["--log-level=warn"] },
+    });
+  });
+
+  it("reads the pack-docs options apart from the verb overrides", () => {
+    const dir = withOverrideFile(
+      JSON.stringify({ lint: { flags: [] }, "pack-docs": { sourceFiles: ["build/a.json"] } }),
+    );
+    expect(loadConfig(dir)).toEqual({
+      overrides: { lint: { flags: [] } },
+      packDocs: { sourceFiles: ["build/a.json"] },
+    });
+    expect(loadOverrides(dir)).toEqual({ lint: { flags: [] } });
+  });
+
+  it("reads an empty pack-docs object, or no file at all, as no options", () => {
+    expect(loadConfig(withOverrideFile('{"pack-docs":{}}')).packDocs).toStrictEqual({});
+    expect(loadConfig(makeTempDir("cosyte-process-no-override-"))).toEqual({
+      overrides: {},
+      packDocs: {},
     });
   });
 
@@ -124,6 +143,31 @@ describe("term-7 violations, each naming the file and the first violation", () =
   it("reports the FIRST violation in file order", () => {
     const error = violationOf('{"lint":{"tool":"biome"},"buidl":{}}');
     expect(error.violation).toContain('unknown key "tool" under "lint"');
+  });
+
+  it("rejects a pack-docs value that is not an object", () => {
+    expect(violationOf('{"pack-docs":["a.json"]}').violation).toBe(
+      'the value of "pack-docs" must be an object',
+    );
+  });
+
+  it("rejects an unknown key under pack-docs, naming the one it takes", () => {
+    expect(violationOf('{"pack-docs":{"files":["a.json"]}}').violation).toBe(
+      'unknown key "files" under "pack-docs" (the only key it takes is "sourceFiles")',
+    );
+  });
+
+  it.each(['"a.json"', '["a.json",7]', '["a.json",""]', '{"0":"a.json"}'])(
+    "rejects sourceFiles of %s",
+    (value) => {
+      expect(violationOf(`{"pack-docs":{"sourceFiles":${value}}}`).violation).toBe(
+        '"pack-docs.sourceFiles" must be an array of non-empty strings',
+      );
+    },
+  );
+
+  it("names pack-docs among the keys an unknown one could have been", () => {
+    expect(violationOf('{"pakc-docs":{}}').violation).toContain('or "pack-docs" for its options');
   });
 
   it("names the offending file by absolute path", () => {
