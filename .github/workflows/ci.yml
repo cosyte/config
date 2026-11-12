@@ -134,7 +134,35 @@ jobs:
       # is a report again. Zero-dependency node, like the five gates above, so it runs before
       # install.
       - run: node scripts/drift-check.js
+      # THE DOCS-CONTENT LINK CHECK, the one the shared CI runs for a library that opts in with
+      # `check-docs-content`. This repository does not call the shared CI (see the note above), so
+      # the same checker runs here, inline: every package-internal link and image under
+      # docs-content/ and every id docs-content/sidebars.json names must resolve, or the pages a
+      # release packs for docs.cosyte.com would break the site's build. The checker is one
+      # zero-dependency file, fetched at the commit the other shared-workflow pins here name and
+      # checked against the SHA-256 below before it runs, so a changed file fails the job. Moving
+      # the pin means changing both values together. Before install, like the gates above: it reads
+      # a directory and needs nothing installed.
+      - name: docs-content links, images and sidebar ids must resolve
+        shell: bash
+        env:
+          CHECKER_COMMIT: 398cd4ded647dddd9f2e220ceb042840f59e1426
+          CHECKER_SHA256: aaad3490d4a1a6b8c90f27bb15bb727790e61b6c49197c3dd917d87ba8251bf4
+        run: |
+          set -euo pipefail
+          checker="${RUNNER_TEMP}/docs-content-check.mjs"
+          curl --fail --silent --show-error --location \
+            "https://raw.githubusercontent.com/cosyte/.github/${CHECKER_COMMIT}/scripts/docs-content-check.mjs" \
+            --output "${checker}"
+          echo "${CHECKER_SHA256}  ${checker}" | sha256sum --check --strict
+          node "${checker}" --repo .
       - run: pnpm install --frozen-lockfile
+      # THE STANDARDS PAGES MATCH THEIR RECORDS. docs-content/testing-standard.md and
+      # performance-standard.md are written from documentation/decisions/0004 and 0005 by
+      # scripts/standards-pages.mjs; this writes nothing and fails when a record changed and its
+      # page was not rewritten, so the site never shows a standard the record no longer says. After
+      # install: it formats with this repository's Prettier.
+      - run: node scripts/standards-pages.mjs --check
       # The em-dash brand gate's FILE half also runs in no-emdash.yml, which additionally
       # covers the PR title, body and commit messages and carries the `edited` trigger those
       # need. It is repeated here for one reason worth stating plainly: `verify` is a REQUIRED
@@ -331,3 +359,10 @@ jobs:
       # the current version is already on npm, which `publish --dry-run` skips.
       - name: Pack integrity
         run: pnpm -r --filter "./packages/*" exec npm pack --dry-run
+      # The docs-content.tar.gz the release attaches for docs.cosyte.com, packed the same way, and
+      # listed so the run shows what a release would carry.
+      - name: Pack the docs-content archive
+        run: |
+          set -euo pipefail
+          bash scripts/pack-docs-content.sh "$RUNNER_TEMP/docs-content.tar.gz"
+          tar --list --gzip --verbose --file "$RUNNER_TEMP/docs-content.tar.gz"
