@@ -25,7 +25,7 @@
 // a brace or an angle bracket outside code, which the site's MDX build would read as markup. Exit 0
 // is clean, 1 a finding, 2 it could not run: a record it could not read, or an unknown argument.
 
-import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, posix, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -125,9 +125,9 @@ export function rewriteTarget(target, { root, pages }) {
   if (inRepo.startsWith("../") || inRepo === "..") return null;
   const page = pages.find((p) => posix.join(RECORDS_DIR, p.record) === inRepo);
   if (page) return `./${page.id}.md${anchor}`;
-  const absolute = join(root, inRepo);
-  if (!existsSync(absolute)) return null;
-  const kind = statSync(absolute).isDirectory() ? "tree" : "blob";
+  const stats = statSync(join(root, inRepo), { throwIfNoEntry: false });
+  if (stats === undefined) return null;
+  const kind = stats.isDirectory() ? "tree" : "blob";
   return `${REPOSITORY_URL}/${kind}/main/${inRepo}${anchor}`;
 }
 
@@ -256,6 +256,21 @@ export async function formatPage(text) {
 }
 
 /**
+ * A file's text, or null when there is no file: one read, with no separate check before it.
+ *
+ * @param {string} path
+ * @returns {string | null}
+ */
+function readIfPresent(path) {
+  try {
+    return readFileSync(path, "utf8");
+  } catch (error) {
+    if (/** @type {NodeJS.ErrnoException} */ (error).code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+/**
  * Write, or with `check` compare, every page.
  *
  * @param {{ root: string, check: boolean, pages?: typeof PAGES, log?: (line: string) => void }} options
@@ -288,7 +303,7 @@ export async function run({ root, check, pages = PAGES, log = console.log }) {
   for (const output of outputs) {
     const formatted = await formatPage(output.text);
     const name = relative(root, output.target);
-    const current = existsSync(output.target) ? readFileSync(output.target, "utf8") : null;
+    const current = readIfPresent(output.target);
     if (current === formatted) continue;
     if (check) {
       stale += 1;
