@@ -182,9 +182,11 @@ and they are what it is made of, so `packages/script-utils/stryker.config.mjs` k
 mutant, and the engine's numbers below are unchanged by this. `@cosyte/vitest-config`'s own run
 keeps them too, since its barrel reading is a set of module-level patterns.
 
-`cosyte-mutate full` mutates everything the config names, and its score can raise the floor. Today
-it runs by hand: no CI job runs it yet. A weekly run and a run before each release are future work
-in the shared workflows (section 7). A full run of a large library takes hours on one machine, so
+`cosyte-mutate full` mutates everything the config names, and its score can raise the floor. It
+runs only when someone starts it: in this repository, the Full mutation workflow
+(`.github/workflows/full-mutation.yml`) runs it in shards for every package with a mutation floor,
+by hand. A weekly run and a run before each release are future work in the shared workflows
+(section 7). A full run of a large library takes hours on one machine, so
 it can be split across parallel jobs: with `COSYTE_MUTATE_SHARD=<k>/<n>` set, `cosyte-mutate full`
 mutates only the files whose 32-bit FNV-1a hash of the path is `k - 1` mod `n`, so each file is in
 exactly one shard, and writes `reports/mutation/shard-<k>-of-<n>.json`, never `mutation.json`; the
@@ -313,9 +315,9 @@ and the `mutation` job (not yet a required check) runs the changed-files run and
 mutants. Both compare the floor file with the merge base's. The budget for a pull request's checks
 is 15 minutes: mutation of changed files runs as its own job, beside the others. The nightly,
 weekly and release jobs are future work in the shared workflows of cosyte/.github. Until they
-exist, no CI job compares a package's full mutation score with its floor: that happens only when
-a person runs `cosyte-mutate full` and then `cosyte-ratchet check`, and properties run 100 cases
-only.
+exist, a package's full mutation score is compared with its floor only when a person starts this
+repository's Full mutation workflow, or runs `cosyte-mutate full` and then `cosyte-ratchet check`,
+and properties run 100 cases only.
 
 ### 8. How a repository adopts it
 

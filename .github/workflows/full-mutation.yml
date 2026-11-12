@@ -1,0 +1,59 @@
+name: Full mutation
+
+# THE FULL MUTATION RUN OF EVERY PACKAGE WITH A MUTATION FLOOR, BY HAND, IN PARALLEL SHARDS. The
+# `mutation` job in ci.yml mutates only what a pull request changed; this runs `cosyte-mutate full`
+# over everything each package's StrykerJS config names, and compares each package's whole score
+# with its floor in quality-floor.json. It is the only CI job that does.
+#
+# Start it from the Actions tab (Full mutation, Run workflow, branch main), or with
+#   gh workflow run full-mutation.yml --repo cosyte/config --ref main
+#
+# WHY SHARDS. A full run of @cosyte/script-utils does not fit one 60 minute job on a 4-core hosted
+# runner: the PHI-scan engine alone takes 10 to 13 minutes on 16 cores. The shared workflow below
+# gives each shard its own runner, and `cosyte-mutate full` reads COSYTE_MUTATE_SHARD and mutates only
+# the files of its shard: a file is in shard k of n when the FNV-1a hash of its path mod n is k - 1.
+# With 5 shards the PHI-scan engine and the docs-content check, the two largest modules, fall in
+# different shards (test/full-mutation-workflow.test.ts holds that). Changing the count starts every
+# shard without incremental results once, since files move between shards.
+#
+# WHAT THE SHARED WORKFLOW DOES, and what makes this run red: each shard keeps Stryker's incremental
+# results in the Actions cache, so a later run retests only what changed; a final `mutation` job
+# merges the shard reports into one reports/mutation/mutation.json per package and runs
+# `cosyte-ratchet check --skip coverage`. A shard that fails, or that passes its 340 minute limit and
+# is cancelled, fails that job, and so does a package whose score is below its floor. A package that
+# holds a mutation floor and is left out of the command leaves no report, and the ratchet stops the
+# run unread, so every such package is in the command (the test above holds that too).
+#
+# IT NEVER COMMITS. The run's summary, and ratchet.txt in its `mutation-report` artifact, give each
+# package's measured score, cut to two decimals as `cosyte-ratchet raise` writes a floor; each
+# shard's own report is in its `mutation-report-shard-<k>-of-5` artifact. To raise a floor, open a
+# pull request that sets it to what a green run measured, and name the run.
+#
+# ON A PULL REQUEST ONLY WHEN THIS FILE CHANGES, so a change to it is proved by running it before it
+# lands. It is not a required check, and no other pull request starts it.
+
+on:
+  workflow_dispatch: {}
+  pull_request:
+    paths:
+      - ".github/workflows/full-mutation.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  full-mutation:
+    permissions:
+      contents: read # required to resolve the reusable workflow (else contents:none is a startup failure)
+    uses: cosyte/.github/.github/workflows/weekly-mutation.yml@398cd4ded647dddd9f2e220ceb042840f59e1426 # workflows-2026-11-10-398cd4ded647
+    with:
+      # @cosyte/vitest-config and @cosyte/test-utils run from their own directories;
+      # @cosyte/script-utils runs from the root, because most of its tests are in the root suite.
+      # `pnpm build` first: the root suite imports packages that tsup builds.
+      mutate-cmd: >-
+        pnpm build
+        && (cd packages/vitest-config && pnpm exec cosyte-mutate full)
+        && (cd packages/test-utils && pnpm exec cosyte-mutate full)
+        && pnpm exec cosyte-mutate full --config packages/script-utils/stryker.config.mjs
+      shard-count: 5
+      node-version: "24"

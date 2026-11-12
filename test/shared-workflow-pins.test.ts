@@ -19,8 +19,8 @@ import {
  * ONE SHARED-WORKFLOW PIN, IN THIS REPOSITORY AND IN THE PARSER TEMPLATE ALIKE.
  *
  * Every call to a reusable workflow in cosyte/.github is pinned to the commit of a published
- * `workflows-*` reference, and the pins move together, by hand. This repository calls three of them
- * (codeql, scorecard, pr-title) and the template six. When one moves and another does not, the two
+ * `workflows-*` reference, and the pins move together, by hand. This repository calls four of them
+ * (codeql, scorecard, pr-title, weekly-mutation) and the template six. When one moves and another does not, the two
  * sets of callers run different shared code under the same reference name in their comments, and
  * every repository scaffolded afterwards is born on the stale one. The title check is where that
  * showed: this repository's pr-title.yml moved to the commit that requires a scope while its
@@ -52,6 +52,7 @@ describe("the shared-workflow pins", () => {
       "codeql.yml",
       "pr-title.yml",
       "scorecard.yml",
+      "weekly-mutation.yml",
     ]);
     expect(TEMPLATE_CALLERS.map((c) => c.workflow).sort()).toEqual([
       "ci.yml",

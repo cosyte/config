@@ -87,6 +87,27 @@ This workspace runs on its own packages too. The root's `vitest.config.ts` is `c
 exactly, rather than from the workspace: its bin is built by tsup, so a clean install has no bin to
 link yet. `test/root-dogfood.test.ts` holds this wiring in place.
 
+## The full mutation run
+
+A pull request's `mutation` job mutates only the files it changed. The whole of each package with a
+mutation floor in [`quality-floor.json`](quality-floor.json) is mutated by the Full mutation
+workflow, [`.github/workflows/full-mutation.yml`](.github/workflows/full-mutation.yml), which runs
+only when someone starts it. Start it on main from the Actions tab (Full mutation, then Run
+workflow), or from a terminal:
+
+```sh
+gh workflow run full-mutation.yml --repo cosyte/config --ref main
+```
+
+It splits `cosyte-mutate full` across 5 parallel jobs with `COSYTE_MUTATE_SHARD`, so the PHI-scan
+engine and the docs-content check of `@cosyte/script-utils` run on different runners, then merges
+the shards into one report per package and holds each score to its floor. The run is red when a
+shard fails or runs out of time, or when a score is below its floor. It never commits. The run's
+summary, and `ratchet.txt` in its `mutation-report` artifact, give each package's measured score,
+cut to two decimals the way `cosyte-ratchet raise` writes a floor; each shard's report is in its own
+`mutation-report-shard-<k>-of-5` artifact. To raise a floor, open a pull request that sets it to the
+score a green run measured, and name the run. It is not a required check.
+
 ## PHI and safety
 
 This repository publishes build configuration, not a data path. Nothing here parses, stores,
