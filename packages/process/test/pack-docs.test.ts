@@ -1,12 +1,24 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  symlinkSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
+import { gunzipSync } from "node:zlib";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { cleanupTempDirs, ensureBuilt, makeTempDir, runCli } from "./helpers.js";
-import { DOCS_ARTIFACT, PACK_DOCS_INPUTS, SOURCE_ARTIFACT } from "../src/pack-docs.js";
+import { DOCS_ARTIFACT, PACK_DOCS_INPUTS, packDocs, SOURCE_ARTIFACT } from "../src/pack-docs.js";
 import { run } from "../src/run.js";
 
 /**
@@ -261,5 +273,234 @@ describe("a refusal while building an archive leaves no half-built artifact set"
     // directory holding both is what must not exist afterwards.
     expect(runCli(["pack-docs"], dir).code).toBe(1);
     expect(existsSync(join(dir, "dist-artifacts"))).toBe(false);
+  });
+});
+
+/** Write a `cosyte-process.config.json` into a tree. */
+function configure(dir: string, config: unknown): void {
+  writeFileSync(join(dir, "cosyte-process.config.json"), `${JSON.stringify(config)}\n`);
+}
+
+/** A file the tree did not start with, at a path relative to its root. */
+function place(dir: string, path: string, content: string): void {
+  const absolute = join(dir, ...path.split("/"));
+  mkdirSync(join(absolute, ".."), { recursive: true });
+  writeFileSync(absolute, content);
+}
+
+/** Fix every file's mode and modification time, so an archive's bytes depend on content alone. */
+function pin(dir: string): void {
+  const walk = (directory: string): void => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const absolute = join(directory, entry.name);
+      if (entry.isDirectory()) {
+        walk(absolute);
+        continue;
+      }
+      chmodSync(absolute, 0o644);
+      utimesSync(absolute, 1_700_000_000, 1_700_000_000);
+    }
+  };
+  walk(dir);
+}
+
+/** The sha256 of an archive's uncompressed tar stream: the gzip layer belongs to the zlib build. */
+function tarDigest(archive: string): string {
+  return createHash("sha256")
+    .update(gunzipSync(readFileSync(archive)))
+    .digest("hex");
+}
+
+/** A synthetic dependency inventory, plainly fake, standing in for one a release job produces. */
+const INVENTORY = '{ "bomFormat": "CycloneDX", "components": [{ "name": "fake-dep" }] }\n';
+
+describe("pack-docs.sourceFiles: extra files carried in source.tar.gz", () => {
+  it("adds each named file at the tarball root, under its file name, with its bytes", async () => {
+    const dir = tree();
+    place(dir, "build/inventory.cdx.json", INVENTORY);
+    configure(dir, { "pack-docs": { sourceFiles: ["build/inventory.cdx.json"] } });
+    const result = await runIn(["pack-docs"], dir);
+    expect(result.code).toBe(0);
+    const source = join(dir, "dist-artifacts", SOURCE_ARTIFACT);
+    expect(members(source)).toEqual([
+      "inventory.cdx.json",
+      "package.json",
+      "src/index.ts",
+      "src/lib/util.ts",
+      "tsconfig.json",
+    ]);
+    expect(readFileSync(join(extract(source), "inventory.cdx.json"), "utf8")).toBe(INVENTORY);
+    // The docs archive is not where these go.
+    expect(members(join(dir, "dist-artifacts", DOCS_ARTIFACT))).not.toContain("inventory.cdx.json");
+  });
+
+  it("reads a file in the output directory itself, written there by an earlier step", async () => {
+    const dir = tree();
+    place(dir, "dist-artifacts/dependency-inventory.cdx.json", INVENTORY);
+    configure(dir, {
+      "pack-docs": { sourceFiles: ["dist-artifacts/dependency-inventory.cdx.json"] },
+    });
+    expect((await runIn(["pack-docs"], dir)).code).toBe(0);
+    expect(members(join(dir, "dist-artifacts", SOURCE_ARTIFACT))).toContain(
+      "dependency-inventory.cdx.json",
+    );
+  });
+
+  it("follows a symlink that stays inside the package", async () => {
+    const dir = tree();
+    place(dir, "build/inventory.cdx.json", INVENTORY);
+    symlinkSync(join(dir, "build", "inventory.cdx.json"), join(dir, "linked.cdx.json"));
+    configure(dir, { "pack-docs": { sourceFiles: ["linked.cdx.json"] } });
+    expect((await runIn(["pack-docs"], dir)).code).toBe(0);
+    const source = join(dir, "dist-artifacts", SOURCE_ARTIFACT);
+    expect(readFileSync(join(extract(source), "linked.cdx.json"), "utf8")).toBe(INVENTORY);
+  });
+
+  it("refuses a file that does not exist, naming it, and writes nothing", async () => {
+    const dir = tree();
+    configure(dir, { "pack-docs": { sourceFiles: ["build/absent.cdx.json"] } });
+    const result = await runIn(["pack-docs"], dir);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain(
+      `pack-docs: ${dir}: "pack-docs.sourceFiles" in cosyte-process.config.json: ` +
+        "build/absent.cdx.json: does not exist: produce it before this step, or take it off the " +
+        "list, then run cosyte-process pack-docs again. Nothing was written.",
+    );
+    expect(result.stderr).toContain("Nothing was written.");
+    expect(result.stderr).not.toMatch(STACK_FRAME);
+    expect(existsSync(join(dir, "dist-artifacts"))).toBe(false);
+  });
+
+  it("refuses a directory, which is not a file", async () => {
+    const dir = tree();
+    configure(dir, { "pack-docs": { sourceFiles: ["docs-content"] } });
+    const result = await runIn(["pack-docs"], dir);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain(
+      "docs-content: is not a regular file: name a file, not a directory",
+    );
+    expect(existsSync(join(dir, "dist-artifacts"))).toBe(false);
+  });
+
+  it.each(["../outside.cdx.json", "build/../../outside.cdx.json", ".."])(
+    "refuses %s, which escapes the package, without reading it",
+    async (escaping) => {
+      const dir = tree();
+      // The file exists, so the refusal is about where it is, not whether it is there.
+      writeFileSync(join(dir, "..", "outside.cdx.json"), INVENTORY);
+      configure(dir, { "pack-docs": { sourceFiles: [escaping] } });
+      const result = await runIn(["pack-docs"], dir);
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain(
+        `${escaping}: is outside the package root: name a path relative to it`,
+      );
+      expect(result.stderr).toContain("Nothing was written.");
+      expect(existsSync(join(dir, "dist-artifacts"))).toBe(false);
+    },
+  );
+
+  it("refuses an absolute path, even one inside the package", async () => {
+    const dir = tree();
+    const absolute = join(dir, "README.md");
+    configure(dir, { "pack-docs": { sourceFiles: [absolute] } });
+    const result = await runIn(["pack-docs"], dir);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain(`${absolute}: is outside the package root`);
+    expect(existsSync(join(dir, "dist-artifacts"))).toBe(false);
+  });
+
+  it("refuses a symlink inside the package that points out of it", async () => {
+    const dir = tree();
+    const outside = join(dir, "..", "outside.cdx.json");
+    writeFileSync(outside, INVENTORY);
+    symlinkSync(outside, join(dir, "escape.cdx.json"));
+    configure(dir, { "pack-docs": { sourceFiles: ["escape.cdx.json"] } });
+    const result = await runIn(["pack-docs"], dir);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain(
+      "escape.cdx.json: resolves outside the package root through a symlink: name a file " +
+        "inside the package",
+    );
+    expect(existsSync(join(dir, "dist-artifacts"))).toBe(false);
+  });
+
+  it("refuses a path under a symlinked directory that points out of the package", async () => {
+    const dir = tree();
+    const outside = join(dir, "..", "outside-dir");
+    mkdirSync(outside, { recursive: true });
+    writeFileSync(join(outside, "inventory.cdx.json"), INVENTORY);
+    symlinkSync(outside, join(dir, "linked-dir"));
+    configure(dir, { "pack-docs": { sourceFiles: ["linked-dir/inventory.cdx.json"] } });
+    const result = await runIn(["pack-docs"], dir);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("resolves outside the package root");
+    expect(existsSync(join(dir, "dist-artifacts"))).toBe(false);
+  });
+
+  it.each([
+    ["package.json", ["build/package.json"]],
+    ["src", ["build/src"]],
+    ["inventory.cdx.json", ["a/inventory.cdx.json", "b/inventory.cdx.json"]],
+  ])("refuses a second member named %s rather than overwrite one", async (name, files) => {
+    const dir = tree();
+    for (const file of files) place(dir, file, INVENTORY);
+    configure(dir, { "pack-docs": { sourceFiles: files } });
+    const result = await runIn(["pack-docs"], dir);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain(
+      `source.tar.gz already carries "${name}": rename the file or take it off the list`,
+    );
+    expect(existsSync(join(dir, "dist-artifacts"))).toBe(false);
+  });
+
+  it("refuses a malformed option with the config file's own diagnostic", async () => {
+    const dir = tree();
+    configure(dir, { "pack-docs": { sourceFiles: "build/inventory.cdx.json" } });
+    const result = await runIn(["pack-docs"], dir);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("cosyte-process.config.json");
+    expect(result.stderr).toContain(
+      `pack-docs: ${join(dir, "cosyte-process.config.json")}: "pack-docs.sourceFiles" must be ` +
+        "an array of non-empty strings: correct the file, then run cosyte-process pack-docs " +
+        "again. Nothing was written.",
+    );
+    expect(result.stderr).not.toMatch(STACK_FRAME);
+    expect(existsSync(join(dir, "dist-artifacts"))).toBe(false);
+  });
+});
+
+describe("a sourceFiles refusal names what it refused over", () => {
+  it("names the entry it refused", () => {
+    const dir = tree();
+    configure(dir, { "pack-docs": { sourceFiles: ["build/absent.cdx.json"] } });
+    expect(() => packDocs(dir)).toThrow(
+      expect.objectContaining({ name: "PackDocsError", missing: ["build/absent.cdx.json"] }),
+    );
+  });
+
+  it("names the config file when the option itself is malformed", () => {
+    const dir = tree();
+    configure(dir, { "pack-docs": [] });
+    expect(() => packDocs(dir)).toThrow(
+      expect.objectContaining({ name: "PackDocsError", missing: ["cosyte-process.config.json"] }),
+    );
+  });
+});
+
+describe("with no sourceFiles, source.tar.gz is byte-identical to the archive before the option", () => {
+  // The sha256 of the uncompressed source archive this command wrote for the pinned tree below before
+  // the option existed: no config, a config without the key and an empty list all still match it.
+  const BEFORE = "9036d98bc029279e1ed3fdf15facc9f03cb28da261e7baf1eb886592e81565a5";
+
+  it.each([
+    ["no config file", undefined],
+    ["a config without pack-docs", { lint: { flags: [] } }],
+    ["an empty sourceFiles list", { "pack-docs": { sourceFiles: [] } }],
+  ])("matches with %s", async (_label, config) => {
+    const dir = tree();
+    pin(dir);
+    if (config !== undefined) configure(dir, config);
+    expect((await runIn(["pack-docs"], dir)).code).toBe(0);
+    expect(tarDigest(join(dir, "dist-artifacts", SOURCE_ARTIFACT))).toBe(BEFORE);
   });
 });
