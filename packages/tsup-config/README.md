@@ -88,6 +88,46 @@ The merge is shallow and the overrides win, so nothing here is unreachable. That
 build config that cannot be adjusted per package is one a package works around by not using it. The
 baseline is what you get for free, not what you are held to.
 
+## Code splitting and `plainCjsExports`
+
+Turn `plainCjsExports` on whenever you turn `splitting` on, so that two entry points share one copy
+of a module (one error class, one piece of state) instead of each bundling its own:
+
+```ts
+export default cosyteTsup({
+  entry: { index: "src/index.ts", parse: "src/parse.ts" },
+  splitting: true,
+  plainCjsExports: true,
+});
+```
+
+With `splitting` on, tsup has rollup write each CommonJS entry point on its own, and rollup
+re-exports what the shared chunk holds as getters that cannot be redefined. A caller who stubs an
+export (`jest.spyOn(lib, "parse")`, `vi.spyOn`) or assigns to one in strict mode gets a
+`TypeError`, where a one-file build gave them writable data properties. `plainCjsExports` rewrites
+the export block at the end of each CommonJS entry point back into those data properties once tsup
+has written it, so the CommonJS exports look the same as a one-file build's. The ESM output is not
+touched.
+
+It rewrites a getter only when it reads a chunk the same build wrote, and only when that chunk
+exports the binding as a plain value it never reassigns, so the copy is the value the getter would
+have returned. Anything else fails the build rather than ship a getter:
+
+- a star re-export of a module the build leaves external (`export * from "node:path"`), which
+  rollup writes as getters inside a loop;
+- a named re-export of a module the build leaves external, and a re-exported `let` the shared chunk
+  reassigns, since a copy would not follow either;
+- any other getter, `defineProperty` on `exports`, `exports` passed whole to a function, or
+  `module.exports` in an entry point, and an export block that does not end the file.
+
+An export name that is not an identifier, `__proto__` among them, is defined with
+`Object.defineProperty`, so no name can set the module's prototype.
+
+The option needs the baseline's `treeshake: true`, which is what makes rollup write the CommonJS
+output this reads. It adds a tsup plugin after any `plugins` you pass. Leave it off for a one-file
+build: its exports are already data properties, except a re-export of an external package, which
+rollup writes as a getter in either build and the option would refuse.
+
 ## PHI and safety
 
 This package is build configuration. It shapes how a library is compiled and packed, reads no
@@ -96,7 +136,7 @@ runtime input, and never sees patient data: nothing here logs, retains or transm
 ## Compatibility
 
 Dual **ESM + CJS** with `.d.ts`, **ES2023** target, Node platform, treeshake on, splitting off,
-`.mjs` and `.cjs` out-extensions, and sourcemaps. The out-extensions are deliberate: they make each
+`.mjs` and `.cjs` out-extensions, and sourcemaps. `plainCjsExports` is off unless you turn it on. The out-extensions are deliberate: they make each
 artifact's module system explicit in its filename rather than dependent on the nearest
 `package.json` `type` field.
 
