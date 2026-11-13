@@ -55,8 +55,8 @@ importers:
         specifier: 5.1.0
         version: 5.1.0(vitest@5.1.0)
       prettier:
-        specifier: 3.9.10
-        version: 3.9.10
+        specifier: 3.10.1
+        version: 3.10.1
       tsup:
         specifier: 9.0.0
         version: 9.0.0(postcss@8.5.23)(typescript@5.9.3)(yaml@2.9.1)
@@ -94,8 +94,8 @@ importers:
         specifier: 10.14.0
         version: 10.14.0
       prettier:
-        specifier: 3.9.10
-        version: 3.9.10
+        specifier: 3.10.1
+        version: 3.10.1
       tsup:
         specifier: 9.0.0
         version: 9.0.0(postcss@8.5.23)(typescript@5.9.3)(yaml@2.9.1)
@@ -138,8 +138,8 @@ importers:
         specifier: 10.14.0
         version: 10.14.0
       prettier:
-        specifier: 3.9.10
-        version: 3.9.10
+        specifier: 3.10.1
+        version: 3.10.1
       tsup:
         specifier: 9.0.0
         version: 9.0.0(postcss@8.5.23)(typescript@5.9.3)(yaml@2.9.1)
@@ -217,8 +217,8 @@ importers:
         specifier: 4.10.2
         version: 4.10.2
       prettier:
-        specifier: 3.9.10
-        version: 3.9.10
+        specifier: 3.10.1
+        version: 3.10.1
       tsup:
         specifier: 9.0.0
         version: 9.0.0(postcss@8.5.23)(typescript@5.9.3)(yaml@2.9.1)
@@ -2523,6 +2523,11 @@ packages:
   prelude-ls@1.2.1:
     resolution: {integrity: sha512-vkcDPrRZo1QZLbn5RLGPpg/WmIQ65qoWWhcGKf/b5eplkkarX0m9z8ppCat4mlOqUsWpyNuYgO3VRyrYHSzX5g==}
     engines: {node: '>= 0.8.0'}
+
+  prettier@3.10.1:
+    resolution: {integrity: sha512-70vp3ZUYoPlFbF9uiTdXHUUCGEIp7d4+6p+8DYbkm2jP7x/3i/paXVF6dopSI3zd/CEitrZN1rc4i85xWmmXlg==}
+    engines: {node: '>=14'}
+    hasBin: true
 
   prettier@3.9.10:
     resolution: {integrity: sha512-skGHTH1Yb9QvaTC4hWnRTzEYtCpApF0UMBPz+t/0ZPzP8ihefo/btKd+QA7pUE0fEwA1SbS/NmhyEcstdXOIdA==}
@@ -5499,6 +5504,8 @@ snapshots:
       source-map-js: 1.2.2
 
   prelude-ls@1.2.1: {}
+
+  prettier@3.10.1: {}
 
   prettier@3.9.10: {}
 
