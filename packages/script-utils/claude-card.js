@@ -19,6 +19,14 @@
 //   bytes          at most `CARD_MAX_BYTES` bytes of UTF-8
 //   agents-import  when an AGENTS.md sits beside the card, the card imports it on a line of its own
 //                  (`@AGENTS.md`); an import of an AGENTS.md that is not there is a finding too
+//   gate-pointer   when an AGENTS.md sits beside the card, `## Gate` names AGENTS.md, where the
+//                  gate's commands are written once
+//   gate-commands  ... and `## Gate` holds no code block: the commands are not repeated there
+//   gate-required  ... and `## Gate` never says which checks are required: only the ruleset knows
+//
+// An AGENTS.md beside the card is what marks a public repository: a public one carries it, and a
+// private one keeps the card alone. The three gate rules bind that card only, because a private
+// repository writes its gate under the card's own `## Gate`.
 //
 // EXIT CODES, the contract every gate here keeps: 0 the card follows the spec, 1 a finding, 2 the
 // gate could not read its input.
@@ -69,7 +77,37 @@ export const CARD_RULES = Object.freeze({
   width: `Every line is at most ${CARD_MAX_LINE_LENGTH} characters, code blocks included.`,
   bytes: `At most ${CARD_MAX_BYTES.toLocaleString("en-US")} bytes.`,
   "agents-import": `The card imports a sibling AGENTS.md on a line of its own (${AGENTS_IMPORT}).`,
+  "gate-pointer": "With an AGENTS.md beside the card, `## Gate` points to the gate in AGENTS.md.",
+  "gate-commands": "With an AGENTS.md beside the card, `## Gate` holds no code block of commands.",
+  "gate-required":
+    "With an AGENTS.md beside the card, `## Gate` does not say which checks are required.",
 });
+
+/** Where a finding sends a reader who needs the required checks: the ruleset, never a file. */
+const RULESET_COMMAND = "gh api repos/cosyte/<repo>/rules/branches/main";
+
+/** A fence that opens or closes a fenced code block. */
+const FENCE = /^ {0,3}(`{3,}|~{3,})/;
+
+/** A line that starts a list item. */
+const LIST_ITEM = /^ {0,3}([-*+]|\d{1,9}[.)])[ \t]/;
+
+/**
+ * The 0-based index, within `body`, of the first line that is code: a fence, or an indented code
+ * block (four spaces or a tab, after a blank line, where the text before the blank line is neither
+ * a list item nor itself indented, so a list item's own continuation is not taken for code).
+ * Returns -1 when there is none.
+ */
+function firstCodeLine(body) {
+  for (let i = 0; i < body.length; i += 1) {
+    if (FENCE.test(body[i])) return i;
+    if (!/^( {4}|\t)\s*\S/.test(body[i]) || i === 0 || body[i - 1].trim() !== "") continue;
+    let before = i - 1;
+    while (before >= 0 && body[before].trim() === "") before -= 1;
+    if (before < 0 || (!LIST_ITEM.test(body[before]) && !/^[ \t]/.test(body[before]))) return i;
+  }
+  return -1;
+}
 
 /** Which of the three sections a level-2 heading's text is, or `null` for none of them. */
 function sectionOf(text) {
@@ -226,6 +264,42 @@ export function checkClaudeCard(text, context = {}) {
   }
 
   // ---- AGENTS.md ------------------------------------------------------------------------------
+  // A public repository writes its gate once, under `## The gate` in AGENTS.md, and its card points
+  // there: the gate was written in up to four places per repository, and the copies drifted from
+  // CI. No file says which checks are required, because nothing in a repository can see its own
+  // ruleset, so a list goes stale unnoticed.
+  if (context.agentsMd === true && found.has("Gate")) {
+    const heading = found.get("Gate");
+    const next = headings.find((h) => h.line > heading.line && h.level <= 2);
+    const start = heading.line + 1;
+    const body = lines.slice(start, next === undefined ? lines.length : next.line);
+    if (!body.some((line) => line.includes("AGENTS.md"))) {
+      add(
+        "gate-pointer",
+        heading.line + 1,
+        "an AGENTS.md sits beside the card, so the gate is written there, under `## The gate`, " +
+          "and the Gate section points to it by name (AGENTS.md).",
+      );
+    }
+    const code = firstCodeLine(body);
+    if (code >= 0) {
+      add(
+        "gate-commands",
+        start + code + 1,
+        "the Gate section repeats commands in a code block. They belong in AGENTS.md alone, " +
+          "under `## The gate`; the card points there.",
+      );
+    }
+    const required = body.findIndex((line) => /\brequired\b/i.test(line));
+    if (required >= 0) {
+      add(
+        "gate-required",
+        start + required + 1,
+        "the Gate section says which checks are required. A file cannot see the ruleset, so " +
+          `the list goes stale: drop it, and read the checks with \`${RULESET_COMMAND}\`.`,
+      );
+    }
+  }
   if (typeof context.agentsMd === "boolean") {
     const imports = lines.some((line) => line.trim() === AGENTS_IMPORT);
     if (context.agentsMd && !imports) {

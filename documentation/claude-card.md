@@ -15,13 +15,19 @@ This is the spec. `@cosyte/script-utils/claude-card` checks it, and the parser t
    repository otherwise (`# cosyte/config`). A repository whose documents carry YAML front matter
    may put that block first; the title is then the first line after it.
 2. **What this is.** One short paragraph under the title. A public repository's card then imports
-   its `AGENTS.md` on a line of its own, `@AGENTS.md` (ST26), so the build, test and gate commands
-   and the data rule are written once.
+   its `AGENTS.md` on a line of its own, `@AGENTS.md`, so the build, test and gate commands and the
+   data rule are written once, in `AGENTS.md`.
 3. **Three sections, in this order**, each a level-2 heading that starts with its word. A heading
    may go on after the word: `## Hazard: a change here reaches every repo`, `## Rules that bind
 here`.
-   - `## Gate`: what must pass before a push. The required checks by name, and the commands in a
-     fenced block, in the order CI runs them.
+   - `## Gate`: what must pass before a push. The gate equals what CI runs, in CI's order, with a
+     check CI cannot run marked local only, and it is written in one place. A public repository
+     writes it under `## The gate` in `AGENTS.md`, and its card's Gate points there by name and
+     holds no code block of commands: copies of a gate kept in several files drifted from CI. A
+     private repository, which has no `AGENTS.md`, writes the commands here in a fenced block.
+   - No card names the required checks, public or private. Nothing in a repository can see its own
+     ruleset, so a written list goes stale unnoticed; read it with
+     `gh api repos/cosyte/<repo>/rules/branches/main`.
    - `## Hazard`: what a change here can break that a green gate would not show, and what to do
      about it.
    - `## Rules`: the rules that bind in this repository, one bullet each. Each names the failure
@@ -69,4 +75,7 @@ node node_modules/@cosyte/script-utils/claude-card.js --dir <path> # another rep
 
 It exits 0 when the card follows this spec, 1 with one line per finding (each naming its line and
 rule), and 2 when it cannot read `CLAUDE.md`. When an `AGENTS.md` sits beside the card, the card must
-import it; a card that imports an `AGENTS.md` that is not there is a finding too.
+import it; a card that imports an `AGENTS.md` that is not there is a finding too. An `AGENTS.md`
+beside the card is what marks a public repository for the checker, so with one there a Gate section
+that does not name `AGENTS.md`, holds a code block (fenced, or indented after a blank line), or uses
+the word "required" is a finding. The checker does not read a private card for required checks.

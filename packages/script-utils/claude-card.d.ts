@@ -29,7 +29,10 @@ export type CardRule =
   | "lines"
   | "width"
   | "bytes"
-  | "agents-import";
+  | "agents-import"
+  | "gate-pointer"
+  | "gate-commands"
+  | "gate-required";
 
 /** Every rule id, with what it requires. */
 export declare const CARD_RULES: Readonly<Record<CardRule, string>>;
@@ -43,7 +46,11 @@ export interface CardFinding {
 }
 
 export interface CardContext {
-  /** Whether an AGENTS.md sits beside the card. Left out, the import rule is not checked. */
+  /**
+   * Whether an AGENTS.md sits beside the card, which marks a public repository. When true, the
+   * card's Gate section must point to AGENTS.md, hold no code block, and not say which checks are
+   * required. Left out, the import rule and the three gate rules are not checked.
+   */
   agentsMd?: boolean;
 }
 
