@@ -1,0 +1,29 @@
+import { lenientNeverThrowsProperty } from "@cosyte/test-utils";
+import { describe, it } from "vitest";
+
+import { hostile{{Pascal}}Text } from "../../src/arbitraries/index.js";
+import {
+  {{PREFIX}}_FATAL_CODES,
+  {{PREFIX}}_WARNING_CODES,
+  {{Pascal}}ParseError,
+  parse{{Pascal}},
+  type {{Pascal}}Document,
+} from "../../src/index.js";
+
+const fatalCodes = new Set<string>(Object.values({{PREFIX}}_FATAL_CODES));
+const warningCodes = new Set<string>(Object.values({{PREFIX}}_WARNING_CODES));
+
+describe("lenient never throws", () => {
+  it("throws only a fatal code on hostile input, and every warning has a registered code", () => {
+    lenientNeverThrowsProperty({
+      arbitrary: hostile{{Pascal}}Text(),
+      parse: (raw) => parse{{Pascal}}(raw),
+      isFatal: (error) => error instanceof {{Pascal}}ParseError && fatalCodes.has(error.code),
+      getWarnings: (parsed) => (parsed as {{Pascal}}Document).warnings,
+      isKnownCode: (code) => warningCodes.has(code),
+      hasPositionalContext: (warning) =>
+        typeof (warning.position as { segmentIndex?: unknown } | undefined)?.segmentIndex ===
+        "number",
+    });
+  });
+});

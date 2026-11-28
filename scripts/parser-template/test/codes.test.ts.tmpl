@@ -1,0 +1,47 @@
+import { sortedCodeSet } from "@cosyte/test-utils";
+import { describe, expect, it } from "vitest";
+
+import {
+  {{PREFIX}}_FATAL_CODES,
+  {{PREFIX}}_PROFILE_CODES,
+  {{PREFIX}}_WARNING_CODES,
+} from "../src/index.js";
+
+// The code sets are public API: a caller branches on them. These snapshots fail on any change, so
+// an added, renamed or removed code is a reviewed diff. Each code is emitted and triggered by a test
+// in parse.test.ts or profiles.test.ts.
+describe("the code registries", () => {
+  it("lists the warning codes", () => {
+    expect(sortedCodeSet({{PREFIX}}_WARNING_CODES)).toEqual([
+      "{{PREFIX}}_EMPTY_SEGMENT",
+      "{{PREFIX}}_MALFORMED_SEGMENT_ID",
+    ]);
+  });
+
+  it("lists the fatal codes", () => {
+    expect(sortedCodeSet({{PREFIX}}_FATAL_CODES)).toEqual([
+      "{{PREFIX}}_EMPTY_INPUT",
+      "{{PREFIX}}_INVALID_UTF8",
+    ]);
+  });
+
+  it("lists the profile codes", () => {
+    expect(sortedCodeSet({{PREFIX}}_PROFILE_CODES)).toEqual([
+      "{{PREFIX}}_INVALID_FIELD_SEPARATOR",
+      "{{PREFIX}}_INVALID_PROFILE_NAME",
+    ]);
+  });
+
+  it("gives every code the package's prefix, as a key equal to its value", () => {
+    for (const registry of [
+      {{PREFIX}}_WARNING_CODES,
+      {{PREFIX}}_FATAL_CODES,
+      {{PREFIX}}_PROFILE_CODES,
+    ]) {
+      for (const [key, value] of Object.entries(registry)) {
+        expect(value).toBe(key);
+        expect(value.startsWith("{{PREFIX}}_"), value).toBe(true);
+      }
+    }
+  });
+});

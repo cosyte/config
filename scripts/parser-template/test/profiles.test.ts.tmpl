@@ -1,0 +1,61 @@
+import { describe, expect, it } from "vitest";
+
+import { {{PREFIX}}_PROFILE_CODES, {{Pascal}}ProfileError, define{{Pascal}}Profile } from "../src/index.js";
+
+/** The code of the error a definition throws, or a failure when it throws none. */
+function refusal(input: Parameters<typeof define{{Pascal}}Profile>[0]): unknown {
+  try {
+    define{{Pascal}}Profile(input);
+  } catch (error) {
+    expect(error).toBeInstanceOf({{Pascal}}ProfileError);
+    expect(error).toHaveProperty("name", "{{Pascal}}ProfileError");
+    return error instanceof {{Pascal}}ProfileError ? error.code : undefined;
+  }
+  throw new Error("expected the definition to be refused");
+}
+
+describe("define{{Pascal}}Profile", () => {
+  it("defines a frozen profile with the default separator", () => {
+    const profile = define{{Pascal}}Profile({ name: "vendor-a" });
+    expect(profile).toEqual({ name: "vendor-a", fieldSeparator: "|" });
+    expect(Object.isFrozen(profile)).toBe(true);
+  });
+
+  it("accepts a one-character separator and a name of letters, digits, dots, underscores, hyphens", () => {
+    expect(define{{Pascal}}Profile({ name: "A.b_c-9", fieldSeparator: "^" }).fieldSeparator).toBe("^");
+    expect(define{{Pascal}}Profile({ name: "x".repeat(64) }).name).toHaveLength(64);
+  });
+
+  it("refuses a name that is empty, too long, or holds another character", () => {
+    for (const name of ["", "x".repeat(65), "has space", "-leading", "semi;colon"]) {
+      expect(refusal({ name }), name).toBe({{PREFIX}}_PROFILE_CODES.{{PREFIX}}_INVALID_PROFILE_NAME);
+    }
+  });
+
+  it("refuses a separator that is not one character, or is the terminator", () => {
+    for (const fieldSeparator of ["", "||", "\r"]) {
+      expect(refusal({ name: "vendor-a", fieldSeparator }), JSON.stringify(fieldSeparator)).toBe(
+        {{PREFIX}}_PROFILE_CODES.{{PREFIX}}_INVALID_FIELD_SEPARATOR,
+      );
+    }
+  });
+
+  it("gives each refusal its code's message, with nothing from the input in it", () => {
+    try {
+      define{{Pascal}}Profile({ name: "vendor-a", fieldSeparator: "SECRET" });
+    } catch (error) {
+      expect(error).toHaveProperty(
+        "message",
+        "A field separator is one character, and not the segment terminator.",
+      );
+    }
+    try {
+      define{{Pascal}}Profile({ name: "SECRET NAME" });
+    } catch (error) {
+      expect(error).toHaveProperty(
+        "message",
+        "A profile name is 1 to 64 letters, digits, dots, underscores or hyphens.",
+      );
+    }
+  });
+});

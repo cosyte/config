@@ -8,8 +8,8 @@
 // The emitted skeleton is born compliant with the canonical toolchain and the drift check
 // (config/drift-manifest.json): it inherits the shared @cosyte/* config packages, calls the reusable
 // cosyte/.github workflows, ships Changesets with generated changelogs, and carries the parser
-// archetype stubs (parse<Name>, WARNING_CODES, FATAL_CODES) plus the @cosyte/test-utils property
-// harness.
+// archetype (parse<Name>, serialize<Name>, define<Name>Profile, <PREFIX>_WARNING_CODES,
+// <PREFIX>_FATAL_CODES, an `/arbitraries` entry) plus the @cosyte/test-utils property tests.
 //
 // Usage:
 //   node scripts/scaffold-parser.mjs <name> [--title "Human Title"] [--out <dir>]
@@ -587,9 +587,18 @@ function main() {
     "{{TITLE}}": title, // human-readable, e.g. "X12"
     "{{Pascal}}": toPascal(name), // PascalCase identifier, e.g. X12 / Ccda, for type & fn names
     // The PascalCase identifier in lower case, e.g. x12 / ccda: the heading anchor the generated
-    // API reference gives an export such as `Parse{{Pascal}}Options`. It differs from `{{NAME}}`
+    // API reference gives an export such as `{{Pascal}}ParseOptions`. It differs from `{{NAME}}`
     // only for a name with a hyphen, whose anchor has none.
     "{{SLUG}}": toPascal(name).toLowerCase(),
+    // The prefix every warning, fatal and profile code carries, upper snake case: x12 -> X12,
+    // c-cda -> C_CDA. A bare code from two packages cannot be told apart in one log.
+    "{{PREFIX}}": name.toUpperCase().replaceAll("-", "_"),
+    // The same prefix in lower case: the heading anchor the generated API reference gives a code
+    // registry such as `{{PREFIX}}_WARNING_CODES`.
+    "{{PREFIX_LOWER}}": name.replaceAll("-", "_"),
+    // The same prefix as the generated API reference writes it in Markdown prose, each underscore
+    // escaped. It differs from `{{PREFIX}}` only for a name with a hyphen.
+    "{{PREFIX_MD}}": name.toUpperCase().replaceAll("-", "\\_"),
   };
 
   copyTree(TEMPLATE_DIR, destDir, tokens);

@@ -18,15 +18,16 @@ npm install --save-exact {{PKG}}
 
 ## 2. Parse a payload
 
-`parse{{Pascal}}` takes the payload as a string and returns the parsed value with the warnings the
-parse recorded:
+`parse{{Pascal}}` takes the payload as text or as UTF-8 bytes and returns a frozen document: its
+segments, each with its fields as written, and the warnings the parse recorded:
 
 ```ts runnable
 import { parse{{Pascal}} } from "{{PKG}}";
 
-const result = parse{{Pascal}}("");
+const document = parse{{Pascal}}("ABC|1|2\r");
 
-Array.isArray(result.warnings); // => true
+document.segments[0]?.id; // => "ABC"
+document.segments[0]?.fields; // => ["ABC", "1", "2"]
 ```
 
 ## 3. Read the warnings
@@ -37,9 +38,9 @@ quotes the payload, so a warning is safe to count, store, or send to a log:
 ```ts runnable
 import { parse{{Pascal}} } from "{{PKG}}";
 
-const codes = parse{{Pascal}}("").warnings.map((warning) => warning.code);
+const codes = parse{{Pascal}}("ABC|1\r\rabc\r").warnings.map((warning) => warning.code);
 
-codes; // => []
+codes; // => ["{{PREFIX}}_EMPTY_SEGMENT", "{{PREFIX}}_MALFORMED_SEGMENT_ID"]
 ```
 
 ## What you built

@@ -1,8 +1,9 @@
 #!/usr/bin/env tsx
 /**
  * Derive the package's public export surface from a built `.d.ts` and compare it against the
- * committed inventory, `release/public-api.json` for the main entry point, `{{PKG}}`. A further
- * entry point gets its own inventory, `release/public-api-<entry>.json`, and a row in `ENTRIES`.
+ * committed inventory: `release/public-api.json` for the main entry point, `{{PKG}}`, and
+ * `release/public-api-arbitraries.json` for `{{PKG}}/arbitraries`. A further entry point gets its
+ * own inventory, `release/public-api-<entry>.json`, and a row in `ENTRIES`.
  *
  * WHY THIS EXISTS. `dist/index.d.ts` is what every consumer's editor and compiler reads, and it
  * is assembled by a bundler from a barrel: nothing in `pnpm lint`, `pnpm typecheck` or the test
@@ -58,8 +59,8 @@
  *
  *     tsx scripts/api-surface.ts [--entry <name>] [--declarations <path>] [--inventory <path>] [--write]
  *
- *   --entry         the entry point, a key of `ENTRIES`: `index` (the default, `{{PKG}}`). It
- *                   sets the two defaults below.
+ *   --entry         the entry point: `index` (the default, `{{PKG}}`) or `arbitraries`
+ *                   (`{{PKG}}/arbitraries`). It sets the two defaults below.
  *   --declarations  the built `.d.ts` to read (default `dist/<entry>.d.ts`, relative to cwd)
  *   --inventory     the committed inventory (default `release/public-api.json` for `index`,
  *                   `release/public-api-<entry>.json` otherwise, relative to cwd)
@@ -103,6 +104,12 @@ const ENTRIES = {
     inventory: "release/public-api.json",
     specifier: "{{PKG}}",
     regenerate: "tsx scripts/api-surface.ts --write",
+  },
+  arbitraries: {
+    declarations: "dist/arbitraries.d.ts",
+    inventory: "release/public-api-arbitraries.json",
+    specifier: "{{PKG}}/arbitraries",
+    regenerate: "tsx scripts/api-surface.ts --entry arbitraries --write",
   },
 } as const;
 

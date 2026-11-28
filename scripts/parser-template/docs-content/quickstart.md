@@ -8,40 +8,61 @@ description: "Parse a {{TITLE}} payload with {{PKG}} and read the warnings the l
 # Quickstart
 
 Parse a {{TITLE}} payload and read the result. The parse is lenient by default: input with a known
-deviation parses, and the deviation comes back as a warning rather than a thrown error.
+deviation parses, and the deviation comes back as a warning on the document rather than a thrown
+error.
 
 ## Parse a payload
 
 ```ts runnable
 import { parse{{Pascal}} } from "{{PKG}}";
 
-const { warnings } = parse{{Pascal}}("");
+const document = parse{{Pascal}}("ABC|1|2\rDEF|3\r");
 
-warnings.length; // => 0
+document.segments.length; // => 2
+document.segments[0]?.fields[1]; // => "1"
+document.warnings.length; // => 0
 ```
 
 ## Branch on a warning code
 
-Each warning carries a stable code from `WARNING_CODES`, so a branch on it keeps working from one
-release to the next. The set of codes can grow in any release, so keep a default branch:
+Each warning carries a stable code from `{{PREFIX}}_WARNING_CODES`, so a branch on it keeps
+working from one release to the next. The set of codes can grow in any release, so keep a default
+branch:
 
 ```ts runnable
-import { parse{{Pascal}}, WARNING_CODES } from "{{PKG}}";
+import { parse{{Pascal}}, {{PREFIX}}_WARNING_CODES } from "{{PKG}}";
 
-const { warnings } = parse{{Pascal}}("");
+const { warnings } = parse{{Pascal}}("ABC|1\r\rDEF|2\r");
 
-let tolerated = 0;
+let empty = 0;
 for (const warning of warnings) {
   switch (warning.code) {
-    case WARNING_CODES.EXAMPLE_TOLERATED_DEVIATION:
-      tolerated += 1;
+    case {{PREFIX}}_WARNING_CODES.{{PREFIX}}_EMPTY_SEGMENT:
+      empty += 1;
       break;
     default:
       break;
   }
 }
 
-tolerated; // => 0
+empty; // => 1
+```
+
+## Refuse a deviation
+
+`strict: true` throws a `{{Pascal}}ParseError` at the first warning, with that warning's code:
+
+```ts runnable
+import { parse{{Pascal}}, {{Pascal}}ParseError } from "{{PKG}}";
+
+let code: string | undefined;
+try {
+  parse{{Pascal}}("ABC|1\r\rDEF|2\r", { strict: true });
+} catch (error) {
+  if (error instanceof {{Pascal}}ParseError) code = error.code;
+}
+
+code; // => "{{PREFIX}}_EMPTY_SEGMENT"
 ```
 
 ## Next

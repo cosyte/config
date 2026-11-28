@@ -10,19 +10,17 @@ description: "What this release of {{PKG}} does not do yet, so you do not rely o
 This page lists what `{{PKG}}` does not do in this release. Each entry is removed by the release
 that adds the capability.
 
-## The parse returns a stub
+## The grammar is a placeholder
 
-`parse{{Pascal}}` returns an empty value and no warnings for every payload. The tokenizer and the
-model are not written yet.
+`parse{{Pascal}}` reads segments ended by `\r` and fields split on `|` (or a profile's separator),
+with a segment identifier of three characters. It does not yet read the {{TITLE}} grammar itself:
+its escapes, its repetitions, or its components.
 
-## The code registries hold placeholders
+## Two warnings
 
-`WARNING_CODES` and `FATAL_CODES` each hold one example entry, which nothing emits.
+The parse warns on an empty segment and on a segment that does not begin with an identifier, and
+on nothing else yet.
 
-## There is no serializer
+## No builder
 
-Nothing turns a parsed value back into a {{TITLE}} payload yet.
-
-## The input is a string
-
-`parse{{Pascal}}` takes a `string`. A `Uint8Array` input arrives with the tokenizer.
+There is no builder for writing a new payload from values; the serializer writes a parsed one.

@@ -1,0 +1,71 @@
+/**
+ * The scaling gate for `parse{{Pascal}}`, from `@cosyte/test-utils/perf`, run by `pnpm test:perf`
+ * and never under coverage (see `vitest.perf.config.ts`).
+ *
+ * It asks one question: does parsing cost grow faster than the input? On the count axis, four
+ * times the payloads; on the size axis, payloads four times longer. It does not see a constant
+ * slowdown. The self-check proves the fixtures are large enough for the gate to fail: the same
+ * parse reached quadratically must clear the ceiling at exactly these sizes. Every input is
+ * synthetic and built here from an index.
+ */
+
+import {
+  assertScalingGateFires,
+  scalingGate,
+  type ScalingGateOptions,
+} from "@cosyte/test-utils/perf";
+import { describe, expect, it } from "vitest";
+
+import { parse{{Pascal}}, serialize{{Pascal}}, type {{Pascal}}Document } from "../../src/index.js";
+
+/** A synthetic segment, the same length for every index. */
+function segmentText(i: number): string {
+  const n = String(i % 1_000_000).padStart(6, "0");
+  return `SEG|${n}|ALPHA${n}|BETA|GAMMA`;
+}
+
+/** A payload of `segments` segments. */
+function payload(i: number, segments: number): string {
+  return Array.from({ length: segments }, (_v, k) => segmentText(i + k)).join("\r") + "\r";
+}
+
+/**
+ * The same parse reached the wrong way: each segment is found by scanning from the start of the
+ * text, so the cost grows with the square of the segment count. It parses exactly what
+ * `parse{{Pascal}}` parses, which the self-check confirms before it times anything.
+ */
+function parseQuadratic(raw: string): {{Pascal}}Document {
+  const count = raw.split("\r").length - 1;
+  const lines: string[] = [];
+  for (let i = 0; i < count; i++) {
+    let start = 0;
+    for (let k = 0; k < i; k++) start = raw.indexOf("\r", start) + 1;
+    lines.push(raw.slice(start, raw.indexOf("\r", start)));
+  }
+  return parse{{Pascal}}(lines.join("\r") + "\r");
+}
+
+const options: ScalingGateOptions<string, {{Pascal}}Document> = {
+  name: "{{PKG}} parse{{Pascal}}",
+  parse: (raw) => parse{{Pascal}}(raw),
+  weigh: (document) => document.segments.length,
+  count: { n: 1_000, generate: (i) => payload(i, 5) },
+  size: { inputs: 20, size: 1_000, generate: (i, size) => payload(i, size) },
+};
+
+describe("the scaling gate: parse{{Pascal}}", () => {
+  it("has not acquired a complexity regression on either axis", () => {
+    const report = scalingGate(options);
+    // A skip is not a pass: a gate that could not measure says so here.
+    expect(report.count.status, report.count.diagnostic).toBe("measured");
+    expect(report.size.status, report.size.diagnostic).toBe("measured");
+  });
+
+  it("has fixtures large enough for that gate to fail", () => {
+    const report = assertScalingGateFires(options, {
+      regressedParse: parseQuadratic,
+      equals: (a, b) => serialize{{Pascal}}(a) === serialize{{Pascal}}(b),
+    });
+    expect(report.margin).toBeGreaterThan(1);
+  });
+});

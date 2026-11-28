@@ -1,0 +1,18 @@
+/**
+ * Where a warning or an error points in a {{TITLE}} payload.
+ *
+ * `segmentIndex` counts segments from 0 in the order they appear: an index we assign to count
+ * occurrences, not a number the standard assigns. A field number, where one is added, is the
+ * standard's own and counts from 1.
+ *
+ * @example
+ * ```ts
+ * import type { {{Pascal}}Position } from "{{PKG}}";
+ *
+ * const first: {{Pascal}}Position = { segmentIndex: 0 };
+ * ```
+ */
+export interface {{Pascal}}Position {
+  /** The segment, counted from 0 in the order the payload holds them. */
+  readonly segmentIndex: number;
+}

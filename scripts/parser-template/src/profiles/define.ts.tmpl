@@ -1,0 +1,87 @@
+import { {{Pascal}}ProfileError } from "../errors.js";
+import { deepFreeze } from "../model/freeze.js";
+
+/**
+ * The field separator a payload is read with when no profile names another.
+ *
+ * @internal
+ * @example
+ * ```ts no-run an internal constant the package does not export
+ * DEFAULT_FIELD_SEPARATOR; // => "|"
+ * ```
+ */
+export const DEFAULT_FIELD_SEPARATOR = "|";
+
+/**
+ * The segment terminator. A profile cannot change it.
+ *
+ * @internal
+ * @example
+ * ```ts no-run an internal constant the package does not export
+ * SEGMENT_TERMINATOR; // => "\r"
+ * ```
+ */
+export const SEGMENT_TERMINATOR = "\r";
+
+/** A profile name: what a log or a report may print, so it is short and plain. */
+const PROFILE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+
+/**
+ * What a profile definition takes.
+ *
+ * @example
+ * ```ts
+ * import type { {{Pascal}}ProfileInput } from "{{PKG}}";
+ *
+ * const input: {{Pascal}}ProfileInput = { name: "vendor-a", fieldSeparator: "^" };
+ * ```
+ */
+export interface {{Pascal}}ProfileInput {
+  /** A name for the profile: 1 to 64 letters, digits, `.`, `_` or `-`. */
+  readonly name: string;
+  /** The field separator the sender uses, when it is not `|`. One character, not `\r`. */
+  readonly fieldSeparator?: string;
+}
+
+/**
+ * A vendor profile: how one sender's payloads are read. A profile shapes the parse; it never
+ * removes a warning from the result. Deep-frozen.
+ *
+ * @example
+ * ```ts
+ * import { define{{Pascal}}Profile } from "{{PKG}}";
+ *
+ * define{{Pascal}}Profile({ name: "vendor-a" }).fieldSeparator; // => "|"
+ * ```
+ */
+export interface {{Pascal}}Profile {
+  /** The profile's name. */
+  readonly name: string;
+  /** The field separator payloads read with this profile use. */
+  readonly fieldSeparator: string;
+}
+
+/**
+ * Define a vendor profile, checked once here so a parse never meets a bad one.
+ *
+ * @param input - The profile's name and the settings it changes.
+ * @returns The frozen profile.
+ * @throws {{{Pascal}}ProfileError} When the name or a setting is refused.
+ * @example
+ * ```ts
+ * import { define{{Pascal}}Profile, parse{{Pascal}} } from "{{PKG}}";
+ *
+ * const profile = define{{Pascal}}Profile({ name: "vendor-a", fieldSeparator: "^" });
+ * parse{{Pascal}}("ABC^1^2", { profile }).segments[0]?.fields.length; // => 3
+ * ```
+ */
+export function define{{Pascal}}Profile(input: {{Pascal}}ProfileInput): {{Pascal}}Profile {
+  if (!PROFILE_NAME.test(input.name)) {
+    throw new {{Pascal}}ProfileError("{{PREFIX}}_INVALID_PROFILE_NAME");
+  }
+  const fieldSeparator = input.fieldSeparator ?? DEFAULT_FIELD_SEPARATOR;
+  if ([...fieldSeparator].length !== 1 || fieldSeparator === SEGMENT_TERMINATOR) {
+    throw new {{Pascal}}ProfileError("{{PREFIX}}_INVALID_FIELD_SEPARATOR");
+  }
+  return deepFreeze({ name: input.name, fieldSeparator });
+}

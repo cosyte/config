@@ -1,4 +1,12 @@
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -30,6 +38,10 @@ const TOKENS: Record<string, string> = {
   "{{NAME}}": "demo",
   "{{TITLE}}": "Demo",
   "{{Pascal}}": "Demo",
+  "{{SLUG}}": "demo",
+  "{{PREFIX}}": "DEMO",
+  "{{PREFIX_LOWER}}": "demo",
+  "{{PREFIX_MD}}": "DEMO",
 };
 
 function substitute(text: string): string {
@@ -154,13 +166,23 @@ describe("parser-template docs-content spine", () => {
 describe("parser-template runnable snippets pass against the scaffold source", () => {
   // Materialize the substituted scaffold source so a snippet's `import ... from "@cosyte/demo"` can be
   // remapped to it: the same fast source-resolution the template's own docs-content.test.ts uses.
+  // The whole source tree, since the entry point re-exports the modules beside it.
   mkdirSync(TMP, { recursive: true });
-  const srcPath = join(TMP, "index.ts");
-  writeFileSync(
-    srcPath,
-    substitute(readFileSync(join(TEMPLATE, "src", "index.ts.tmpl"), "utf8")),
-    "utf8",
-  );
+  const srcDir = join(TMP, "src");
+  cpSync(join(TEMPLATE, "src"), srcDir, { recursive: true });
+  const substituteTree = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        substituteTree(path);
+      } else {
+        writeFileSync(path.replace(/\.tmpl$/, ""), substitute(readFileSync(path, "utf8")), "utf8");
+        if (path.endsWith(".tmpl")) rmSync(path);
+      }
+    }
+  };
+  substituteTree(srcDir);
+  const srcPath = join(srcDir, "index.ts");
 
   const quickstart = substitute(
     readFileSync(join(TEMPLATE, "docs-content", "quickstart.md"), "utf8"),

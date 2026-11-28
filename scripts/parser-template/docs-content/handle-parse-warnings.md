@@ -18,14 +18,15 @@ warning. This guide sorts a parse's warnings into the ones you accept and the on
 3. Keep the codes, never the payload, in what you record.
 
 ```ts runnable
-import { parse{{Pascal}}, WARNING_CODES, type WarningCode } from "{{PKG}}";
+import { parse{{Pascal}}, {{PREFIX}}_WARNING_CODES as CODES } from "{{PKG}}";
+import type { {{Pascal}}WarningCode } from "{{PKG}}";
 
-const accepted = new Set<WarningCode>([WARNING_CODES.EXAMPLE_TOLERATED_DEVIATION]);
+const accepted = new Set<{{Pascal}}WarningCode>([CODES.{{PREFIX}}_EMPTY_SEGMENT]);
 
-const { warnings } = parse{{Pascal}}("");
+const { warnings } = parse{{Pascal}}("ABC|1\r\rabc\r");
 const refused = warnings.filter((warning) => !accepted.has(warning.code));
 
-refused.length; // => 0
+refused.map((warning) => warning.code); // => ["{{PREFIX}}_MALFORMED_SEGMENT_ID"]
 ```
 
 [Tolerance and warnings](./tolerance-and-warnings.md) explains which deviations warn and which
