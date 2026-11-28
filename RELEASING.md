@@ -330,7 +330,9 @@ anything: the registry has already been written.
    `npm view <pkg> versions --json` for each of the published packages, compared against
    `git show HEAD:packages/<pkg>/package.json`.
 3. For every package published on that commit that still has no tag and release, create both by hand:
-   `gh release create '<pkg>@<version>' --target <sha> --title '<pkg>@<version>' --notes-file <file>`,
+   `gh release create '<pkg>@<version>' docs-content.tar.gz --target <sha> --title '<pkg>@<version>' --notes-file <file>`,
+   with the archive packed at that commit by `bash scripts/pack-docs-content.sh docs-content.tar.gz`
+   (a release is immutable, so the archive goes in this call or never),
    writing the body yourself from the changesets that commit consumed (`git show HEAD^:.changeset/`)
    or from that version's section of the package's `CHANGELOG.md`.
    The tag form is `<pkg>@<version>` and **must not** be simplified to `v<version>`: several packages
@@ -534,12 +536,22 @@ changelog either way, because it reads changesets.
 
 docs.cosyte.com reads a repository's pages from the `docs-content.tar.gz` asset of its latest GitHub
 release. Here those pages are the testing and performance standards in `docs-content/`, and the
-latest release is whichever package released last, so the publish job's last release step packs the
-folder at the release commit (`scripts/pack-docs-content.sh`) and attaches it to the release GitHub
-marks latest, replacing any copy already there, then reads the asset list back and reds the run if
-it is missing. CI's `release-dry-run` job packs the same archive on every pull request and lists it.
-`cosyte-process pack-docs` is not used: it also packs `src/` and `tsconfig.json`, which this
-repository has no root copy of.
+latest release is whichever package released last, so every release the publish job creates
+carries the archive. The job packs the folder at the release commit
+(`scripts/pack-docs-content.sh`) before it makes any release, and hands the file to the
+`gh release create` call that makes each one: this repository's releases are immutable, and GitHub
+refuses an upload to a published one (HTTP 422, "Cannot upload assets to an immutable release").
+Each create is read back by name, and the job's last release step reads the latest release back
+too. Nothing is ever uploaded to a release that exists. CI's `release-dry-run` job packs the same
+archive on every pull request and lists it. `cosyte-process pack-docs` is not used: it also packs
+`src/` and `tsconfig.json`, which this repository has no root copy of.
+
+**A release without the archive stays without it.** If the pack fails, no release is created, so
+none is made that can never be given it; fix `docs-content/` on `main`, then create what is owed
+by hand as in (d), step 3. A release that was created without it (an interrupted create, or one
+made while this workflow still uploaded the archive afterwards) cannot be repaired by an upload: it
+stays as it is, the run reds naming it, and the site reads the archive again once a later release,
+which carries it, becomes the latest.
 
 The asset moves only when a package publishes, so a changed standard reaches the site with the next
 release of any package here.

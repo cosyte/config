@@ -322,17 +322,29 @@ describe("the workflows", () => {
     expect(verify).toContain("sha256sum --check --strict");
   });
 
-  it("attach the archive to the latest release after the releases are made", () => {
+  it("pack the archive before any release is made, and only read it back from the latest", () => {
+    // Releases are immutable: GitHub refuses an upload to a published one with HTTP 422, so the
+    // archive is packed before the release steps and attached in their create calls.
     const release = read(".github/workflows/release.yml");
+    const pack = release.indexOf("- name: Pack the docs-content archive the releases carry");
+    const bumped = release.indexOf(
+      "- name: Every bumped package must be published, tagged and released",
+    );
     const reconcile = release.indexOf(
       "- name: Every package version on npm must have its tag and release",
     );
-    const attach = release.indexOf("- name: The latest release carries docs-content.tar.gz");
-    expect(reconcile).toBeGreaterThan(-1);
-    expect(attach).toBeGreaterThan(reconcile);
-    const step = release.slice(attach, release.indexOf("\n      - name:", attach + 1));
-    expect(step).toContain('bash scripts/pack-docs-content.sh "$asset"');
-    expect(step).toContain('gh release upload "$tag" "$asset" --clobber');
+    const latest = release.indexOf("- name: The latest release carries docs-content.tar.gz");
+    expect(pack).toBeGreaterThan(-1);
+    expect(bumped).toBeGreaterThan(pack);
+    expect(reconcile).toBeGreaterThan(bumped);
+    expect(latest).toBeGreaterThan(reconcile);
+    const packStep = release.slice(pack, release.indexOf("\n      - name:", pack + 1));
+    expect(packStep).toContain(
+      'bash scripts/pack-docs-content.sh "$RUNNER_TEMP/docs-content.tar.gz"',
+    );
+    const step = release.slice(latest, release.indexOf("\n      - name:", latest + 1));
     expect(step).toContain("grep -qx 'docs-content.tar.gz'");
+    expect(step).not.toContain("pack-docs-content.sh");
+    expect(release).not.toContain("gh release upload");
   });
 });
