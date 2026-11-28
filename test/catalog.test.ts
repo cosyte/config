@@ -77,8 +77,21 @@ describe("the committed catalog", () => {
     expect(run(["check", "--self"]).code).toBe(0);
   });
 
-  it("names every tiered package, 14 libraries and Pathways", () => {
-    expect(tieredPackages(tiers)).toHaveLength(15);
+  it("names every tiered package, 15 libraries and Pathways", () => {
+    expect(tieredPackages(tiers)).toHaveLength(16);
+  });
+
+  it("records Pathways as released on npm, and IHE as a standard not on npm", () => {
+    const catalog = committed();
+    expect(catalog.engine).toMatchObject({
+      status: "released",
+      onNpm: true,
+      npm: "https://www.npmjs.com/package/@cosyte/pathways",
+    });
+    expect(catalog.engine.description).not.toMatch(/not yet released/);
+    const ihe = catalog.libraries.find((l: any) => l.name === "@cosyte/ihe");
+    expect(ihe).toMatchObject({ tier: "standard", standard: "IHE", onNpm: false });
+    expect(ihe).not.toHaveProperty("npm");
   });
 
   it.each([
@@ -89,8 +102,19 @@ describe("the committed catalog", () => {
     ],
     ["a wrong tier", (c: any) => (c.libraries[9].tier = "standard"), /tier "standard"/],
     ["a wrong standard name", (c: any) => (c.libraries[0].standard = "HL7"), /standard is "HL7"/],
-    ["a library dropped", (c: any) => c.libraries.pop(), /lists 13 libraries/],
-    ["Pathways on npm", (c: any) => (c.engine.onNpm = true), /onNpm is true/],
+    ["a library dropped", (c: any) => c.libraries.pop(), /lists 14 libraries/],
+    ["Pathways off npm", (c: any) => (c.engine.onNpm = false), /onNpm is false/],
+    ["Pathways with no npm URL", (c: any) => delete c.engine.npm, /pathways's npm URL/],
+    [
+      "a library on npm marked off it",
+      (c: any) => (c.libraries[0].onNpm = false),
+      /hl7's onNpm is false; the tiers file says true/,
+    ],
+    [
+      "a library not on npm given an npm URL",
+      (c: any) => (c.libraries[8].npm = "https://www.npmjs.com/package/@cosyte/ihe"),
+      /ihe is not on npm, and its record carries an npm URL/,
+    ],
     ["a docs URL edited", (c: any) => (c.libraries[1].docs = "https://cosyte.com"), /docs is/],
     ["an empty description", (c: any) => (c.libraries[2].description = ""), /no description/],
     ["the generated header removed", (c: any) => delete c.$comment, /generated header/],
@@ -152,7 +176,8 @@ describe("check --npm, against each library's latest release", () => {
   /** A fetcher over each library's `latest` manifest, and the names it was asked for. */
   function npm(edit: (manifests: Map<string, Record<string, any>>) => void = () => {}) {
     const manifests = new Map<string, Record<string, any>>();
-    for (const record of committed().libraries) {
+    const catalog = committed();
+    for (const record of [...catalog.libraries, catalog.engine].filter((r) => r.onNpm)) {
       manifests.set(record.name, {
         name: record.name,
         version: `${record.line}.7`,
@@ -199,12 +224,34 @@ describe("check --npm, against each library's latest release", () => {
     expect(() => npmViewArgs("left-pad")).toThrow(/not a @cosyte/);
   });
 
-  it("exits 0 when every release matches, and never asks npm for Pathways", async () => {
+  it("exits 0 when every release matches, and never asks npm for a package not on it", async () => {
     const { fetchManifest, asked } = npm();
     const r = await runMain(["check", "--npm"], fetchManifest);
     expect(r.code, r.out).toBe(0);
-    expect(asked).toHaveLength(14);
-    expect(asked).not.toContain("@cosyte/pathways");
+    expect(asked).toHaveLength(15);
+    expect(asked).toContain("@cosyte/pathways");
+    expect(asked).not.toContain("@cosyte/ihe");
+  });
+
+  it("exits 1 when Pathways released a new description", async () => {
+    const { fetchManifest } = npm((m) => {
+      m.get("@cosyte/pathways")!.description = "A released engine line.";
+    });
+    const r = await runMain(["check", "--npm"], fetchManifest);
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("catalog.engine.description");
+  });
+
+  it("carries a package not on npm from the committed catalog, and refuses one it lacks", async () => {
+    const base = committed();
+    base.libraries[8].description = "A committed line npm never saw.";
+    const { catalog } = await generateFromNpm(tiers, base, npm().fetchManifest);
+    expect(catalog.libraries[8].description).toBe("A committed line npm never saw.");
+
+    base.libraries.splice(8, 1);
+    await expect(generateFromNpm(tiers, base, npm().fetchManifest)).rejects.toThrow(
+      /no record for @cosyte\/ihe, and it is not on npm/,
+    );
   });
 
   it("regenerates the committed catalog byte for byte from releases that match it", async () => {

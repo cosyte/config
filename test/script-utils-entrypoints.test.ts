@@ -271,7 +271,7 @@ describe("the tarball a consumer installs", () => {
       ].join("\n"),
     );
     expect(probe.code, probe.out).toBe(0);
-    expect(probe.out.trim()).toBe("14 Pathways");
+    expect(probe.out.trim()).toBe("15 Pathways");
   });
 
   it("ships the CLAUDE.md card checker and its declarations, and runs it from the tarball", () => {

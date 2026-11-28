@@ -182,8 +182,9 @@ against it:
 ```ts runnable
 import { CATALOG, catalogEntry } from "@cosyte/script-utils/catalog";
 
-CATALOG.libraries.length; // => 14
-CATALOG.libraries.filter((library) => library.tier === "standard").length; // => 8
+CATALOG.libraries.length; // => 15
+CATALOG.libraries.filter((library) => library.tier === "standard").length; // => 9
+catalogEntry("@cosyte/ihe")?.onNpm; // => false
 catalogEntry("@cosyte/hl7")?.docs; // => "https://docs.cosyte.com/hl7"
 CATALOG.engine.displayName; // => "Pathways"
 ```
@@ -366,12 +367,12 @@ finding names its line and rule, from `CARD_RULES`), and 2 that CLAUDE.md could 
 
 ### The catalog
 
-`@cosyte/script-utils/catalog` is the one list of our libraries (ST13): the 8 standards (HL7 v2,
-MLLP, FHIR, C-CDA, X12, NCPDP, ASTM and DICOM), the 6 built on them (terminology, transform, deid,
-synth, dates and cli), and Pathways, our integration engine, in development and not on npm. Each
-record is generated from the package's own `package.json` (name, description, release line,
-engines, repository, docs and npm URLs) and carries its tier; the data ships as `catalog.json`
-beside the module, and `CATALOG` is that file, frozen.
+`@cosyte/script-utils/catalog` is the one list of our libraries: the standards (HL7 v2, MLLP, FHIR,
+C-CDA, X12, NCPDP, ASTM, DICOM and IHE), the libraries built on them (terminology, transform, deid,
+synth, dates and cli), and Pathways, our integration engine. Each record is generated from the
+package's own `package.json` (name, description, release line, engines, repository, and docs URL)
+and carries its tier and `onNpm`, with an `npm` URL only when the package is on npm (IHE is not on
+npm yet); the data ships as `catalog.json` beside the module, and `CATALOG` is that file, frozen.
 
 Each package.json description is that library's one canonical line (ST14). Two sides check it, and
 each checks one thing:

@@ -24,10 +24,12 @@ export interface CatalogRecord {
   readonly docs: string;
 }
 
-/** One of the 14 libraries. */
+/** One of the libraries. */
 export interface CatalogLibrary extends CatalogRecord {
-  /** `https://www.npmjs.com/package/<name>`. */
-  readonly npm: string;
+  /** `https://www.npmjs.com/package/<name>`, present only when the library is on npm. */
+  readonly npm?: string;
+  /** Whether it is published to npm. */
+  readonly onNpm: boolean;
   readonly tier: "standard" | "built-on";
   /** The standard, as readers see it (`HL7 v2`, `C-CDA`), for a library of the standard tier. */
   readonly standard?: string;
@@ -38,21 +40,24 @@ export interface CatalogEngine extends CatalogRecord {
   readonly tier: "engine";
   /** The product name, `Pathways`. */
   readonly displayName: string;
-  /** For example `in development`. */
+  /** For example `released`. */
   readonly status: string;
   /** Whether it is published to npm. */
   readonly onNpm: boolean;
+  /** `https://www.npmjs.com/package/<name>`, present only when it is on npm. */
+  readonly npm?: string;
 }
 
 export interface Catalog {
-  /** The 8 standards' libraries, then the 6 built on them, in the order ST13 names them. */
+  /** The standards' libraries, then the libraries built on them, in the tiers file's order. */
   readonly libraries: readonly CatalogLibrary[];
   readonly engine: CatalogEngine;
 }
 
 /** The hand-kept tiers file, `catalog/tiers.json` in cosyte/config. */
 export interface CatalogTiers {
-  standards: { package: string; standard: string }[];
+  /** A standard is on npm unless its entry says `onNpm: false`. */
+  standards: { package: string; standard: string; onNpm?: boolean }[];
   builtOn: string[];
   engine: { package: string; name: string; status: string; onNpm: boolean };
 }

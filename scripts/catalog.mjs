@@ -26,8 +26,9 @@
 // npm says. `--npm` reads each library's `latest` manifest from the public registry instead of a
 // checkout, so it runs anywhere config does: nightly (.github/workflows/catalog-freshness.yml) and in
 // the release workflow before anything is published (through `npm view`, as the registry probe
-// does). Pathways is not on npm, so its record is carried
-// from the committed catalog and graded by `check --self` and `check --root`. npm keeps only the
+// does). A package the tiers file marks as not on npm has no release to read, so its record is
+// carried from the committed catalog and graded by `check --self` and `check --root`; a package new
+// to the catalog that is not on npm enters it through `write` from the umbrella. npm keeps only the
 // first 255 characters of a description; a description longer than that is fresh when npm holds its
 // first 255 characters, and the run prints a note naming the package, because readers on npm see it
 // cut.
@@ -151,11 +152,31 @@ export async function fetchNpmManifest(name) {
   return manifest;
 }
 
+/** Every tiered package, in the tiers file's order, with whether it is on npm. */
+export function onNpmByPackage(tiers) {
+  return [
+    ...tiers.standards.map((entry) => ({ name: entry.package, onNpm: entry.onNpm !== false })),
+    ...tiers.builtOn.map((name) => ({ name, onNpm: true })),
+    { name: tiers.engine.package, onNpm: tiers.engine.onNpm === true },
+  ];
+}
+
+/** The package.json fields a committed record was generated from, rebuilt from that record. */
+function manifestOf(record) {
+  return {
+    name: record.name,
+    description: record.description,
+    version: record.line.includes(".") ? `${record.line}.0` : `${record.line}.0.0`,
+    engines: record.engines,
+    repository: record.repository,
+  };
+}
+
 /**
- * Generate the catalog from each library's latest release on npm. Pathways is not on npm, so its
- * record is rebuilt from the committed one. A library whose committed description is longer than
- * npm keeps, and whose npm description is that description's first 255 characters, keeps the full
- * committed description, and is named in the returned notes.
+ * Generate the catalog from each package's latest release on npm. A package the tiers file marks as
+ * not on npm has its record rebuilt from the committed one. A package whose committed description
+ * is longer than npm keeps, and whose npm description is that description's first 255 characters,
+ * keeps the full committed description, and is named in the returned notes.
  *
  * @param {Record<string, any>} tiers The parsed tiers file.
  * @param {{ libraries: object[], engine: object }} committed The committed catalog.
@@ -165,8 +186,19 @@ export async function fetchNpmManifest(name) {
 export async function generateFromNpm(tiers, committed, fetchManifest = fetchNpmManifest) {
   const manifests = new Map();
   const notes = [];
-  const libraries = [...tiers.standards.map((entry) => entry.package), ...tiers.builtOn];
-  for (const name of libraries) {
+  const records = [...(committed?.libraries ?? []), committed?.engine];
+  for (const { name, onNpm } of onNpmByPackage(tiers)) {
+    const before = records.find((entry) => entry?.name === name);
+    if (!onNpm) {
+      if (before === undefined) {
+        throw new InvocationError(
+          `the committed catalog has no record for ${name}, and it is not on npm: run ` +
+            "`node scripts/catalog.mjs write` from the umbrella to add it.",
+        );
+      }
+      manifests.set(name, manifestOf(before));
+      continue;
+    }
     let fetched;
     try {
       fetched = await fetchManifest(name);
@@ -175,34 +207,21 @@ export async function generateFromNpm(tiers, committed, fetchManifest = fetchNpm
       throw new InvocationError(`could not read ${name}'s latest release from npm: ${err.message}`);
     }
     const manifest = { ...fetched };
-    const before = committed?.libraries?.find((entry) => entry.name === name)?.description;
+    const description = before?.description;
     if (
-      typeof before === "string" &&
-      before.length > NPM_DESCRIPTION_LIMIT &&
-      manifest.description === before.slice(0, NPM_DESCRIPTION_LIMIT)
+      typeof description === "string" &&
+      description.length > NPM_DESCRIPTION_LIMIT &&
+      manifest.description === description.slice(0, NPM_DESCRIPTION_LIMIT)
     ) {
-      manifest.description = before;
+      manifest.description = description;
       notes.push(
-        `${name}'s description is ${before.length} characters and npm keeps ` +
+        `${name}'s description is ${description.length} characters and npm keeps ` +
           `${NPM_DESCRIPTION_LIMIT}, so readers on npm see it cut at ` +
-          `${JSON.stringify(before.slice(NPM_DESCRIPTION_LIMIT - 20, NPM_DESCRIPTION_LIMIT))}.`,
+          `${JSON.stringify(description.slice(NPM_DESCRIPTION_LIMIT - 20, NPM_DESCRIPTION_LIMIT))}.`,
       );
     }
     manifests.set(name, manifest);
   }
-  const engine = committed?.engine;
-  if (engine === undefined || engine?.name !== tiers.engine.package) {
-    throw new InvocationError(
-      `the committed catalog has no record for ${tiers.engine.package}, and it is not on npm.`,
-    );
-  }
-  manifests.set(engine.name, {
-    name: engine.name,
-    description: engine.description,
-    version: engine.line.includes(".") ? `${engine.line}.0` : `${engine.line}.0.0`,
-    engines: engine.engines,
-    repository: engine.repository,
-  });
   try {
     return { catalog: { ...GENERATED, ...buildCatalog(tiers, manifests) }, notes };
   } catch (err) {
@@ -229,8 +248,9 @@ export function checkSelf(catalog, tiers) {
       name: entry.package,
       tier: "standard",
       standard: entry.standard,
+      onNpm: entry.onNpm !== false,
     })),
-    ...tiers.builtOn.map((name) => ({ name, tier: "built-on" })),
+    ...tiers.builtOn.map((name) => ({ name, tier: "built-on", onNpm: true })),
   ];
   if (libraries.length !== expected.length) {
     problems.push(
@@ -256,7 +276,11 @@ export function checkSelf(catalog, tiers) {
     }
     if (want.standard === undefined && "standard" in got)
       problems.push(`${want.name} is built on the standards and names none.`);
-    problems.push(...shapeProblems(got, true));
+    if (got.onNpm !== want.onNpm)
+      problems.push(
+        `${want.name}'s onNpm is ${JSON.stringify(got.onNpm)}; the tiers file says ${want.onNpm}.`,
+      );
+    problems.push(...shapeProblems(got, want.onNpm));
   });
   const engine = catalog?.engine;
   if (engine?.name !== tiers.engine.package) {
@@ -276,7 +300,7 @@ export function checkSelf(catalog, tiers) {
         );
       }
     }
-    problems.push(...shapeProblems(engine, false));
+    problems.push(...shapeProblems(engine, tiers.engine.onNpm === true));
   }
   if (catalog?.$comment !== GENERATED.$comment)
     problems.push("the catalog's generated header is missing or edited.");
@@ -311,6 +335,8 @@ function shapeProblems(record, onNpm) {
   }
   if (onNpm && record.npm !== `https://www.npmjs.com/package/${name}`)
     problems.push(`${name}'s npm URL is ${JSON.stringify(record.npm)}.`);
+  if (!onNpm && "npm" in record)
+    problems.push(`${name} is not on npm, and its record carries an npm URL.`);
   return problems;
 }
 
@@ -386,7 +412,7 @@ export async function main(argv, { fetchManifest = fetchNpmManifest } = {}) {
       if (mode === "write") {
         writeFileSync(CATALOG_PATH, serialize(catalog));
         process.stdout.write(
-          `catalog: wrote ${CATALOG_PATH} from the latest npm release of ${tiers.standards.length + tiers.builtOn.length} libraries\n`,
+          `catalog: wrote ${CATALOG_PATH} from the latest npm release of ${onNpmByPackage(tiers).filter((p) => p.onNpm).length} packages\n`,
         );
         return 0;
       }
