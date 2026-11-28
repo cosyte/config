@@ -120,7 +120,7 @@ const config = {
 // Hand that to `runInternalRefsScan(config)` and it returns an exit code. Checked here without
 // touching a repository, so this example reds if an axis is ever renamed under a consumer.
 resolveConfig(config).problems; // => undefined
-canonicalRuleNames().length; // => 6
+canonicalRuleNames().length; // => 12
 ```
 
 The `attw` publish gate is the fourth. It exists because `attw` prints "This package does not
@@ -860,9 +860,10 @@ gets wrong, and a default would be one repository's answer imposed on every othe
 
 The string-literal pass reads double-quoted, single-quoted and template literals (a multi-line
 template whole, a `${...}` as a space), decodes their escapes, and also reads the literals on one
-source line joined, so a phrase split across `"a " + "b"` is seen. It never reads a comment: a `//`
-line, a trailing `//` and a `/* */` block are skipped, so an item identifier in a maintainer's note
-stays allowed. A regular-expression literal is skipped too. In both source passes a NUL byte reads as
+source line joined, so a phrase split across `"a " + "b"` is seen. It never reads a comment. Every
+run also reads `DEFAULT_SURFACE_PATHS` whole, and each comment and string literal under
+`DEFAULT_SOURCE_ROOTS`, whatever the axes say; an exclude pathspec in an axis holds for the matching
+default pass. A regular-expression literal is skipped too. In every source pass a NUL byte reads as
 a space instead of refusing the file, since a raw separator inside a literal is legitimate source;
 the clean line counts them.
 
