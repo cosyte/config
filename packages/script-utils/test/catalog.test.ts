@@ -59,7 +59,7 @@ function manifests(overrides: Record<string, Record<string, unknown> | undefined
 }
 
 describe("the shipped catalog", () => {
-  it("lists the 14 libraries ST13 names, 8 standards then 6 built on them, and Pathways", () => {
+  it("lists 15 libraries, 9 standards then 6 built on them, and Pathways", () => {
     expect(CATALOG.libraries.map((l) => l.slug)).toEqual([
       "hl7",
       "mllp",
@@ -69,6 +69,7 @@ describe("the shipped catalog", () => {
       "ncpdp",
       "astm",
       "dicom",
+      "ihe",
       "terminology",
       "transform",
       "deid",
@@ -85,14 +86,17 @@ describe("the shipped catalog", () => {
       "NCPDP",
       "ASTM",
       "DICOM",
+      "IHE",
     ]);
     expect(CATALOG.engine).toMatchObject({
       name: "@cosyte/pathways",
       displayName: "Pathways",
       tier: "engine",
-      status: "in development",
-      onNpm: false,
+      status: "released",
+      onNpm: true,
+      npm: "https://www.npmjs.com/package/@cosyte/pathways",
     });
+    expect(CATALOG.libraries.filter((l) => !l.onNpm).map((l) => l.slug)).toEqual(["ihe"]);
     expect(TIERS).toEqual(["standard", "built-on", "engine"]);
   });
 
@@ -123,6 +127,7 @@ describe("buildCatalog", () => {
       repository: "https://github.com/cosyte/alpha",
       docs: "https://docs.cosyte.com/alpha",
       npm: "https://www.npmjs.com/package/@cosyte/alpha",
+      onNpm: true,
       tier: "standard",
       standard: "Alpha v2",
     });
@@ -136,6 +141,30 @@ describe("buildCatalog", () => {
       onNpm: false,
     });
     expect(catalog.engine).not.toHaveProperty("npm");
+  });
+
+  it("gives an npm URL only to a package on npm", () => {
+    const tiers = {
+      ...TIERS_FIXTURE,
+      standards: [
+        TIERS_FIXTURE.standards[0],
+        { package: "@cosyte/beta", standard: "BETA", onNpm: false },
+      ],
+      engine: { ...TIERS_FIXTURE.engine, status: "released", onNpm: true },
+    };
+    const catalog = buildCatalog(tiers, manifests());
+    expect(catalog.libraries[0]).toMatchObject({ onNpm: true });
+    expect(catalog.libraries[1]).toMatchObject({ slug: "beta", onNpm: false });
+    expect(catalog.libraries[1]).not.toHaveProperty("npm");
+    expect(catalog.libraries[2]).toMatchObject({
+      slug: "gamma",
+      onNpm: true,
+      npm: "https://www.npmjs.com/package/@cosyte/gamma",
+    });
+    expect(catalog.engine).toMatchObject({
+      onNpm: true,
+      npm: "https://www.npmjs.com/package/@cosyte/engine",
+    });
   });
 
   it.each([
