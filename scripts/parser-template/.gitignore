@@ -11,6 +11,10 @@ coverage/
 .vitest-cache/
 .cosyte-doc-snippets*/
 
+# Mutation testing (StrykerJS): the reports and the sandbox it runs in
+reports/
+.stryker-tmp/
+
 # Environment
 .env
 .env.*

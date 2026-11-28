@@ -58,6 +58,7 @@ describe("the shared-workflow pins", () => {
       "ci.yml",
       "codeql.yml",
       "gate-no-emdash-install.yml",
+      "gate-no-internal-refs-install.yml",
       "pr-title.yml",
       "release.yml",
       "scorecard.yml",

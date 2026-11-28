@@ -1,0 +1,78 @@
+{
+  "$comment": "The public-surface gate's axes for {{PKG}}, read by cosyte-internal-refs (@cosyte/script-utils, pnpm check:no-internal-refs). Keys starting with $ are notes. The rule set is the shared one; this file names the project prefixes the identifier rule keys on, the standards designations it must never flag, the public surface (what npm ships and docs.cosyte.com publishes), and the tarball files accounted for rather than scanned. src/ doc comments compile into dist/*.d.ts, so they and the string literals there are scanned too. Add a standards designation this format's readers need before the first page that uses one.",
+  "projectPrefixes": [
+    "PARSERS-PUBLIC",
+    "DOCS-CONTENT",
+    "KNOWLEDGEBASE",
+    "TERMINOLOGY",
+    "PATHWAYS",
+    "TRANSFORM",
+    "WEBSITE",
+    "STAGING",
+    "SUPPLY",
+    "NCPDP",
+    "ASSETS",
+    "EMDASH",
+    "README",
+    "CONFIG",
+    "DICOM",
+    "SYNTH",
+    "DEID",
+    "CCDA",
+    "ASTM",
+    "MLLP",
+    "FHIR",
+    "CREW",
+    "DOCS",
+    "PERF",
+    "SYNC",
+    "VERSION",
+    "PUBLIC",
+    "HL7",
+    "X12",
+    "IAC",
+    "CLI",
+    "KB",
+    "PW",
+    "PUB",
+    "CI",
+    "REAL",
+    "TERM",
+    "WF",
+    "VERIFY"
+  ],
+  "standardsDesignations": [
+    "HL7-(?:V2|V3|CDA|FHIR|OMG|\\d{3,4}[A-Z]?)",
+    "FHIR-R\\d[A-Z]?",
+    "DICOM-(?:SR|RT|SEG|DIR|PS\\d)",
+    "NCPDP-(?:SCRIPT|TELECOM|D\\.\\d)",
+    "X12-\\d{3}[A-Z]?",
+    "X12-\\d{6}",
+    "CCDA-R\\d(?:\\.\\d)?",
+    "ASTM-E\\d+"
+  ],
+  "surfacePaths": [
+    "README.md",
+    "TRADEMARKS.md",
+    "LICENSE",
+    "docs-content"
+  ],
+  "accountedTarballFiles": [
+    "CHANGELOG.md",
+    "dist"
+  ],
+  "sourceDocComments": {
+    "enabled": true,
+    "paths": [
+      "src/*.ts",
+      "src/**/*.ts"
+    ]
+  },
+  "sourceStringLiterals": {
+    "enabled": true,
+    "paths": [
+      "src/*.ts",
+      "src/**/*.ts"
+    ]
+  }
+}

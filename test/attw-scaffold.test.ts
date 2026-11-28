@@ -9,25 +9,23 @@
  *
  * WHY THIS FILE IS SEPARATE FROM `packages/test-utils/test/attw-gate.test.ts`.
  * That suite proves the wrapper works for the package this repo publishes. This
- * one proves the OTHER copy works: `scripts/parser-template/` is what
- * `scripts/scaffold-parser.mjs` mints every NEW `@cosyte/*` parser repo from, so
- * a fix that lands only in `packages/` leaves the defect being re-minted into
- * every future parser. That is the reason this repo is in the porting campaign at
- * all, and asserting it on the template alone would not prove it: the scaffolder
- * substitutes tokens as it copies, so what matters is the emitted tree.
+ * one proves what a NEW parser runs: `scripts/parser-template/` is what
+ * `scripts/scaffold-parser.mjs` mints every new `@cosyte/*` parser repo from, and
+ * its `attw` script is `cosyte-attw`, the gate's published command from
+ * `@cosyte/script-utils`, with no copy of a wrapper beside it. Asserting it on the
+ * template alone would not prove it: the scaffolder substitutes tokens as it
+ * copies, so what matters is the emitted tree.
  *
  * The end-to-end case therefore runs the REAL scaffolder, SIMULATES THE INSTALL,
  * and shows the emitted gate reddening on a pack that bare `attw` passes.
  * `pnpm install` is not available to a test, so the simulation is two plants and
- * nothing else: the `attw` binary at the path the emitted wrapper looks for,
- * reached through a generated shim, and `@cosyte/script-utils` where pnpm would
- * put it. The second plant is new, and it is what the consolidation costs this
- * suite: the emitted wrapper is now a CALLER of `@cosyte/script-utils/attw`
- * rather than a 1500-line copy of the gate, so a tree with no `node_modules`
- * would fail to resolve the body instead of running it. A COPY rather than a
- * symlink, for the reason `test/phi-scan-scaffold.test.ts` gives about its own
- * engine plant: a symlink into this workspace would let a test mutate the source
- * tree.
+ * nothing else: the `attw` binary where pnpm would link it, reached through a
+ * generated shim, and `@cosyte/script-utils` where pnpm would put it. The emitted
+ * `pnpm attw` runs that package's `cosyte-attw` bin in the repository root, so the
+ * cases here run that bin, found through the planted package's own `bin` map, in
+ * the directory under test. A COPY rather than a symlink, for the reason
+ * `test/phi-scan-scaffold.test.ts` gives about its own engine plant: a symlink
+ * into this workspace would let a test mutate the source tree.
  *
  * SECURITY: every subprocess call uses spawnSync with array args. No exec, no
  * shell form.
@@ -111,14 +109,51 @@ function installShared(dir: string): void {
   });
 }
 
-function run(bin: string, args: string[], cwd: string): RunResult {
-  const env = Object.fromEntries(
-    Object.entries(process.env).filter(([key]) => !PACK_PLACEMENT_CONFIG.test(key)),
-  );
+function run(
+  bin: string,
+  args: string[],
+  cwd: string,
+  extraEnv: Record<string, string> = {},
+): RunResult {
+  const env = {
+    ...Object.fromEntries(
+      Object.entries(process.env).filter(([key]) => !PACK_PLACEMENT_CONFIG.test(key)),
+    ),
+    ...extraEnv,
+  };
   const r = spawnSync(bin, args, { cwd, encoding: "utf8", timeout: 100_000, env });
   const stdout = r.stdout ?? "";
   const stderr = r.stderr ?? "";
   return { code: r.status ?? -1, out: `${stdout}${stderr}`, stdout, stderr };
+}
+
+/**
+ * The file `pnpm attw` runs in `dir`: the `cosyte-attw` entry of the planted
+ * `@cosyte/script-utils` package's own `bin` map, so a renamed or moved bin reds
+ * here instead of being hard-coded past.
+ */
+function attwCommand(dir: string): string {
+  const pkg = join(dir, "node_modules", "@cosyte", "script-utils");
+  const manifest = JSON.parse(readFileSync(join(pkg, "package.json"), "utf8")) as {
+    bin: Record<string, string>;
+  };
+  const bin = manifest.bin["cosyte-attw"];
+  if (bin === undefined) throw new Error("@cosyte/script-utils declares no cosyte-attw bin");
+  return join(pkg, bin);
+}
+
+/** Run the emitted `pnpm attw` in `dir`: the shared command, in the directory under test. */
+function emittedAttw(dir: string, args: string[], extraEnv: Record<string, string> = {}) {
+  return run(process.execPath, [attwCommand(dir), ...args], dir, extraEnv);
+}
+
+/** Put an `attw` shim where `pnpm install` links the CLI in `dir`. */
+function linkAttw(dir: string): void {
+  const binDir = join(dir, "node_modules", ".bin");
+  mkdirSync(binDir, { recursive: true });
+  const shim = join(binDir, "attw");
+  writeFileSync(shim, `#!/bin/sh\nexec "${process.execPath}" "${attwEntry}" "$@"\n`);
+  chmodSync(shim, 0o755);
 }
 
 let root: string;
@@ -148,17 +183,14 @@ beforeAll(() => {
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { bin: { attw: string } };
   attwEntry = join(dirname(manifestPath), manifest.bin.attw);
 
-  // Plumb it in at the path the emitted wrapper resolves, which is
-  // `<repo>/node_modules/.bin/attw` relative to the wrapper's own location.
-  const binDir = join(scaffold, "node_modules", ".bin");
-  mkdirSync(binDir, { recursive: true });
-  const shim = join(binDir, "attw");
-  writeFileSync(shim, `#!/bin/sh\nexec "${process.execPath}" "${attwEntry}" "$@"\n`);
-  chmodSync(shim, 0o755);
+  // Plumb it in where `pnpm install` links it, `<repo>/node_modules/.bin/attw`,
+  // which is the binary the shared gate runs for the package in the working
+  // directory...
+  linkAttw(scaffold);
 
-  // ...and the shared body, where `pnpm install` would put it. The emitted wrapper imports
-  // `@cosyte/script-utils/attw`; without this plant it would not resolve, and every case below
-  // would measure a missing dependency rather than the gate.
+  // ...and the shared gate, where `pnpm install` would put it. The emitted `attw`
+  // script is that package's command; without this plant every case below would
+  // measure a missing dependency rather than the gate.
   installShared(scaffold);
 
   // The fixture: a package that ships types on disk but leaves them out of the
@@ -181,6 +213,10 @@ beforeAll(() => {
   );
   writeFileSync(join(typesNotPacked, "index.js"), "module.exports = {};\n");
   writeFileSync(join(typesNotPacked, "index.d.ts"), "export declare const a: number;\n");
+  // The same two plants as the scaffold, since the shared command runs the attw
+  // and reads the package of the directory it is run in.
+  linkAttw(typesNotPacked);
+  installShared(typesNotPacked);
 
   // A second fixture package whose `attw` is a SHIM that records its argv. The
   // real CLI cannot answer "what did the gate forward?": it reports on a tarball,
@@ -215,12 +251,8 @@ beforeAll(() => {
     ),
   );
   writeFileSync(join(argvProbe, "index.js"), "module.exports.a = 1;\n");
-  // The EMITTED wrapper, so this pins what a scaffolded parser would really run,
-  // and the shared body it calls, at the path its import resolves through.
-  writeFileSync(
-    join(argvProbe, "scripts", "attw.mjs"),
-    readFileSync(join(scaffold, "scripts", "attw.mjs")),
-  );
+  // The shared command the emitted `attw` script names, so this pins what a
+  // scaffolded parser would really run.
   installShared(argvProbe);
   const probeBin = join(argvProbe, "node_modules", ".bin");
   mkdirSync(probeBin, { recursive: true });
@@ -246,10 +278,10 @@ beforeAll(() => {
   chmodSync(probeShim, 0o755);
 });
 
-/** Run the emitted wrapper against the argv probe and return what attw was handed. */
+/** Run the emitted gate against the argv probe and return what attw was handed. */
 function forwardedArgv(args: string[]): { code: number; out: string; argv: string[] } {
   rmSync(argvLog, { force: true });
-  const r = run(process.execPath, [join(argvProbe, "scripts", "attw.mjs"), ...args], argvProbe);
+  const r = emittedAttw(argvProbe, args);
   let argv: string[] = [];
   try {
     argv = readFileSync(argvLog, "utf8").split("\n").filter(Boolean);
@@ -264,11 +296,11 @@ afterAll(() => {
 });
 
 describe("the attw wrapper is carried by both manifests this repo owns", () => {
-  it("the parser template invokes the wrapper, not the bare CLI", () => {
+  it("the parser template invokes the shared command, not the bare CLI", () => {
     const pkg = JSON.parse(readFileSync(join(TEMPLATE, "package.json"), "utf8")) as {
       scripts: Record<string, string>;
     };
-    expect(pkg.scripts.attw).toBe("node scripts/attw.mjs");
+    expect(pkg.scripts.attw).toBe("cosyte-attw");
     expect(pkg.scripts.attw).not.toMatch(BARE_INVOCATION);
   });
 
@@ -280,29 +312,15 @@ describe("the attw wrapper is carried by both manifests this repo owns", () => {
     expect(pkg.scripts.attw).not.toMatch(BARE_INVOCATION);
   });
 
-  it("both copies of the wrapper are byte-identical, so neither can drift", () => {
-    // Two files exist because the template's has to travel into a new repo while
-    // test-utils' has to sit beside its own node_modules. Nothing keeps them in
-    // step except this assertion, so a one-sided edit reds here rather than
-    // leaving one gate weaker than the other.
-    //
-    // WHAT THEY ARE COPIES OF CHANGED, AND THE ASSERTION DID NOT. Each used to be
-    // a 1500-line copy of the whole gate, and this line was the only thing
-    // stopping the two drifting; they are now callers of
-    // `@cosyte/script-utils/attw`, which is where drift is prevented instead. The
-    // assertion is kept rather than deleted because two callers can still drift
-    // (an argument dropped here, a different url passed there), and the case below
-    // is what pins the stronger claim the caller shape now allows.
-    const fromTemplate = readFileSync(join(TEMPLATE, "scripts", "attw.mjs"));
-    const fromPackage = readFileSync(join(TEST_UTILS, "scripts", "attw.mjs"));
-    expect(fromTemplate.equals(fromPackage)).toBe(true);
+  it("the parser template carries no wrapper of its own to drift from the shared one", () => {
+    // It used to carry a copy of test-utils' wrapper, held byte-identical by a case
+    // here. The shared command needs no file in the repository, so a new parser
+    // gets none.
+    expect(existsSync(join(TEMPLATE, "scripts", "attw.mjs"))).toBe(false);
   });
 
   it("every wrapper is a CALLER: it imports the shared body and carries no net of its own", () => {
-    for (const wrapper of [
-      join(TEMPLATE, "scripts", "attw.mjs"),
-      join(TEST_UTILS, "scripts", "attw.mjs"),
-    ]) {
+    for (const wrapper of [join(TEST_UTILS, "scripts", "attw.mjs")]) {
       const src = readFileSync(wrapper, "utf8");
       expect(src, `${wrapper} does not call the shared body`).toContain(
         'from "@cosyte/script-utils/attw"',
@@ -362,40 +380,43 @@ describe("the attw wrapper is carried by both manifests this repo owns", () => {
 });
 
 describe("a freshly scaffolded parser inherits the fixed gate", () => {
-  it("emits the wrapper and an attw script that calls it", () => {
+  it("emits an attw script that runs the shared command, last in prepublishOnly", () => {
     const pkg = JSON.parse(readFileSync(join(scaffold, "package.json"), "utf8")) as {
       name: string;
       scripts: Record<string, string>;
     };
     expect(pkg.name).toBe("@cosyte/demo"); // the scaffolder really ran
-    expect(pkg.scripts.attw).toBe("node scripts/attw.mjs");
+    expect(pkg.scripts.attw).toBe("cosyte-attw");
     expect(pkg.scripts.attw).not.toMatch(BARE_INVOCATION);
-    // `prepublishOnly` MUST NOT END IN A TOOL THAT PACKS. `attw --pack .` packs a
-    // tarball of its own INTO THE DIRECTORY BEING PUBLISHED, and under
-    // `pnpm publish --dry-run` it does not pack at all: that command exports
-    // `npm_config_dry_run=true` into every lifecycle script it runs, `npm pack`
-    // honours it and writes nothing, and attw then opens the path it computed and
-    // dies with ENOENT on its own tgz. (An earlier reading of this blamed a
-    // "staging context" and said a real publish would fail identically. Both are
-    // RETRACTED: the lifecycle environment of a non-dry-run publish carries no
-    // such variable, measured.) It stayed hidden because `publish --dry-run` SKIPS
-    // a version already on npm, so the chain only ever runs on a version bump: it
-    // blocked every release of `@cosyte/test-utils` until #40 (`f32e7dd`) removed
-    // it there. The template re-minted the same shape into every new parser until
-    // this slice. attw still runs where it belongs, as its own CI step.
-    expect(pkg.scripts.prepublishOnly).not.toMatch(/\battw\b/);
-    // ...and the rest of the chain is still there, so this cannot be satisfied by
-    // deleting the script.
-    for (const step of ["pnpm clean", "pnpm typecheck", "pnpm lint", "pnpm test", "pnpm build"]) {
-      expect(pkg.scripts.prepublishOnly).toContain(step);
-    }
-
-    // The emitted wrapper survived token substitution unchanged. It carries no
-    // {{...}} tokens, so byte-identity through the scaffolder is the expectation.
-    const emitted = readFileSync(join(scaffold, "scripts", "attw.mjs"));
-    const source = readFileSync(join(TEMPLATE, "scripts", "attw.mjs"));
-    expect(emitted.equals(source)).toBe(true);
+    expect(existsSync(join(scaffold, "scripts", "attw.mjs"))).toBe(false);
+    // A library's `prepublishOnly` ends in the types check, so the tree it packs
+    // has passed the gate, types last.
+    //
+    // WHY THIS IS SAFE NOW, WHEN IT WAS ONCE REMOVED. `attw --pack .` packs a
+    // tarball of its own, and under `pnpm publish --dry-run` npm exports
+    // `npm_config_dry_run=true` into every lifecycle script, so `npm pack` wrote
+    // nothing and attw died with ENOENT on its own tgz. That blocked every release
+    // of `@cosyte/test-utils` until #40 (`f32e7dd`) took attw out of its chain, and
+    // the template followed. The shared gate now strips the two pack-placement
+    // keys from the attw child (`packages/test-utils/test/attw-gate.test.ts`
+    // pins it), and the case below runs the emitted gate under that variable.
+    expect(pkg.scripts.prepublishOnly).toBe(
+      "pnpm clean && pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm attw",
+    );
   });
+
+  it(
+    "judges the pack under the variable `pnpm publish --dry-run` exports, rather than dying",
+    () => {
+      // Without the strip, `npm pack` writes nothing and attw fails on a missing
+      // tarball before it judges anything. With it, the gate reaches its verdict.
+      const gated = emittedAttw(typesNotPacked, OFFLINE, { npm_config_dry_run: "true" });
+      expect(gated.code).not.toBe(0);
+      expect(gated.out).toContain("analysed this package as UNTYPED");
+      expect(gated.out).not.toContain("ENOENT");
+    },
+    SPAWN_TIMEOUT,
+  );
 
   describe("the allow-listed arguments are FORWARDED, each pinned on its own", () => {
     // WHY THIS EXISTS. Every other case in this file passes `--no-definitely-typed`
@@ -473,11 +494,7 @@ describe("a freshly scaffolded parser inherits the fixed gate", () => {
       expect(bare.code).toBe(0);
 
       // The same pack, through the gate a scaffolded parser would actually run.
-      const gated = run(
-        process.execPath,
-        [join(scaffold, "scripts", "attw.mjs"), ...OFFLINE],
-        typesNotPacked,
-      );
+      const gated = emittedAttw(typesNotPacked, OFFLINE);
       expect(gated.code).not.toBe(0);
       // Structurally, and WITHOUT the sentence: the emitted gate forces
       // `--format json`, in which attw never renders the untyped prose. The
@@ -495,11 +512,7 @@ describe("a freshly scaffolded parser inherits the fixed gate", () => {
       // later one, so every build has a window where dist/ holds .mjs/.cjs and no
       // .d.ts. The emitted repo's own manifest points at exactly those paths and
       // nothing has been built in it, so it is that window, frozen.
-      const gated = run(
-        process.execPath,
-        [join(scaffold, "scripts", "attw.mjs"), ...OFFLINE],
-        scaffold,
-      );
+      const gated = emittedAttw(scaffold, OFFLINE);
       expect(gated.code).not.toBe(0);
       expect(gated.out).toContain("./dist/index.d.ts");
       expect(gated.out).toContain("missing");

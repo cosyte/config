@@ -12,7 +12,7 @@
 [![npm version](https://img.shields.io/npm/v/{{PKG}}.svg)](https://www.npmjs.com/package/{{PKG}})
 [![CI](https://img.shields.io/github/actions/workflow/status/cosyte/{{NAME}}/ci.yml?branch=main&label=CI)](https://github.com/cosyte/{{NAME}}/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/cosyte/{{NAME}}/blob/main/LICENSE)
-[![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)](https://nodejs.org)
+[![Node](https://img.shields.io/badge/node-%3E%3D22.0.0-brightgreen.svg)](https://nodejs.org)
 
 ## Why this exists
 

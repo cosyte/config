@@ -1139,11 +1139,11 @@ describe("S0228: the two provenance corrections", () => {
     ).toContain("no-internal-refs.yml");
   });
 
-  it("records the scaffold's five-of-six gap in the CI-workflows group's provenance", () => {
+  it("records in the CI-workflows group's provenance that the scaffold ships all six", () => {
     const provenance = MANIFEST["baselines"].package.groups.ciWorkflows.provenance as string;
     expect(provenance).toMatch(/scripts\/parser-template/);
-    expect(provenance).toMatch(/ships NO no-internal-refs\.yml/);
-    expect(provenance).toMatch(/SEPARATE WORK/);
+    expect(provenance).toMatch(/THE SCAFFOLD SHIPS ALL SIX/);
+    expect(provenance).not.toMatch(/SEPARATE WORK/);
   });
 
   it("is a claim about a tree in this checkout, so it is measured rather than asserted", () => {
@@ -1159,13 +1159,12 @@ describe("S0228: the two provenance corrections", () => {
       "ci.yml",
       "codeql.yml",
       "no-emdash.yml",
+      "no-internal-refs.yml",
       "pr-title.yml",
       "release.yml",
       "scorecard.yml",
     ]);
-    expect(required.filter((workflow) => !shipped.includes(workflow))).toEqual([
-      "no-internal-refs.yml",
-    ]);
+    expect(required.filter((workflow) => !shipped.includes(workflow))).toEqual([]);
   });
 });
 

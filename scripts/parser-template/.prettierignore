@@ -27,6 +27,10 @@ yarn.lock
 dist/
 coverage/
 
+# Mutation testing output (also in .gitignore)
+reports/
+.stryker-tmp/
+
 # Dependencies (also in .gitignore; prettier additionally skips node_modules by default)
 node_modules/
 .pnpm-store/

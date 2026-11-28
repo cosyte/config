@@ -22,8 +22,8 @@ logs, and keep fixtures synthetic: real patient data never enters this repositor
 
 - Errors and warnings carry stable codes and positions, never message text: a diagnostic that
   quotes a field publishes it wherever the log goes.
-- `attw` stays exactly `node scripts/attw.mjs`, a caller of `@cosyte/script-utils/attw`: the bare
-  CLI exits 0 on a tarball that carries no types.
+- `attw` stays exactly `cosyte-attw`, the shared gate from `@cosyte/script-utils`: the bare CLI
+  exits 0 on a tarball that carries no types.
 - `scripts/phi-scan.ts` calls `@cosyte/script-utils/phi-scan`. Add this standard's field detectors
   there; each one consults `ctx.allow`, and an exclusion is a literal path, never a class.
 - A change under `src/` adds a changeset: `minor` for behavior a consumer can call, `patch` for a

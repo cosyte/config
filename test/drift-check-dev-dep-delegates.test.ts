@@ -128,12 +128,18 @@ describe("the declaration is true of @cosyte/process", () => {
 });
 
 describe("the scaffold is born wired and clean", () => {
-  it("declares @cosyte/process and, of the tools it covers, only vitest, at exactly its pin", () => {
+  it("declares @cosyte/process and, of the tools it covers, only typescript and vitest, at its pins", () => {
+    // vitest because the tests import it, and typescript because scripts/api-surface.ts imports the
+    // compiler: pnpm does not hoist a dependency of @cosyte/process to where either import resolves.
     const dev = TEMPLATE.devDependencies ?? {};
     expect(dev["@cosyte/process"]).toBeDefined();
     const covered = REQUIREMENTS.devDepDelegates.flatMap((d) => d.covers);
-    expect(covered.filter((name) => dev[name] !== undefined)).toEqual(["vitest"]);
+    expect(covered.filter((name) => dev[name] !== undefined).sort()).toEqual([
+      "typescript",
+      "vitest",
+    ]);
     expect(dev["vitest"]).toBe(PROCESS.dependencies?.["vitest"]);
+    expect(dev["typescript"]).toBe(PROCESS.dependencies?.["typescript"]);
   });
 
   it("grades clean against the shipped dependencies group", () => {
@@ -142,18 +148,11 @@ describe("the scaffold is born wired and clean", () => {
 });
 
 describe("the parameter widens nothing else", () => {
-  it("NEGATIVE CONTROL: the scaffold without @cosyte/process is asked for every covered tool", () => {
+  it("NEGATIVE CONTROL: the scaffold without @cosyte/process is asked for every tool it leaves out", () => {
     const dev = { ...(TEMPLATE.devDependencies ?? {}) };
     delete dev["@cosyte/process"];
     const lines = gradeDependencies(withDevDeps(TEMPLATE, dev));
-    for (const name of [
-      "typescript",
-      "eslint",
-      "vite",
-      "@vitest/coverage-v8",
-      "tsup",
-      "prettier",
-    ]) {
+    for (const name of ["eslint", "vite", "@vitest/coverage-v8", "tsup", "prettier"]) {
       expect(lines, name).toContain(
         `devDep ${name}: missing (want ${REQUIREMENTS.devDepVersions[name]})`,
       );
