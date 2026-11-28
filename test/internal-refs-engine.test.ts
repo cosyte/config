@@ -151,7 +151,7 @@ describe("a hit names the file, the line and the rule, and exits non-zero", () =
     expect(flatResult.err).not.toContain("wrapped across lines");
   });
 
-  it("scans doc comments when that pass is enabled, and not when it is not", () => {
+  it("scans doc comments in the doc-comment pass when it is enabled, and the comment pass when not", () => {
     const repo = scratch("irefs-src");
     repo.write(
       "src/index.ts",
@@ -159,9 +159,13 @@ describe("a hit names the file, the line and the rule, and exits non-zero", () =
     );
     repo.track("src/index.ts");
 
+    // Every comment is public in a public repository, so the default comment pass reads it.
     const off = runGate(baseConfig(repo));
-    expect(off.code, off.all).toBe(0);
+    expect(off.code, off.all).toBe(1);
+    expect(off.err).toContain("/ comment] src/index.ts:2");
+    expect(off.err).not.toContain("src doc comment");
 
+    // With the doc-comment pass on, that pass owns the block and it is reported once.
     const on = runGate({
       ...baseConfig(repo),
       sourceDocComments: { enabled: true, paths: ["src/*.ts", "src/**/*.ts"] },
@@ -169,12 +173,12 @@ describe("a hit names the file, the line and the rule, and exits non-zero", () =
     expect(on.code).toBe(1);
     expect(on.err).toContain("src doc comment");
     expect(on.err).toContain("src/index.ts:2");
+    expect(on.err).not.toContain("/ comment]");
   });
 
-  it("leaves a line comment alone, because it never reaches a consumer", () => {
-    // The boundary this pass draws, and it is the point rather than a convenience: doc comments are
-    // copied into the shipped declarations, and line comments are not. Identifiers are welcome in
-    // what only a maintainer reads.
+  it("reads a line comment too, because a public repository's source is public", () => {
+    // Doc comments are copied into the shipped declarations; a line comment is not, but anyone
+    // who opens the repository reads it, so the comment pass reads both.
     const repo = scratch("irefs-src-line");
     repo.write(
       "src/index.ts",
@@ -193,7 +197,9 @@ describe("a hit names the file, the line and the rule, and exits non-zero", () =
       ...baseConfig(repo),
       sourceDocComments: { enabled: true, paths: ["src/*.ts", "src/**/*.ts"] },
     });
-    expect(result.code, result.all).toBe(0);
+    expect(result.code, result.all).toBe(1);
+    expect(result.err).toContain("[internal project identifier / comment] src/index.ts:4");
+    expect(result.err).not.toContain("src doc comment");
   });
 });
 
@@ -347,8 +353,8 @@ describe("the slice rule leaves `the` and `each` to the reader", () => {
 
 /**
  * THE SOURCE STRING-LITERAL PASS. A string literal reaches a consumer as error and warning text
- * (cli once shipped an item id in a diagnostic), so it is public surface; a comment is not, and an
- * item id in a `//` note must stay allowed (synth's source carries roadmap citations in them).
+ * (cli once shipped an item id in a diagnostic), so it is public surface. This pass never reads a
+ * comment; the default comment pass does, and labels what it finds as a comment.
  */
 describe("the source string-literal pass", () => {
   const literalsOn = (repo: ScratchRepo) => ({
@@ -356,7 +362,7 @@ describe("the source string-literal pass", () => {
     sourceStringLiterals: { enabled: true, paths: ["src/*.ts", "src/**/*.ts"] },
   });
 
-  it("finds bookkeeping in a message a consumer reads, and only when the pass is enabled", () => {
+  it("finds bookkeeping in a message a consumer reads, with the pass enabled or by default", () => {
     const repo = scratch("irefs-literal");
     repo.write(
       "src/index.ts",
@@ -369,13 +375,18 @@ describe("the source string-literal pass", () => {
     );
     repo.track("src/index.ts");
 
+    // The default literal pass reads `src/` whatever the caller configured.
     const off = runGate(baseConfig(repo));
-    expect(off.code, off.all).toBe(0);
+    expect(off.code, off.all).toBe(1);
+    expect(off.err).toContain("[internal project identifier / src string literal] src/index.ts:2");
 
     const on = runGate(literalsOn(repo));
     expect(on.code).toBe(1);
     expect(on.err).toContain("[internal project identifier / src string literal]");
     expect(on.err).toContain("src/index.ts:2");
+    // Read once: by the caller's pass, and not again by the default one.
+    const label = "[internal project identifier / src string literal] src/index.ts:2";
+    expect(on.err.split(label).length - 1).toBe(1);
   });
 
   it("reads single-quoted, template and escaped literals, and a phrase split across two", () => {
@@ -401,7 +412,7 @@ describe("the source string-literal pass", () => {
     expect(result.err).toContain('[internal jargon ("slice") / src string literal] src/index.ts:5');
   });
 
-  it("never reads a comment: line, trailing or block, so an item id there stays allowed", () => {
+  it("never reads a comment: line, trailing or block, which the comment pass reports instead", () => {
     const repo = scratch("irefs-literal-comments");
     repo.write(
       "src/index.ts",
@@ -416,8 +427,13 @@ describe("the source string-literal pass", () => {
     repo.track("src/index.ts");
 
     const result = runGate(literalsOn(repo));
-    expect(result.code, result.all).toBe(0);
-    expect(result.out).toContain("1 source file(s) scanned for string-literal bookkeeping");
+    expect(result.code, result.all).toBe(1);
+    expect(result.err).not.toContain("src string literal");
+    expect(result.err).toContain("[internal project identifier / comment] src/index.ts:1");
+    expect(result.err).toContain("[ADR reference / comment] src/index.ts:2");
+    expect(result.err).toContain("[internal project identifier / comment] src/index.ts:3");
+    // The regular-expression literal is neither a string nor a comment.
+    expect(result.err).not.toContain("src/index.ts:4");
   });
 
   it("reads a NUL-bearing source file, the byte as a space, rather than refusing it", () => {

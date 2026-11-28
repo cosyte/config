@@ -111,7 +111,7 @@ export const CONFIG_AXES = Object.freeze([
     summary:
       "Whether the source string-literal pass runs, over which tracked paths, and with which extra " +
       "rules. A string literal reaches a consumer as error and warning text, so it is public " +
-      "surface; a comment is not, and this pass never reads one.",
+      "surface. This pass never reads a comment: the comment pass does, on every scan.",
   }),
   Object.freeze({
     name: "exitCodes",
@@ -331,6 +331,100 @@ const IMAGING_NOUNS =
   "thickness|location|spacing|position|interval|order|number|index|gap|count|data|pixel|" +
   "orientation|plane|direction|width|vector|sensitivity|progression|factor";
 
+/**
+ * The prefixes of our tracking rows (`CFG-<n>`, `HL7-<n>`): one per repository or area, then a
+ * hyphen and a number from 1 to 99 with no leading zero.
+ *
+ * The number is what keeps standards text out. A table number such as `HL7-0396` has a leading
+ * zero, a transaction such as `X12-837` has three digits, and a version such as `HL7-2.5` goes on
+ * past the number, and none of those is a row. No prefix here is the name of an HL7, X12 or NCPDP
+ * segment, so `PID-5`, `NK1-4` and `CX-1` are never candidates. `ORG` is left out on purpose: it
+ * is also HL7's Practitioner Organization Unit segment, so `ORG-1` is a field name, and an `ORG`
+ * row is caught only after a word that says it is a row.
+ */
+const TRACKING_ROW_PREFIXES = [
+  "UMB",
+  "CFG",
+  "GHP",
+  "DOCS",
+  "WEB",
+  "EX",
+  "SKILLS",
+  "KB",
+  "MKT",
+  "CREW",
+  "IAC",
+  "CC",
+  "HQ",
+  "PW",
+  "TFA",
+  "TFZ",
+  "CLI",
+  "ASSETS",
+  "CONS",
+  "HL7",
+  "FHIR",
+  "CCDA",
+  "DICOM",
+  "X12",
+  "NCPDP",
+  "ASTM",
+  "MLLP",
+  "TERM",
+  "XFORM",
+  "DEID",
+  "SYNTH",
+  "DATES",
+  "IHE",
+];
+
+/**
+ * Our private repositories, by the name a path or a link spells them with.
+ *
+ * Naming one tells a reader about a place they cannot open. An address that code must call (the
+ * value of a `repository:` key, `--repo`, or an API path under `repos/`) is not a reference, so the
+ * private-repo rule lets those through.
+ */
+const PRIVATE_REPOS = [
+  "assets",
+  "consulting",
+  "cosyte",
+  "crew",
+  "docs",
+  "hq",
+  "iac",
+  "knowledgebase",
+  "marketing",
+  "website",
+];
+
+/**
+ * The private repositories whose name is safe to look for after `../`. `docs` and `assets` are
+ * left out because `../docs/` and `../assets/` are ordinary folders in a public repository.
+ */
+const PRIVATE_SIBLING_PATHS = ["consulting", "crew", "hq", "iac", "knowledgebase", "marketing"];
+
+/** The repositories whose roadmap a sentence may cite as `the hl7 roadmap` or `x12 roadmap`. */
+const ROADMAP_OWNERS =
+  "hl7|fhir|ccda|dicom|x12|ncpdp|astm|mllp|ihe|cli|dates|transform|terminology|synth|deid|" +
+  "pathways|docs|website|iac|crew|knowledgebase|config";
+
+/**
+ * Whether one hit is a value rather than a reference: the whole text, or wrapped in matching
+ * quotes. A fixture's message id `"SYNTH-1"` and a string literal that holds only `SYNTH-1` are
+ * data a test passes around; a reference sits in a sentence, so its text goes on around it, and a
+ * backtick is not a quote here, because prose quotes an id in backticks.
+ *
+ * @param {RegExpExecArray} found One match, with its `input` and `index`.
+ * @returns {boolean} `true` when the hit is excused.
+ */
+function excuseQuotedValue(found) {
+  const end = found.index + found[0].length;
+  if (found.index === 0 && end === found.input.length) return true;
+  const before = found.input[found.index - 1];
+  return (before === '"' || before === "'") && found.input[end] === before;
+}
+
 /** A rule the caller cannot subtract: an id, a reader-facing name, and how it is built. */
 const CANONICAL_RULES = Object.freeze([
   Object.freeze({
@@ -348,6 +442,16 @@ const CANONICAL_RULES = Object.freeze([
     name: "internal traceability marker",
     parametric: false,
   }),
+  Object.freeze({ id: "work-item-id", name: "item, decision or standard id", parametric: false }),
+  Object.freeze({ id: "tracking-row-id", name: "internal tracking row id", parametric: false }),
+  Object.freeze({ id: "plan-citation", name: "plan or roadmap citation", parametric: false }),
+  Object.freeze({ id: "decision-number", name: "internal decision number", parametric: false }),
+  Object.freeze({
+    id: "private-repo",
+    name: "private repository name or path",
+    parametric: false,
+  }),
+  Object.freeze({ id: "session-id", name: "session id", parametric: false }),
 ]);
 
 /**
@@ -596,6 +700,177 @@ export function compileCanonicalRules(resolved) {
       positives: ["Repeating [S-NTE], and Open-question #12 resolves the direction"],
       negatives: [
         "A character range like [S-Z], a value set written [SNOMED], and open questions about the feed",
+      ],
+    },
+    {
+      id: "work-item-id",
+      name: "item, decision or standard id",
+      patterns: [
+        // A standard, follow-up or key-decision id on its own: `ST<n>`, `OW<n>`, `KD<n>`. No leading
+        // zero, so X12's `ST01` element is not one, and nothing X12 writes next to a segment id
+        // (`*`, `~`, `|`, `^`) may touch it, so `ST*837` is not one either.
+        new RegExp(
+          "(?<![\\w*~|^+./-])(?:ST[1-9]\\d?|OW\\d{1,4}|KD\\d{1,3})(?![\\w*~|^-]|\\.\\d)",
+          "g",
+        ),
+        // A decision id, `D` and two or three digits, only where an id is written: in parentheses,
+        // alone or in a list (`(D<n>)`, `(D<n>, <date>)`, `(#<n>, D<n>)`). Bare, `D42` is a code
+        // value, `D64.9` a diagnosis code and `U+D800` a code point; X12's `D8` has one digit.
+        new RegExp("(?<=\\((?:[^()\\n]{0,80}?[,;] ?)?)(?:D\\d{2,3}|EN\\d{1,3})(?= ?[,;)])", "g"),
+        // Any of the forms after a word that says what it is: `decision D<n>`, `standard ST<n>`.
+        new RegExp(
+          "\\b(?:[Dd]ecisions?|[Rr]ulings?|[Ss]tandards?|[Ii]tems?)\\s+" +
+            "(?:D|ST|OW|KD|EN)\\d{1,3}\\b",
+          "g",
+        ),
+        // A plan's decision and threat ids: `D-<n>` and `T-<n>-<n>-<n>`, two digits each.
+        new RegExp(
+          "(?<![\\w-])D-\\d{2,3}[a-z]?\\b(?![-.]\\d)|(?<![\\w-])T-\\d{2}(?:-\\d{2}){1,3}\\b",
+          "g",
+        ),
+      ],
+      positives: [
+        "Changesets are patches (D901, 2026-01-02), as the card says (#9001, D902)",
+        "Filed as OW9071, see KD97, and ST91 is the title rule",
+        "Kept by every caller (ST92), and the dependabot file (EN97) agrees",
+        "As decision D903 says, and standard ST93 too",
+        "Locked by D-971 and D-972/D-973, with threat T-91-92-93",
+      ],
+      negatives: [
+        "ISO-8601, UTF-8, HL7 v2, RFC-5322, CVE-2024-12345, PID-5, OBX-5, MSH-9, NK1-4 and CX-1",
+        "ST*837*0001~ opens the set, ST01 and ST03 are its elements, and DTP*472*D8*20240101 " +
+          "uses the D8 qualifier (D8)",
+        "Field 407-D7, version D.0 (D0), segment AM07, the code values D42 and D530",
+        "Anemia (D64.9), the range D50-D89, U+D800 to U+DFFF, a D-dimer result and vitamin D3",
+        "REF*6R*LINE-D-001~ and an account ACCT-T-01-02",
+      ],
+    },
+    {
+      id: "tracking-row-id",
+      name: "internal tracking row id",
+      patterns: [
+        new RegExp(
+          `(?<![\\w./-])(?:${TRACKING_ROW_PREFIXES.join("|")})-[1-9]\\d?[a-z]?(?![\\w-]|\\.\\d)`,
+          "g",
+        ),
+        new RegExp("\\b(?:[Rr]ows?|[Ii]tems?|[Gg]aps?)\\s+ORG-[1-9]\\d?\\b", "g"),
+      ],
+      excuse: excuseQuotedValue,
+      positives: [
+        "Row CFG-91 closes it, and UMB-92, HL7-93, X12-94, DOCS-95 and CFG-96a follow",
+        "The gap row ORG-97 is the last",
+      ],
+      negatives: [
+        "ISO-8601, UTF-8, HL7 v2, RFC-5322, CVE-2024-12345, PID-5, OBX-5, MSH-9, NK1-4 and CX-1",
+        "HL7-0396, HL7-0003, HL7-396, X12-837, X12-005010, HL7-2.5, DICOM-SR, FHIR-R4 and IHE-PIX",
+        "ORG-1 and ORG-3 are organization fields, NM1-03 and CLM-05 are X12 elements, and " +
+          "ICD-10-CM, SHA-256 and CC-BY-4.0 are names",
+        // A value in a fixture or an example, quoted or a whole string literal: a message id.
+        "header: { messageId: \"SYNTH-1\" }, and the literal 'SYNTH-2'",
+        "SYNTH-1",
+      ],
+    },
+    {
+      id: "plan-citation",
+      name: "plan or roadmap citation",
+      patterns: [
+        new RegExp(
+          "\\bplans?\\s+\\d{1,2}(?:-\\d{1,2})?\\b(?!\\.\\d)|\\broadmaps?(?:'s)?\\s?§|" +
+            `\\b(?:${ROADMAP_OWNERS})\\s+roadmap(?:'s)?\\b|\\bwaves?-\\d+\\b`,
+          "gi",
+        ),
+      ],
+      positives: [
+        "Plan 97-98 and Plans 91 to 95 built it, plan 96 tests it",
+        "Deferred per roadmap § 4 and the x12 roadmap's next item",
+        "Wave-9 left it open",
+      ],
+      negatives: [
+        "The health plan, the plan of care, a planned 2 releases, and the PLAN-0001 identifier",
+        "A waveform, the wave-form data, and a roadmap for a reader",
+      ],
+    },
+    {
+      id: "decision-number",
+      name: "internal decision number",
+      patterns: [
+        new RegExp(
+          "\\b(?:umbrella|operator|conductor)(?:'s)?\\s+decisions?\\s+#?\\d{1,4}\\b|" +
+            "\\bdecisions?\\s+#?\\d{1,3}\\b(?!\\.\\d)(?!\\s*(?:of|in|to|per)\\b)",
+          "gi",
+        ),
+      ],
+      positives: [
+        "Under decision 926, and the operator's decision 911",
+        "Decision 923 caps it, and the umbrella decision 9042 agrees",
+      ],
+      negatives: [
+        "Decision record 0006 is this repository's own, and so is Decision 0001",
+        "A decision tree, the decision to retry, and 3 decisions of the parser",
+      ],
+    },
+    {
+      id: "private-repo",
+      name: "private repository name or path",
+      patterns: [
+        new RegExp(
+          "(?<![@\\w.-]|repos/|(?:repository|repo)[\"']?\\s?[:=]\\s?[\"']?|--repo[ =][\"']?)" +
+            `cosyte/(?:${PRIVATE_REPOS.join("|")})(?![\\w-]|\\.\\w)`,
+          "g",
+        ),
+        new RegExp(`(?:\\.\\./)+(?:${PRIVATE_SIBLING_PATHS.join("|")})\\b(?![-.]\\w)`, "g"),
+        new RegExp(
+          `\\b(?:${PRIVATE_REPOS.filter((repo) => repo !== "cosyte").join("|")})\\s+` +
+            "repo(?:sitory)?\\b|" +
+            "\\b(?:the|our|this)\\s+umbrella(?:'s)?(?!\\w)(?!\\s+(?:term|category|type|" +
+            "heading|profile|standard|organi[sz]ation|element|entry|group|code|trial|class|" +
+            "concept)s?\\b)|" +
+            "\\bumbrella(?:'s)?\\s+(?:repo(?:sitory)?|plans?|conventions?|decisions?|specs?|" +
+            "verdicts?|work)\\b",
+          "gi",
+        ),
+        new RegExp(
+          "\\bplans/[a-z0-9-]+\\.md\\b|\\bconventions/(?:core|packages|classes)/|" +
+            "\\bconventions/README\\.md\\b",
+          "g",
+        ),
+      ],
+      positives: [
+        "See cosyte/hq and https://github.com/cosyte/knowledgebase, in the cosyte/cosyte checkout",
+        "Read from ../crew/bin, in the knowledgebase repo",
+        "The umbrella's plans/standards.md and conventions/core/writing.md say so",
+        "This is the same bound the umbrella conventions apply",
+      ],
+      negatives: [
+        "@cosyte/hl7, cosyte/config and cosyte/.github are public, and docs.cosyte.com is the site",
+        "repository: cosyte/docs, gh api repos/cosyte/hq --jq .visibility, --repo cosyte/iac",
+        "Read ../docs/adr/0001.md and ../assets/logo.svg, and cosyte/docs-content",
+        "The umbrella term for a group of codes, and an umbrella trial",
+      ],
+    },
+    {
+      id: "session-id",
+      name: "session id",
+      patterns: [
+        new RegExp(
+          "\\bsessions?(?:[ _-]?ids?)?\\s*[:=#]?\\s*" +
+            "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\b",
+          "gi",
+        ),
+        new RegExp(
+          "\\bsession_[0-9A-Za-z]{16,}\\b|\\.claude/projects/|/tmp/claude-\\d+/|" +
+            "\\bclaude\\.ai/code/session",
+          "g",
+        ),
+      ],
+      positives: [
+        "Written in session 0f8c2a4e-1b3d-4c5e-9f7a-2b4c6d8e0f1a",
+        "Session id: 0f8c2a4e-1b3d-4c5e-9f7a-2b4c6d8e0f1a, from session_01AbCdEfGhIjKlMnOpQr",
+        "Saved under ~/.claude/projects/x and /tmp/claude-1000/y",
+      ],
+      negatives: [
+        "A TLS session, an MLLP session that ran 5 times, a message id " +
+          "0f8c2a4e-1b3d-4c5e-9f7a-2b4c6d8e0f1a, and .claude/settings.json",
       ],
     },
   ];
@@ -1052,6 +1327,17 @@ function trackedUnder(root, paths) {
   return out.split("\0").filter((entry) => entry !== "");
 }
 
+/** The tracked paths under some pathspecs, as a set, or `null` when git failed. */
+function tracedPaths(root, paths) {
+  const listed = trackedUnder(root, paths);
+  return listed === null ? null : new Set(listed);
+}
+
+/** The exclude pathspecs among a caller's paths: `:(exclude)...`, `:!...` and `:^...`. */
+function excludePathspecs(paths) {
+  return paths.filter((path) => /^:(?:\([^)]*\bexclude\b[^)]*\)|!|\^)/.test(path));
+}
+
 /** Git's modes for an entry that has bytes at its path. A gitlink and anything else do not. */
 const GITLINK_MODE = "160000";
 const READABLE_MODES = new Set(["100644", "100755", "120000"]);
@@ -1204,9 +1490,9 @@ export function reflowParagraphs(text) {
  * correctness of this extractor. Stripping first turns a closing `*​/` into `/`, the block never
  * closes, and every line comment and line of CODE after it is scanned as doc text.
  *
- * Only `/** *​/` blocks are extracted. Line comments and plain block comments are NOT, and that
- * boundary is the point rather than a convenience: a doc comment is what a declaration build copies
- * into the shipped types, so it is what a consumer receives; what only a maintainer reads is not.
+ * Only `/** *​/` blocks are extracted: a doc comment is what a declaration build copies into the
+ * shipped types. Every other comment is read by the comment pass ({@link extractComments}), which
+ * runs on every scan, because a public repository's source is public too.
  *
  * @param {string} text The source file.
  * @param {string} file Its repo-relative path, for the location map.
@@ -1261,7 +1547,33 @@ export function extractDocComments(text, file) {
 // The run
 // ---------------------------------------------------------------------------
 
-/** A NUL byte is how every text matcher decides a file is not text. Refuse rather than skip it. */
+/**
+ * THE SURFACE EVERY RUN READS, whatever the caller configures. A caller may not subtract from it.
+ *
+ * In a public repository every tracked file is public, and these are the files that carry prose
+ * whether or not a consumer installs them: the changesets (copied into the changelog and the
+ * release notes), the agent card and `AGENTS.md`, and the workflows. Each is read whole, as
+ * `surfacePaths` entries are, when it is tracked. One that is not tracked is not an error: a
+ * repository with no changesets has nothing there to scan.
+ */
+export const DEFAULT_SURFACE_PATHS = Object.freeze([
+  ".changeset",
+  "CLAUDE.md",
+  "AGENTS.md",
+  ".github/workflows",
+]);
+
+/** The folders whose JavaScript and TypeScript every run reads for comments and string literals. */
+export const DEFAULT_SOURCE_ROOTS = Object.freeze(["src", "test", "tests"]);
+
+/** The extensions of the source the default passes read. */
+const SOURCE_EXTENSIONS = ["ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs"];
+
+/** {@link DEFAULT_SOURCE_ROOTS} and {@link SOURCE_EXTENSIONS} as git pathspecs. */
+const DEFAULT_SOURCE_PATHSPECS = DEFAULT_SOURCE_ROOTS.flatMap((root) =>
+  SOURCE_EXTENSIONS.map((extension) => `:(glob)${root}/**/*.${extension}`),
+);
+
 /** NUL bytes read as spaces in source text, counted so the clean line can say so. */
 let sourceNulBytes = 0;
 
@@ -1281,6 +1593,7 @@ function sourceText(bytes) {
   return text;
 }
 
+/** A NUL byte is how every text matcher decides a file is not text. Refuse rather than skip it. */
 function looksBinary(bytes) {
   return bytes.includes(0);
 }
@@ -1347,8 +1660,8 @@ function decodeLiteral(raw) {
  * Extract the string literals of JavaScript or TypeScript source: double-quoted, single-quoted and
  * template literals, each decoded. A string literal reaches a consumer as error and warning text,
  * so it is public surface. A COMMENT IS NEVER READ HERE: a `//` line comment, a trailing one, and a
- * `/* *\/` block are skipped whole, because a maintainer's note is where an item identifier is
- * welcome (doc comments are the doc-comment pass's). A template literal's `${...}` reads as a
+ * `/* *\/` block are skipped whole, because the comment pass reads them ({@link extractComments}),
+ * and a hit there is labelled as a comment. A template literal's `${...}` reads as a
  * space and any literal inside it is extracted on its own; a regular-expression literal is
  * skipped, so a quote inside one is not mistaken for a string.
  *
@@ -1363,7 +1676,23 @@ function decodeLiteral(raw) {
  *   with a space, so a phrase split across adjacent literals is still seen.
  */
 export function extractStringLiterals(text, file) {
+  const { literals, lines } = lexSource(text, file);
+  return { literals, lines };
+}
+
+/**
+ * Lex JavaScript or TypeScript source once, keeping its string literals and its comments apart.
+ *
+ * @param {string} text The source.
+ * @param {string} file Its repo-relative path, for the report.
+ * @returns {{ literals: { text: string, where: string }[], lines: { text: string, where: string }[],
+ *   comments: { block: boolean, doc: boolean, text: string, line: number }[] }} The literals as
+ *   {@link extractStringLiterals} returns them, and every comment with its delimiters removed and
+ *   the line it starts on.
+ */
+function lexSource(text, file) {
   const literals = [];
+  const comments = [];
   const byLine = new Map();
   let line = 1;
   let i = 0;
@@ -1390,15 +1719,22 @@ export function extractStringLiterals(text, file) {
         continue;
       }
       if (ch === "/" && text[i + 1] === "/") {
+        const start = i + 2;
         while (i < text.length && text[i] !== "\n") i += 1;
+        comments.push({ block: false, doc: false, text: text.slice(start, i), line });
         continue;
       }
       if (ch === "/" && text[i + 1] === "*") {
+        const startLine = line;
+        // `/**/` is an empty block, not the opening of a doc comment.
+        const doc = text[i + 2] === "*" && text[i + 3] !== "/";
         i += 2;
+        const start = i;
         while (i < text.length && !(text[i] === "*" && text[i + 1] === "/")) {
           if (text[i] === "\n") line += 1;
           i += 1;
         }
+        comments.push({ block: true, doc, text: text.slice(start, i), line: startLine });
         i += 2;
         continue;
       }
@@ -1513,7 +1849,65 @@ export function extractStringLiterals(text, file) {
   for (const [startLine, values] of byLine) {
     if (values.length > 1) lines.push({ text: values.join(" "), where: `${file}:${startLine}` });
   }
-  return { literals, lines };
+  return { literals, lines, comments };
+}
+
+/**
+ * Extract every comment of JavaScript or TypeScript source, `//` and `/* *\/` alike, with each
+ * line's location beside it.
+ *
+ * A comment is public surface in a public repository: anyone can read the source, and a test's
+ * comments are as public as the code's. Consecutive `//` lines are one paragraph, as a wrapped
+ * sentence in them is one sentence, and a blank comment line ends it. In a block, exactly one
+ * leading asterisk is taken off each line, as {@link extractDocComments} does.
+ *
+ * @param {string} text The source.
+ * @param {string} file Its repo-relative path, for the report.
+ * @param {{ skipDocComments?: boolean }} [options] `skipDocComments` leaves out `/** *\/` blocks,
+ *   for a file the doc-comment pass has already read.
+ * @returns {{ lines: { text: string, where: string }[], paragraphs: { text: string, where: string }[] }}
+ *   The comment text, line by line and paragraph by paragraph.
+ */
+export function extractComments(text, file, options = {}) {
+  const lines = [];
+  const paragraphs = [];
+  let joined = [];
+  let joinedStart = 0;
+  let lastLine = -1;
+
+  const flush = () => {
+    const merged = joined.join(" ").replace(/\s+/g, " ").trim();
+    if (merged !== "") paragraphs.push({ text: merged, where: `${file}:${joinedStart}` });
+    joined = [];
+  };
+  const add = (body, at) => {
+    lines.push({ text: body, where: `${file}:${at}` });
+    if (body.trim() === "") {
+      flush();
+      return;
+    }
+    if (joined.length === 0) joinedStart = at;
+    joined.push(body);
+  };
+
+  for (const comment of lexSource(text, file).comments) {
+    if (comment.doc && options.skipDocComments === true) continue;
+    if (!comment.block) {
+      if (comment.line !== lastLine + 1) flush();
+      add(comment.text.replace(/^\/+/, "").trim(), comment.line);
+      lastLine = comment.line;
+      continue;
+    }
+    flush();
+    const body = comment.doc ? comment.text.slice(1) : comment.text;
+    body.split("\n").forEach((raw, k) => {
+      add(raw.replace(/^\s*\*(?!\*)\s?/, "").trim(), comment.line + k);
+    });
+    flush();
+    lastLine = -1;
+  }
+  flush();
+  return { lines, paragraphs };
 }
 
 /**
@@ -1630,6 +2024,23 @@ export function runInternalRefsScan(config) {
     );
   }
 
+  // The default surface joins what the caller named. A path both name is read once, and a path
+  // the caller's own `surfacePaths` leaves out with an exclude pathspec is left out here too.
+  const defaultEntries = trackedEntriesUnder(root, [
+    ...DEFAULT_SURFACE_PATHS,
+    ...excludePathspecs(resolved.surfacePaths),
+  ]);
+  /* v8 ignore next -- every caller pathspec was listed above; only a git failing mid-run lands here */
+  if (defaultEntries === null) return refuse("git could not enumerate the default surface.");
+  const named = new Set(enumerated.map((entry) => entry.path));
+  let defaultTargets = 0;
+  for (const entry of defaultEntries) {
+    if (named.has(entry.path)) continue;
+    named.add(entry.path);
+    enumerated.push(entry);
+    defaultTargets += 1;
+  }
+
   // ENUMERATE, THEN READ, THEN PROVE THE TWO AGREE. A target that was listed and never read is
   // the silent-green shape this gate exists to close: a file that vanished between the two steps,
   // an unreadable one, and one a matcher classifies as binary all land here rather than in the
@@ -1711,6 +2122,7 @@ export function runInternalRefsScan(config) {
 
   // The source doc-comment pass, when the caller has enabled it.
   let sourceFiles = 0;
+  const docCommentFiles = new Set();
   if (resolved.sourceDocComments.enabled) {
     const sourceRules = [...rules];
     let index = 0;
@@ -1769,6 +2181,7 @@ export function runInternalRefsScan(config) {
         );
       }
       sourceFiles += 1;
+      docCommentFiles.add(rel);
       const extracted = extractDocComments(sourceText(read.bytes), rel);
       docLines.push(...extracted.lines);
       docParagraphs.push(...extracted.paragraphs);
@@ -1784,6 +2197,7 @@ export function runInternalRefsScan(config) {
 
   // The source string-literal pass, when the caller has enabled it.
   let literalFiles = 0;
+  const literalFilesRead = new Set();
   if (resolved.sourceStringLiterals.enabled) {
     const literalRules = [...rules];
     let index = 0;
@@ -1840,6 +2254,7 @@ export function runInternalRefsScan(config) {
         );
       }
       literalFiles += 1;
+      literalFilesRead.add(rel);
       const extracted = extractStringLiterals(sourceText(read.bytes), rel);
       literalEntries.push(...extracted.literals);
       joinedEntries.push(...extracted.lines);
@@ -1854,6 +2269,68 @@ export function runInternalRefsScan(config) {
     scanStringLiterals(literalEntries, joinedEntries, literalRules, hits);
   }
 
+  // THE DEFAULT SOURCE PASSES, on every run: every comment, and every string literal the caller's
+  // own literal pass did not already read, in the JavaScript and TypeScript under the source and
+  // test folders. A repository with none of those folders has nothing here to read, which is not
+  // a refusal; a tracked file this cannot open is.
+  //
+  // An exclude pathspec the caller wrote for one of its own source passes (dicom leaves its
+  // generated dictionary out of the literal pass) holds for the matching default pass as well, so
+  // an exclusion stays one reviewed line in the repository's configuration.
+  const defaultSource = trackedEntriesUnder(root, DEFAULT_SOURCE_PATHSPECS);
+  const commentPaths = tracedPaths(root, [
+    ...DEFAULT_SOURCE_PATHSPECS,
+    ...excludePathspecs(resolved.sourceDocComments.paths),
+  ]);
+  const literalPaths = tracedPaths(root, [
+    ...DEFAULT_SOURCE_PATHSPECS,
+    ...excludePathspecs(resolved.sourceStringLiterals.paths),
+  ]);
+  /* v8 ignore start -- every caller pathspec was listed above; only a git failing mid-run lands here */
+  if (defaultSource === null || commentPaths === null || literalPaths === null) {
+    return refuse("git could not enumerate the source and test files.");
+  }
+  /* v8 ignore stop */
+  const commentLines = [];
+  const commentParagraphs = [];
+  const defaultLiterals = [];
+  const defaultJoined = [];
+  let defaultSourceFiles = 0;
+  for (const entry of defaultSource) {
+    const rel = entry.path;
+    const verdict = classifyTrackedMode(entry.mode);
+    if (verdict === "skip") continue;
+    /* v8 ignore start -- git emits no mode classifyTrackedMode refuses; its own tests grade that */
+    if (verdict === "refuse") {
+      return refuse(
+        `tracked source entry ${rel} has mode ${entry.mode}, which names nothing this scan can ` +
+          "read. Refusing to report green from a scan that skipped one of its inputs.",
+      );
+    }
+    /* v8 ignore stop */
+    const read = readTarget(join(root, rel));
+    if (read.error !== undefined) {
+      return refuse(
+        `tracked source file ${rel} ${read.error}. Refusing to report green from a scan that ` +
+          "could not open its input.",
+      );
+    }
+    defaultSourceFiles += 1;
+    const text = sourceText(read.bytes);
+    if (commentPaths.has(rel)) {
+      const comments = extractComments(text, rel, { skipDocComments: docCommentFiles.has(rel) });
+      commentLines.push(...comments.lines);
+      commentParagraphs.push(...comments.paragraphs);
+    }
+    if (literalPaths.has(rel) && !literalFilesRead.has(rel)) {
+      const extracted = extractStringLiterals(text, rel);
+      defaultLiterals.push(...extracted.literals);
+      defaultJoined.push(...extracted.lines);
+    }
+  }
+  scanDocComments(commentLines, commentParagraphs, rules, hits, "comment");
+  scanStringLiterals(defaultLiterals, defaultJoined, rules, hits);
+
   if (hits.length > 0) {
     writeErr(report(hits));
     return resolved.exitCodes.hits;
@@ -1861,13 +2338,14 @@ export function runInternalRefsScan(config) {
 
   writeOut(
     `internal-refs: OK (${documents.length} target(s) scanned against ${rules.length} rule(s), ` +
-      `line by line and paragraph-joined` +
+      `line by line and paragraph-joined, ${defaultTargets} of them from the default surface` +
       (resolved.sourceDocComments.enabled
         ? `; ${sourceFiles} source file(s) scanned for doc-comment bookkeeping`
         : "") +
       (resolved.sourceStringLiterals.enabled
         ? `; ${literalFiles} source file(s) scanned for string-literal bookkeeping`
         : "") +
+      `; ${defaultSourceFiles} source and test file(s) scanned for comments and string literals` +
       (sourceNulBytes > 0 ? `; ${sourceNulBytes} NUL byte(s) in source read as spaces` : "") +
       `; ${gitlinks} gitlink(s) skipped)\n`,
   );
@@ -1897,15 +2375,24 @@ function scanDocument(document, rules, hits) {
   }
 }
 
-/** Scan extracted doc-comment text, line by line and then paragraph-reflowed. */
-function scanDocComments(docLines, docParagraphs, rules, hits) {
+/**
+ * Scan extracted comment text, line by line and then paragraph-reflowed.
+ *
+ * @param {{ text: string, where: string }[]} docLines The text, line by line.
+ * @param {{ text: string, where: string }[]} docParagraphs The text, paragraph by paragraph.
+ * @param {object[]} rules The rules.
+ * @param {object[]} hits Where a hit goes.
+ * @param {"source" | "comment"} [kind] `source` for the doc-comment pass, `comment` for the
+ *   comment pass, which labels the hit.
+ */
+function scanDocComments(docLines, docParagraphs, rules, hits, kind = "source") {
   for (const rule of rules) {
     const located = new Set();
     for (const entry of docLines) {
       const found = firstMatch(rule, entry.text);
       if (found === null) continue;
       located.add(entry.where);
-      hits.push({ rule: rule.name, file: entry.where, line: null, text: entry.text, source: true });
+      hits.push({ rule: rule.name, file: entry.where, line: null, text: entry.text, [kind]: true });
     }
     for (const entry of docParagraphs) {
       const found = firstMatch(rule, entry.text);
@@ -1916,7 +2403,7 @@ function scanDocComments(docLines, docParagraphs, rules, hits) {
         file: entry.where,
         line: null,
         text: found,
-        source: true,
+        [kind]: true,
         wrapped: true,
       });
     }
@@ -1956,6 +2443,7 @@ function report(hits) {
     const label =
       `[${hit.rule}` +
       (hit.source ? " / src doc comment" : "") +
+      (hit.comment ? " / comment" : "") +
       (hit.literal ? " / src string literal" : "") +
       (hit.wrapped ? " / wrapped across lines" : "") +
       "]";
@@ -1963,10 +2451,14 @@ function report(hits) {
   }
   lines.push("");
   lines.push("ERROR: internal-refs - internal project bookkeeping found on a public surface.");
-  lines.push("       A consumer reads this surface. Item identifiers, phase and wave language,");
-  lines.push("       ADR numbers and internal repo paths belong in the changeset, the changelog,");
-  lines.push("       the commit, the pull request and the roadmap. Translate at the boundary: say");
-  lines.push("       what the software does and what changed.");
+  lines.push(
+    "       Anyone can read this surface. Item, decision and standard ids, tracking rows,",
+  );
+  lines.push("       phase, plan and wave names, decision numbers, private repository names and");
+  lines.push(
+    "       session ids point at records a reader cannot open. Translate at the boundary:",
+  );
+  lines.push("       say what the software does and what changed, in words a reader can check.");
   lines.push("       When you strip an identifier off the FRONT of a line, repair the head too:");
   lines.push(
     "       drop a leading orphan parenthetical, strip leading punctuation, recapitalise.",
