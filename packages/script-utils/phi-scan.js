@@ -13,7 +13,8 @@
 // bytes git carries, content deduplication under git's own `blob <len>\0` framing, the completeness
 // rule, the refusals, and the cross-cutting SSN/email FLOOR. It does NOT own the per-standard,
 // field-level detectors (names, DOB, MRN / member id, address, phone), which genuinely differ per
-// healthcare standard and are supplied by the caller through `detect`.
+// healthcare standard and are supplied by the caller: as plug-ins through `detectors`, whose
+// findings are a declared place and a rule from the engine's own set, or through `detect`.
 //
 // THE FIVE PER-REPO AXES ARE PARAMETERS, NOT FORKS. They differ between repos, which is an argument
 // for parameters and not against sharing:
@@ -131,7 +132,7 @@ export function exemptsMarkdown(relPath) {
  * observed, in `buildTargetsForStaged`, not here.
  *
  * @param {import("./phi-scan.js").PhiScanConfig} config
- * @returns {Required<Omit<import("./phi-scan.js").PhiScanConfig, "detect">> & { detect?: import("./phi-scan.js").DetectFn }}
+ * @returns {Required<Omit<import("./phi-scan.js").PhiScanConfig, "detect" | "detectors">> & { detect?: import("./phi-scan.js").DetectFn, detectors: CheckedDetector[] }}
  */
 function normalizeConfig(config) {
   if (typeof config !== "object" || config === null) {
@@ -236,6 +237,7 @@ function normalizeConfig(config) {
   if (config.argv !== undefined && !Array.isArray(config.argv)) {
     throw new TypeError("runPhiScan: `argv` must be an array of strings when given.");
   }
+  const detectors = checkDetectors(config.detectors);
 
   return {
     repoRoot,
@@ -249,7 +251,137 @@ function normalizeConfig(config) {
     allowListPath: config.allowListPath ?? join(repoRoot, "scripts", "phi-allow-list.txt"),
     overrideLogPath: config.overrideLogPath ?? join(repoRoot, "phi-scan-overrides.md"),
     detect: config.detect,
+    detectors,
   };
+}
+
+/**
+ * The rules a plug-in finding may name, and the only words the report prints for each.
+ *
+ * THE SET IS THE ENGINE'S AND IT IS CLOSED, AND THAT IS WHAT KEEPS A FINDING FROM CARRYING TEXT.
+ * A rule a detector wrote as free text is a string it could have built from the record it parsed;
+ * a rule that must be one of these names can only ever print one of these sentences. Null
+ * prototype, so `toString` and the rest of `Object.prototype` are not rules.
+ */
+const PHI_RULES = Object.freeze(
+  Object.assign(Object.create(null), {
+    name: "person name not declared synthetic in the allow-list",
+    "birth-date": "date of birth not declared synthetic in the allow-list",
+    date: "date not declared synthetic in the allow-list",
+    identifier: "identifier not declared synthetic in the allow-list",
+    ssn: "Social Security number not declared synthetic in the allow-list",
+    address: "address not declared synthetic in the allow-list",
+    phone: "phone number outside the fictional block 555-0100 to 555-0199",
+    email: "email address not declared synthetic in the allow-list",
+    "provider-id": "provider identifier that could be a real registration",
+    "phi-field": "PHI-bearing field value not declared synthetic in the allow-list",
+  }),
+);
+
+/** The tags a tagged allow-list line may carry. A line whose first word is none of them is untagged. */
+const ALLOW_TAGS = new Set([
+  "NAME",
+  "DOB",
+  "ID",
+  "EMAILDOMAIN",
+  "ADDR",
+  "ADDRESS",
+  "CITY",
+  "ZIP",
+  "PHONE",
+  "EMAIL",
+]);
+
+/** A detector's name: a lowercase word of at most 64 characters, so it is safe to print. */
+const DETECTOR_NAME = /^[a-z][a-z0-9-]{0,63}$/;
+
+/**
+ * A declared place: 1 to 80 printable ASCII characters with no space. A place is written into the
+ * report, so it is held to a shape before any file is read; WHICH places a finding may name is the
+ * detector's declaration, checked per finding.
+ */
+const PLACE = /^[\x21-\x7e]{1,80}$/;
+
+/** The keys a plug-in finding may carry. Any other key is refused, never dropped. */
+const FINDING_KEYS = new Set(["place", "rule", "line", "offset"]);
+
+/**
+ * @typedef {{ name: string, places: Set<string>, detect: import("./phi-scan.js").PhiDetector["detect"] }} CheckedDetector
+ */
+
+/**
+ * Check the `detectors` setting before any scan begins, the way every other axis is checked.
+ *
+ * THE PLACES ARE DECLARED HERE, BEFORE A SINGLE FILE IS READ, and that is the point of declaring
+ * them. A finding's place must be one of them exactly, so a detector that interpolates what it
+ * matched into a locator produces a place nobody declared, and the engine refuses the finding
+ * rather than printing it.
+ *
+ * @param {unknown} raw
+ * @returns {CheckedDetector[]}
+ */
+function checkDetectors(raw) {
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw)) {
+    throw new TypeError("runPhiScan: `detectors` must be an array of detectors when given.");
+  }
+  /** @type {CheckedDetector[]} */
+  const out = [];
+  const names = new Set();
+  for (const d of raw) {
+    if (typeof d !== "object" || d === null) {
+      throw new TypeError("runPhiScan: each detector must be an object { name, places, detect }.");
+    }
+    if (typeof d.name !== "string" || !DETECTOR_NAME.test(d.name)) {
+      throw new TypeError(
+        "runPhiScan: a detector's `name` must be a lowercase word of letters, digits and " +
+          "hyphens, at most 64 characters, starting with a letter. It is printed in the report.",
+      );
+    }
+    if (names.has(d.name)) {
+      throw new TypeError(`runPhiScan: the detector name "${d.name}" is used more than once.`);
+    }
+    names.add(d.name);
+    if (typeof d.detect !== "function") {
+      throw new TypeError(`runPhiScan: the detector "${d.name}" needs a \`detect\` function.`);
+    }
+    if (!Array.isArray(d.places) || d.places.length === 0) {
+      throw new TypeError(
+        `runPhiScan: the detector "${d.name}" must declare its \`places\`, a non-empty array of ` +
+          `the locators its findings may name.`,
+      );
+    }
+    for (const place of d.places) {
+      if (typeof place !== "string" || !PLACE.test(place)) {
+        throw new TypeError(
+          `runPhiScan: the detector "${d.name}" declares a place that is not 1 to 80 printable ` +
+            `characters with no space.`,
+        );
+      }
+    }
+    // Bound to the detector itself, so a detector written as a class method keeps its `this`.
+    out.push({ name: d.name, places: new Set(d.places), detect: d.detect.bind(d) });
+  }
+  return out;
+}
+
+/**
+ * Is this a phone number inside the fictional block, 555-0100 to 555-0199?
+ *
+ * The number is read as its digits: seven (the local number), ten (with an area code), or eleven
+ * starting with 1 (with the country code). Any area code is admitted, because the block is
+ * reserved for fiction in every one. Anything else is not a fictional phone, so a detector that
+ * calls this reports it.
+ *
+ * @param {string} value
+ * @returns {boolean}
+ */
+export function isFictionalPhone(value) {
+  const digits = String(value).replace(/\D/g, "");
+  const local =
+    digits.length === 7 || digits.length === 10 || (digits.length === 11 && digits.startsWith("1"));
+  // The last seven of at least seven digits, so an exchange of 555 and a line of 0100 to 0199.
+  return local && digits.slice(-7).startsWith("55501");
 }
 
 /**
@@ -587,6 +719,18 @@ class PhiScan {
    * retired that shape once already on the `attw` gate. The exit contract below therefore says
    * MISSING rather than "missing or unreadable", and says 1 is reserved but NOT exclusive.
    *
+   * THE GRAMMAR IS EVERY TAG THE FORMAT LIBRARIES' OWN SCANNERS READ, WITH THE MEANING THEY GAVE
+   * IT, so a library can hand its detectors to this engine keeping most of its list (a `PHONE`
+   * outside the fictional block is the exception, below). A tagged
+   * line is `TAG value`. Two untagged forms are DICOM's: `DATE:<value>` declares a date, and a line
+   * holding `^` declares a person name, as a prefix when it ends in `^`, matched case-sensitively.
+   * Any other line is skipped, as it always was.
+   *
+   * TWO TAGS REFUSE A LINE RATHER THAN READ IT, naming its line number and never its value. A
+   * `PHONE` outside the fictional block 555-0100 to 555-0199 is refused because no declaration
+   * makes a real-looking number synthetic. A malformed `EMAIL` is refused because the reading it
+   * would otherwise get is a wider clearance than its author wrote.
+   *
    * @returns {import("./phi-scan.js").AllowList}
    */
   loadAllowList() {
@@ -594,36 +738,121 @@ class PhiScan {
       throw new InvocationError(`allow-list not found at ${this.cfg.allowListPath}`);
     }
     const raw = readFileSync(this.cfg.allowListPath, "utf8");
-    /** @type {Set<string>} */ const names = new Set();
-    /** @type {Set<string>} */ const dobs = new Set();
-    /** @type {Set<string>} */ const ids = new Set();
-    /** @type {Set<string>} */ const emailDomains = new Set();
-    for (const lineRaw of raw.split(/\r?\n/)) {
+    /** @type {import("./phi-scan.js").AllowList} */
+    const allow = {
+      names: new Set(),
+      dobs: new Set(),
+      ids: new Set(),
+      emailDomains: new Set(),
+      addresses: new Set(),
+      cities: new Set(),
+      zips: new Set(),
+      phones: new Set(),
+      emails: new Set(),
+      fileEmails: new Map(),
+      personNames: new Set(),
+      personNamePrefixes: new Set(),
+      dates: new Set(),
+    };
+    raw.split(/\r?\n/).forEach((lineRaw, index) => {
       const line = lineRaw.trim();
-      if (line.length === 0 || line.startsWith("#")) continue;
-      const sp = line.indexOf(" ");
-      if (sp < 0) continue;
-      const tag = line.slice(0, sp);
-      const value = line.slice(sp + 1).trim();
-      if (value.length === 0) continue;
-      switch (tag) {
-        case "NAME":
-          names.add(value.toUpperCase());
-          break;
-        case "DOB":
-          dobs.add(value);
-          break;
-        case "ID":
-          ids.add(value.toUpperCase());
-          break;
-        case "EMAILDOMAIN":
-          emailDomains.add(value.toLowerCase());
-          break;
-        default:
-          break;
+      // An empty line falls through every branch below and declares nothing.
+      if (line.startsWith("#")) return;
+      if (line.startsWith("DATE:")) {
+        const date = line.slice("DATE:".length).trim();
+        if (date.length > 0) allow.dates.add(date);
+        return;
       }
+      const tag = line.split(" ", 1)[0];
+      const value = line.slice(tag.length).trim();
+      if (!ALLOW_TAGS.has(tag)) {
+        if (line.includes("^")) {
+          if (line.endsWith("^")) allow.personNamePrefixes.add(line);
+          else allow.personNames.add(line);
+        }
+        return;
+      }
+      if (value.length === 0) return;
+      this.readTaggedLine(allow, tag, value, index + 1);
+    });
+    return allow;
+  }
+
+  /**
+   * File one tagged allow-list line.
+   *
+   * @param {import("./phi-scan.js").AllowList} allow
+   * @param {string} tag One of `ALLOW_TAGS`.
+   * @param {string} value The rest of the line, trimmed and non-empty.
+   * @param {number} lineNumber One-based, for a refusal. The value is never printed.
+   */
+  readTaggedLine(allow, tag, value, lineNumber) {
+    switch (tag) {
+      case "NAME":
+        allow.names.add(value.toUpperCase());
+        break;
+      case "DOB":
+        allow.dobs.add(value);
+        break;
+      case "ID":
+        allow.ids.add(value.toUpperCase());
+        break;
+      case "EMAILDOMAIN":
+        allow.emailDomains.add(value.toLowerCase());
+        break;
+      case "ADDR":
+      case "ADDRESS":
+        allow.addresses.add(value.toLowerCase());
+        break;
+      case "CITY":
+        allow.cities.add(value.toUpperCase());
+        break;
+      case "ZIP":
+        allow.zips.add(value);
+        break;
+      case "PHONE":
+        if (!isFictionalPhone(value)) {
+          throw new InvocationError(
+            `${this.relAllowList()} line ${String(lineNumber)}: a PHONE declaration must be a ` +
+              `number in the fictional block 555-0100 to 555-0199, and this one is not. A ` +
+              `synthetic fixture uses a number from that block; no declaration makes another ` +
+              `number synthetic.`,
+          );
+        }
+        allow.phones.add(value.replace(/\D/g, ""));
+        break;
+      default:
+        // EMAIL, the one tag in `ALLOW_TAGS` not named above.
+        this.readEmailLine(allow, value, lineNumber);
+        break;
     }
-    return { names, dobs, ids, emailDomains };
+  }
+
+  /**
+   * File an `EMAIL <address>` line (that address in every file) or an `EMAIL <path> <address>` line
+   * (that address in that file only), or refuse it.
+   *
+   * @param {import("./phi-scan.js").AllowList} allow
+   * @param {string} value
+   * @param {number} lineNumber
+   */
+  readEmailLine(allow, value, lineNumber) {
+    const words = value.split(/\s+/);
+    const address = words[words.length - 1].toLowerCase();
+    if (words.length > 2 || !address.includes("@")) {
+      throw new InvocationError(
+        `${this.relAllowList()} line ${String(lineNumber)}: an EMAIL declaration is ` +
+          `"EMAIL <address>" or "EMAIL <path> <address>", and this one is neither.`,
+      );
+    }
+    if (words.length === 1) {
+      allow.emails.add(address);
+      return;
+    }
+    const path = this.normalizePath(words[0]);
+    const inFile = allow.fileEmails.get(path) ?? new Set();
+    inFile.add(address);
+    allow.fileEmails.set(path, inFile);
   }
 
   /** @returns {Set<string>} Every path the override log records, repo-relative. */
@@ -1513,11 +1742,16 @@ class PhiScan {
    * is a question about tokens. The token never leaves `scanTarget`; every hit pushed carries a
    * position and a rule, exactly as `scanCommonShapes` does.
    *
+   * AN `EMAIL` DECLARATION CLEARS ITS ONE ADDRESS, and a path-scoped one clears it only in the file
+   * it names, compared on the target's own repo-relative path, so the copy git carries at that path
+   * is cleared too. Every other address at an undeclared domain is still a hit.
+   *
    * @param {string} content
    * @param {import("./phi-scan.js").AllowList} allow
+   * @param {string} filePath The target's repo-relative path, for a path-scoped `EMAIL`.
    * @returns {{ segment: string, reason: string, value: string }[]}
    */
-  commonShapeMatches(content, allow) {
+  commonShapeMatches(content, allow, filePath) {
     const found = [];
     for (const m of content.matchAll(/\b\d{3}-\d{2}-\d{4}\b/g)) {
       const value = m[0];
@@ -1525,11 +1759,19 @@ class PhiScan {
       if (allow.ids.has(value.replace(/\D/g, ""))) continue;
       found.push({ segment: "(ssn)", reason: "dashed SSN pattern", value });
     }
+    // FINDING IS UNCHANGED; ONLY CLEARING LOOKS FURTHER BACK. The pattern below decides which
+    // addresses are found, and it is the one the floor has always used. Its `\b` lets a match
+    // start after a `%`, `+`, `-` or `.`, so the text an `EMAIL` line is compared with is the match
+    // extended back over the whole run of those and word characters before it. `EMAIL desk@x`
+    // then clears `desk@x` and not `%desk@x`. A lookbehind in the pattern itself was tried and
+    // refused: it made the floor miss an address glued to the end of another.
     for (const m of content.matchAll(/\b[A-Za-z0-9._%+-]+@([A-Za-z0-9.-]+\.[A-Za-z]{2,})\b/g)) {
       const domain = (m[1] ?? "").toLowerCase();
-      if (!allow.emailDomains.has(domain)) {
-        found.push({ segment: "(email)", reason: "email with non-test domain", value: m[0] });
-      }
+      if (allow.emailDomains.has(domain)) continue;
+      const address = withRunBefore(content, m.index, m[0]).toLowerCase();
+      if (allow.emails.has(address)) continue;
+      if (allow.fileEmails.get(filePath)?.has(address)) continue;
+      found.push({ segment: "(email)", reason: "email with non-test domain", value: m[0] });
     }
     return found;
   }
@@ -1538,23 +1780,25 @@ class PhiScan {
    * Scan one target and RETURN THE BYTES IT OBSERVED. The bytes are returned rather than a boolean
    * so `all` mode can ask whether the walk already read exactly what the index carries at this path.
    *
-   * THE CALLER'S DETECTOR IS HANDED THE LOCUS, NOT THE TARGET PATH, so a hit from the union half
+   * THE CALLER'S `detect` IS HANDED THE LOCUS, NOT THE TARGET PATH, so a hit from the union half
    * cannot be reported against a bare path a developer would open and find clean. That used to be a
-   * sentence in a comment; here it is the only path a caller can reach.
+   * sentence in a comment; here it is the only path a caller can reach. A plug-in is handed the bare
+   * path, because it never names a path at all: the engine writes the locus into its findings.
    *
    * A DETECTOR THAT THROWS REFUSES THE SCAN rather than escaping to node's own exit code. A
    * per-standard parser meeting input it cannot handle is an ordinary event, and the code node would
    * pick is the one this contract reserves for HITS FOUND.
    *
-   * 🛑 THE REFUSAL PRINTS THE DETECTOR'S OWN MESSAGE VERBATIM, AND THAT IS A DISCLOSED RESIDUAL
-   * RATHER THAN A CLOSED ONE. Everywhere else this engine prints only a repo-relative path and a
-   * token from a closed set, precisely because a diagnostic ABOUT a PHI leak is itself a PHI
-   * surface. A caller's error message is text this engine cannot vouch for, and a parser that
-   * interpolates the record it choked on will put that record on stderr, which is CI logs. It is not
-   * suppressed, because a refusal nobody can diagnose is its own defect, and it is not new: before
-   * this engine existed the same string reached the same place through node's default handler. What
-   * is new is that it is written down, here and on `DetectFn`. Throw a message that names the
-   * position, never the content.
+   * 🛑 THE REFUSAL NEVER PRINTS THE DETECTOR'S OWN MESSAGE. It names the detector, the locus and
+   * the view, and says the message was withheld. A caller's error message is text this engine
+   * cannot vouch for, and a parser that interpolates the record it choked on would put that record
+   * on stderr, which is CI logs. The message used to be printed verbatim as a disclosed residual;
+   * a refusal that names the detector and the file is diagnosable by running that detector on that
+   * file, which is where the message belongs.
+   *
+   * THE PLUG-INS IN `detectors` RUN AFTER `detect`, over the same two views, and their findings go
+   * through `runPlugins`, which takes a declared place and a rule from the engine's set and refuses
+   * anything else.
    *
    * @param {import("./phi-scan.js").Target} target
    * @param {import("./phi-scan.js").AllowList} allow
@@ -1579,9 +1823,10 @@ class PhiScan {
     // carries, and reading that back off the text of a path is a parse of the engine's own prose.
     if (target.origin !== undefined) this.indexLoci.add(locus);
 
-    const rawMatches = this.commonShapeMatches(text, allow);
+    const rawMatches = this.commonShapeMatches(text, allow, target.path);
     for (const m of rawMatches) hits.push({ path: locus, segment: m.segment, reason: m.reason });
     const rawDetected = this.runDetector(locus, text, buf, allow, hits, "");
+    const rawFound = this.runPlugins(target.path, locus, text, buf, allow, hits, "");
 
     // THE SAME FLOOR, AND THE CALLER'S DETECTOR, OVER THE ESCAPE-DECODED DOCUMENT, IN ADDITION AND
     // NEVER INSTEAD. A JavaScript or TypeScript source is a container of literals, so its bytes are
@@ -1594,7 +1839,7 @@ class PhiScan {
       const decoded = decodeSourceLiterals(text);
       if (decoded !== text) {
         const reported = new Set(rawMatches.map((m) => `${m.segment}\0${m.value}`));
-        for (const m of this.commonShapeMatches(decoded, allow)) {
+        for (const m of this.commonShapeMatches(decoded, allow, target.path)) {
           if (reported.has(`${m.segment}\0${m.value}`)) continue;
           reported.add(`${m.segment}\0${m.value}`);
           hits.push({ path: locus, segment: m.segment, reason: `${m.reason}${ESCAPED}` });
@@ -1607,6 +1852,16 @@ class PhiScan {
           hits,
           ESCAPED,
           rawDetected,
+        );
+        this.runPlugins(
+          target.path,
+          locus,
+          decoded,
+          Buffer.from(decoded),
+          allow,
+          hits,
+          ESCAPED,
+          rawFound,
         );
       }
     }
@@ -1630,8 +1885,9 @@ class PhiScan {
     const raised = new Set();
     const detect = this.cfg.detect;
     if (detect === undefined) return raised;
+    let result;
     try {
-      detect({
+      result = detect({
         path: locus,
         text,
         bytes,
@@ -1648,10 +1904,78 @@ class PhiScan {
           hits.push({ path: locus, segment: h.segment, reason: `${h.reason}${suffix}` });
         },
       });
-    } catch (err) {
+    } catch {
+      throw new InvocationError(detectorThrew("detect", locus, suffix));
+    }
+    // `detect` is synchronous. An async one has done its work, hits included, after this run
+    // read the file, and its rejection would reach Node's own handler, message and all.
+    if (settleQuietly(result)) {
       throw new InvocationError(
-        `the field detector threw on ${locus}${suffix === "" ? "" : " (its escape-decoded source literals)"}: ${err instanceof Error ? err.message : String(err)}`,
+        `the field detector returned a promise on ${locus}${viewNote(suffix)} (detector ` +
+          `"detect"), so the scan has no verdict about that file. \`detect\` is synchronous; ` +
+          `whatever the promise settles to is not read, and a rejection's message is not printed.`,
       );
+    }
+    return raised;
+  }
+
+  /**
+   * Run every plug-in in `detectors` over one view of a target, and return the findings raised.
+   *
+   * A PLUG-IN'S FINDING IS DATA THE ENGINE READS, NOT TEXT IT PRINTS. The report is built from the
+   * declared place, the engine's own sentence for the rule, a line or offset that must be an
+   * integer, and the detector's checked name. A result that is not an array of exactly that shape
+   * refuses the scan, naming the detector and a fixed reason, so a detector that hands back what it
+   * matched, under any key or in any field, gets a refusal and never a printed value. Reading the
+   * result is inside the guard too: a getter that throws is a malformed finding, not node's exit 1.
+   *
+   * @param {string} path The target's repo-relative path, which is what a plug-in is handed.
+   * @param {string} locus
+   * @param {string} text
+   * @param {Buffer} bytes
+   * @param {import("./phi-scan.js").AllowList} allow
+   * @param {import("./phi-scan.js").Hit[]} hits
+   * @param {string} suffix Appended to each reason: empty for the raw bytes, a note for the decoded view.
+   * @param {Set<string>} [already] Findings the raw view raised; the decoded view adds only others.
+   * @returns {Set<string>}
+   */
+  runPlugins(path, locus, text, bytes, allow, hits, suffix, already = new Set()) {
+    const raised = new Set();
+    for (const detector of this.cfg.detectors) {
+      let result;
+      try {
+        result = detector.detect({ path, text, bytes, allow: readOnlyAllow(allow) });
+      } catch {
+        throw new InvocationError(detectorThrew(detector.name, locus, suffix));
+      }
+      settleQuietly(result);
+      let findings;
+      try {
+        findings = readFindings(result, detector.places);
+      } catch {
+        findings = "reading its findings threw";
+      }
+      if (typeof findings === "string") {
+        throw new InvocationError(
+          `the field detector "${detector.name}" returned a malformed result on ${locus}` +
+            `${viewNote(suffix)}: ${findings}. A detector returns an array of findings, each ` +
+            `{ place, rule, line?, offset? } with a place it declared and a rule from the engine's ` +
+            `set, and nothing else, so a finding cannot carry text from the file.`,
+        );
+      }
+      for (const f of findings) {
+        const key = `${detector.name}\0${f.place}\0${f.rule}`;
+        raised.add(key);
+        if (already.has(key)) continue;
+        const at =
+          (f.line === undefined ? "" : ` line ${String(f.line)}`) +
+          (f.offset === undefined ? "" : ` offset ${String(f.offset)}`);
+        hits.push({
+          path: locus,
+          segment: `${f.place}${at}`,
+          reason: `${PHI_RULES[f.rule]}, detector ${detector.name}${suffix}`,
+        });
+      }
     }
     return raised;
   }
@@ -2100,6 +2424,139 @@ function gitModeKind(mode) {
   return `a git mode-${mode} entry`;
 }
 
+/**
+ * What the report says about a view of a target: nothing for the raw bytes, a note for the decoded
+ * view of a source's literals.
+ *
+ * @param {string} suffix
+ * @returns {string}
+ */
+function viewNote(suffix) {
+  return suffix === "" ? "" : " (its escape-decoded source literals)";
+}
+
+/**
+ * The refusal for a detector that threw. FIXED TEXT: the detector's name, the locus, the view, and
+ * nothing the detector said, because what it said may hold text from the file.
+ *
+ * @param {string} name
+ * @param {string} locus
+ * @param {string} suffix
+ * @returns {string}
+ */
+function detectorThrew(name, locus, suffix) {
+  return (
+    `the field detector threw on ${locus}${viewNote(suffix)} (detector "${name}"), so the scan ` +
+    `has no verdict about that file. The detector's own message is not printed, because it may ` +
+    `hold text from the file it was reading: run that detector on that file outside the gate to ` +
+    `see why.`
+  );
+}
+
+/**
+ * A fresh, frozen copy of the allow-list for one plug-in call.
+ *
+ * A PLUG-IN GETS A COPY, NEVER THE ENGINE'S OWN SETS. The floor and every later detector read the
+ * engine's list, so a plug-in that cleared or filled a set it was handed would change what the
+ * engine allows for every file after it. Each set is copied, and the object holding them is frozen,
+ * so a write lands on a copy that is thrown away.
+ *
+ * @param {import("./phi-scan.js").AllowList} allow
+ * @returns {import("./phi-scan.js").AllowList}
+ */
+function readOnlyAllow(allow) {
+  /** @type {Record<string, unknown>} */
+  const copy = {};
+  for (const [key, value] of Object.entries(allow)) {
+    copy[key] =
+      value instanceof Map
+        ? new Map([...value].map(([k, v]) => [k, new Set(v)]))
+        : new Set(/** @type {Set<string>} */ (value));
+  }
+  return /** @type {import("./phi-scan.js").AllowList} */ (Object.freeze(copy));
+}
+
+/**
+ * Attach a do-nothing rejection handler to a result that has a callable `then`, and say whether
+ * it had one, before the result is refused.
+ *
+ * THE REFUSAL ALONE IS NOT ENOUGH FOR A PROMISE. A promise that later rejects, with no handler on
+ * it, is printed by Node's own unhandled-rejection handler, message and all, and the process exits
+ * 1 after the engine returned its refuse code. The handler is attached inside a guard, because a
+ * `then` that throws is the detector's code too.
+ *
+ * @param {unknown} result
+ * @returns {boolean} Whether the result had a callable `then`.
+ */
+function settleQuietly(result) {
+  let then;
+  try {
+    then = /** @type {{ then?: unknown }} */ (result).then;
+  } catch {
+    // Reading `then` off `undefined` or `null` throws, and so may a getter: neither is a promise,
+    // and `then` stays undefined.
+  }
+  if (typeof then !== "function") return false;
+  try {
+    Reflect.apply(then, result, [undefined, () => {}]);
+  } catch {
+    // A `then` that throws is the detector's code too; the result is refused whatever it did.
+  }
+  return true;
+}
+
+/**
+ * A found address with the run of `[._%+-]` and word characters just before it, so a match that
+ * started after one of them is compared whole against an `EMAIL` line.
+ *
+ * @param {string} content
+ * @param {number} index Where the match starts.
+ * @param {string} matched
+ * @returns {string}
+ */
+function withRunBefore(content, index, matched) {
+  let start = index;
+  // `charAt(-1)` is the empty string, which the class does not match, so the loop stops at 0.
+  while (/[\w.%+-]/.test(content.charAt(start - 1))) start -= 1;
+  return content.slice(start, index) + matched;
+}
+
+/**
+ * Read a plug-in's result as findings, or say in fixed words why it is not one.
+ *
+ * @param {unknown} result
+ * @param {Set<string>} places The places the detector declared.
+ * @returns {{ place: string, rule: string, line?: number, offset?: number }[] | string}
+ */
+function readFindings(result, places) {
+  if (!Array.isArray(result)) return "it did not return an array";
+  const out = [];
+  for (const f of result) {
+    if (typeof f !== "object" || f === null || Array.isArray(f)) {
+      return "a finding is not a plain object";
+    }
+    if (!Object.keys(f).every((k) => FINDING_KEYS.has(k))) {
+      return "a finding has a key the engine does not take";
+    }
+    const { place, rule, line, offset } = f;
+    if (typeof rule !== "string" || !Object.hasOwn(PHI_RULES, rule)) {
+      return "a finding names a rule outside the engine's set";
+    }
+    // A Set matches by identity for a non-string, so only a declared string passes.
+    if (!places.has(place)) {
+      return "a finding names a place the detector did not declare";
+    }
+    if (line !== undefined && !(Number.isSafeInteger(line) && line >= 1)) {
+      return "a finding's line is not a positive integer";
+    }
+    if (offset !== undefined && !(Number.isSafeInteger(offset) && offset >= 0)) {
+      return "a finding's offset is not a non-negative integer";
+    }
+    out.push({ place, rule, line, offset });
+  }
+  return out;
+}
+
 // ---- The command-line form (ST34) ---------------------------------------------------------------
 //
 // `node node_modules/@cosyte/script-utils/phi-scan.js [--allow-list <path>] [--staged | <path>...]`
@@ -2116,7 +2573,7 @@ function gitModeKind(mode) {
 // outlived its file is a hole nobody is looking at.
 //
 // IT CARRIES THE CROSS-CUTTING FLOOR ONLY. A repository whose standard needs field-level detectors
-// keeps a caller passing `detect` until the per-standard detectors ship in this package.
+// keeps a caller that passes them to `runPhiScan` through `detectors` (or `detect`).
 
 /** Where the command-line form reads what a repository leaves out. */
 export const PHI_EXCLUDE_PATH = "scripts/phi-scan.exclude";
