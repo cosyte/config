@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.10
+
+### Patch Changes
+
+- 1858905: The package is now published with npm provenance: its `publishConfig` sets `"provenance": true`, so npm shows a provenance statement that ties each release's tarball to the source commit and the workflow run that built it.
+- 1ba9fe6: README: a consumer declares a tool this package runs (tsup, `@vitest/coverage-v8`, eslint, prettier, typescript) directly only when its own code imports it, pinned to the exact version this package pins, with vitest as the usual case. Before, the README said a consumer declares none of them except vitest.
+
 ## 0.1.9
 
 ### Patch Changes

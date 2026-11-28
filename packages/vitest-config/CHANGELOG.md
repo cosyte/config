@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.7
+
+### Patch Changes
+
+- 1858905: The package is now published with npm provenance: its `publishConfig` sets `"provenance": true`, so npm shows a provenance statement that ties each release's tarball to the source commit and the workflow run that built it.
+- Updated dependencies [dbc3106]
+- Updated dependencies [c8c11db]
+- Updated dependencies [593195a]
+- Updated dependencies [1858905]
+- Updated dependencies [1ba9fe6]
+- Updated dependencies [e447209]
+  - @cosyte/script-utils@0.1.15
+
 ## 0.1.6
 
 ### Patch Changes
