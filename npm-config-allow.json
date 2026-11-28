@@ -26,7 +26,7 @@
     {
       "key": "registry",
       "value": "https://registry.npmjs.org/",
-      "why": "The public npm registry, which is where these eight packages belong. The publish job's actions/setup-node takes no `registry-url` (release.yml says why), so on the runner this is npm's own default; where a source does contribute it, as setup-node's generated user config does when given a `registry-url`, only this one URL is permitted, and the `require` rule below re-checks it against the resolvers' full maps so a permissive entry here could not widen it."
+      "why": "The public npm registry, which is where these nine packages belong. The publish job's actions/setup-node takes no `registry-url` (release.yml says why), so on the runner this is npm's own default; where a source does contribute it, as setup-node's generated user config does when given a `registry-url`, only this one URL is permitted, and the `require` rule below re-checks it against the resolvers' full maps so a permissive entry here could not widen it."
     },
     {
       "key": "provenance",
@@ -145,7 +145,7 @@
     {
       "key": "publishConfig:access",
       "value": "public",
-      "why": "Every one of the eight published packages declares `publishConfig.access`. `public` is the only permitted value: a scoped package flipped to `restricted` publishes somewhere nobody can install it from, and a private package flipped to `public` is the opposite accident."
+      "why": "Every one of the nine published packages declares `publishConfig.access`. `public` is the only permitted value: a scoped package flipped to `restricted` publishes somewhere nobody can install it from, and a private package flipped to `public` is the opposite accident."
     },
     {
       "key": "changesets:access",

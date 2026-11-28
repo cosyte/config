@@ -45,8 +45,9 @@ path or reports clean after reading nothing turns PHI detection off wherever the
 
 - A change to what a package ships needs a changeset that bumps it; anything else gets none. A
   changeset that bumped nothing withheld a whole release on a green run (#41).
-- Nothing that packs, publishes or installs goes in a `prepublishOnly`: it broke every version bump
-  (#40). A gate or test spawning npm or pnpm checks which `npm_config_*` the child inherits (#47).
+- Nothing that packs, publishes or installs goes in a `prepublishOnly` of a package here: it broke
+  every version bump (#40). A library's own `prepublishOnly` still ends in `pnpm attw`. A gate or
+  test spawning npm or pnpm checks which `npm_config_*` the child inherits (#47).
 - A gate that could not read its input exits 2 (0 is clean, 1 a finding), and its tests assert the
   CLI's exit code, each new case seen red first: gates exited 0 on a defect (#42) and unrun (#48).
 - The template's own `test/` never runs here: cover a template change in the root suites that run

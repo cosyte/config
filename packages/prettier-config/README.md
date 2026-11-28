@@ -40,7 +40,7 @@ and take the reformat deliberately.
 pnpm add -D @cosyte/prettier-config prettier
 ```
 
-`prettier` is a peer dependency. Node `>=22.14`. The package ships one JSON file and no code.
+The package declares no peer dependency; `prettier` reads it. Node `>=22.14`. The package ships one JSON file and no code.
 
 ## Usage
 

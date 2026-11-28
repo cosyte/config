@@ -6,7 +6,8 @@ scaffold, release plumbing, and supply-chain / governance hygiene. Follows
 
 **Per-package changes live in each package's own `packages/*/CHANGELOG.md`**:
 `@cosyte/tsconfig`, `@cosyte/eslint-config`, `@cosyte/prettier-config`, `@cosyte/tsup-config`,
-`@cosyte/vitest-config`, `@cosyte/test-utils`, `@cosyte/script-utils`, `@cosyte/process`, each
+`@cosyte/vitest-config`, `@cosyte/test-utils`, `@cosyte/script-utils`, `@cosyte/process`,
+`@cosyte/bench`, each
 on the **`0.1.x`** line and written by Changesets from the changesets a release consumed. This file
 tracks only what those don't own: the workspace root, the drift manifest/check, the scaffold
 generator, CI/release, and dependency/governance hygiene. The root workspace is `private` and ships
@@ -307,6 +308,15 @@ no package, so entries here are **dated** rather than versioned.
     dependencies and no build step.
 
 ### Changed
+
+- **The release and toolchain documents state the current rules** (2026-11-28). `RELEASING.md`: an
+  automated session working under the release owner's account may merge a patch Version Packages PR
+  and approve its `release` run, while a minor, a major, and a new package's first release wait for
+  the release owner; `RELEASE_PR_TOKEN` is an organization secret shared with this repository, not a
+  repository secret; and the `prepublishOnly` rule is scoped to this workspace's packages, as it is
+  in `CLAUDE.md`. `documentation/script-utils-version-map.md` gives a caret range for a manifest and
+  an exact version for an `npx` call. `npm-config-allow.json` and this file count nine published
+  packages.
 
 - **The card spec and the parser template drop the agent notes** (2026-11-08, D62 and RD4 in
   plans/standards.md). The operator removed `documentation/agent-notes.md` from every repository, so
