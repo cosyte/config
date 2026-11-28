@@ -13,19 +13,30 @@
     },
     {
       "type": "category",
-      "label": "Core concepts",
-      "collapsed": false,
-      "items": ["concepts-archetype"]
+      "label": "Tutorials",
+      "items": ["parse-your-first-message"]
     },
     {
       "type": "category",
-      "label": "Guides",
-      "items": ["guides-overview"]
+      "label": "How-to guides",
+      "items": ["handle-parse-warnings"]
+    },
+    {
+      "type": "category",
+      "label": "Explanation",
+      "items": ["tolerance-and-warnings"]
+    },
+    {
+      "type": "category",
+      "label": "Reference",
+      "items": ["limitations"]
     },
     {
       "type": "category",
       "label": "Troubleshooting",
       "items": ["troubleshooting"]
-    }
+    },
+    "testing-and-quality",
+    "performance"
   ]
 }

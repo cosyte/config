@@ -65,9 +65,30 @@ describe.each(CASES)("a parser scaffolded as $name", ({ name }) => {
     expect(checkClaudeCard(card, { agentsMd: true })).toEqual([]);
   });
 
+  it("holds every changeset to a patch, and does not describe the package as published", () => {
+    // A minor moves a library off the line its siblings' caret ranges admit. And a new parser is
+    // not on npm until its first release, so the card does not say it is.
+    const card = readFileSync(join(emitted.get(name) ?? "", "CLAUDE.md"), "utf8");
+    expect(card).toContain("every changeset is a `patch`");
+    expect(card).not.toMatch(/`minor`/);
+    expect(card).not.toMatch(/published to npm/i);
+  });
+
+  it("carries an AGENTS.md titled AGENTS.md, with its four sections in order", () => {
+    const agents = readFileSync(join(emitted.get(name) ?? "", "AGENTS.md"), "utf8");
+    expect(agents.startsWith("# AGENTS.md\n")).toBe(true);
+    expect(agents.split("\n").filter((line) => line.startsWith("## "))).toEqual([
+      "## Build and test",
+      "## The gate",
+      "## Rules",
+      "## Contributing",
+    ]);
+    expect(agents).toContain("belongs in `docs-content/`");
+    expect(agents).not.toMatch(/`minor`/);
+  });
+
   it("carries an AGENTS.md with the commands, the data rule and the CONTRIBUTING link", () => {
     const agents = readFileSync(join(emitted.get(name) ?? "", "AGENTS.md"), "utf8");
-    expect(agents.startsWith(`# @cosyte/${name}\n`)).toBe(true);
     expect(agents).toContain("pnpm install --frozen-lockfile");
     expect(agents).toContain("pnpm test");
     expect(agents).toContain("pnpm phi-scan");

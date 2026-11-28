@@ -586,6 +586,10 @@ function main() {
     "{{NAME}}": name, // x12 (package segment / repo name)
     "{{TITLE}}": title, // human-readable, e.g. "X12"
     "{{Pascal}}": toPascal(name), // PascalCase identifier, e.g. X12 / Ccda, for type & fn names
+    // The PascalCase identifier in lower case, e.g. x12 / ccda: the heading anchor the generated
+    // API reference gives an export such as `Parse{{Pascal}}Options`. It differs from `{{NAME}}`
+    // only for a name with a hyphen, whose anchor has none.
+    "{{SLUG}}": toPascal(name).toLowerCase(),
   };
 
   copyTree(TEMPLATE_DIR, destDir, tokens);

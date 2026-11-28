@@ -222,10 +222,13 @@ describe("docs-content", () => {
     }
   });
 
-  it('labels the concepts category "Core concepts"', () => {
-    const labels = JSON.stringify(json("docs-content/sidebars.json"));
-    expect(labels).toContain('"label":"Core concepts"');
-    expect(labels).not.toContain("Core Concepts");
+  it("gives every page a sidebar_label and no sidebar_position, since the sidebar sets the order", () => {
+    const pages = readdirSync(join(repo, "docs-content")).filter((f) => f.endsWith(".md"));
+    for (const page of pages) {
+      const front = /^---\n([\s\S]*?)\n---\n/.exec(read(`docs-content/${page}`))?.[1] ?? "";
+      expect(front, page).toMatch(/^sidebar_label: \S/m);
+      expect(front, page).not.toMatch(/^sidebar_position:/m);
+    }
   });
 });
 
