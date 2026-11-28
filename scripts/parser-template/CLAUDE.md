@@ -8,20 +8,8 @@ of structural corruption) and writes spec-clean output, with zero runtime depend
 
 ## Gate
 
-Required checks: the shared CI ladder (`ci`) on Node 22, 24 and 26, `no-emdash`, and
-`codeql / analyze`. From the repo root, with the pnpm version `packageManager` pins:
-
-```sh
-pnpm install --frozen-lockfile
-pnpm typecheck
-pnpm lint
-pnpm format:check
-pnpm phi-scan
-pnpm test:coverage
-pnpm build
-pnpm attw
-pnpm check:no-emdash
-```
+The gate is in AGENTS.md, in the order CI runs it. Run it from the repo root before a push, with
+the pnpm version `packageManager` pins first on PATH.
 
 ## Hazard
 

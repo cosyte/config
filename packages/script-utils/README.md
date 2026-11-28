@@ -361,7 +361,8 @@ The card opens with `# <name>` and a paragraph, then has exactly three level-2 s
 `## Gate`, `## Hazard` and `## Rules` (a heading may go on after its word, as in
 `## Rules that bind here`), none empty. It is at most 60 lines, every line at most 100 characters
 with code included, and at most 5,120 bytes. When an AGENTS.md sits beside it, the card imports it on
-a line of its own, `@AGENTS.md`. Exit 0 means the card follows the spec, 1 that it does not (each
+a line of its own, `@AGENTS.md`, and its `## Gate` names AGENTS.md, where the gate is written,
+with no code block and no word on which checks are required. Exit 0 means the card follows the spec, 1 that it does not (each
 finding names its line and rule, from `CARD_RULES`), and 2 that CLAUDE.md could not be read.
 
 ### The catalog

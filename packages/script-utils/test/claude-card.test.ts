@@ -24,7 +24,10 @@ import {
 
 const GATE = join(import.meta.dirname, "..", "claude-card.js");
 
-/** A card that follows the spec: an AGENTS.md import, a qualified heading, a ### and a fence. */
+/**
+ * A public card that follows the spec: an AGENTS.md import, a Gate that points to AGENTS.md, a
+ * qualified heading, a ### and a fence.
+ */
 function good(): string {
   return [
     "# @cosyte/demo",
@@ -35,13 +38,7 @@ function good(): string {
     "",
     "## Gate",
     "",
-    "Required checks: `verify (22)`, `verify (24)` and `verify (26)`.",
-    "",
-    "```sh",
-    "pnpm install --frozen-lockfile",
-    "## not a heading, because it is inside a fence",
-    "pnpm test",
-    "```",
+    "Run the gate in AGENTS.md from the repo root before a push.",
     "",
     "## Hazard: a field parsed wrong but plausible travels on",
     "",
@@ -52,6 +49,12 @@ function good(): string {
     "### Errors",
     "",
     "- Errors carry bounded tokens, never message text (#70).",
+    "",
+    "```sh",
+    "pnpm install --frozen-lockfile",
+    "## not a heading, because it is inside a fence",
+    "pnpm test",
+    "```",
     "",
   ].join("\n");
 }
@@ -79,6 +82,9 @@ describe("a card that follows the spec", () => {
       [
         "agents-import",
         "bytes",
+        "gate-commands",
+        "gate-pointer",
+        "gate-required",
         "intro",
         "lines",
         "section-empty",
@@ -139,7 +145,8 @@ describe("each rule goes red on its own", () => {
       "## Hazard: a field parsed wrong but plausible travels on\n",
       "## Gate\n",
     ).replace("## TEMP\n", "## Hazard\n");
-    expect(rules(text)).toEqual(["section-order"]);
+    // A private card, so the Gate rules of a public one do not read the swapped bodies.
+    expect(rules(text.replace("@AGENTS.md\n\n", ""), false)).toEqual(["section-order"]);
   });
 
   it("section-extra: a fourth level-2 heading", () => {
@@ -170,7 +177,7 @@ describe("each rule goes red on its own", () => {
       agentsMd: true,
     });
     expect(findings.map((f) => f.rule)).toEqual(["width"]);
-    expect(findings[0]?.line).toBe(14);
+    expect(findings[0]?.line).toBe(24);
   });
 
   it("width: counts characters, not bytes", () => {
@@ -199,6 +206,142 @@ describe("each rule goes red on its own", () => {
 
   it("agents-import: not checked when the caller does not say", () => {
     expect(checkClaudeCard(replaceOnce(good(), "@AGENTS.md\n\n", ""))).toEqual([]);
+  });
+});
+
+describe("a public card's Gate points to AGENTS.md", () => {
+  const POINTER = "Run the gate in AGENTS.md from the repo root before a push.\n";
+
+  /** The public card with its Gate body replaced. */
+  function withGate(body: string): string {
+    return replaceOnce(good(), POINTER, body);
+  }
+
+  /** A private card: no AGENTS.md beside it, so its gate is written under its own Gate. */
+  function privateCard(): string {
+    return withGate(
+      [
+        "Required checks: `verify (22)` and `verify (24)`. From the repo root:",
+        "",
+        "```sh",
+        "pnpm install --frozen-lockfile",
+        "pnpm test",
+        "```",
+        "",
+      ].join("\n"),
+    ).replace("@AGENTS.md\n\n", "");
+  }
+
+  function findings(text: string, agentsMd = true): { rule: string; line: number }[] {
+    return checkClaudeCard(text, { agentsMd }).map(({ rule, line }) => ({ rule, line }));
+  }
+
+  it("a private card keeps its commands and checks under Gate", () => {
+    expect(findings(privateCard(), false)).toEqual([]);
+  });
+
+  it("gate-pointer: a public Gate that does not name AGENTS.md", () => {
+    expect(findings(withGate("Run the gate from the repo root before a push.\n"))).toEqual([
+      { rule: "gate-pointer", line: 7 },
+    ]);
+  });
+
+  it("gate-pointer: an AGENTS.md named outside the Gate section does not count", () => {
+    const text = replaceOnce(
+      withGate("Run the gate from the repo root before a push.\n"),
+      "Warn rather than guess.",
+      "Warn rather than guess, as AGENTS.md says.",
+    );
+    expect(findings(text).map((f) => f.rule)).toEqual(["gate-pointer"]);
+  });
+
+  it("gate-commands: a fenced block of commands, backticks or tildes", () => {
+    for (const fence of ["```", "~~~"]) {
+      const text = withGate(`${POINTER}\n${fence}sh\npnpm test\n${fence}\n`);
+      expect(findings(text), fence).toEqual([{ rule: "gate-commands", line: 11 }]);
+    }
+  });
+
+  it("gate-commands: an indented code block, four spaces or a tab", () => {
+    for (const indent of ["    ", "\t"]) {
+      const text = withGate(`${POINTER}\n${indent}pnpm test\n`);
+      expect(findings(text), JSON.stringify(indent)).toEqual([{ rule: "gate-commands", line: 11 }]);
+    }
+  });
+
+  it("gate-commands: an indented block opening the section is code", () => {
+    const text = withGate("See AGENTS.md.\n\n    pnpm test\n").replace(
+      "## Gate\n\nSee",
+      "## Gate\n\n    pnpm test\n\nSee",
+    );
+    expect(findings(text).map((f) => f.rule)).toEqual(["gate-commands"]);
+  });
+
+  it("gate-commands: a list item's indented continuation is not code", () => {
+    const items = [
+      `- ${POINTER}`,
+      "    still the same item, after a blank line.\n",
+      "1. A numbered item.\n",
+      "     its continuation.\n",
+      "- An item, as AGENTS.md says,\n  wrapped\n",
+      "    and continued.\n",
+    ];
+    for (let i = 0; i < items.length; i += 2) {
+      const text = withGate(`${items[i]}\n${items[i + 1]}`.replace(/^1\./, `1. ${POINTER}`));
+      expect(findings(text), items[i]).toEqual([]);
+    }
+  });
+
+  it("gate-commands: an indented line right under a paragraph line is not code", () => {
+    expect(findings(withGate(`${POINTER}    wrapped, not code.\n`))).toEqual([]);
+  });
+
+  it("gate-commands: an inline command is not a code block", () => {
+    expect(findings(withGate("Run `pnpm test` and the rest of the gate in AGENTS.md.\n"))).toEqual(
+      [],
+    );
+  });
+
+  it("gate-required: a Gate that says which checks are required", () => {
+    for (const said of ["Required checks: `verify`.", "Not required, but red if it fails."]) {
+      const text = withGate(`${POINTER}\n${said}\n`);
+      expect(findings(text), said).toEqual([{ rule: "gate-required", line: 11 }]);
+    }
+  });
+
+  it("gate-required: a word that only begins with required does not count", () => {
+    expect(findings(withGate(`${POINTER}\nThe step requiredness is not stated.\n`))).toEqual([]);
+  });
+
+  it("gate-required: a Hazard or Rules section may say required", () => {
+    const text = replaceOnce(good(), "Warn rather than guess.", "A changeset is required.");
+    expect(findings(text)).toEqual([]);
+  });
+
+  it("all three at once, on the card a public repo used to write", () => {
+    const text = withGate(privateCard().split("## Gate\n\n")[1]?.split("## Hazard")[0] ?? "");
+    expect(findings(text)).toEqual([
+      { rule: "gate-pointer", line: 7 },
+      { rule: "gate-commands", line: 11 },
+      { rule: "gate-required", line: 9 },
+    ]);
+  });
+
+  it("not checked when the caller does not say, nor when there is no Gate", () => {
+    const old = withGate("Required checks: `verify`.\n\n```sh\npnpm test\n```\n");
+    expect(checkClaudeCard(old)).toEqual([]);
+    const noGate = replaceOnce(old, "## Gate\n", "### Gate\n");
+    expect(findings(noGate).map((f) => f.rule)).toEqual(["section-missing"]);
+  });
+
+  it("names the ruleset command, and where the commands go", () => {
+    const text = withGate("Required checks: `verify`.\n\n```sh\npnpm test\n```\n");
+    const byRule = new Map(checkClaudeCard(text, { agentsMd: true }).map((f) => [f.rule, f]));
+    expect(byRule.get("gate-required")?.message).toContain(
+      "`gh api repos/cosyte/<repo>/rules/branches/main`",
+    );
+    expect(byRule.get("gate-commands")?.message).toContain("AGENTS.md alone");
+    expect(byRule.get("gate-pointer")?.message).toContain("under `## The gate`");
   });
 });
 
@@ -235,7 +378,9 @@ describe("where a finding sends what does not fit on the card (D62)", () => {
       "## Rules",
       "## Gate",
       "",
-      "pnpm test",
+      "Required checks: `test`.",
+      "",
+      "    pnpm test",
       "## Notes",
       "",
       "w".repeat(CARD_MAX_LINE_LENGTH + 1),
@@ -289,6 +434,16 @@ describe("the CLI", () => {
     const r = cli([], repo("no-agents", good(), false));
     expect(r.code).toBe(1);
     expect(r.out).toContain("[agents-import]");
+  });
+
+  it("exits 1 on a public card whose Gate repeats the commands", () => {
+    const card = good().replace(
+      "from the repo root before a push.\n",
+      "\n\n```sh\npnpm test\n```\n",
+    );
+    const r = cli([], repo("public-commands", card, true));
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("CLAUDE.md:11 [gate-commands]");
   });
 
   it("reads --dir", () => {
