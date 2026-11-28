@@ -172,10 +172,14 @@ unconditional refusal back does not pass it.
 ### N4. The email floor clears an address an `EMAIL` line declares
 
 The allow-list grammar takes every tag the format libraries' own scanners read, so a library can
-hand its field detectors to the engine (`detectors`) without rewriting its list. Most of the new
-tags only reach a detector. One reaches the floor: `EMAIL <address>` clears that one address in
-every file, and `EMAIL <path> <address>` clears it in that file only, as the libraries' own floors
-already did. Before, the floor read `EMAILDOMAIN` alone, so an address at an undeclared domain was
+hand its field detectors to the engine (`detectors`) while keeping most of its list. It is not
+every list unchanged. A `PHONE` line outside the fictional block 555-0100 to 555-0199 now refuses
+the run, so a list declaring such numbers (transform's declares six) has to move its fixtures to
+block numbers first. And `EMAIL` takes both of the forms the libraries use, where transform's own
+scanner takes only the path-scoped one and refuses the other, so for transform the shared grammar
+is wider on that line. Most of the new tags only reach a detector. One reaches the floor:
+`EMAIL <address>` clears that one address in every file, and `EMAIL <path> <address>` clears it in
+that file only, as the libraries' own floors already did. Before, the floor read `EMAILDOMAIN` alone, so an address at an undeclared domain was
 a hit whatever the list said.
 
 **What is given up:** an address an `EMAIL` line names is no longer a floor hit, in every file for
@@ -185,7 +189,9 @@ for the second.
 **What still refuses:**
 
 - Every other address at an undeclared domain, the same mailbox's neighbours at the same domain
-  included. The match is the whole address, lowercased, never a domain or a pattern.
+  included. The match is the whole address, lowercased, never a domain or a pattern, and it starts
+  where the address's own characters start, so a declared address does not also clear one that
+  ends in it (a `%`, `+`, `-` or `.` in front).
 - A path-scoped address in any file but the one it names.
 - An `EMAIL` line that is neither form (no `@` in the address, or more than two words) refuses the
   run at the refuse code, naming the line number and not the value, rather than being read as a

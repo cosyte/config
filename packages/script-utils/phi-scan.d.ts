@@ -193,8 +193,13 @@ export interface PhiDetectorInput {
  * and a rule. The engine prints the path, the place, an integer line or offset, its own sentence
  * for the rule, and `name`, and nothing else. A result that is not an array of `PhiFinding` (an
  * extra key such as `value`, an undeclared place, a rule outside the set, a line that is not a
- * positive integer, a promise) refuses the scan, naming the detector and a fixed reason. A detector
- * that throws refuses the scan, and its message is not printed.
+ * positive integer) refuses the scan, naming the detector and a fixed reason. So does a promise
+ * or any other result with a `then`: `detect` is synchronous, and the engine attaches a handler
+ * that discards a rejection before refusing, so a rejection's message is not printed by Node
+ * either. A detector that throws refuses the scan, and its message is not printed.
+ *
+ * `detect` is called with the detector as `this`, so a class method works. Its `allow` is a fresh
+ * frozen copy for each call: a write to it changes nothing the engine or another detector reads.
  */
 export interface PhiDetector {
   /** A lowercase word of letters, digits and hyphens, at most 64 characters, starting with a letter. */

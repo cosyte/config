@@ -359,7 +359,8 @@ function checkDetectors(raw) {
         );
       }
     }
-    out.push({ name: d.name, places: new Set(d.places), detect: d.detect });
+    // Bound to the detector itself, so a detector written as a class method keeps its `this`.
+    out.push({ name: d.name, places: new Set(d.places), detect: d.detect.bind(d) });
   }
   return out;
 }
@@ -719,7 +720,8 @@ class PhiScan {
    * MISSING rather than "missing or unreadable", and says 1 is reserved but NOT exclusive.
    *
    * THE GRAMMAR IS EVERY TAG THE FORMAT LIBRARIES' OWN SCANNERS READ, WITH THE MEANING THEY GAVE
-   * IT, so a library can hand its detectors to this engine without rewriting its list. A tagged
+   * IT, so a library can hand its detectors to this engine keeping most of its list (a `PHONE`
+   * outside the fictional block is the exception, below). A tagged
    * line is `TAG value`. Two untagged forms are DICOM's: `DATE:<value>` declares a date, and a line
    * holding `^` declares a person name, as a prefix when it ends in `^`, matched case-sensitively.
    * Any other line is skipped, as it always was.
@@ -1757,7 +1759,13 @@ class PhiScan {
       if (allow.ids.has(value.replace(/\D/g, ""))) continue;
       found.push({ segment: "(ssn)", reason: "dashed SSN pattern", value });
     }
-    for (const m of content.matchAll(/\b[A-Za-z0-9._%+-]+@([A-Za-z0-9.-]+\.[A-Za-z]{2,})\b/g)) {
+    // THE ADDRESS STARTS WHERE ITS CHARACTERS START, NOT AT A WORD BOUNDARY. With `\b` in front, a
+    // `%`, `+`, `-` or `.` before a mailbox fell outside the match, so `EMAIL <address>` also
+    // cleared every address that ends in it. The lookbehind reads the whole run, which matches
+    // wherever `\b` did and only ever starts earlier.
+    for (const m of content.matchAll(
+      /(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@([A-Za-z0-9.-]+\.[A-Za-z]{2,})\b/g,
+    )) {
       const domain = (m[1] ?? "").toLowerCase();
       if (allow.emailDomains.has(domain)) continue;
       const address = m[0].toLowerCase();
@@ -1926,10 +1934,11 @@ class PhiScan {
     for (const detector of this.cfg.detectors) {
       let result;
       try {
-        result = detector.detect({ path, text, bytes, allow });
+        result = detector.detect({ path, text, bytes, allow: readOnlyAllow(allow) });
       } catch {
         throw new InvocationError(detectorThrew(detector.name, locus, suffix));
       }
+      settleQuietly(result);
       let findings;
       try {
         findings = readFindings(result, detector.places);
@@ -2432,6 +2441,51 @@ function detectorThrew(name, locus, suffix) {
     `hold text from the file it was reading: run that detector on that file outside the gate to ` +
     `see why.`
   );
+}
+
+/**
+ * A fresh, frozen copy of the allow-list for one plug-in call.
+ *
+ * A PLUG-IN GETS A COPY, NEVER THE ENGINE'S OWN SETS. The floor and every later detector read the
+ * engine's list, so a plug-in that cleared or filled a set it was handed would change what the
+ * engine allows for every file after it. Each set is copied, and the object holding them is frozen,
+ * so a write lands on a copy that is thrown away.
+ *
+ * @param {import("./phi-scan.js").AllowList} allow
+ * @returns {import("./phi-scan.js").AllowList}
+ */
+function readOnlyAllow(allow) {
+  /** @type {Record<string, unknown>} */
+  const copy = {};
+  for (const [key, value] of Object.entries(allow)) {
+    copy[key] =
+      value instanceof Map
+        ? new Map([...value].map(([k, v]) => [k, new Set(v)]))
+        : new Set(/** @type {Set<string>} */ (value));
+  }
+  return /** @type {import("./phi-scan.js").AllowList} */ (Object.freeze(copy));
+}
+
+/**
+ * Attach a do-nothing rejection handler to a result that has a callable `then`, before the result
+ * is refused for not being an array.
+ *
+ * THE REFUSAL ALONE IS NOT ENOUGH FOR A PROMISE. A promise that later rejects, with no handler on
+ * it, is printed by Node's own unhandled-rejection handler, message and all, and the process exits
+ * 1 after the engine returned its refuse code. The handler is attached inside a guard, because a
+ * `then` that throws is the detector's code too.
+ *
+ * @param {unknown} result
+ */
+function settleQuietly(result) {
+  // No type tests: reading `then` off `undefined` or `null` throws, so does `Reflect.apply` on a
+  // `then` that is not callable, and the guard takes both.
+  try {
+    const then = /** @type {{ then?: unknown }} */ (result).then;
+    Reflect.apply(/** @type {Function} */ (then), result, [undefined, () => {}]);
+  } catch {
+    // The result is refused below whatever happened here.
+  }
 }
 
 /**

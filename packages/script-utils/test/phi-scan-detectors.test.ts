@@ -753,3 +753,160 @@ describe("the detectors setting is checked before any scan begins", () => {
     expect(r.out).toContain(`detector ${name})`);
   });
 });
+
+describe("a promise a plug-in returns cannot reach the output when it rejects", () => {
+  it("refuses at 2 as a run of its own process, and the rejection's text appears nowhere", () => {
+    // IN A SUBPROCESS, because the leak is Node's own: an unhandled rejection is printed by the
+    // process and turns the exit code into 1 after the engine has already returned 2.
+    write("test/fixtures/record.txt", "nothing\n");
+    commitAll();
+    const engine = join(import.meta.dirname, "..", "phi-scan.js");
+    const script = join(repo, "..", `${repo.split(/[\\/]/).at(-1) ?? "x"}-run.mjs`);
+    writeFileSync(
+      script,
+      `import { runPhiScan, exemptsMarkdown } from ${JSON.stringify(engine)};\n` +
+        `process.exitCode = runPhiScan({\n` +
+        `  repoRoot: ${JSON.stringify(repo)}, argv: [],\n` +
+        `  exitCodes: { clean: 0, hits: 1, refuse: 2 }, scanRoots: ["."],\n` +
+        `  isStagedReadable: exemptsMarkdown,\n` +
+        `  detectors: [{ name: "demo-fields", places: ["PID-5"],\n` +
+        `    detect: () => Promise.reject(new Error("cannot parse ${PLANTED}")) }],\n` +
+        `});\n`,
+      "utf8",
+    );
+    try {
+      const r = spawnSync(process.execPath, [script], { encoding: "utf8" });
+      const out = `${r.stdout}${r.stderr}`;
+      expect(r.status, out).toBe(2);
+      expect(out).toContain("it did not return an array");
+      expect(out).not.toContain(PLANTED);
+      expect(out).not.toContain("cannot parse");
+    } finally {
+      rmSync(script, { force: true });
+    }
+  });
+
+  it("hands any result with a callable then a handler that swallows a rejection", () => {
+    write("test/fixtures/record.txt", "nothing\n");
+    commitAll();
+    const calls: [unknown, unknown][] = [];
+    const record = (onFulfilled: unknown, onRejected: unknown): void => {
+      calls.push([onFulfilled, onRejected]);
+    };
+    const asObject = { then: record };
+    const asFunction = Object.assign(() => undefined, { then: record });
+    for (const result of [asObject, asFunction]) {
+      calls.length = 0;
+      const r = run({ detectors: [returning(result)] });
+      expect(r.code, r.out).toBe(2);
+      expect(calls).toHaveLength(1);
+      const [onFulfilled, onRejected] = calls[0] ?? [];
+      expect(onFulfilled).toBeUndefined();
+      expect(typeof onRejected).toBe("function");
+      expect((onRejected as (e: unknown) => unknown)(new Error(PLANTED))).toBeUndefined();
+    }
+  });
+
+  it("refuses a thenable whose then throws, without taking node's own exit code", () => {
+    write("test/fixtures/record.txt", "nothing\n");
+    commitAll();
+    const thenable = {
+      then(): never {
+        throw new Error(PLANTED);
+      },
+    };
+    const r = run({ detectors: [returning(thenable)] });
+    expect(r.code, r.out).toBe(2);
+    expect(r.out).toContain("it did not return an array");
+    expect(r.out).not.toContain(PLANTED);
+  });
+});
+
+describe("an EMAIL declaration clears only the address it names", () => {
+  it.each([["%"], ["+"], ["-"], ["."], ["_"]])(
+    "still reports the address with %s before it",
+    (lead) => {
+      allowList("EMAIL desk@clinic.invalid");
+      write("test/fixtures/a.txt", `write to ${lead}desk@clinic.invalid\n`);
+      commitAll();
+      const r = run();
+      expect(r.code, r.out).toBe(1);
+      expect(r.out).toContain("HIT: test/fixtures/a.txt");
+      expect(r.out).not.toContain("desk@clinic.invalid");
+    },
+  );
+});
+
+describe("a plug-in cannot change what the engine allows", () => {
+  it("leaves the floor and later detectors with the list as written, whatever a plug-in does to its copy", () => {
+    allowList(
+      "ID 123-45-6789",
+      "EMAILDOMAIN clinic.invalid",
+      "NAME PROBE",
+      "EMAIL test/fixtures/b.txt desk@other.invalid",
+      "EMAIL scripts/phi-allow-list.txt desk@other.invalid",
+    );
+    write("test/fixtures/a.txt", "nothing\n");
+    write("test/fixtures/b.txt", "ssn 123-45-6789 mail desk@clinic.invalid desk@other.invalid\n");
+    commitAll();
+    const seen: number[] = [];
+    const r = run({
+      detectors: [
+        {
+          name: "vandal",
+          places: ["PID-5"],
+          detect: (input) => {
+            const allow = input.allow as unknown as Record<string, unknown>;
+            try {
+              input.allow.ids.add("123-45-6789");
+              input.allow.ids.clear();
+              input.allow.emailDomains.clear();
+              for (const inFile of input.allow.fileEmails.values()) inFile.clear();
+              input.allow.fileEmails.clear();
+            } catch {
+              // A frozen view may refuse the write outright, which is as good as ignoring it.
+            }
+            try {
+              allow.names = new Set();
+            } catch {
+              // Likewise for replacing a field.
+            }
+            return [];
+          },
+        },
+        {
+          name: "reader",
+          places: ["PID-5"],
+          detect: (input) => {
+            seen.push(input.allow.names.size);
+            seen.push(input.allow.fileEmails.get("test/fixtures/b.txt")?.size ?? 0);
+            return [];
+          },
+        },
+      ],
+    });
+    expect(r.code, r.out).toBe(0);
+    expect(seen.every((n) => n === 1)).toBe(true);
+    expect(seen.length).toBeGreaterThan(1);
+  });
+});
+
+describe("a detector written as a method keeps its object", () => {
+  it("calls detect with the detector as this", () => {
+    write("test/fixtures/record.txt", "nothing\n");
+    commitAll();
+    class Fields {
+      readonly name = "demo-fields";
+      readonly places = ["PID-5"];
+      readonly rule = "name" as const;
+      detect(input: { path: string }): { place: string; rule: "name" }[] {
+        return input.path === "test/fixtures/record.txt"
+          ? [{ place: "PID-5", rule: this.rule }]
+          : [];
+      }
+    }
+    const r = run({ detectors: [new Fields()] });
+    expect(r.code, r.out).toBe(1);
+    expect(r.out).toContain("detector demo-fields");
+  });
+});
