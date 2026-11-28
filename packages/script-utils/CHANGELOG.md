@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.1.15
+
+### Patch Changes
+
+- dbc3106: `checkClaudeCard` and `cosyte-claude-card` now hold a public repository's card to a Gate section that points to its AGENTS.md: with an AGENTS.md beside the card, a `## Gate` that does not name AGENTS.md (`gate-pointer`), holds a code block of commands (`gate-commands`), or says which checks are required (`gate-required`) is a finding, and the CLI exits 1.
+
+  A public repository writes its gate once, under `## The gate` in AGENTS.md, because copies of the gate on the card drifted from CI, and a list of required checks in a file goes stale since nothing in a repository can see its own ruleset. A card with no AGENTS.md beside it, a private repository's, is read as before. `CardRule` and `CARD_RULES` carry the three new rule ids.
+
+  What a caller must change: in a repository with an AGENTS.md, replace the commands and any required check names under the card's `## Gate` with a pointer to the gate in AGENTS.md (for example, "The gate is under `## The gate` in AGENTS.md, in the order CI runs it."), keep any note that is not a command, and read the required checks with `gh api repos/cosyte/<repo>/rules/branches/main` instead of writing them down.
+
+- c8c11db: `CATALOG` now records Pathways as released on npm and lists `@cosyte/ihe`, the IHE parser, as a standard that is not on npm yet: the engine record's `status` is `released`, its `onNpm` is `true`, it carries an `npm` URL, and its `description` is the one in Pathways' `package.json`.
+
+  Every library record now carries `onNpm`, and a record carries its `npm` URL only when the package is on npm, so the `npm` field of `CatalogLibrary` is optional in the declarations. `CATALOG.libraries` holds 15 records, 9 of the standard tier. In `catalog/tiers.json`, a standard is on npm unless its entry says `"onNpm": false`, and the freshness check reads every package marked on npm, Pathways included, from its latest release.
+
+  What a caller must change: code that reads `library.npm` from `CATALOG` must handle a record with no `npm` field (read `library.onNpm` first), and a count or list built from `CATALOG.libraries` now includes `@cosyte/ihe`.
+
+- 593195a: The internal-reference gate (`cosyte-internal-refs`, `runInternalRefsScan`) now scans more files and looks for more id forms, so a repository that adopts this version may see findings its last run did not report.
+
+  Every run now reads, whatever `scripts/internal-refs.json` says: the files under `.changeset/`, `CLAUDE.md`, `AGENTS.md` and `.github/workflows/` whole, and every `//` and `/* */` comment and every string literal in the JavaScript and TypeScript under `src/`, `test/` and `tests/`. Before, it read only `surfacePaths`, plus doc comments and string literals where those passes were turned on. A comment hit is labelled `/ comment`. An exclude pathspec already in `surfacePaths`, `sourceDocComments.paths` or `sourceStringLiterals.paths` holds for the matching default pass too.
+
+  Six rules join the canonical set, so every repository gets them without an extra rule of its own: item, decision and standard ids, tracking row ids, plan and roadmap citations, decision numbers, private repository names and paths, and session ids. They are built to let field names (`PID-5`, `CX-1`, `ORG-1`, `ST01`, `407-D7`), standards names (`ISO-8601`, `UTF-8`, `RFC-5322`), table and transaction numbers (`HL7-0396`, `X12-837`) and code values (`D64.9`, `U+D800`) through. `canonicalRuleNames()` now returns 12 names, and `extractComments`, `DEFAULT_SURFACE_PATHS` and `DEFAULT_SOURCE_ROOTS` are new exports. A repository's own `extraRules` keep working, and now run over the new files as well.
+
+  What a caller must change: run the gate once after upgrading and fix each new finding, by rewording the reference in words a reader can check. A file the gate must not read, such as a generated table, is left out with one exclude pathspec naming its literal path in the matching axis, with the reason beside it in a `$` note.
+
+- 1858905: The package is now published with npm provenance: its `publishConfig` sets `"provenance": true`, so npm shows a provenance statement that ties each release's tarball to the source commit and the workflow run that built it.
+- 1ba9fe6: README: the `npx` examples for the bins name an exact version, `@cosyte/script-utils@0.1.14`, in place of the `@0.1` range, since no lockfile holds an `npx` call still.
+- e447209: The `@cosyte/script-utils` README is back under the 60,000 characters the README gate allows, so npm shows it whole.
+
+  The detailed rules of the em-dash gate's exclude file and changelog boundary, the docs-content check's per-kind page rules and example pages, and the internal-reference gate's axis table now live in `documentation/script-utils-reference.md` in cosyte/config, and the README links to each section. The README also no longer carries internal tracking ids.
+
 ## 0.1.14
 
 ### Patch Changes

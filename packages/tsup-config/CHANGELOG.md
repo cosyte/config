@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.5
+
+### Patch Changes
+
+- 1858905: The package is now published with npm provenance: its `publishConfig` sets `"provenance": true`, so npm shows a provenance statement that ties each release's tarball to the source commit and the workflow run that built it.
+
 ## 0.1.4
 
 ### Patch Changes

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.3
+
+### Patch Changes
+
+- 1858905: The package is now published with npm provenance: its `publishConfig` sets `"provenance": true`, so npm shows a provenance statement that ties each release's tarball to the source commit and the workflow run that built it.
+- 1ba9fe6: README: the package declares no peer dependency, and the README now says so. Before, it called `prettier` a peer dependency.
+
 ## 0.1.2
 
 ### Patch Changes
