@@ -37,6 +37,12 @@
 // publish job creates only what is still owed. A version that is not on the registry is not tagged:
 // a tag says the version shipped.
 //
+// EVERY ASSET GOES IN THE CREATE CALL. This repository's releases are immutable: once a release is
+// published GitHub refuses a later upload to it (HTTP 422, "Cannot upload assets to an immutable
+// release"), so each `--asset` file is handed to `gh release create` itself, and the read-back
+// checks that the release lists every one of them by name. A release that exists already is never
+// uploaded to, because no upload could succeed.
+//
 // CARRYING IT OVER. Everything is in this file and in one step of release.yml ("Every package version
 // on npm must have its tag and release"), which calls it with the checkout, the commit and a scratch
 // directory, and needs only `GH_TOKEN` with `contents: write`, which the publish job already holds.
@@ -47,7 +53,8 @@
 //
 // Usage:
 //   node scripts/release-tags.mjs reconcile --repo <dir> --target <sha> --notes-dir <dir>
-//                                           [--budget-seconds <n>] [--probe-interval-seconds <n>]
+//                                           [--asset <file>]... [--budget-seconds <n>]
+//                                           [--probe-interval-seconds <n>]
 //
 // GitHub is reached through `gh` with the token in `GH_TOKEN`, and the repository is
 // `GITHUB_REPOSITORY` when it is set (in Actions it always is).
@@ -56,11 +63,12 @@
 //   0  every publishable package's version that is on npm has its tag and its GitHub release.
 //   1  at least one version on npm still has no tag or no release, or GitHub or the registry could
 //      not be read, so that cannot be ruled out.
-//   2  the reconciliation could not run: a bad invocation or an unreadable workspace.
+//   2  the reconciliation could not run: a bad invocation, an unreadable workspace, or an `--asset`
+//      file that is not there (a release created without it could never be given it).
 
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { basename, join, resolve } from "node:path";
 
 import { isCliEntrypoint } from "../packages/script-utils/index.js";
 import {
@@ -145,7 +153,8 @@ export function changelogBody({ name, version, dir }) {
  * is missing, and it must not be evidence that one exists either.
  *
  * @param {{ repo?: string, env?: object }} [options] The repository (`owner/name`) and environment.
- * @returns {{ tagExists: Function, releaseExists: Function, createRelease: Function }} The boundary.
+ * @returns {{ tagExists: Function, releaseExists: Function, releaseAssets: Function,
+ *   createRelease: Function }} The boundary.
  */
 export function ghGitHub({ repo = process.env.GITHUB_REPOSITORY, env = process.env } = {}) {
   const run = (args) => {
@@ -184,13 +193,27 @@ export function ghGitHub({ repo = process.env.GITHUB_REPOSITORY, env = process.e
       if (/release not found|HTTP 404/.test(output)) return false;
       throw new GitHubUnreadable(`could not read the release ${tag}: ${firstLine(output)}`);
     },
-    createRelease({ tag, target, notesFile }) {
+    releaseAssets(tag) {
+      const { status, output } = run(["release", "view", tag, ...repoArgs, "--json", "assets"]);
+      if (status === 0) {
+        try {
+          return JSON.parse(output).assets.map((asset) => asset.name);
+        } catch {
+          throw new GitHubUnreadable(`could not read the assets of ${tag}: ${firstLine(output)}`);
+        }
+      }
+      throw new GitHubUnreadable(`could not read the assets of ${tag}: ${firstLine(output)}`);
+    },
+    createRelease({ tag, target, notesFile, assets = [] }) {
       // `--target` makes gh create the tag at that commit when it does not exist; when it does, gh
-      // uses the existing tag and the target is not read.
+      // uses the existing tag and the target is not read. The asset files go in this same call:
+      // gh creates the release as a draft, uploads them, then publishes it, and once published an
+      // immutable release takes no further asset.
       const { status, output } = run([
         "release",
         "create",
         tag,
+        ...assets,
         ...repoArgs,
         "--target",
         target,
@@ -211,6 +234,8 @@ export function ghGitHub({ repo = process.env.GITHUB_REPOSITORY, env = process.e
  * @param {{ name: string, version: string, dir: string }[]} options.packages Every publishable package.
  * @param {string} options.target The commit a missing tag is created at: the one this run published.
  * @param {string} options.notesDir Where release bodies are written for `gh`.
+ * @param {string[]} [options.assets] Files every release created here carries, attached in the create
+ *   call and read back by name.
  * @param {object} options.github The GitHub boundary (see `ghGitHub`).
  * @param {object} [options.presence] Options passed to registry-presence.mjs's `account`: the
  *   budget, the interval, the environment and, in a test, the probe.
@@ -221,10 +246,12 @@ export async function reconcile({
   packages,
   target,
   notesDir,
+  assets = [],
   github,
   presence = {},
   log = (line) => process.stdout.write(`${line}\n`),
 }) {
+  const assetNames = assets.map((file) => basename(file));
   const rows = packages.map((pkg) => ({
     ...pkg,
     tag: tagFor(pkg.name, pkg.version),
@@ -312,7 +339,7 @@ export async function reconcile({
       }
       const notesFile = join(notesDir, `${slugFor(row.name)}.md`);
       writeFileSync(notesFile, built.body, "utf8");
-      const created = github.createRelease({ tag: row.tag, target, notesFile });
+      const created = github.createRelease({ tag: row.tag, target, notesFile, assets });
       if (created.ok) {
         log(
           `Created the ${row.tagged ? "release" : "tag and release"} for ${row.tag}, which is on ` +
@@ -324,11 +351,26 @@ export async function reconcile({
     }
 
     // 4. Read it back. This, not the create call's exit code, is what decides.
+    let missing = [];
     try {
       read(row);
+      if (row.released && assetNames.length > 0) {
+        const listed = new Set(github.releaseAssets(row.tag));
+        missing = assetNames.filter((name) => !listed.has(name));
+      }
     } catch (error) {
       if (!(error instanceof GitHubUnreadable)) throw error;
       fail(row, "GitHub could not be read", `${row.tag}: ${error.message}. Re-run the job.`);
+      continue;
+    }
+    if (row.tagged && row.released && missing.length > 0) {
+      fail(
+        row,
+        "Release without its assets",
+        `${row.tag} has its tag and release, and the release does not list ${missing.join(", ")}. ` +
+          `A published release is immutable, so no upload can add it and none is tried. ` +
+          `RELEASING.md, "The docs-content asset", says what follows.`,
+      );
       continue;
     }
     if (row.tagged && row.released) {
@@ -375,7 +417,7 @@ function parseArgs(argv) {
       `unknown subcommand ${JSON.stringify(subcommand ?? "")}. Expected \`reconcile\`.`,
     );
   }
-  const options = { presence: {} };
+  const options = { presence: {}, assets: [] };
   const numbers = {
     "--budget-seconds": "budgetSeconds",
     "--probe-interval-seconds": "intervalSeconds",
@@ -388,7 +430,22 @@ function parseArgs(argv) {
     if (flag === "--repo") options.repo = resolve(value);
     else if (flag === "--target") options.target = value;
     else if (flag === "--notes-dir") options.notesDir = resolve(value);
-    else if (numbers[flag] !== undefined) {
+    else if (flag === "--asset") {
+      const file = resolve(value);
+      let isFile = false;
+      try {
+        isFile = statSync(file).isFile();
+      } catch {
+        isFile = false;
+      }
+      if (!isFile) {
+        throw new InvocationError(
+          `--asset ${value} is not a file. A release created without it could never be given it, ` +
+            `so nothing is created.`,
+        );
+      }
+      options.assets.push(file);
+    } else if (numbers[flag] !== undefined) {
       const parsed = Number(value);
       if (!Number.isFinite(parsed) || parsed <= 0) {
         throw new InvocationError(`${flag} must be a positive number of seconds, not ${value}`);
@@ -418,6 +475,7 @@ export async function main(argv, { env = process.env, log, github } = {}) {
     packages,
     target: options.target,
     notesDir: options.notesDir,
+    assets: options.assets,
     github: github ?? ghGitHub({ repo: env.GITHUB_REPOSITORY, env }),
     presence: { ...options.presence, env },
     log,

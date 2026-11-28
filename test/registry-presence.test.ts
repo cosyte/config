@@ -236,7 +236,11 @@ function stepScript(stepName: string): string {
 const PUBLISH_STEP = "Every bumped package must be published, tagged and released";
 const VERSION_STEP = "A version commit taking this arm must not go green unpublished";
 
-/** A `gh` that records what it was asked to do and reports that no release exists yet. */
+/**
+ * A `gh` that records what it was asked to do and reports that no release exists yet. Once asked
+ * for a release's asset names, it answers with the archive every release is created with, which is
+ * what the step reads back after `gh release create`.
+ */
 function stubGh(dir: string): string {
   const bin = join(dir, "bin");
   mkdirSync(bin, { recursive: true });
@@ -246,6 +250,7 @@ function stubGh(dir: string): string {
     [
       "#!/usr/bin/env bash",
       'printf "%s\\n" "gh $*" >> "$GH_LOG"',
+      'case " $* " in *" release view "*" --json assets "*) echo docs-content.tar.gz; exit 0 ;; esac',
       '[ "$1 $2" = "release view" ] && exit 1',
       "exit 0",
       "",
@@ -266,6 +271,10 @@ function runStep(
   const runnerTemp = join(dir, "runner-temp");
   const notesDir = join(runnerTemp, "release-notes");
   mkdirSync(notesDir, { recursive: true });
+  // The archive the pack step leaves in RUNNER_TEMP before the release steps run. Its bytes are not
+  // read here: the stub `gh` only records that the create call was handed it.
+  const archive = join(runnerTemp, "docs-content.tar.gz");
+  writeFileSync(archive, "fixture archive\n", "utf8");
   for (const { name, version } of packages) {
     writeFileSync(
       join(notesDir, `${slugFor(name)}.md`),
@@ -290,6 +299,7 @@ function runStep(
     GH_TOKEN: "fixture-token",
     GH_LOG: ghLog,
     NOTES_DIR: notesDir,
+    DOCS_ARCHIVE: archive,
     BUMPED_PACKAGES: options.bumpedPackagesRaw ?? JSON.stringify(packages),
   };
 

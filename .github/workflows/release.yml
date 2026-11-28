@@ -555,6 +555,24 @@ jobs:
           # npm provenance requires a PUBLIC source repo; auto-enables when this repo is public.
           NPM_CONFIG_PROVENANCE: ${{ github.event.repository.visibility == 'public' }}
 
+      # THE ASSET EVERY RELEASE CARRIES, PACKED BEFORE ANY RELEASE IS MADE. This repository's
+      # releases are immutable: once a release is published, GitHub refuses any later upload to it
+      # (HTTP 422, "Cannot upload assets to an immutable release"). So the asset cannot be attached
+      # after the steps below have made their releases; it goes into the `gh release create` call
+      # that makes each one. docs.cosyte.com reads `docs-content.tar.gz` from the LATEST release,
+      # and each release created below becomes the latest as it is made, so every one carries it.
+      # It is packed from this commit, the one being released.
+      #
+      # `!cancelled()` like the steps that need it: a partial publish still owes releases. If the
+      # pack fails, the steps below refuse to create a release rather than make one that can never
+      # be given the asset.
+      - name: Pack the docs-content archive the releases carry
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/pack-docs-content.sh "$RUNNER_TEMP/docs-content.tar.gz"
+
       # EVERY PACKAGE THIS COMMIT BUMPED MUST END UP ON npm, TAGGED, AND RELEASED. THIS STEP IS
       # DRIVEN BY WHAT THE VERSION COMMIT BUMPED, NOT BY WHAT THIS PARTICULAR RUN PUBLISHED, AND THE
       # DIFFERENCE IS THE WHOLE POINT.
@@ -596,9 +614,19 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BUMPED_PACKAGES: ${{ steps.notes.outputs.packages }}
           NOTES_DIR: ${{ runner.temp }}/release-notes
+          DOCS_ARCHIVE: ${{ runner.temp }}/docs-content.tar.gz
         shell: bash
         run: |
           set -euo pipefail
+
+          # A release is immutable once published, so one created without the archive could never
+          # be given it. Refuse before anything is tagged; the pack step's error says why.
+          if [ ! -f "$DOCS_ARCHIVE" ]; then
+            echo "::error title=No docs-content.tar.gz to attach::the pack step wrote no archive," \
+                 "and a release created without it could never be given it. Nothing has been" \
+                 "tagged or released."
+            exit 1
+          fi
 
           # IS EACH BUMPED PACKAGE ACTUALLY ON THE REGISTRY. One call, before anything is tagged: it
           # probes every package, waits out propagation inside its budget, says so in the log when it
@@ -622,6 +650,7 @@ jobs:
 
           expected=$(wc -l < "$presence")
           accounted=0
+          without_asset=0
 
           while IFS=$'\t' read -r name version state; do
             [ -n "$name" ] || continue
@@ -653,6 +682,8 @@ jobs:
             tag="${name}@${version}"
 
             if gh release view "$tag" >/dev/null 2>&1; then
+              # A RE-RUN: the release exists. It is immutable once published, so nothing is
+              # uploaded to it; the read-back below says whether it carries the archive.
               gh release edit "$tag" --title "$tag" --notes-file "$notes"
               echo "Updated the existing release for $tag."
             else
@@ -660,8 +691,18 @@ jobs:
               # local clone, and with `createGithubReleases: false` the action never pushes it, so
               # `gh release create` would otherwise refuse with "tag exists locally but has not been
               # pushed". Pointing --target at this commit makes gh create the tag itself.
-              gh release create "$tag" --target "$GITHUB_SHA" --title "$tag" --notes-file "$notes"
+              #
+              # THE ARCHIVE GOES IN THIS CALL. gh creates the release as a draft, uploads the file,
+              # then publishes it; an upload after that would be refused.
+              gh release create "$tag" "$DOCS_ARCHIVE" --target "$GITHUB_SHA" --title "$tag" \
+                --notes-file "$notes"
               echo "Created $tag."
+            fi
+            if ! gh release view "$tag" --json assets --jq '.assets[].name' | grep -qx 'docs-content.tar.gz'; then
+              echo "::error title=No docs-content.tar.gz on $tag::the release for $tag does not list" \
+                   "docs-content.tar.gz. A published release is immutable, so no upload can add it" \
+                   "and none is tried. RELEASING.md, \"The docs-content asset\", says what follows."
+              without_asset=$((without_asset + 1))
             fi
             accounted=$((accounted + 1))
           done < "$presence"
@@ -684,6 +725,11 @@ jobs:
                  "accounted for $accounted. Refusing to report success."
             exit 1
           fi
+          if [ "$without_asset" -ne 0 ]; then
+            echo "$without_asset of $expected release(s) do not carry docs-content.tar.gz." \
+                 "Refusing to report success."
+            exit 1
+          fi
           echo "All $expected bumped package(s) are published, tagged and released."
 
       # EVERY VERSION ON NPM, NOT ONLY WHAT HEAD BUMPED (config#189, config#192). The step above
@@ -696,7 +742,10 @@ jobs:
       # no `<pkg>@<version>` tag or no GitHub release, that the registry has, gets both here, at
       # this commit, with a body from that version's CHANGELOG section; then both are read back, and
       # a version on npm still missing either one reds the run. A version that already has both is
-      # left alone, so the step is idempotent and a re-run creates only what is owed.
+      # left alone, so the step is idempotent and a re-run creates only what is owed. Each release
+      # it creates carries the docs-content archive, attached in the create call (`--asset`) and
+      # read back by name, for the reason the pack step gives; an archive that is not there is an
+      # exit 2, with nothing created.
       #
       # It runs whenever the Publish step ran, on any outcome (a partial publish still owes tags),
       # and on a version commit or not: the push that publishes an earlier commit's versions need
@@ -711,14 +760,16 @@ jobs:
         run: |
           set -euo pipefail
           node scripts/release-tags.mjs reconcile --repo "$GITHUB_WORKSPACE" \
-            --target "$GITHUB_SHA" --notes-dir "$RUNNER_TEMP/release-tags"
+            --target "$GITHUB_SHA" --notes-dir "$RUNNER_TEMP/release-tags" \
+            --asset "$RUNNER_TEMP/docs-content.tar.gz"
 
       # THE STANDARDS PAGES GO OUT WITH THE RELEASE. docs.cosyte.com reads a repository's pages from
-      # the `docs-content.tar.gz` asset of its LATEST GitHub release, whichever package's that is, so
-      # the asset goes on the release GitHub marks latest once the steps above have made theirs. It
-      # is packed from this commit, the one just released. `--clobber` makes a re-run replace the
-      # asset rather than fail on it, and the asset is read back by name, so a release without it
-      # reds the run instead of leaving the site on an older copy without a word.
+      # the `docs-content.tar.gz` asset of its LATEST GitHub release, whichever package's that is.
+      # The steps above attach the archive in the call that creates each release, so this step only
+      # reads the latest release back by name. IT NEVER UPLOADS: a published release is immutable,
+      # and GitHub refuses an upload to one with HTTP 422, which is where the three release runs of
+      # 2026-11-12 ended, after npm had published. A latest release without the asset reds the run
+      # instead of leaving the site on an older copy without a word.
       - name: The latest release carries docs-content.tar.gz
         if: ${{ !cancelled() && steps.reconcile.outcome == 'success' }}
         env:
@@ -726,16 +777,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          asset="$RUNNER_TEMP/docs-content.tar.gz"
-          bash scripts/pack-docs-content.sh "$asset"
           tag=$(gh release view --json tagName --jq .tagName)
-          gh release upload "$tag" "$asset" --clobber
           if ! gh release view "$tag" --json assets --jq '.assets[].name' | grep -qx 'docs-content.tar.gz'; then
-            echo "::error title=No docs-content.tar.gz on $tag::the upload returned, but the release" \
-                 "does not list the asset, so docs.cosyte.com would not find the standards pages."
+            echo "::error title=No docs-content.tar.gz on $tag::the latest release, $tag, does not" \
+                 "list docs-content.tar.gz, so docs.cosyte.com would not find the standards pages." \
+                 "A published release is immutable, so no upload can add it and none is tried." \
+                 "RELEASING.md, \"The docs-content asset\", says what follows."
             exit 1
           fi
-          echo "Attached docs-content.tar.gz to $tag."
+          echo "The latest release, $tag, carries docs-content.tar.gz."
 
       # THE OTHER DIRECTION: npm published on a commit the notes gate never recognised as a version
       # commit, so no changeset-derived body was made and the bumped-package step did not run. It is

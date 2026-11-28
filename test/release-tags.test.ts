@@ -28,7 +28,7 @@ import {
 } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -45,8 +45,11 @@ const REPO_ROOT = join(import.meta.dirname, "..");
 const WORKFLOW = readFileSync(join(REPO_ROOT, ".github", "workflows", "release.yml"), "utf8");
 const NOTES = join(REPO_ROOT, "scripts", "release-notes.mjs");
 
+const PACK_STEP = "Pack the docs-content archive the releases carry";
 const BUMPED_STEP = "Every bumped package must be published, tagged and released";
 const RECONCILE_STEP = "Every package version on npm must have its tag and release";
+const LATEST_STEP = "The latest release carries docs-content.tar.gz";
+const ARCHIVE_NAME = "docs-content.tar.gz";
 
 const SCOPE = "@cosyte-fixture";
 
@@ -142,15 +145,22 @@ async function startRegistry(versions: Record<string, string[]>): Promise<string
 
 /**
  * A `gh` that keeps a repository's tags and releases as files: one line per tag in `tags`, one per
- * release in `releases`, each created body under `notes/`, and every call in `log`.
+ * release in `releases` (the last one is the latest, as GitHub marks each new release), each created
+ * body under `notes/`, the asset names each release was created with under `assets/`, and every
+ * call in `log`.
+ *
+ * Its releases are IMMUTABLE, as this repository's are: an asset rides only on `release create`,
+ * and `release upload` is refused with the HTTP 422 GitHub answers.
  *
  * `GH_CREATE_FAILS` makes `release create` fail; `GH_CREATE_DROPS_TAG` makes it report success and
- * create the release without its tag, which is the case only a read-back can catch.
+ * create the release without its tag, and `GH_CREATE_DROPS_ASSETS` without its assets, which are
+ * the cases only a read-back can catch.
  */
 function stubGh(state: string): string {
   const bin = join(state, "bin");
   mkdirSync(bin, { recursive: true });
   mkdirSync(join(state, "notes"), { recursive: true });
+  mkdirSync(join(state, "assets"), { recursive: true });
   for (const file of ["tags", "releases", "log", "creates"]) {
     writeFileSync(join(state, file), "", "utf8");
   }
@@ -166,18 +176,39 @@ function stubGh(state: string): string {
       '    if grep -qxF -- "$tag" "$state/tags"; then echo "{\\"ref\\":\\"refs/tags/$tag\\"}"; exit 0; fi',
       '    echo "gh: Not Found (HTTP 404)" >&2; exit 1 ;;',
       '  "release view")',
-      '    if grep -qxF -- "$3" "$state/releases"; then echo "{\\"isDraft\\":false}"; exit 0; fi',
-      '    echo "release not found" >&2; exit 1 ;;',
-      '  "release create")',
-      '    tag="$3"; shift 3; target=""; notes=""',
+      '    shift 2; tag=""; json=""; jq=""',
       "    while [ $# -gt 0 ]; do",
-      '      case "$1" in --target) target="$2"; shift ;; --notes-file) notes="$2"; shift ;; esac',
+      '      case "$1" in --json) json="$2"; shift ;; --jq) jq="$2"; shift ;; --repo) shift ;; -*) ;; *) tag="$1" ;; esac',
+      "      shift",
+      "    done",
+      '    [ -n "$tag" ] || tag="$(tail -n 1 "$state/releases")"',
+      '    if [ -z "$tag" ] || ! grep -qxF -- "$tag" "$state/releases"; then echo "release not found" >&2; exit 1; fi',
+      '    assets="$state/assets/$(printf "%s" "$tag" | sed "s|[@/]|_|g")"',
+      '    touch "$assets"',
+      '    case "$json:$jq" in',
+      '      "tagName:.tagName") printf "%s\\n" "$tag" ;;',
+      '      "assets:.assets[].name") cat "$assets" ;;',
+      '      "assets:") printf "{\\"assets\\":[%s]}\\n" "$(sed \'s/.*/{"name":"&"}/\' "$assets" | paste -sd, -)" ;;',
+      '      "isDraft:"|":") echo "{\\"isDraft\\":false}" ;;',
+      '      *) echo "stub gh: unexpected release view: --json $json --jq $jq" >&2; exit 64 ;;',
+      "    esac",
+      "    exit 0 ;;",
+      '  "release upload")',
+      '    echo "HTTP 422: Cannot upload assets to an immutable release." >&2; exit 1 ;;',
+      '  "release create")',
+      '    tag="$3"; shift 3; target=""; notes=""; files=()',
+      "    while [ $# -gt 0 ]; do",
+      '      case "$1" in --target) target="$2"; shift ;; --notes-file) notes="$2"; shift ;; --title|--repo) shift ;; -*) ;; *) files+=("$1") ;; esac',
       "      shift",
       "    done",
       '    if [ -n "${GH_CREATE_FAILS:-}" ]; then echo "HTTP 502: Bad Gateway" >&2; exit 1; fi',
       '    if grep -qxF -- "$tag" "$state/releases"; then echo "a release with the same tag name already exists: $tag" >&2; exit 1; fi',
+      '    for file in "${files[@]}"; do [ -f "$file" ] || { echo "open $file: no such file or directory" >&2; exit 1; }; done',
       '    printf "%s\\n" "$tag" >> "$state/releases"',
       '    if [ -z "${GH_CREATE_DROPS_TAG:-}" ] && ! grep -qxF -- "$tag" "$state/tags"; then printf "%s\\n" "$tag" >> "$state/tags"; fi',
+      '    assets="$state/assets/$(printf "%s" "$tag" | sed "s|[@/]|_|g")"',
+      '    : > "$assets"',
+      '    if [ -z "${GH_CREATE_DROPS_ASSETS:-}" ]; then for file in "${files[@]}"; do basename "$file" >> "$assets"; done; fi',
       '    printf "%s\\t%s\\n" "$tag" "$target" >> "$state/creates"',
       '    cp "$notes" "$state/notes/$(printf "%s" "$tag" | sed "s|[@/]|_|g").md"',
       "    exit 0 ;;",
@@ -200,6 +231,8 @@ interface GhState {
   releases: () => string[];
   creates: () => { tag: string; target: string }[];
   body: (tag: string) => string;
+  assets: (tag: string) => string[];
+  calls: () => string[];
 }
 
 function ghState(): GhState {
@@ -224,6 +257,8 @@ function ghState(): GhState {
         return { tag, target };
       }),
     body: (tag) => readFileSync(join(dir, "notes", `${tag.replace(/[@/]/g, "_")}.md`), "utf8"),
+    assets: (tag) => lines(join("assets", tag.replace(/[@/]/g, "_"))),
+    calls: () => lines("log"),
   };
 }
 
@@ -365,12 +400,18 @@ function publishedEverything(): Record<string, string[]> {
   return all;
 }
 
+/**
+ * The environment the publish job gives a step, with the docs-content archive already packed into
+ * its RUNNER_TEMP by the shipped pack step, as it is before any release step runs.
+ */
 function stepEnv(
   gh: GhState,
   registry: string,
   extra: Record<string, string> = {},
+  { pack = true }: { pack?: boolean } = {},
 ): NodeJS.ProcessEnv {
-  return {
+  const runnerTemp = tempDir("release-tags-runner-temp-");
+  const env = {
     ...hermeticEnv(),
     npm_config_registry: registry,
     npm_config_cache: tempDir("release-tags-npm-cache-"),
@@ -378,9 +419,15 @@ function stepEnv(
     GH_STATE: gh.dir,
     GH_TOKEN: "fixture-token",
     GITHUB_REPOSITORY: "cosyte-fixture/config",
-    RUNNER_TEMP: tempDir("release-tags-runner-temp-"),
+    RUNNER_TEMP: runnerTemp,
+    // What the bumped-package step's `env:` sets from `runner.temp`.
+    DOCS_ARCHIVE: join(runnerTemp, ARCHIVE_NAME),
     ...extra,
   };
+  if (pack) {
+    execFileSync("bash", ["-c", stepScript(PACK_STEP)], { cwd: REPO_ROOT, env, stdio: "pipe" });
+  }
+  return env;
 }
 
 // ---------------------------------------------------------------------------
@@ -421,6 +468,7 @@ describe("the two-commit case: a version commit whose run stopped, then the next
       );
       expect(bumpedStep.status, bumpedStep.output).toBe(0);
       expect(gh.creates().map((c) => c.tag)).toEqual(SECOND_TAGS);
+      for (const made of SECOND_TAGS) expect(gh.assets(made)).toEqual([ARCHIVE_NAME]);
       for (const owed of FIRST_TAGS) expect(gh.tags()).not.toContain(owed);
 
       // 3. THE FIX: the new step tags and releases them, at the commit this run published from,
@@ -435,6 +483,7 @@ describe("the two-commit case: a version commit whose run stopped, then the next
       for (const owed of FIRST_TAGS) {
         expect(gh.tags()).toContain(owed);
         expect(gh.releases()).toContain(owed);
+        expect(gh.assets(owed)).toEqual([ARCHIVE_NAME]);
       }
       for (const [slug, version] of Object.entries(FIRST_BUMP)) {
         const body = gh.body(tag(slug, version));
@@ -452,6 +501,12 @@ describe("the two-commit case: a version commit whose run stopped, then the next
       expect(again.status, again.output).toBe(0);
       expect(gh.creates()).toHaveLength(4);
       expect(again.output).toContain("4 package(s) checked, 0 created");
+
+      // 5. The latest release carries the archive, and nothing anywhere was uploaded after a create.
+      const latest = await runStep(LATEST_STEP, env);
+      expect(latest.status, latest.output).toBe(0);
+      expect(latest.output).toContain(`carries ${ARCHIVE_NAME}`);
+      expect(gh.calls().filter((call) => call.startsWith("gh release upload"))).toEqual([]);
     },
   );
 
@@ -516,6 +571,150 @@ describe("the two-commit case: a version commit whose run stopped, then the next
 });
 
 // ---------------------------------------------------------------------------
+// Immutable releases: every asset goes in the call that creates the release
+// ---------------------------------------------------------------------------
+
+/**
+ * The state the publish job is in when its release steps start, for the #192 analogue: the notes
+ * derived for HEAD, every version on the registry, and GitHub holding the older tags.
+ */
+async function publishedHead() {
+  const { repo, second } = twoVersionCommits();
+  const registry = await startRegistry(publishedEverything());
+  const gh = ghState();
+  gh.seed(OLD_TAGS);
+  const notes = tempDir("release-tags-notes-");
+  const outputs = join(notes, "github-output");
+  writeFileSync(outputs, "", "utf8");
+  execFileSync("node", [NOTES, "prepare", "--repo", repo, "--out", join(notes, "release-notes")], {
+    env: { ...process.env, GITHUB_OUTPUT: outputs },
+    encoding: "utf8",
+  });
+  const bumped = /^packages=(.*)$/m.exec(readFileSync(outputs, "utf8"))?.[1] ?? "";
+  const bumpedEnv = {
+    GITHUB_SHA: second,
+    BUMPED_PACKAGES: bumped,
+    NOTES_DIR: join(notes, "release-notes"),
+  };
+  return { repo, second, registry, gh, bumpedEnv };
+}
+
+const uploads = (gh: GhState) => gh.calls().filter((call) => call.startsWith("gh release upload"));
+
+describe("immutable releases: every asset goes in the call that creates the release", () => {
+  it("the latest-release step only reads back: it refuses to pass by uploading", async () => {
+    // The defect of the 2026-11-12 runs: this step uploaded to a release that already existed, and
+    // GitHub refused with HTTP 422. The stub refuses an upload the same way, so a step that
+    // uploads cannot pass here, and one that reads back passes only on a release made with it.
+    const gh = ghState();
+    gh.seed([`${SCOPE}/one@0.1.3`]);
+    const env = stepEnv(gh, "http://127.0.0.1:9/");
+
+    const bare = await runStep(LATEST_STEP, env);
+    expect(bare.status, bare.output).toBe(1);
+    expect(bare.output).toContain(`::error title=No ${ARCHIVE_NAME} on ${SCOPE}/one@0.1.3::`);
+    expect(bare.output).toContain("immutable, so no upload can add it and none is tried");
+    expect(uploads(gh)).toEqual([]);
+
+    execFileSync("gh", ["release", "create", `${SCOPE}/one@0.1.4`, env.DOCS_ARCHIVE as string], {
+      env: { ...env, GH_STATE: gh.dir },
+    });
+    const carried = await runStep(LATEST_STEP, env);
+    expect(carried.status, carried.output).toBe(0);
+    expect(uploads(gh)).toEqual([]);
+  });
+
+  it("the release steps hand the archive to `gh release create`, and nothing uploads", () => {
+    const create = /gh release create "\$tag" "\$DOCS_ARCHIVE" --target "\$GITHUB_SHA"/;
+    expect(stepScript(BUMPED_STEP)).toMatch(create);
+    expect(WORKFLOW).toContain("DOCS_ARCHIVE: ${{ runner.temp }}/docs-content.tar.gz");
+    expect(stepScript(RECONCILE_STEP)).toContain('--asset "$RUNNER_TEMP/docs-content.tar.gz"');
+    expect(stepScript(PACK_STEP)).toContain(
+      'bash scripts/pack-docs-content.sh "$RUNNER_TEMP/docs-content.tar.gz"',
+    );
+    expect(WORKFLOW).not.toMatch(/gh release upload/);
+    const steps = WORKFLOW.split("\n")
+      .filter((line) => /^\s+- name: /.test(line))
+      .map((line) => line.trim().replace(/^- name: /, ""));
+    expect(steps.indexOf(PACK_STEP)).toBeGreaterThan(steps.indexOf("Publish"));
+    expect(steps.indexOf(PACK_STEP)).toBeLessThan(steps.indexOf(BUMPED_STEP));
+    expect(stepCondition(PACK_STEP)).toBe("${{ !cancelled() }}");
+  });
+
+  it(
+    "a re-run over releases that carry the archive uploads nothing and goes green",
+    { timeout: 120_000 },
+    async () => {
+      const { registry, gh, bumpedEnv } = await publishedHead();
+      const first = await runStep(BUMPED_STEP, stepEnv(gh, registry, bumpedEnv));
+      expect(first.status, first.output).toBe(0);
+      const rerun = await runStep(BUMPED_STEP, stepEnv(gh, registry, bumpedEnv));
+      expect(rerun.status, rerun.output).toBe(0);
+      expect(rerun.output).toContain("Updated the existing release");
+      expect(gh.creates()).toHaveLength(SECOND_TAGS.length);
+      expect(uploads(gh)).toEqual([]);
+    },
+  );
+
+  it(
+    "a re-run over a release made without the archive reds by name and uploads nothing",
+    { timeout: 120_000 },
+    async () => {
+      const { registry, gh, bumpedEnv } = await publishedHead();
+      gh.seed([...OLD_TAGS, ...SECOND_TAGS]);
+      const result = await runStep(BUMPED_STEP, stepEnv(gh, registry, bumpedEnv));
+      expect(result.status, result.output).toBe(1);
+      expect(result.output).toContain(`::error title=No ${ARCHIVE_NAME} on ${SECOND_TAGS[0]}::`);
+      expect(result.output).toContain("Refusing to report success");
+      expect(uploads(gh)).toEqual([]);
+    },
+  );
+
+  it(
+    "with no archive packed, neither step creates a release that could never be given it",
+    { timeout: 120_000 },
+    async () => {
+      const { repo, second, registry, gh, bumpedEnv } = await publishedHead();
+      const bumpedStep = await runStep(
+        BUMPED_STEP,
+        stepEnv(gh, registry, bumpedEnv, { pack: false }),
+      );
+      expect(bumpedStep.status, bumpedStep.output).toBe(1);
+      expect(bumpedStep.output).toContain(`::error title=No ${ARCHIVE_NAME} to attach::`);
+      const reconcileStep = await runStep(
+        RECONCILE_STEP,
+        stepEnv(gh, registry, { GITHUB_SHA: second, GITHUB_WORKSPACE: repo }, { pack: false }),
+      );
+      expect(reconcileStep.status, reconcileStep.output).toBe(2);
+      expect(reconcileStep.output).toContain("is not a file");
+      expect(gh.creates()).toEqual([]);
+    },
+  );
+
+  it(
+    "the reconciliation reds when a release it created does not list the archive",
+    { timeout: 120_000 },
+    async () => {
+      const { repo, second, registry, gh } = await publishedHead();
+      gh.seed([...OLD_TAGS, ...SECOND_TAGS]);
+      const result = await runStep(
+        RECONCILE_STEP,
+        stepEnv(gh, registry, {
+          GITHUB_SHA: second,
+          GITHUB_WORKSPACE: repo,
+          GH_CREATE_DROPS_ASSETS: "1",
+        }),
+      );
+      expect(result.status, result.output).toBe(1);
+      for (const owed of FIRST_TAGS) {
+        expect(result.output).toContain(`::error title=Release without its assets::${owed}`);
+      }
+      expect(uploads(gh)).toEqual([]);
+    },
+  );
+});
+
+// ---------------------------------------------------------------------------
 // The decision, one boundary answer at a time
 // ---------------------------------------------------------------------------
 
@@ -523,9 +722,14 @@ describe("the two-commit case: a version commit whose run stopped, then the next
 function memoryGitHub(
   tags: string[],
   releases: string[] = tags,
-  options: { unreadable?: string; createFails?: boolean } = {},
+  options: { unreadable?: string; createFails?: boolean; dropsAssets?: boolean } = {},
 ) {
-  const state = { tags: new Set(tags), releases: new Set(releases), creates: [] as string[] };
+  const state = {
+    tags: new Set(tags),
+    releases: new Set(releases),
+    creates: [] as string[],
+    assets: new Map<string, string[]>(),
+  };
   const guard = (t: string) => {
     if (t === options.unreadable) throw new GitHubUnreadable("HTTP 503: Service Unavailable");
   };
@@ -533,8 +737,14 @@ function memoryGitHub(
     state,
     tagExists: (t: string) => (guard(t), state.tags.has(t)),
     releaseExists: (t: string) => (guard(t), state.releases.has(t)),
-    createRelease: ({ tag: t }: { tag: string }) => {
+    releaseAssets: (t: string) => (guard(t), state.assets.get(t) ?? []),
+    createRelease: ({ tag: t, assets = [] }: { tag: string; assets?: string[] }) => {
       if (options.createFails) return { ok: false, detail: "HTTP 502" };
+      if (!options.dropsAssets)
+        state.assets.set(
+          t,
+          assets.map((file) => basename(file)),
+        );
       state.creates.push(t);
       state.releases.add(t);
       state.tags.add(t);
@@ -554,12 +764,14 @@ async function decide(
   pkg: { name: string; version: string; dir: string },
   github: ReturnType<typeof memoryGitHub>,
   registry: string,
+  assets: string[] = [],
 ) {
   const lines: string[] = [];
   const result = await reconcile({
     packages: [pkg],
     target: "2".repeat(40),
     notesDir: tempDir("release-tags-notes-"),
+    assets,
     github,
     presence: {
       budgetSeconds: 0.2,
@@ -631,6 +843,28 @@ describe("what each version is owed", () => {
     const result = await decide(onePackage(GOOD), github, PRESENT);
     expect(result.code).toBe(1);
     expect(result.log).toContain("::error title=GitHub could not be read::");
+    expect(github.state.creates).toEqual([]);
+  });
+
+  it("attaches each asset in the create call and reads it back by name", async () => {
+    const github = memoryGitHub([]);
+    const result = await decide(onePackage(GOOD), github, PRESENT, ["/tmp/x/docs-content.tar.gz"]);
+    expect(result.code, result.log).toBe(0);
+    expect(github.state.assets.get(`${SCOPE}/one@0.1.3`)).toEqual(["docs-content.tar.gz"]);
+  });
+
+  it("REDS when a release it created does not list an asset it was created with", async () => {
+    const github = memoryGitHub([], [], { dropsAssets: true });
+    const result = await decide(onePackage(GOOD), github, PRESENT, ["/tmp/x/docs-content.tar.gz"]);
+    expect(result.code).toBe(1);
+    expect(result.log).toContain("::error title=Release without its assets::");
+    expect(result.log).toContain("docs-content.tar.gz");
+  });
+
+  it("never reads the assets of a release it did not create", async () => {
+    const github = memoryGitHub([`${SCOPE}/one@0.1.3`]);
+    const result = await decide(onePackage(GOOD), github, PRESENT, ["/tmp/x/docs-content.tar.gz"]);
+    expect(result.code, result.log).toBe(0);
     expect(github.state.creates).toEqual([]);
   });
 
@@ -740,6 +974,23 @@ describe("the CLI contract", () => {
     ]);
     expect(result.code, result.output).toBe(2);
     expect(result.output).toContain("no publishable packages");
+  });
+
+  it("exits 2 on an --asset that is not a file, before it creates anything", () => {
+    const repo = tempDir("release-tags-cli-");
+    const result = runCli([
+      "reconcile",
+      "--repo",
+      repo,
+      "--target",
+      "3".repeat(40),
+      "--notes-dir",
+      join(repo, "notes"),
+      "--asset",
+      join(repo, "docs-content.tar.gz"),
+    ]);
+    expect(result.code, result.output).toBe(2);
+    expect(result.output).toContain("is not a file");
   });
 
   it("exits 2 on an unknown subcommand", () => {
