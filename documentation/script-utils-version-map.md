@@ -1,10 +1,10 @@
 # `@cosyte/script-utils`: which version first carries which capability
 
-Pin an exact version of `@cosyte/script-utils` for the capability you are adopting, and read the
-limit that travels with it before you do. Every row below names the first published version that
-carries that capability and the exact specifier to write into a manifest, so an adopting repository
-never has to discover the answer from the registry, and never has to write a range that quietly
-stops moving.
+Declare `@cosyte/script-utils` with a caret range on its release line that starts at a version
+carrying the capability you are adopting, and read the limit that travels with it before you do.
+Every row below names the first published version that carries that capability, the exact version to
+name in an `npx` call, and the caret range to write into a manifest, so an adopting repository never
+has to discover the answer from the registry.
 
 **Provenance.** Base sha `ba8d7e46d194ed4c3ed1b568055006985742ff89` (the `main` head this release
 started from), release sha `254ca68ffc81472e2595bbb3478f2108d8f93d95` (`Version Packages (#111)`,
@@ -15,21 +15,22 @@ the commit the publish ran on), publish run id
 
 ## The capability map
 
-Every specifier here is an exact version with no range operator, which is the only kind of reference
-that cannot move underneath a consumer.
+An `npx` call outside a manifest names an exact version, because no lockfile holds it still. A
+manifest takes a caret range, so a fix on the same release line arrives with a lockfile refresh and
+no manifest edit. On a `0.0.z` version the caret admits that version alone.
 
-| capability                  | what it is                                                         | first published in | pin this specifier           | in a manifest                     |
-| --------------------------- | ------------------------------------------------------------------ | ------------------ | ---------------------------- | --------------------------------- |
-| root entry point (`.`)      | `isCliEntrypoint(moduleUrl)`, the entry-point guard                | `0.0.1`            | `@cosyte/script-utils@0.0.1` | `"@cosyte/script-utils": "0.0.1"` |
-| `./phi-scan`                | `runPhiScan(config)` and `exemptsMarkdown(relPath)`, the PHI gate  | `0.0.2`            | `@cosyte/script-utils@0.0.2` | `"@cosyte/script-utils": "0.0.2"` |
-| `./internal-refs`           | `runInternalRefsScan(config)`, the internal-reference gate         | `0.1.0`            | `@cosyte/script-utils@0.1.0` | `"@cosyte/script-utils": "0.1.0"` |
-| `./attw`                    | `runAttwGate(options)`, the shared `attw` publish gate             | `0.1.0`            | `@cosyte/script-utils@0.1.0` | `"@cosyte/script-utils": "0.1.0"` |
-| packed `check-no-emdash.sh` | the one em-dash gate implementation, executed rather than imported | `0.1.0`            | `@cosyte/script-utils@0.1.0` | `"@cosyte/script-utils": "0.1.0"` |
+| capability                  | what it is                                                         | first published in | in an `npx` call             | in a manifest                      |
+| --------------------------- | ------------------------------------------------------------------ | ------------------ | ---------------------------- | ---------------------------------- |
+| root entry point (`.`)      | `isCliEntrypoint(moduleUrl)`, the entry-point guard                | `0.0.1`            | `@cosyte/script-utils@0.0.1` | `"@cosyte/script-utils": "^0.0.1"` |
+| `./phi-scan`                | `runPhiScan(config)` and `exemptsMarkdown(relPath)`, the PHI gate  | `0.0.2`            | `@cosyte/script-utils@0.0.2` | `"@cosyte/script-utils": "^0.0.2"` |
+| `./internal-refs`           | `runInternalRefsScan(config)`, the internal-reference gate         | `0.1.0`            | `@cosyte/script-utils@0.1.0` | `"@cosyte/script-utils": "^0.1.0"` |
+| `./attw`                    | `runAttwGate(options)`, the shared `attw` publish gate             | `0.1.0`            | `@cosyte/script-utils@0.1.0` | `"@cosyte/script-utils": "^0.1.0"` |
+| packed `check-no-emdash.sh` | the one em-dash gate implementation, executed rather than imported | `0.1.0`            | `@cosyte/script-utils@0.1.0` | `"@cosyte/script-utils": "^0.1.0"` |
 
 A row names the EARLIEST version that carries its capability, which is not always the version you
-want. An adoption that needs more than one capability pins the highest specifier among the rows it
-needs, so anything reaching `./internal-refs`, `./attw` or the packed gate pins
-`@cosyte/script-utils@0.1.0`. That is also the current `latest`.
+want. An adoption that needs more than one capability starts its range at the highest version among
+the rows it needs, so anything reaching `./internal-refs`, `./attw` or the packed gate declares
+`^0.1.0`. That is also the current `latest`.
 
 ### The limit beside each capability
 
@@ -41,8 +42,8 @@ around.
   import a vendored copy by relative path instead. Installing the package does not give a
   pre-install gate that property. `isCliEntrypoint` has no options and cannot be overridden.
 - **`./phi-scan`.** The engine's cross-cutting detection floor gains patterns as escapes are found,
-  and a new pattern is a new red in a consumer that was passing. Pin an exact version if a green
-  commit gate matters more to you than a new detection. The `runPhiScan` option surface is still
+  and a new pattern is a new red in a consumer that was passing. A caret range takes each new
+  pattern on the next lockfile refresh, so read the changelog when that refresh turns a gate red. The `runPhiScan` option surface is still
   moving. A caller can widen what is scanned and can add detection; it cannot subtract either the
   detection floor or the completeness rule that refuses a run which enumerated a target and never
   read it.
@@ -80,8 +81,8 @@ npm view "@cosyte/script-utils@^0.0.2" version
 0.0.2
 ```
 
-`^0.0.2` is named here as the specifier an adopter CARRIES TODAY, never as one to pin. The remedy is
-one edit per dependant, to an exact version from the table above.
+`^0.0.2` is named here as the specifier an adopter CARRIES TODAY, never as one to keep. The remedy is
+one edit per dependant, to a caret range on the `0.1` line from the table above.
 `scripts/parser-template/package.json` still carries the old ranges deliberately: widening the
 scaffold reaches every future parser repository and is a separate change, which is why the audit
 dispositions BC-2 as `deferred`.

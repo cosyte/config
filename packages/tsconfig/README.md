@@ -40,7 +40,7 @@ each addition can red a consumer's build. Pin an exact version if that matters t
 pnpm add -D @cosyte/tsconfig typescript
 ```
 
-`typescript` is a peer dependency. Node `>=22.14`. The package ships two JSON files and no code.
+The package declares no peer dependency; `typescript` reads it. Node `>=22.14`. The package ships two JSON files and no code.
 
 ## Usage
 

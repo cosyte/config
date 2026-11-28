@@ -249,8 +249,8 @@ package, runs it through npx. `script-utils` is named after the package, so npx 
 package's name and it dispatches to the gate named first:
 
 ```sh
-npx -y @cosyte/script-utils@0.1 no-emdash          # the dispatcher: script-utils <command>
-npx -y -p @cosyte/script-utils@0.1 cosyte-readme   # or one gate's own bin
+npx -y @cosyte/script-utils@0.1.14 no-emdash          # the dispatcher: script-utils <command>
+npx -y -p @cosyte/script-utils@0.1.14 cosyte-readme   # or one gate's own bin
 ```
 
 | bin                    | `script-utils` command | the gate                                          |

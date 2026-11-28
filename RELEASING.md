@@ -94,8 +94,11 @@ evaluates both jobs' `if:` lines, read from `release.yml`, on every row above.
 - **Release owner.** Merges the Version Packages PR (step 4) and owns the stall rule below. Today
   this is `NSchatz`.
 - **Release approver.** The required reviewer on the `release` environment (step 6). Today this is
-  also `NSchatz`. The two roles are separable and should be separated the moment there is a second
-  maintainer; nothing in the pipeline assumes they are the same person.
+  also `NSchatz`. Nothing in the pipeline assumes the two roles are the same account.
+- **A patch release does not wait.** An automated session working under the release owner's account
+  may merge a patch Version Packages PR once its required checks are green, and approve its run in
+  the `release` environment. A minor or major version, and a new package's first release, wait for
+  the release owner's explicit decision, so read the version step in the PR's diff before merging.
 
 ## When a Version Packages PR exceeds its budget
 
@@ -145,8 +148,9 @@ applicable checks even if the `opened` event was fine.
 1. Confirm the cause: `gh pr view <n> --repo cosyte/config --json author` returns `github-actions`
    rather than a human login. The `version` job also prints a `::warning` on every run when
    `RELEASE_PR_TOKEN` is unset.
-2. Set `RELEASE_PR_TOKEN` (repository secret). Scope it narrowly: a fine-grained PAT with
-   `Contents: read+write`, `Pull requests: read+write`, `Metadata: read` on this repository and
+2. Set `RELEASE_PR_TOKEN` (an organization secret shared with this repository; see
+   "`RELEASE_PR_TOKEN`" below). Scope it narrowly: a fine-grained PAT with `Contents: read+write`,
+   `Pull requests: read+write`, `Metadata: read` on the repositories that secret is shared with, and
    nothing else. It does **not** need `Workflows: write`, because `pnpm run version` only changes
    `packages/*/package.json`, `packages/*/CHANGELOG.md` and `.changeset/`.
 3. Close the stuck PR and push any trivial commit to `main` (or re-run the `Release` workflow) so the
@@ -219,7 +223,7 @@ has its own terminal action below.
 failed publish is how a completed release gets re-run.
 
 - **A propagation wait is not a failure.** A version the registry has just accepted can go on being
-  reported as absent for minutes: on run 35512528046 the slowest of the eight packages took 242.594
+  reported as absent for minutes: on run 35512528046 the slowest of the eight packages it published took 242.594
   seconds from the start of the publishing step, which is measured package by package in
   [`documentation/registry-propagation-evidence.md`](documentation/registry-propagation-evidence.md).
   The accounting waits that out, on a budget derived from that measurement, rather than reading a
@@ -242,8 +246,8 @@ commit bumped**, not by what a given run published, and it asks the **registry**
 is actually there. Both choices exist to close the same hole:
 
 > With the step keyed on `published == 'true'`, a `gh release create` that failed on the third of
-> eight packages would red the run; the re-run would then find all eight already on npm, publish
-> nothing, **skip the step**, and go **green**, leaving five packages on npm with no tag and no GitHub
+> nine packages would red the run; the re-run would then find all nine already on npm, publish
+> nothing, **skip the step**, and go **green**, leaving six packages on npm with no tag and no GitHub
 > release, permanently. Losing the tag matters more than it looks here, because the tag is the
 > only record of a release a reader can browse besides npm itself.
 
@@ -463,7 +467,7 @@ human. The `preflight` and `version` jobs do not reference it and never wait.
 > **Via the UI**. Settings, then Environments, then **New environment** `release`, then add:
 >
 > - **Required reviewers**: the maintainer (e.g. `NSchatz`). Leave **Prevent self-review** _off_
->   (solo-maintainer self-approval must be allowed).
+>   (the account that merges the Version Packages PR must be able to approve its run).
 > - **Deployment branches**: **Selected branches**, then add `main`.
 >
 > **Via the API** (needs a token with `Environments: write`):
@@ -490,11 +494,11 @@ backlog this pipeline was rebuilt to stop.
 
 **Do not widen the reviewer set to admit an automation identity, and do not remove
 `environment: release` from the `publish` job.** Either would mean a package could reach npm with no
-human acknowledgment, a published version is permanent, and there is no operator decision authorizing
-it. npm trusted publishing (below) changed the credential, not the gate: the trusted publisher names
-this environment, so it adds a second reason the gate cannot be skipped. If the queue is still painful
-after the organization-wide split lands, the next lever is a second human reviewer, and that is the
-operator's call.
+approval from an approved maintainer account, and a published version is permanent. An automated
+session may approve a patch release only by working under that account, through the same gate.
+npm trusted publishing (below) changed the credential, not the gate: the trusted publisher names
+this environment, so it adds a second reason the gate cannot be skipped. Adding a reviewer to the
+environment is the release owner's call.
 
 ## Release bodies: why `createGithubReleases` is off
 
@@ -696,19 +700,23 @@ down to protect against a state this repository is already able to be in.
 
 - **Issue.** As the release owner, on github.com: Settings, Developer settings, Personal access
   tokens, **Fine-grained tokens**, Generate new token. Resource owner `cosyte`, **Only select
-  repositories** and select `config` alone. Repository permissions: **Contents** read and write,
+  repositories**, and select every repository the organization secret below is shared with, `config`
+  among them. Repository permissions: **Contents** read and write,
   **Pull requests** read and write, **Metadata** read. Nothing else, and in particular **not**
   `Workflows: write`: `pnpm run version` only touches `packages/*/package.json`,
   `packages/*/CHANGELOG.md` and `.changeset/`. Set an expiry and diary it.
-- **Install.** `gh secret set RELEASE_PR_TOKEN --repo cosyte/config`. Repository level, not
-  organization level: it is scoped to this repository and there is no reason for another to hold it.
+- **Install.** It is an **organization** secret, `RELEASE_PR_TOKEN` on `cosyte`, shared with the
+  repositories that release through a Version Packages PR, `config` among them; this repository holds
+  no repository secret of that name. Set it with `gh secret set RELEASE_PR_TOKEN --org cosyte` and
+  keep its repository list: `gh api repos/cosyte/config/actions/organization-secrets` lists it here.
 - **Verify.** Push any commit to `main` that leaves a changeset pending, then read the `version` job's
   first step. With the token set it prints that the Version PR's required checks will actually run;
   without it, a `::warning` with the title `Version PR will land with zero checks`. Then confirm the
   PR it opened is authored by a human login:
   `gh pr view <n> --repo cosyte/config --json author` must not return `github-actions`.
 - **Revoke.** Delete the token on github.com, then
-  `gh secret delete RELEASE_PR_TOKEN --repo cosyte/config`.
+  `gh secret delete RELEASE_PR_TOKEN --org cosyte`, which removes it from every repository it is
+  shared with.
   Removing the secret and leaving the token live is the wrong half to do first: the
   workflow falls back to `secrets.GITHUB_TOKEN` immediately, so there is no outage to race, and a
   token nobody uses is the one that gets forgotten.
@@ -779,7 +787,8 @@ pack at all, and the step died with `ENOENT: cosyte-test-utils-0.0.2.tgz`.
 
 `attw` still runs where it belongs: `pnpm attw`, as its own step in `verify`. Coverage is unchanged.
 **Do not put a tool that packs, publishes, or installs back into a lifecycle script that publishing
-itself invokes.**
+itself invokes, in a package of this repository.** The rule is this workspace's: a library's own
+`prepublishOnly` ends in `pnpm attw`, and its release has no `pnpm -r publish --dry-run` to trip it.
 
 #### The mechanism, measured, and two claims retracted
 
