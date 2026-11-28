@@ -8,12 +8,12 @@ description: "What {{PKG}} is, the parser contract it follows, and where to star
 # {{PKG}}
 
 `{{PKG}}` is our {{TITLE}} parser for Node.js and TypeScript, with no runtime dependencies. It
-follows the contract every Cosyte format parser shares: a parse is lenient by default, what it
-tolerated comes back as warnings with stable codes, and what it cannot recover from throws a coded
-error.
+follows the contract every Cosyte format parser shares: a parse is lenient by default, the document
+it returns carries what it tolerated as warnings with stable codes, and what it cannot recover from
+throws a coded error. `strict: true` turns the first warning into that error, a vendor profile
+shapes the parse, and the serializer writes back what was read.
 
-The package is new. The parser, the model, and the serializer grow release by release, and
-[Limitations](./limitations.md) says what this release does not do yet.
+The package is new, and [Limitations](./limitations.md) says what this release does not do yet.
 
 ## Where to start
 

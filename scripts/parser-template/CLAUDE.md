@@ -34,5 +34,5 @@ logs, and keep fixtures synthetic: real patient data never enters this repositor
 - Fix a gate in cosyte/config (`scripts/parser-template/` or `@cosyte/script-utils`), not only here,
   or the next parser scaffolded from the template is born with the same defect.
 - The card stands on its own: each rule names its failure and cites its PR or issue. Reasoning
-  goes in a test, a comment at the code it guards, an ADR in `documentation/decisions/`, the
-  README or `docs-content/`; git and the PRs keep the history.
+  goes in a test, a comment at the code it guards, a decision record, the README or
+  `docs-content/`; git and the PRs keep the history.

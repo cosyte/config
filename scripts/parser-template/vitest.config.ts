@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 
+import { DEFAULT_NUM_RUNS, resolvePropertyRun } from "@cosyte/test-utils";
 import { cosyteVitest } from "@cosyte/vitest-config";
 
 /** The four coverage metrics the floor file holds. */
@@ -35,20 +36,28 @@ function coverageFloor(): CoverageFloor {
 }
 
 /**
+ * How many times deeper than a pull request this run takes every property: 1 by default, 100 when
+ * a nightly run sets `COSYTE_PROPERTY_RUNS` to 10,000. A value that is not a whole number of cases
+ * throws here, before any test runs.
+ */
+const propertyDepth = Math.max(1, resolvePropertyRun({}).numRuns / DEFAULT_NUM_RUNS);
+
+/**
  * Vitest config for {{PKG}} from the shared @cosyte/vitest-config standard.
  *
  * Coverage is held to `quality-floor.json` for `src/`, and the shared standard gates each directory
- * in `coverageDirs` on top of it. Add a directory there as the parser grows (`model`, `serialize`,
- * `builder`, `profiles`).
+ * in `coverageDirs` on top of it. Add a directory there as the parser grows (`builder`, say).
  */
 export default cosyteVitest({
   coverageThresholds: coverageFloor(),
-  coverageDirs: ["parser"],
+  coverageDirs: ["parser", "model", "serialize", "profiles", "arbitraries"],
   test: {
     globals: false,
     environment: "node",
     include: ["test/**/*.test.ts", "src/**/*.test.ts"],
-    testTimeout: 10_000,
+    // A deeper property run scales the ceiling with its depth, so a nightly run is not cut off by a
+    // budget set for the cases a pull request runs.
+    testTimeout: 10_000 * propertyDepth,
     hookTimeout: 10_000,
   },
 });

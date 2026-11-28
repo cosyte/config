@@ -1,0 +1,81 @@
+import type { {{Pascal}}Position } from "../model/position.js";
+import { deepFreeze } from "../model/freeze.js";
+
+/**
+ * The warning codes: every deviation a lenient parse tolerates, by a stable name. Each key equals
+ * its value, so `Object.values` lists the whole set.
+ *
+ * The set is open: a release may add a code, so a branch over codes keeps a default case. A code
+ * is never renamed or removed without the release notes saying what a caller must change.
+ *
+ * @example
+ * ```ts
+ * import { parse{{Pascal}}, {{PREFIX}}_WARNING_CODES } from "{{PKG}}";
+ *
+ * const { warnings } = parse{{Pascal}}("ABC|1\r\rDEF|2");
+ * warnings[0]?.code === {{PREFIX}}_WARNING_CODES.{{PREFIX}}_EMPTY_SEGMENT; // => true
+ * ```
+ */
+export const {{PREFIX}}_WARNING_CODES = {
+  /** Two segment terminators with nothing between them. The empty segment is kept. */
+  {{PREFIX}}_EMPTY_SEGMENT: "{{PREFIX}}_EMPTY_SEGMENT",
+  /** A segment whose first piece is not a segment identifier. The text is kept in `fields[0]`. */
+  {{PREFIX}}_MALFORMED_SEGMENT_ID: "{{PREFIX}}_MALFORMED_SEGMENT_ID",
+} as const;
+
+/**
+ * A value from {@link {{PREFIX}}_WARNING_CODES}.
+ *
+ * @example
+ * ```ts
+ * import type { {{Pascal}}WarningCode } from "{{PKG}}";
+ *
+ * const code: {{Pascal}}WarningCode = "{{PREFIX}}_EMPTY_SEGMENT";
+ * ```
+ */
+export type {{Pascal}}WarningCode = (typeof {{PREFIX}}_WARNING_CODES)[keyof typeof {{PREFIX}}_WARNING_CODES];
+
+/**
+ * What a lenient parse tolerated: plain, frozen data with a stable code, a message from that
+ * code's registry entry, and a position. It is never an `Error`, and it never carries a value from
+ * the payload.
+ *
+ * @example
+ * ```ts
+ * import { parse{{Pascal}} } from "{{PKG}}";
+ *
+ * const [warning] = parse{{Pascal}}("ABC|1\r\rDEF|2").warnings;
+ * warning?.position.segmentIndex; // => 1
+ * ```
+ */
+export interface {{Pascal}}Warning {
+  /** The stable code. */
+  readonly code: {{Pascal}}WarningCode;
+  /** A sentence from the code's registry entry. It holds no value from the payload. */
+  readonly message: string;
+  /** Where the deviation is. */
+  readonly position: {{Pascal}}Position;
+}
+
+/** The one message each warning code carries. */
+const MESSAGES: Readonly<Record<{{Pascal}}WarningCode, string>> = {
+  {{PREFIX}}_EMPTY_SEGMENT: "An empty segment was read and kept.",
+  {{PREFIX}}_MALFORMED_SEGMENT_ID:
+    "A segment does not begin with a segment identifier; its first piece was kept as written.",
+};
+
+/**
+ * Build the frozen warning for a code at a position.
+ *
+ * @internal
+ * @param code - The warning's code.
+ * @param position - Where the deviation is.
+ * @returns The warning.
+ * @example
+ * ```ts no-run an internal helper the package does not export
+ * warningFor("{{PREFIX}}_EMPTY_SEGMENT", { segmentIndex: 1 }).code; // => "{{PREFIX}}_EMPTY_SEGMENT"
+ * ```
+ */
+export function warningFor(code: {{Pascal}}WarningCode, position: {{Pascal}}Position): {{Pascal}}Warning {
+  return deepFreeze({ code, message: MESSAGES[code], position: { ...position } });
+}

@@ -9,8 +9,8 @@ describe("toolchain sanity", () => {
   });
 
   it("exposes VERSION as a semver-looking string", () => {
-    // At this stage VERSION is "0.0.0"; the regex only asserts the shape, not the exact value, so
-    // future phases can bump it without breaking.
+    // The regex asserts the shape, not the exact value, so a release can bump it without an edit
+    // here.
     expect(VERSION).toMatch(/^\d+\.\d+\.\d+(?:[.-].+)?$/);
   });
 });

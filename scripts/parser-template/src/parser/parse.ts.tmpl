@@ -1,0 +1,109 @@
+import { {{Pascal}}ParseError, fatal } from "../errors.js";
+import type { {{Pascal}}Document, {{Pascal}}Segment } from "../model/document.js";
+import { deepFreeze } from "../model/freeze.js";
+import type { {{Pascal}}Position } from "../model/position.js";
+import {
+  DEFAULT_FIELD_SEPARATOR,
+  SEGMENT_TERMINATOR,
+  type {{Pascal}}Profile,
+} from "../profiles/define.js";
+
+import { type {{Pascal}}Warning, type {{Pascal}}WarningCode, warningFor } from "./warnings.js";
+
+/**
+ * The shape of a segment identifier. A placeholder: three characters, an upper-case letter then
+ * two upper-case letters or digits. Replace it with the standard's own rule.
+ */
+const SEGMENT_ID = /^[A-Z][A-Z0-9]{2}$/;
+
+/**
+ * Options for {@link parse{{Pascal}}}.
+ *
+ * @example
+ * ```ts
+ * import type { {{Pascal}}ParseOptions } from "{{PKG}}";
+ *
+ * const options: {{Pascal}}ParseOptions = { strict: true };
+ * ```
+ */
+export interface {{Pascal}}ParseOptions {
+  /**
+   * Throw a `{{Pascal}}ParseError` at the first warning, with that warning's code, rather than
+   * record it. For a sender you trust to be spec-clean. Default `false`.
+   */
+  readonly strict?: boolean;
+  /** The vendor profile to read the payload with. Default: `|` between fields. */
+  readonly profile?: {{Pascal}}Profile;
+  /**
+   * Called once for each warning, in the order they are found, after the warning is recorded. A
+   * handler that throws does not fail the parse.
+   */
+  readonly onWarning?: (warning: {{Pascal}}Warning) => void;
+}
+
+/** Decode a payload given as bytes, refusing bytes that are not UTF-8. */
+function decode(raw: string | Uint8Array): string {
+  if (typeof raw === "string") return raw;
+  try {
+    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(raw);
+  } catch {
+    throw fatal("{{PREFIX}}_INVALID_UTF8", { segmentIndex: 0 });
+  }
+}
+
+/**
+ * Parse a {{TITLE}} payload. The parse is lenient: a known deviation is recorded as a warning on the
+ * result and the parse carries on, and only input it cannot turn into a structure throws.
+ *
+ * The grammar here is a placeholder: segments end with `\r`, and fields within a segment are split
+ * on the profile's separator. Every piece is kept as written, so serializing the result gives back
+ * the payload that was read.
+ *
+ * @param raw - The payload, as text or as UTF-8 bytes.
+ * @param options - Strict mode, a vendor profile, and a warning handler.
+ * @returns The deep-frozen document, with the warnings on it.
+ * @throws {{{Pascal}}ParseError} On a fatal code, and under `strict: true` at the first warning.
+ * @example
+ * ```ts
+ * import { parse{{Pascal}} } from "{{PKG}}";
+ *
+ * const document = parse{{Pascal}}("ABC|1|2\rDEF|3\r");
+ * document.segments.map((segment) => segment.id); // => ["ABC", "DEF"]
+ * document.warnings.length; // => 0
+ * ```
+ */
+export function parse{{Pascal}}(raw: string | Uint8Array, options: {{Pascal}}ParseOptions = {}): {{Pascal}}Document {
+  const text = decode(raw);
+  if (text.length === 0) throw fatal("{{PREFIX}}_EMPTY_INPUT", { segmentIndex: 0 });
+
+  const fieldSeparator = options.profile?.fieldSeparator ?? DEFAULT_FIELD_SEPARATOR;
+  const lines = text.split(SEGMENT_TERMINATOR);
+  // The text is not empty, so a last piece that is empty means it ended with the terminator.
+  const trailingTerminator = lines.at(-1) === "";
+  if (trailingTerminator) lines.pop();
+
+  const warnings: {{Pascal}}Warning[] = [];
+  const record = (code: {{Pascal}}WarningCode, position: {{Pascal}}Position): void => {
+    const warning = warningFor(code, position);
+    warnings.push(warning);
+    try {
+      options.onWarning?.(warning);
+    } catch {
+      // A handler that throws cannot fail the parse: its error is the caller's, not the payload's.
+    }
+    if (options.strict === true) {
+      throw new {{Pascal}}ParseError(code, warning.message, position);
+    }
+  };
+
+  const segments = lines.map((line, segmentIndex): {{Pascal}}Segment => {
+    const fields = line.split(fieldSeparator);
+    const cut = line.indexOf(fieldSeparator);
+    const head = cut === -1 ? line : line.slice(0, cut);
+    if (line === "") record("{{PREFIX}}_EMPTY_SEGMENT", { segmentIndex });
+    else if (!SEGMENT_ID.test(head)) record("{{PREFIX}}_MALFORMED_SEGMENT_ID", { segmentIndex });
+    return SEGMENT_ID.test(head) ? { id: head, fields } : { fields };
+  });
+
+  return deepFreeze({ segments, fieldSeparator, trailingTerminator, warnings });
+}

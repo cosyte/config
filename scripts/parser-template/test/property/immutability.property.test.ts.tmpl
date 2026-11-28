@@ -1,0 +1,36 @@
+import { immutabilityProperty } from "@cosyte/test-utils";
+import { describe, it } from "vitest";
+
+import { messy{{Pascal}}Text } from "../../src/arbitraries/index.js";
+import { parse{{Pascal}}, type {{Pascal}}Document } from "../../src/index.js";
+
+/** The document by value, so a change made in place shows as a difference. */
+const snapshot = (document: {{Pascal}}Document): string => JSON.stringify(document);
+
+/** Write through a frozen model the way a careless caller would, past its readonly types. */
+const writable = (value: unknown): Record<string, unknown> & unknown[] =>
+  value as Record<string, unknown> & unknown[];
+
+// One case for each level of the model: nothing proves depth but a mutation at that depth.
+describe("the parsed document is immutable", () => {
+  const levels: Record<string, (document: {{Pascal}}Document) => unknown> = {
+    "the document": (d) => (writable(d)["fieldSeparator"] = "^"),
+    "the segment list": (d) => writable(d.segments).push({ fields: ["XYZ"] }),
+    "a segment": (d) => (writable(d.segments[0])["id"] = "XYZ"),
+    "a segment's fields": (d) => writable(d.segments[0]?.fields).push("x"),
+    "the warning list": (d) => writable(d.warnings).push({}),
+    "a warning": (d) => (writable(d.warnings[0] ?? {})["code"] = "X"),
+    "a warning's position": (d) => (writable(d.warnings[0]?.position ?? {})["segmentIndex"] = 99),
+  };
+
+  for (const [level, mutate] of Object.entries(levels)) {
+    it(`refuses a change to ${level}`, () => {
+      immutabilityProperty({
+        arbitrary: messy{{Pascal}}Text(),
+        parse: (raw) => parse{{Pascal}}(raw),
+        mutate,
+        getSnapshot: snapshot,
+      });
+    });
+  }
+});

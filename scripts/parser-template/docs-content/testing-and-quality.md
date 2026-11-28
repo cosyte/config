@@ -15,7 +15,8 @@ numbers for the current release are in [Current numbers](#current-numbers) below
 | Technique | What it catches | What it cannot catch |
 | --- | --- | --- |
 | Unit tests | each documented behavior and each failure path, run against the source | an input nobody thought to write down |
-| Property-based tests | a class of input breaking a stated rule: a lenient parse never throws except on a fatal code, and every warning carries a registered code | a rule nobody stated, or a case the generators never produce |
+| Property-based tests | a class of input breaking a stated rule, on the generators at `{{PKG}}/arbitraries`: a payload survives a serialize and a parse, normalizing twice changes nothing the first pass did not, a lenient parse throws only a fatal code, and no level of the document can be changed in place | a rule nobody stated, or a case the generators never produce |
+| Leak tests | a value from the payload reaching a warning, an error, or a segment identifier, by planting a marker in each place a sender controls | a place nobody listed |
 | Coverage floor | code no test runs, held at the floor in `quality-floor.json` | a test that runs code without checking what it returns |
 | Mutation testing | a test that runs code but would not notice it changing | a mutant that changes nothing a caller can observe |
 | Doc samples | a sample on these pages that no longer matches the code: each one runs against the built package and its `// =>` values are checked | prose that is wrong beside a sample that is right |

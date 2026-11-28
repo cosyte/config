@@ -1,0 +1,36 @@
+import { assertNoDiagnosticPhiLeak } from "@cosyte/test-utils";
+import { describe, it } from "vitest";
+
+import { parse{{Pascal}}, type {{Pascal}}Document } from "../src/index.js";
+
+// No warning or error carries a value from the payload. Each slot plants a marker where a sender
+// controls the bytes and names the code it must reach, so a slot that never reaches its branch
+// fails rather than passing on clean input.
+describe("no value from the payload in a diagnostic or a structural name", () => {
+  it("withholds every planted marker", () => {
+    assertNoDiagnosticPhiLeak<string, {{Pascal}}Document>({
+      slots: [
+        {
+          name: "the identifier's piece of a segment",
+          plant: (marker) => `ABC|1\r${marker}|2`,
+          expectCode: "{{PREFIX}}_MALFORMED_SEGMENT_ID",
+        },
+        {
+          name: "a field of the segment before an empty one",
+          plant: (marker) => `ABC|${marker}\r\rDEF|2`,
+          expectCode: "{{PREFIX}}_EMPTY_SEGMENT",
+        },
+        {
+          name: "a field of a segment after a malformed one",
+          plant: (marker) => `abc\rABC|${marker}`,
+          expectCode: "{{PREFIX}}_MALFORMED_SEGMENT_ID",
+        },
+      ],
+      parse: (raw) => parse{{Pascal}}(raw),
+      parseStrict: (raw) => parse{{Pascal}}(raw, { strict: true }),
+      getDiagnostics: (document) => document.warnings,
+      getModelIdentifiers: (document) =>
+        document.segments.flatMap((segment) => (segment.id === undefined ? [] : [segment.id])),
+    });
+  });
+});

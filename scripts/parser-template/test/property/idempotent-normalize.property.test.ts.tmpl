@@ -1,0 +1,15 @@
+import { idempotentNormalizeProperty } from "@cosyte/test-utils";
+import fc from "fast-check";
+import { describe, it } from "vitest";
+
+import { messy{{Pascal}}Text, specClean{{Pascal}}Text } from "../../src/arbitraries/index.js";
+import { parse{{Pascal}}, serialize{{Pascal}} } from "../../src/index.js";
+
+describe("idempotent normalize", () => {
+  it("changes nothing on a second pass that the first did not", () => {
+    idempotentNormalizeProperty({
+      arbitrary: fc.oneof(specClean{{Pascal}}Text(), messy{{Pascal}}Text()),
+      normalize: (raw) => serialize{{Pascal}}(parse{{Pascal}}(raw), { normalize: true }),
+    });
+  });
+});

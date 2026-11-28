@@ -1,0 +1,30 @@
+import { describe, expect, it } from "vitest";
+
+import { define{{Pascal}}Profile, parse{{Pascal}}, serialize{{Pascal}} } from "../src/index.js";
+
+describe("serialize{{Pascal}}", () => {
+  it("writes back exactly what was read, deviations included", () => {
+    for (const raw of ["ABC|1|2", "ABC|1\r", "ABC||\r\rabc|x\r", "\r", "|", "ABC\r\r\r"]) {
+      expect(serialize{{Pascal}}(parse{{Pascal}}(raw)), JSON.stringify(raw)).toBe(raw);
+    }
+  });
+
+  it("writes with the separator the document was read with", () => {
+    const profile = define{{Pascal}}Profile({ name: "vendor-a", fieldSeparator: "^" });
+    expect(serialize{{Pascal}}(parse{{Pascal}}("ABC^1^2", { profile }))).toBe("ABC^1^2");
+  });
+
+  it("writes the normal form on request", () => {
+    const document = parse{{Pascal}}("ABC|1||\r\r|\rDEF|2|\rGHI");
+    expect(serialize{{Pascal}}(document, { normalize: true })).toBe("ABC|1\rDEF|2\rGHI\r");
+  });
+
+  it("keeps the leading empty piece of a segment that holds text later", () => {
+    expect(serialize{{Pascal}}(parse{{Pascal}}("|x|"), { normalize: true })).toBe("|x\r");
+  });
+
+  it("writes the faithful form when normalize is false", () => {
+    const raw = "ABC|1||\r";
+    expect(serialize{{Pascal}}(parse{{Pascal}}(raw), { normalize: false })).toBe(raw);
+  });
+});

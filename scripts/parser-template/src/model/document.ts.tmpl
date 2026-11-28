@@ -1,0 +1,51 @@
+import type { {{Pascal}}Warning } from "../parser/warnings.js";
+
+/**
+ * One segment of a parsed {{TITLE}} payload: the text between two segment terminators, split on the
+ * field separator.
+ *
+ * `fields` holds every piece as written, so `fields[0]` is the piece before the first separator and
+ * `fields[n]` is field `n`, numbered from 1 as the standard numbers it. `id` is that first piece
+ * when it has the shape of a segment identifier, and is absent otherwise: a structural name on the
+ * model never carries text that failed its shape test, since a caller may build a message from it.
+ *
+ * @example
+ * ```ts
+ * import { parse{{Pascal}} } from "{{PKG}}";
+ *
+ * const [segment] = parse{{Pascal}}("ABC|1|2").segments;
+ * segment?.id; // => "ABC"
+ * segment?.fields[2]; // => "2"
+ * ```
+ */
+export interface {{Pascal}}Segment {
+  /** The segment identifier, present only when `fields[0]` has the identifier's shape. */
+  readonly id?: string;
+  /** Every piece of the segment as written; `fields[0]` is the identifier's piece. */
+  readonly fields: readonly string[];
+}
+
+/**
+ * A parsed {{TITLE}} payload: its segments, the separators it was read with, and the warnings the
+ * lenient parse recorded. Deep-frozen: nothing in it can be changed in place.
+ *
+ * @example
+ * ```ts
+ * import { parse{{Pascal}} } from "{{PKG}}";
+ *
+ * const document = parse{{Pascal}}("ABC|1\rDEF|2\r");
+ * document.segments.length; // => 2
+ * document.trailingTerminator; // => true
+ * document.warnings.length; // => 0
+ * ```
+ */
+export interface {{Pascal}}Document {
+  /** The segments, in the order the payload holds them. */
+  readonly segments: readonly {{Pascal}}Segment[];
+  /** The field separator the payload was read with. */
+  readonly fieldSeparator: string;
+  /** Whether the payload ended with a segment terminator. */
+  readonly trailingTerminator: boolean;
+  /** What the lenient parse tolerated, in the order it was found. */
+  readonly warnings: readonly {{Pascal}}Warning[];
+}

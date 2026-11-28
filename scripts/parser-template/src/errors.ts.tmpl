@@ -1,0 +1,168 @@
+import type { {{Pascal}}Position } from "./model/position.js";
+import type { {{Pascal}}WarningCode } from "./parser/warnings.js";
+
+/**
+ * The fatal codes: input a parse cannot turn into a structure, which throws in every mode. Each
+ * key equals its value. The set is open, as the warning codes are.
+ *
+ * @example
+ * ```ts
+ * import { parse{{Pascal}}, {{Pascal}}ParseError, {{PREFIX}}_FATAL_CODES } from "{{PKG}}";
+ *
+ * let code: string | undefined;
+ * try {
+ *   parse{{Pascal}}("");
+ * } catch (error) {
+ *   if (error instanceof {{Pascal}}ParseError) code = error.code;
+ * }
+ * code === {{PREFIX}}_FATAL_CODES.{{PREFIX}}_EMPTY_INPUT; // => true
+ * ```
+ */
+export const {{PREFIX}}_FATAL_CODES = {
+  /** The payload holds no characters at all. */
+  {{PREFIX}}_EMPTY_INPUT: "{{PREFIX}}_EMPTY_INPUT",
+  /** The payload was given as bytes that are not UTF-8. */
+  {{PREFIX}}_INVALID_UTF8: "{{PREFIX}}_INVALID_UTF8",
+} as const;
+
+/**
+ * A value from {@link {{PREFIX}}_FATAL_CODES}.
+ *
+ * @example
+ * ```ts
+ * import type { {{Pascal}}FatalCode } from "{{PKG}}";
+ *
+ * const code: {{Pascal}}FatalCode = "{{PREFIX}}_EMPTY_INPUT";
+ * ```
+ */
+export type {{Pascal}}FatalCode = (typeof {{PREFIX}}_FATAL_CODES)[keyof typeof {{PREFIX}}_FATAL_CODES];
+
+/** The one message each fatal code carries. */
+const FATAL_MESSAGES: Readonly<Record<{{Pascal}}FatalCode, string>> = {
+  {{PREFIX}}_EMPTY_INPUT: "The payload is empty.",
+  {{PREFIX}}_INVALID_UTF8: "The payload bytes are not valid UTF-8.",
+};
+
+/**
+ * The error a parse throws: on a fatal code in every mode, and on the first warning under
+ * `strict: true`, with that warning's code. It carries a code and a position, never a snippet of
+ * the payload.
+ *
+ * @example
+ * ```ts
+ * import { parse{{Pascal}}, {{Pascal}}ParseError } from "{{PKG}}";
+ *
+ * let caught: unknown;
+ * try {
+ *   parse{{Pascal}}("ABC|1\r\rDEF|2", { strict: true });
+ * } catch (error) {
+ *   caught = error;
+ * }
+ * caught instanceof {{Pascal}}ParseError && caught.code; // => "{{PREFIX}}_EMPTY_SEGMENT"
+ * ```
+ */
+export class {{Pascal}}ParseError extends Error {
+  /** A fatal code, or under `strict: true` the code of the warning that stopped the parse. */
+  public readonly code: {{Pascal}}FatalCode | {{Pascal}}WarningCode;
+  /** Where the parse stopped. */
+  public readonly position: {{Pascal}}Position;
+
+  /**
+   * @param code - The fatal or warning code.
+   * @param message - The code's message.
+   * @param position - Where the parse stopped.
+   */
+  public constructor(code: {{Pascal}}FatalCode | {{Pascal}}WarningCode, message: string, position: {{Pascal}}Position) {
+    super(message);
+    this.name = "{{Pascal}}ParseError";
+    this.code = code;
+    this.position = { ...position };
+  }
+}
+
+/**
+ * Build the error for a fatal code, with the code's own message.
+ *
+ * @internal
+ * @param code - The fatal code.
+ * @param position - Where the parse stopped.
+ * @returns The error, ready to throw.
+ * @example
+ * ```ts no-run an internal helper the package does not export
+ * fatal("{{PREFIX}}_EMPTY_INPUT", { segmentIndex: 0 }).code; // => "{{PREFIX}}_EMPTY_INPUT"
+ * ```
+ */
+export function fatal(code: {{Pascal}}FatalCode, position: {{Pascal}}Position): {{Pascal}}ParseError {
+  return new {{Pascal}}ParseError(code, FATAL_MESSAGES[code], position);
+}
+
+/**
+ * The profile codes: why a profile definition was refused. Each key equals its value.
+ *
+ * @example
+ * ```ts
+ * import { define{{Pascal}}Profile, {{Pascal}}ProfileError, {{PREFIX}}_PROFILE_CODES } from "{{PKG}}";
+ *
+ * let code: string | undefined;
+ * try {
+ *   define{{Pascal}}Profile({ name: "" });
+ * } catch (error) {
+ *   if (error instanceof {{Pascal}}ProfileError) code = error.code;
+ * }
+ * code === {{PREFIX}}_PROFILE_CODES.{{PREFIX}}_INVALID_PROFILE_NAME; // => true
+ * ```
+ */
+export const {{PREFIX}}_PROFILE_CODES = {
+  /** The name is empty, too long, or holds a character outside letters, digits, `.`, `_` and `-`. */
+  {{PREFIX}}_INVALID_PROFILE_NAME: "{{PREFIX}}_INVALID_PROFILE_NAME",
+  /** The field separator is not one character, or is the segment terminator. */
+  {{PREFIX}}_INVALID_FIELD_SEPARATOR: "{{PREFIX}}_INVALID_FIELD_SEPARATOR",
+} as const;
+
+/**
+ * A value from {@link {{PREFIX}}_PROFILE_CODES}.
+ *
+ * @example
+ * ```ts
+ * import type { {{Pascal}}ProfileCode } from "{{PKG}}";
+ *
+ * const code: {{Pascal}}ProfileCode = "{{PREFIX}}_INVALID_PROFILE_NAME";
+ * ```
+ */
+export type {{Pascal}}ProfileCode = (typeof {{PREFIX}}_PROFILE_CODES)[keyof typeof {{PREFIX}}_PROFILE_CODES];
+
+/** The one message each profile code carries. */
+const PROFILE_MESSAGES: Readonly<Record<{{Pascal}}ProfileCode, string>> = {
+  {{PREFIX}}_INVALID_PROFILE_NAME:
+    "A profile name is 1 to 64 letters, digits, dots, underscores or hyphens.",
+  {{PREFIX}}_INVALID_FIELD_SEPARATOR:
+    "A field separator is one character, and not the segment terminator.",
+};
+
+/**
+ * The error `define{{Pascal}}Profile` throws for a definition it refuses.
+ *
+ * @example
+ * ```ts
+ * import { define{{Pascal}}Profile, {{Pascal}}ProfileError } from "{{PKG}}";
+ *
+ * let caught: unknown;
+ * try {
+ *   define{{Pascal}}Profile({ name: "vendor", fieldSeparator: "\r" });
+ * } catch (error) {
+ *   caught = error;
+ * }
+ * caught instanceof {{Pascal}}ProfileError && caught.code; // => "{{PREFIX}}_INVALID_FIELD_SEPARATOR"
+ * ```
+ */
+export class {{Pascal}}ProfileError extends Error {
+  /** Why the definition was refused. */
+  public readonly code: {{Pascal}}ProfileCode;
+
+  /** @param code - Why the definition was refused. */
+  public constructor(code: {{Pascal}}ProfileCode) {
+    super(PROFILE_MESSAGES[code]);
+    this.name = "{{Pascal}}ProfileError";
+    this.code = code;
+  }
+}

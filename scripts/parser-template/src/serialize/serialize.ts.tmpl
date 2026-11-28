@@ -1,0 +1,62 @@
+import type { {{Pascal}}Document, {{Pascal}}Segment } from "../model/document.js";
+import { SEGMENT_TERMINATOR } from "../profiles/define.js";
+
+/**
+ * Options for {@link serialize{{Pascal}}}.
+ *
+ * @example
+ * ```ts
+ * import type { {{Pascal}}SerializeOptions } from "{{PKG}}";
+ *
+ * const options: {{Pascal}}SerializeOptions = { normalize: true };
+ * ```
+ */
+export interface {{Pascal}}SerializeOptions {
+  /**
+   * Write the normal form rather than what was read: segments that hold no text dropped, trailing
+   * empty fields dropped, and every segment ended with the terminator. Default `false`.
+   */
+  readonly normalize?: boolean;
+}
+
+/** Whether a segment holds any text at all. */
+function hasText(segment: {{Pascal}}Segment): boolean {
+  return segment.fields.some((piece) => piece !== "");
+}
+
+/** A segment's fields without the empty ones at its end. The segment holds text, so one is left. */
+function trimmed(fields: readonly string[]): readonly string[] {
+  let end = fields.length;
+  while (fields[end - 1] === "") end -= 1;
+  return fields.slice(0, end);
+}
+
+/**
+ * Serialize a document. By default the output is what was read: a parsed payload serializes back
+ * to the same text. `normalize: true` writes the normal form instead.
+ *
+ * @param document - The document to write.
+ * @param options - Whether to write the normal form.
+ * @returns The payload text.
+ * @example
+ * ```ts
+ * import { parse{{Pascal}}, serialize{{Pascal}} } from "{{PKG}}";
+ *
+ * const raw = "ABC|1||\r\rDEF|2";
+ * serialize{{Pascal}}(parse{{Pascal}}(raw)) === raw; // => true
+ * serialize{{Pascal}}(parse{{Pascal}}(raw), { normalize: true }); // => "ABC|1\rDEF|2\r"
+ * ```
+ */
+export function serialize{{Pascal}}(document: {{Pascal}}Document, options: {{Pascal}}SerializeOptions = {}): string {
+  const { fieldSeparator } = document;
+  if (options.normalize === true) {
+    return document.segments
+      .filter(hasText)
+      .map((segment) => trimmed(segment.fields).join(fieldSeparator) + SEGMENT_TERMINATOR)
+      .join("");
+  }
+  const body = document.segments
+    .map((segment) => segment.fields.join(fieldSeparator))
+    .join(SEGMENT_TERMINATOR);
+  return document.trailingTerminator ? body + SEGMENT_TERMINATOR : body;
+}

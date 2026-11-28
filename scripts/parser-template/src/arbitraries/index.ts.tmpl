@@ -1,0 +1,144 @@
+/**
+ * fast-check generators for {{TITLE}} payload text, at `{{PKG}}/arbitraries`. We use them to test
+ * this library, and you can use them to test code you build on it.
+ *
+ * `fast-check` is an optional peer dependency: install it to use this entry point. The main entry
+ * point, `{{PKG}}`, never loads it.
+ *
+ * Every generated value is synthetic and random: segment identifiers and short runs of letters and
+ * digits, nothing shaped like a person's name, a date of birth or an identifier.
+ *
+ * @example
+ * ```ts
+ * import fc from "fast-check";
+ * import { parse{{Pascal}}, serialize{{Pascal}} } from "{{PKG}}";
+ * import { specClean{{Pascal}}Text } from "{{PKG}}/arbitraries";
+ *
+ * fc.assert(
+ *   fc.property(specClean{{Pascal}}Text(), (raw) => serialize{{Pascal}}(parse{{Pascal}}(raw)) === raw),
+ * );
+ * ```
+ *
+ * @packageDocumentation
+ */
+
+import fc from "fast-check";
+
+const UPPER = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
+const DIGITS = "0123456789".split("");
+/** The characters a generated field value is drawn from: no separator and no terminator. */
+const VALUE_CHARACTERS = [...UPPER, ..."abcdefghijklmnopqrstuvwxyz", ...DIGITS, " ", ".", "-"];
+
+/**
+ * A segment identifier: an upper-case letter, then two upper-case letters or digits.
+ *
+ * @returns The generator.
+ * @example
+ * ```ts
+ * import fc from "fast-check";
+ * import { segmentId } from "{{PKG}}/arbitraries";
+ *
+ * fc.sample(segmentId(), 1)[0]?.length; // => 3
+ * ```
+ */
+export function segmentId(): fc.Arbitrary<string> {
+  return fc
+    .tuple(
+      fc.constantFrom(...UPPER),
+      fc.constantFrom(...UPPER, ...DIGITS),
+      fc.constantFrom(...UPPER, ...DIGITS),
+    )
+    .map((parts) => parts.join(""));
+}
+
+/**
+ * A spec-clean segment: an identifier and up to six fields of letters, digits, spaces, dots and
+ * hyphens, joined by `|`.
+ *
+ * @returns The generator.
+ * @example
+ * ```ts
+ * import fc from "fast-check";
+ * import { segment } from "{{PKG}}/arbitraries";
+ *
+ * /^[A-Z][A-Z0-9]{2}/.test(fc.sample(segment(), 1)[0] ?? ""); // => true
+ * ```
+ */
+export function segment(): fc.Arbitrary<string> {
+  return fc
+    .tuple(
+      segmentId(),
+      fc.array(fc.string({ unit: fc.constantFrom(...VALUE_CHARACTERS), maxLength: 12 }), {
+        maxLength: 6,
+      }),
+    )
+    .map(([id, fields]) => [id, ...fields].join("|"));
+}
+
+/**
+ * A spec-clean payload: one to eight segments, each ended with `\r` or with the last one left
+ * open. It parses with no warning.
+ *
+ * @returns The generator.
+ * @example
+ * ```ts
+ * import fc from "fast-check";
+ * import { parse{{Pascal}} } from "{{PKG}}";
+ * import { specClean{{Pascal}}Text } from "{{PKG}}/arbitraries";
+ *
+ * const [raw = "ABC"] = fc.sample(specClean{{Pascal}}Text(), 1);
+ * parse{{Pascal}}(raw).warnings.length; // => 0
+ * ```
+ */
+export function specClean{{Pascal}}Text(): fc.Arbitrary<string> {
+  return fc
+    .tuple(fc.array(segment(), { minLength: 1, maxLength: 8 }), fc.boolean())
+    .map(([segments, terminated]) => segments.join("\r") + (terminated ? "\r" : ""));
+}
+
+/**
+ * A payload with the deviations the parser tolerates: empty segments and segments that do not
+ * begin with an identifier, around at least one spec-clean segment. It parses without throwing.
+ *
+ * @returns The generator.
+ * @example
+ * ```ts
+ * import fc from "fast-check";
+ * import { parse{{Pascal}} } from "{{PKG}}";
+ * import { messy{{Pascal}}Text } from "{{PKG}}/arbitraries";
+ *
+ * const [raw = "ABC"] = fc.sample(messy{{Pascal}}Text(), 1);
+ * parse{{Pascal}}(raw).segments.length > 0; // => true
+ * ```
+ */
+export function messy{{Pascal}}Text(): fc.Arbitrary<string> {
+  const piece = fc.oneof(
+    segment(),
+    fc.constant(""),
+    fc.string({ unit: fc.constantFrom(...VALUE_CHARACTERS, "|"), maxLength: 12 }),
+  );
+  return fc
+    .tuple(fc.array(piece, { maxLength: 4 }), segment(), fc.array(piece, { maxLength: 4 }))
+    .map(([before, clean, after]) => [...before, clean, ...after].join("\r"));
+}
+
+/**
+ * Hostile input: any string, a string drawn mostly from separators and terminators, or a messy
+ * payload. A lenient parse of any of them throws only a fatal code.
+ *
+ * @returns The generator.
+ * @example
+ * ```ts
+ * import fc from "fast-check";
+ * import { hostile{{Pascal}}Text } from "{{PKG}}/arbitraries";
+ *
+ * typeof fc.sample(hostile{{Pascal}}Text(), 1)[0]; // => "string"
+ * ```
+ */
+export function hostile{{Pascal}}Text(): fc.Arbitrary<string> {
+  return fc.oneof(
+    fc.string(),
+    fc.string({ unit: fc.constantFrom("\r", "\n", "|", "^", "A", "B", "1", " ") }),
+    messy{{Pascal}}Text(),
+  );
+}

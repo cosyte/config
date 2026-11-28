@@ -16,9 +16,9 @@ The parse is lenient, so a surprising result usually comes with a warning. Read 
 ```ts runnable
 import { parse{{Pascal}} } from "{{PKG}}";
 
-const codes = parse{{Pascal}}("").warnings.map((warning) => warning.code);
+const codes = parse{{Pascal}}("ABC|1\r\rDEF|2\r").warnings.map((warning) => warning.code);
 
-codes; // => []
+codes; // => ["{{PREFIX}}_EMPTY_SEGMENT"]
 ```
 
 Each warning carries a stable code and a position. [Tolerance and warnings](./tolerance-and-warnings.md)
@@ -26,8 +26,10 @@ explains what each tier means.
 
 ## A parse threw
 
-In the default lenient mode only a fatal condition throws, with a code from `FATAL_CODES`: input
-the parser cannot turn into a structure. Catch the error and branch on its code.
+In the default lenient mode only a fatal condition throws: a `{{Pascal}}ParseError` with a code
+from `{{PREFIX}}_FATAL_CODES`, for an empty payload or bytes that are not UTF-8. Under
+`strict: true` the first warning throws the same error with the warning's code. Catch the error and
+branch on its code.
 
 ## What to put in a log
 

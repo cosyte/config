@@ -7,7 +7,7 @@
 
 # {{PKG}}
 
-> {{TITLE}} for Node.js and TypeScript: lenient on parse, spec-clean on emit.
+> {{TITLE}} for Node.js and TypeScript: lenient on parse, faithful on emit.
 
 [![npm version](https://img.shields.io/npm/v/{{PKG}}.svg)](https://www.npmjs.com/package/{{PKG}})
 [![CI](https://img.shields.io/github/actions/workflow/status/cosyte/{{NAME}}/ci.yml?branch=main&label=CI)](https://github.com/cosyte/{{NAME}}/actions/workflows/ci.yml)
@@ -18,13 +18,13 @@
 
 Real-world {{TITLE}} messages depart from the specification in vendor-specific ways. `{{PKG}}`
 reads them leniently, turning each quirk into a warning with a stable code instead of a failure,
-and writes spec-clean output, so a quirk does not travel downstream on a round trip. It follows
-the Cosyte parser archetype and mirrors the API of [`@cosyte/hl7`](https://github.com/cosyte/hl7).
+and writes back what it read, so a parse and a serialize change nothing downstream. It follows the
+contract every Cosyte format parser shares, as [`@cosyte/hl7`](https://github.com/cosyte/hl7) does.
 
 ## Status
 
-Pre-alpha, on the 0.0.x line, and not yet published to npm. The API below is the scaffold; the
-parser lands in later releases.
+Pre-alpha, on the 0.0.x line. The grammar the parser reads is a placeholder until the standard's
+own replaces it.
 
 ## Install
 
@@ -37,14 +37,17 @@ Node 22 or later. No runtime dependencies.
 ## Usage
 
 ```ts
-import { parse{{Pascal}} } from "{{PKG}}";
+import { parse{{Pascal}}, serialize{{Pascal}} } from "{{PKG}}";
 
-const result = parse{{Pascal}}(raw);
+const raw = "ABC|1|2\r\rDEF|3\r";
+const document = parse{{Pascal}}(raw);
 
-result.warnings; // stable, positional tolerance warnings: a quirk never throws
+document.warnings.map((warning) => warning.code); // => ["{{PREFIX}}_EMPTY_SEGMENT"]
+serialize{{Pascal}}(document) === raw; // => true
 ```
 
-The parser is lenient by default: vendor quirks become warnings, not failures.
+The parser is lenient by default: vendor quirks become warnings, not failures. `strict: true`
+throws at the first warning instead.
 
 ## Documentation
 

@@ -1,0 +1,188 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  {{PREFIX}}_FATAL_CODES,
+  {{PREFIX}}_WARNING_CODES,
+  {{Pascal}}ParseError,
+  define{{Pascal}}Profile,
+  parse{{Pascal}},
+  type {{Pascal}}Warning,
+} from "../src/index.js";
+
+/** The error a call throws, or a failure when it throws none. */
+function thrown(call: () => unknown): unknown {
+  try {
+    call();
+  } catch (error) {
+    return error;
+  }
+  throw new Error("expected the call to throw");
+}
+
+describe("parse{{Pascal}}", () => {
+  it("reads segments and fields, keeping every piece as written", () => {
+    const document = parse{{Pascal}}("ABC|1|2\rDE1||x");
+    expect(document.segments).toEqual([
+      { id: "ABC", fields: ["ABC", "1", "2"] },
+      { id: "DE1", fields: ["DE1", "", "x"] },
+    ]);
+    expect(document.fieldSeparator).toBe("|");
+    expect(document.trailingTerminator).toBe(false);
+    expect(document.warnings).toEqual([]);
+  });
+
+  it("records a payload that ends with the terminator", () => {
+    const document = parse{{Pascal}}("ABC|1\r");
+    expect(document.trailingTerminator).toBe(true);
+    expect(document.segments).toHaveLength(1);
+  });
+
+  it("reads UTF-8 bytes as it reads text", () => {
+    const bytes = new TextEncoder().encode("ABC|é\r");
+    expect(parse{{Pascal}}(bytes)).toEqual(parse{{Pascal}}("ABC|é\r"));
+  });
+
+  it("keeps a byte order mark as written", () => {
+    const bytes = Uint8Array.of(0xef, 0xbb, 0xbf, 0x41, 0x42, 0x43);
+    expect(parse{{Pascal}}(bytes).segments[0]?.fields[0]).toBe("\u{feff}ABC");
+  });
+
+  it("warns on an empty segment, keeps it, and says where it is", () => {
+    const document = parse{{Pascal}}("ABC|1\r\rDEF|2");
+    expect(document.segments[1]).toEqual({ fields: [""] });
+    expect(document.warnings).toEqual([
+      {
+        code: {{PREFIX}}_WARNING_CODES.{{PREFIX}}_EMPTY_SEGMENT,
+        message: "An empty segment was read and kept.",
+        position: { segmentIndex: 1 },
+      },
+    ]);
+  });
+
+  it("warns on a segment that does not begin with an identifier, and leaves its id absent", () => {
+    for (const raw of ["abc|1", "AB|1", "ABCD|1", "|1", "1BC"]) {
+      const document = parse{{Pascal}}(`ABC\r${raw}`);
+      expect(document.segments[1], raw).not.toHaveProperty("id");
+      expect(document.segments[1]?.fields.join("|"), raw).toBe(raw);
+      expect(
+        document.warnings.map((w) => w.code),
+        raw,
+      ).toEqual([{{PREFIX}}_WARNING_CODES.{{PREFIX}}_MALFORMED_SEGMENT_ID]);
+      expect(document.warnings[0]?.position, raw).toEqual({ segmentIndex: 1 });
+    }
+  });
+
+  it("accepts an identifier of a letter then two letters or digits", () => {
+    for (const id of ["ABC", "A12", "Z9Z"]) {
+      expect(parse{{Pascal}}(`${id}|1`).segments[0]?.id, id).toBe(id);
+    }
+  });
+
+  it("throws the empty-input fatal on an empty string and on empty bytes", () => {
+    for (const raw of ["", new Uint8Array()]) {
+      const error = thrown(() => parse{{Pascal}}(raw));
+      expect(error).toBeInstanceOf({{Pascal}}ParseError);
+      expect(error).toMatchObject({
+        name: "{{Pascal}}ParseError",
+        code: {{PREFIX}}_FATAL_CODES.{{PREFIX}}_EMPTY_INPUT,
+        message: "The payload is empty.",
+        position: { segmentIndex: 0 },
+      });
+    }
+  });
+
+  it("throws the UTF-8 fatal on bytes that are not UTF-8, in lenient mode too", () => {
+    const error = thrown(() => parse{{Pascal}}(Uint8Array.of(0x41, 0xff, 0x42)));
+    expect(error).toBeInstanceOf({{Pascal}}ParseError);
+    expect(error).toMatchObject({
+      code: {{PREFIX}}_FATAL_CODES.{{PREFIX}}_INVALID_UTF8,
+      message: "The payload bytes are not valid UTF-8.",
+      position: { segmentIndex: 0 },
+    });
+  });
+});
+
+describe("strict mode", () => {
+  it("throws at the first warning, with that warning's code, message and position", () => {
+    const error = thrown(() => parse{{Pascal}}("ABC\rabc\r\r", { strict: true }));
+    expect(error).toBeInstanceOf({{Pascal}}ParseError);
+    expect(error).toMatchObject({
+      code: {{PREFIX}}_WARNING_CODES.{{PREFIX}}_MALFORMED_SEGMENT_ID,
+      position: { segmentIndex: 1 },
+    });
+  });
+
+  it("parses a spec-clean payload as lenient mode does", () => {
+    expect(parse{{Pascal}}("ABC|1\r", { strict: true })).toEqual(parse{{Pascal}}("ABC|1\r"));
+  });
+
+  it("does not throw on a warning when strict is false", () => {
+    expect(parse{{Pascal}}("abc", { strict: false }).warnings).toHaveLength(1);
+  });
+});
+
+describe("onWarning", () => {
+  it("is called once per warning, in order, after the warning is recorded", () => {
+    const seen: {{Pascal}}Warning[] = [];
+    const document = parse{{Pascal}}("ABC\r\rabc", { onWarning: (w) => seen.push(w) });
+    expect(seen).toEqual(document.warnings);
+    expect(seen.map((w) => w.code)).toEqual([
+      {{PREFIX}}_WARNING_CODES.{{PREFIX}}_EMPTY_SEGMENT,
+      {{PREFIX}}_WARNING_CODES.{{PREFIX}}_MALFORMED_SEGMENT_ID,
+    ]);
+  });
+
+  it("cannot fail the parse by throwing", () => {
+    const document = parse{{Pascal}}("ABC\r\rabc", {
+      onWarning: () => {
+        throw new Error("the caller's handler");
+      },
+    });
+    expect(document.warnings).toHaveLength(2);
+  });
+
+  it("is called before strict mode throws", () => {
+    const seen: string[] = [];
+    thrown(() => parse{{Pascal}}("abc", { strict: true, onWarning: (w) => seen.push(w.code) }));
+    expect(seen).toEqual([{{PREFIX}}_WARNING_CODES.{{PREFIX}}_MALFORMED_SEGMENT_ID]);
+  });
+});
+
+describe("a vendor profile", () => {
+  it("reads fields with the profile's separator and records it on the document", () => {
+    const profile = define{{Pascal}}Profile({ name: "vendor-a", fieldSeparator: "^" });
+    const document = parse{{Pascal}}("ABC^1|2^3", { profile });
+    expect(document.fieldSeparator).toBe("^");
+    expect(document.segments[0]?.fields).toEqual(["ABC", "1|2", "3"]);
+  });
+
+  it("reads the identifier up to the profile's separator", () => {
+    const profile = define{{Pascal}}Profile({ name: "vendor-a", fieldSeparator: "^" });
+    expect(parse{{Pascal}}("ABC^1", { profile }).segments[0]?.id).toBe("ABC");
+    expect(parse{{Pascal}}("ABC|1", { profile }).warnings).toHaveLength(1);
+  });
+
+  it("never removes a warning from the result", () => {
+    const profile = define{{Pascal}}Profile({ name: "vendor-a" });
+    expect(parse{{Pascal}}("ABC\r\r", { profile }).warnings).toEqual(parse{{Pascal}}("ABC\r\r").warnings);
+  });
+});
+
+describe("the returned document", () => {
+  it("is frozen at every level", () => {
+    const document = parse{{Pascal}}("ABC|1\r\r");
+    const segment = document.segments[0];
+    const warning = document.warnings[0];
+    for (const part of [
+      document,
+      document.segments,
+      segment,
+      segment?.fields,
+      document.warnings,
+      warning,
+      warning?.position,
+    ]) {
+      expect(Object.isFrozen(part)).toBe(true);
+    }
+  });
+});
