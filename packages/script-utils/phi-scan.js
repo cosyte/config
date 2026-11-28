@@ -1759,16 +1759,16 @@ class PhiScan {
       if (allow.ids.has(value.replace(/\D/g, ""))) continue;
       found.push({ segment: "(ssn)", reason: "dashed SSN pattern", value });
     }
-    // THE ADDRESS STARTS WHERE ITS CHARACTERS START, NOT AT A WORD BOUNDARY. With `\b` in front, a
-    // `%`, `+`, `-` or `.` before a mailbox fell outside the match, so `EMAIL <address>` also
-    // cleared every address that ends in it. The lookbehind reads the whole run, which matches
-    // wherever `\b` did and only ever starts earlier.
-    for (const m of content.matchAll(
-      /(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@([A-Za-z0-9.-]+\.[A-Za-z]{2,})\b/g,
-    )) {
+    // FINDING IS UNCHANGED; ONLY CLEARING LOOKS FURTHER BACK. The pattern below decides which
+    // addresses are found, and it is the one the floor has always used. Its `\b` lets a match
+    // start after a `%`, `+`, `-` or `.`, so the text an `EMAIL` line is compared with is the match
+    // extended back over the whole run of those and word characters before it. `EMAIL desk@x`
+    // then clears `desk@x` and not `%desk@x`. A lookbehind in the pattern itself was tried and
+    // refused: it made the floor miss an address glued to the end of another.
+    for (const m of content.matchAll(/\b[A-Za-z0-9._%+-]+@([A-Za-z0-9.-]+\.[A-Za-z]{2,})\b/g)) {
       const domain = (m[1] ?? "").toLowerCase();
       if (allow.emailDomains.has(domain)) continue;
-      const address = m[0].toLowerCase();
+      const address = withRunBefore(content, m.index, m[0]).toLowerCase();
       if (allow.emails.has(address)) continue;
       if (allow.fileEmails.get(filePath)?.has(address)) continue;
       found.push({ segment: "(email)", reason: "email with non-test domain", value: m[0] });
@@ -1885,8 +1885,9 @@ class PhiScan {
     const raised = new Set();
     const detect = this.cfg.detect;
     if (detect === undefined) return raised;
+    let result;
     try {
-      detect({
+      result = detect({
         path: locus,
         text,
         bytes,
@@ -1905,6 +1906,15 @@ class PhiScan {
       });
     } catch {
       throw new InvocationError(detectorThrew("detect", locus, suffix));
+    }
+    // `detect` is synchronous. An async one has done its work, hits included, after this run
+    // read the file, and its rejection would reach Node's own handler, message and all.
+    if (settleQuietly(result)) {
+      throw new InvocationError(
+        `the field detector returned a promise on ${locus}${viewNote(suffix)} (detector ` +
+          `"detect"), so the scan has no verdict about that file. \`detect\` is synchronous; ` +
+          `whatever the promise settles to is not read, and a rejection's message is not printed.`,
+      );
     }
     return raised;
   }
@@ -2467,8 +2477,8 @@ function readOnlyAllow(allow) {
 }
 
 /**
- * Attach a do-nothing rejection handler to a result that has a callable `then`, before the result
- * is refused for not being an array.
+ * Attach a do-nothing rejection handler to a result that has a callable `then`, and say whether
+ * it had one, before the result is refused.
  *
  * THE REFUSAL ALONE IS NOT ENOUGH FOR A PROMISE. A promise that later rejects, with no handler on
  * it, is printed by Node's own unhandled-rejection handler, message and all, and the process exits
@@ -2476,16 +2486,39 @@ function readOnlyAllow(allow) {
  * `then` that throws is the detector's code too.
  *
  * @param {unknown} result
+ * @returns {boolean} Whether the result had a callable `then`.
  */
 function settleQuietly(result) {
-  // No type tests: reading `then` off `undefined` or `null` throws, so does `Reflect.apply` on a
-  // `then` that is not callable, and the guard takes both.
+  let then;
   try {
-    const then = /** @type {{ then?: unknown }} */ (result).then;
-    Reflect.apply(/** @type {Function} */ (then), result, [undefined, () => {}]);
+    then = /** @type {{ then?: unknown }} */ (result).then;
   } catch {
-    // The result is refused below whatever happened here.
+    // Reading `then` off `undefined` or `null` throws, and so may a getter: neither is a promise,
+    // and `then` stays undefined.
   }
+  if (typeof then !== "function") return false;
+  try {
+    Reflect.apply(then, result, [undefined, () => {}]);
+  } catch {
+    // A `then` that throws is the detector's code too; the result is refused whatever it did.
+  }
+  return true;
+}
+
+/**
+ * A found address with the run of `[._%+-]` and word characters just before it, so a match that
+ * started after one of them is compared whole against an `EMAIL` line.
+ *
+ * @param {string} content
+ * @param {number} index Where the match starts.
+ * @param {string} matched
+ * @returns {string}
+ */
+function withRunBefore(content, index, matched) {
+  let start = index;
+  // `charAt(-1)` is the empty string, which the class does not match, so the loop stops at 0.
+  while (/[\w.%+-]/.test(content.charAt(start - 1))) start -= 1;
+  return content.slice(start, index) + matched;
 }
 
 /**

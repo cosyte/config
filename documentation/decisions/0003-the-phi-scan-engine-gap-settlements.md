@@ -189,9 +189,11 @@ for the second.
 **What still refuses:**
 
 - Every other address at an undeclared domain, the same mailbox's neighbours at the same domain
-  included. The match is the whole address, lowercased, never a domain or a pattern, and it starts
-  where the address's own characters start, so a declared address does not also clear one that
-  ends in it (a `%`, `+`, `-` or `.` in front).
+  included. The match is the whole address, lowercased, never a domain or a pattern. Which
+  addresses are found is unchanged: the pattern is the one the floor always used. Only the text
+  an `EMAIL` line is compared with reaches further back, over the run of `%`, `+`, `-`, `.` and
+  word characters before the match, so a declared address does not also clear one that ends in
+  it.
 - A path-scoped address in any file but the one it names.
 - An `EMAIL` line that is neither form (no `@` in the address, or more than two words) refuses the
   run at the refuse code, naming the line number and not the value, rather than being read as a

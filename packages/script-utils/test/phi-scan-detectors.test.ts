@@ -910,3 +910,135 @@ describe("a detector written as a method keeps its object", () => {
     expect(r.out).toContain("detector demo-fields");
   });
 });
+
+describe("the email floor finds exactly the addresses it found before", () => {
+  // `main`'s pattern, copied here as the reference. Detection must not change: an EMAIL line may
+  // only decide whether a found address is declared, never which addresses are found.
+  const MAIN_EMAIL = /\b[A-Za-z0-9._%+-]+@([A-Za-z0-9.-]+\.[A-Za-z]{2,})\b/g;
+
+  /** A generated corpus of adjacent, prefixed and suffixed addresses, one case per line. */
+  function corpus(): string[] {
+    const locals = ["desk", "a.b", "x_y", "q-r", "z+tag", "p%q"];
+    const domains = ["example.com", "clinic.invalid", "notarealclinic.org"];
+    const glue = ["", "+", "%", "-", ".", "_", " ", ",", ":", "(", "<"];
+    const lines: string[] = [];
+    for (const l of locals) {
+      for (const d of domains) {
+        for (const g of glue) {
+          lines.push(`${g}${l}@${d}`);
+          lines.push(`${l}@${d}${g}`);
+          lines.push(`contact: synthetic@example.com${g}${l}@${d}`);
+          lines.push(`${l}@${d}${g}${l}@notarealclinic.org`);
+        }
+      }
+    }
+    return lines;
+  }
+
+  it("raises one email hit per address main's pattern finds at an undeclared domain", () => {
+    const lines = corpus();
+    lines.forEach((line, i) => {
+      write(`test/fixtures/e${String(i).padStart(4, "0")}.txt`, `${line}\n`);
+    });
+    commitAll();
+    const r = run();
+    const counts = new Map<string, number>();
+    let current = "";
+    for (const out of r.out.split("\n")) {
+      const head = /^\[phi-scan\] HIT: (\S+)$/.exec(out);
+      if (head?.[1] !== undefined) current = head[1];
+      else if (out === "  segment=(email) (email with non-test domain)") {
+        counts.set(current, (counts.get(current) ?? 0) + 1);
+      }
+    }
+    lines.forEach((line, i) => {
+      const expected = [...line.matchAll(MAIN_EMAIL)].filter(
+        (m) => (m[1] ?? "").toLowerCase() !== "example.com",
+      ).length;
+      const path = `test/fixtures/e${String(i).padStart(4, "0")}.txt`;
+      expect(counts.get(path) ?? 0, `${path}: ${line}`).toBe(expected);
+    });
+  });
+
+  it("still finds an address glued to the end of another, which a declared address does not clear", () => {
+    write("test/fixtures/a.txt", "contact: synthetic@example.com+zquill@notarealclinic.org\n");
+    commitAll();
+    expect(run().code).toBe(1);
+    allowList(
+      "EMAIL zquill@notarealclinic.org",
+      "EMAIL scripts/phi-allow-list.txt zquill@notarealclinic.org",
+    );
+    const r = run();
+    expect(r.code, r.out).toBe(1);
+    expect(r.out).toContain("HIT: test/fixtures/a.txt");
+  });
+
+  it("clears an address that stands alone when it is declared", () => {
+    allowList("EMAIL zquill@notarealclinic.org");
+    write("test/fixtures/a.txt", "write to zquill@notarealclinic.org, please\n");
+    commitAll();
+    expect(run().code).toBe(0);
+  });
+});
+
+describe("a legacy detect written as an async function cannot reach the output when it rejects", () => {
+  it("refuses at 2 as a run of its own process, and the rejection's text appears nowhere", () => {
+    write("test/fixtures/record.txt", "nothing\n");
+    commitAll();
+    const engine = join(import.meta.dirname, "..", "phi-scan.js");
+    const script = join(repo, "..", `${repo.split(/[\\/]/).at(-1) ?? "x"}-detect.mjs`);
+    writeFileSync(
+      script,
+      `import { runPhiScan, exemptsMarkdown } from ${JSON.stringify(engine)};\n` +
+        `process.exitCode = runPhiScan({\n` +
+        `  repoRoot: ${JSON.stringify(repo)}, argv: [],\n` +
+        `  exitCodes: { clean: 0, hits: 1, refuse: 2 }, scanRoots: ["."],\n` +
+        `  isStagedReadable: exemptsMarkdown,\n` +
+        `  detect: async () => { throw new Error("cannot parse ${PLANTED}"); },\n` +
+        `});\n`,
+      "utf8",
+    );
+    try {
+      const r = spawnSync(process.execPath, [script], { encoding: "utf8" });
+      const out = `${r.stdout}${r.stderr}`;
+      expect(r.status, out).toBe(2);
+      expect(out).toContain('(detector "detect")');
+      expect(out).not.toContain(PLANTED);
+      expect(out).not.toContain("cannot parse");
+    } finally {
+      rmSync(script, { force: true });
+    }
+  });
+
+  it("hands a thenable detect returns a handler that swallows a rejection, and refuses at 2", () => {
+    write("test/fixtures/record.txt", "nothing\n");
+    commitAll();
+    const calls: [unknown, unknown][] = [];
+    const r = run({
+      detect: () =>
+        ({
+          then: (a: unknown, b: unknown): void => {
+            calls.push([a, b]);
+          },
+        }) as unknown as void,
+    });
+    expect(r.code, r.out).toBe(2);
+    expect(r.out).toContain(
+      '[phi-scan] the field detector returned a promise on .gitignore (detector "detect"), so ' +
+        "the scan has no verdict about that file. `detect` is synchronous; whatever the promise " +
+        "settles to is not read, and a rejection's message is not printed.\n",
+    );
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.[0]).toBeUndefined();
+    expect(typeof calls[0]?.[1]).toBe("function");
+  });
+
+  it("leaves a detect that returns something that is not a promise to run as before", () => {
+    write("test/fixtures/record.txt", "nothing\n");
+    commitAll();
+    for (const value of [5, {}, { then: 1 }, "text"]) {
+      const r = run({ detect: () => value as unknown as void });
+      expect(r.code, `${JSON.stringify(value)}: ${r.out}`).toBe(0);
+    }
+  });
+});
