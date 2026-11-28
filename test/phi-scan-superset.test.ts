@@ -336,9 +336,9 @@ describe("the guarantees, graded as guarantees rather than as behaviour that hap
   it("AC-23: a finding, a refusal and a surfaced detector message name a position and never a value or a link target", () => {
     // EVERY SURFACE ON WHICH THIS ENGINE SYNTHESISES TEXT ABOUT CONTENT IT CANNOT VOUCH FOR:
     // THE FINDING ITSELF, the non-regular refusal (which must never echo what is on the other side
-    // of a link), the starved-root refusal, the skipped-target line, and the one disclosed
-    // residual, a detector's own thrown message. A diagnostic ABOUT a PHI leak is itself a PHI
-    // surface (`phi-safety` P4, `observability` B1 and B2).
+    // of a link), the starved-root refusal, the skipped-target line, and a detector that threw,
+    // whose own message is withheld. A diagnostic ABOUT a PHI leak is itself a PHI surface
+    // (`phi-safety` P4, `observability` B1 and B2).
     const outside = join(repo, "..", "phi-scan-superset-secret-target.txt");
     writeFileSync(outside, `ssn ${SSN}\n`, "utf8");
     try {
@@ -375,22 +375,25 @@ describe("the guarantees, graded as guarantees rather than as behaviour that hap
       expect(link.out).not.toContain(SSN);
       rmSync(abs("tools-link.txt"));
 
-      // A DETECTOR THAT THROWS: the message is printed verbatim, which is why the contract on
-      // `DetectFn` is that it names a position. The ENGINE adds the locus and nothing else: no
-      // text, no bytes, no interpolated record content.
+      // A DETECTOR THAT THROWS: its message is NOT printed, because a message is text the engine
+      // cannot vouch for. The ENGINE names the detector and the locus and nothing else: no text,
+      // no bytes, no interpolated record content, and not the detector's own words. It used to
+      // print them verbatim as a disclosed residual; that residual is closed.
       write("test/fixtures/record.txt", `ssn ${SSN}\n`);
       commitAll();
       const threw = run({
         detect: (ctx) => {
           if (ctx.path.startsWith("test/fixtures/record.txt")) {
-            throw new Error("segment 3: unparseable");
+            throw new Error(`segment 3: unparseable ${ctx.text}`);
           }
         },
       });
       expect(threw.code, threw.out).toBe(2);
-      expect(threw.out).toContain("the field detector threw on test/fixtures/record.txt");
-      expect(threw.out).toContain("segment 3: unparseable");
-      // The engine never appends the target's own text to what the detector said.
+      expect(threw.out).toContain(
+        'the field detector threw on test/fixtures/record.txt (detector "detect")',
+      );
+      expect(threw.out).not.toContain("segment 3: unparseable");
+      // Neither the target's own text nor what the detector said about it reaches the output.
       expect(threw.out).not.toContain("ssn 123");
       rmSync(abs("test/fixtures/record.txt"));
 

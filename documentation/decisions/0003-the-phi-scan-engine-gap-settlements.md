@@ -1,6 +1,6 @@
 # 0003: How the shared phi-scan engine settles the eight gaps its first consumer found
 
-- **Status:** Accepted (2026-09-19); N3 added 2026-11-09
+- **Status:** Accepted (2026-09-19); N3 added 2026-11-09; N4 added 2026-11-28
 - **Scope:** the `./phi-scan` export of `@cosyte/script-utils`, and every repository that consumes
   it. It does not reach the per-repo axes (`exitCodes`, `scanRoots`, `isStagedReadable`, the
   per-standard `detect`, the allow-list and override-log files), which stay each repository's own.
@@ -168,6 +168,38 @@ repository has seen. The named file REPLACES the repository's list rather than a
 
 **What would reverse it:** removing the option from `runPhiScanCli`. A caller that wants the
 unconditional refusal back does not pass it.
+
+### N4. The email floor clears an address an `EMAIL` line declares
+
+The allow-list grammar takes every tag the format libraries' own scanners read, so a library can
+hand its field detectors to the engine (`detectors`) without rewriting its list. Most of the new
+tags only reach a detector. One reaches the floor: `EMAIL <address>` clears that one address in
+every file, and `EMAIL <path> <address>` clears it in that file only, as the libraries' own floors
+already did. Before, the floor read `EMAILDOMAIN` alone, so an address at an undeclared domain was
+a hit whatever the list said.
+
+**What is given up:** an address an `EMAIL` line names is no longer a floor hit, in every file for
+the first form, and in the named file (its working-tree copy and the copy git carries at that path)
+for the second.
+
+**What still refuses:**
+
+- Every other address at an undeclared domain, the same mailbox's neighbours at the same domain
+  included. The match is the whole address, lowercased, never a domain or a pattern.
+- A path-scoped address in any file but the one it names.
+- An `EMAIL` line that is neither form (no `@` in the address, or more than two words) refuses the
+  run at the refuse code, naming the line number and not the value, rather than being read as a
+  wider clearance than its author wrote.
+- The SSN branch of the floor is untouched.
+- The engine's own suite (`packages/script-utils/test/phi-scan-detectors.test.ts`) pins each of
+  these, with an empty list given back to show the same file is a hit without the line.
+
+**What would reverse it:** removing the `emails` and `fileEmails` checks from `commonShapeMatches`.
+
+The same change makes the engine refuse more in two places, recorded so a reader does not have to
+find them: a `PHONE` line outside the fictional block 555-0100 to 555-0199 refuses the run, and a
+detector that throws now refuses without printing its message (the refusal and its exit code are
+unchanged; only the detector's own words are withheld).
 
 ## Consequences
 

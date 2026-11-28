@@ -32,16 +32,46 @@ export interface Hit {
   reason: string;
 }
 
-/** The positive declaration that specific identifiers are synthetic. */
+/**
+ * The positive declaration that specific identifiers are synthetic, read from the allow-list.
+ *
+ * A tagged line is `TAG value`. Two untagged forms are DICOM's: `DATE:<value>`, and a line holding
+ * `^`, which is a person name. Any other line is skipped. A `PHONE` outside the fictional block and
+ * a malformed `EMAIL` refuse the run, naming the line number and never the value.
+ */
 export interface AllowList {
-  /** Uppercase synthetic person-name tokens. Consumed by a caller's structured name detector. */
+  /** `NAME`: uppercase synthetic person-name tokens. Consumed by a caller's name detector. */
   names: Set<string>;
-  /** Synthetic dates of birth, in whatever form the caller's detector normalises to. */
+  /** `DOB`: synthetic dates of birth, as written. A detector normalises them if it needs to. */
   dobs: Set<string>;
-  /** Synthetic id values (SSN / MRN / member-id shapes), uppercased. Also read by the SSN floor. */
+  /** `ID`: synthetic id values (SSN / MRN / member-id shapes), uppercased. Also read by the SSN floor. */
   ids: Set<string>;
-  /** Allowed email domains, lowercased. Anything else is a hit. Read by the email floor. */
+  /** `EMAILDOMAIN`: allowed email domains, lowercased. Read by the email floor. */
   emailDomains: Set<string>;
+  /** `ADDR` and `ADDRESS`, one declaration under two spellings: address components, lowercased. */
+  addresses: Set<string>;
+  /** `CITY`: city names, uppercased. */
+  cities: Set<string>;
+  /** `ZIP`: postal codes, as written. */
+  zips: Set<string>;
+  /**
+   * `PHONE`: phone numbers as their digits. Every one is inside the fictional block 555-0100 to
+   * 555-0199, because a line outside it refuses the run.
+   */
+  phones: Set<string>;
+  /** `EMAIL <address>`: an address, lowercased, cleared by the email floor in every file. */
+  emails: Set<string>;
+  /**
+   * `EMAIL <path> <address>`: per repo-relative path, the addresses, lowercased, the email floor
+   * clears in that file only.
+   */
+  fileEmails: Map<string, Set<string>>;
+  /** A bare line holding `^` and not ending in it: an exact DICOM person name, case-sensitive. */
+  personNames: Set<string>;
+  /** A bare line ending in `^`: a DICOM person-name prefix, case-sensitive. */
+  personNamePrefixes: Set<string>;
+  /** `DATE:<value>`: dates, as written after the colon. */
+  dates: Set<string>;
 }
 
 /** A stage-0 index entry: the mode git records, and the object it points at. */
@@ -93,12 +123,90 @@ export interface DetectContext {
 /**
  * A per-standard field detector. Throwing REFUSES the scan rather than taking node's exit code.
  *
- * 🛑 THE THROWN MESSAGE IS PRINTED VERBATIM, so it reaches CI logs. Name the position, never the
- * content: a parser that interpolates the record it choked on turns a diagnostic into a PHI
- * surface. This is the one place the engine prints text it cannot vouch for, and it is disclosed
- * rather than suppressed, because a refusal nobody can diagnose is its own defect.
+ * THE THROWN MESSAGE IS NEVER PRINTED. The refusal names the detector (`"detect"`) and the locus,
+ * because a parser that interpolates the record it choked on would otherwise put that record in a
+ * CI log. Run the detector on the named file outside the gate to see the message.
+ *
+ * The `segment` and `reason` a hit passes are printed as given. A detector that wants the engine
+ * to hold its findings to a place and a rule it can check is a plug-in in `detectors`.
  */
 export type DetectFn = (ctx: DetectContext) => void;
+
+/**
+ * The rules a plug-in finding may name. The report prints the engine's own sentence for each, never
+ * text a detector wrote.
+ *
+ * - `name`: person name not declared synthetic in the allow-list
+ * - `birth-date`: date of birth not declared synthetic in the allow-list
+ * - `date`: date not declared synthetic in the allow-list
+ * - `identifier`: identifier not declared synthetic in the allow-list
+ * - `ssn`: Social Security number not declared synthetic in the allow-list
+ * - `address`: address not declared synthetic in the allow-list
+ * - `phone`: phone number outside the fictional block 555-0100 to 555-0199
+ * - `email`: email address not declared synthetic in the allow-list
+ * - `provider-id`: provider identifier that could be a real registration
+ * - `phi-field`: PHI-bearing field value not declared synthetic in the allow-list
+ */
+export type PhiRule =
+  | "name"
+  | "birth-date"
+  | "date"
+  | "identifier"
+  | "ssn"
+  | "address"
+  | "phone"
+  | "email"
+  | "provider-id"
+  | "phi-field";
+
+/**
+ * One finding a plug-in returns: where in the file, and which rule. It has no field for the value,
+ * and a finding with any key other than these four refuses the scan.
+ */
+export interface PhiFinding {
+  /** One of the places the detector declared, exactly: `PID-5`, `(0010,0010)`, `patient/name`. */
+  readonly place: string;
+  /** A rule from the engine's set. */
+  readonly rule: PhiRule;
+  /** The one-based line the place is on, for a text format. */
+  readonly line?: number;
+  /** The zero-based byte offset of the place, for a binary format. */
+  readonly offset?: number;
+}
+
+/** What a plug-in is handed for one view of one file. */
+export interface PhiDetectorInput {
+  /** The file's repo-relative path. The report adds any origin label itself. */
+  readonly path: string;
+  /** The bytes decoded as UTF-8. For a JavaScript or TypeScript source, called again on the decoded view. */
+  readonly text: string;
+  /** The bytes, for a byte-strict or binary format. */
+  readonly bytes: Buffer;
+  /** The parsed allow-list, so a detector reports only what is not declared synthetic. */
+  readonly allow: AllowList;
+}
+
+/**
+ * A library's field detector, as a plug-in.
+ *
+ * `detect` is given the file's path and content and returns its findings, each a declared place
+ * and a rule. The engine prints the path, the place, an integer line or offset, its own sentence
+ * for the rule, and `name`, and nothing else. A result that is not an array of `PhiFinding` (an
+ * extra key such as `value`, an undeclared place, a rule outside the set, a line that is not a
+ * positive integer, a promise) refuses the scan, naming the detector and a fixed reason. A detector
+ * that throws refuses the scan, and its message is not printed.
+ */
+export interface PhiDetector {
+  /** A lowercase word of letters, digits and hyphens, at most 64 characters, starting with a letter. */
+  readonly name: string;
+  /**
+   * Every locator a finding may name, declared before any file is read: 1 to 80 printable ASCII
+   * characters with no space. A place built from what the detector matched is not one of these.
+   */
+  readonly places: readonly string[];
+  /** Synchronous. Return an empty array for a file with nothing to report. */
+  readonly detect: (input: PhiDetectorInput) => readonly PhiFinding[];
+}
 
 /** The three codes this repo's own exit contract assigns. All three must differ. */
 export interface PhiScanExitCodes {
@@ -246,6 +354,16 @@ export interface PhiScanConfig {
    * regex onto it; coded values produce false confidence.
    */
   detect?: DetectFn;
+
+  /**
+   * A library's field detectors as plug-ins, run in order after `detect` over every file the scan
+   * reads. Each returns findings as a declared place and a rule from the engine's set, so a finding
+   * cannot carry the matched text into the report. Checked before any scan begins: a malformed
+   * detector, or two of one name, throws a `TypeError`.
+   *
+   * @default []
+   */
+  detectors?: readonly PhiDetector[];
 }
 
 /**
@@ -292,7 +410,7 @@ export declare function readPhiExclusions(
  * The command-line form: the engine over the repository in the working directory, with exit codes
  * 0 clean, 1 hits, 2 refuse, the whole repository as the scan root, the `--staged` route reading
  * everything but Markdown, and `scripts/phi-scan.exclude`. The cross-cutting floor only: a
- * repository that needs field-level detectors keeps a caller passing `detect`.
+ * repository that needs field-level detectors keeps a caller passing `detectors` or `detect`.
  * `--allow-list <path>` names the allow list to use instead of `scripts/phi-allow-list.txt`
  * (resolved against the working directory, replacing the repository's list); a path that does not
  * exist or cannot be read refuses at 2.
@@ -310,3 +428,10 @@ export declare function isSourceLiteralContainer(relPath: string): boolean;
  * escape.
  */
 export declare function decodeSourceLiterals(text: string): string;
+
+/**
+ * Whether a phone number is inside the fictional block 555-0100 to 555-0199. The number is read as
+ * its digits: seven, ten (with an area code, any area code), or eleven starting with 1. A detector
+ * reports a phone this returns `false` for under the rule `phone`.
+ */
+export declare function isFictionalPhone(value: string): boolean;

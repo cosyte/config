@@ -647,10 +647,12 @@ files which may contain patient data. What it does with them, stated narrowly:
   (`(ssn)`, `(email)`, or the field id your own detector raised it against) and the rule that fired;
   the matched bytes are not written into the report, because a gate that prints the secret it found
   has published it into a CI log. A `value` your detector passes to `ctx.hit` is dropped at the
-  boundary rather than stored, so nothing downstream can print what no record carries.
+  boundary rather than stored, so nothing downstream can print what no record carries. A plug-in
+  in `detectors` returns only a declared place and a rule, and a detector's thrown message is never
+  printed.
 - The allow-list and the override log record DECLARATIONS about paths, never content.
 - Detection is a floor, not a proof: this package owns a dashed SSN shape and an email at an
-  undeclared domain, and everything field-level is yours to supply through `detect`. A clean run
+  undeclared domain, and everything field-level is yours to supply through `detectors`. A clean run
   means nothing this configuration looked for was found, which is not the same as no PHI.
 
 The consumer still owns the rest: deciding what a PHI-bearing field is for its standard, keeping real
@@ -745,10 +747,10 @@ escaped backslash first, so a doubled backslash before `u002D` stays text). The 
 `String.raw` template or a comment quoting an escape; an `ID <value>` declaration clears such a hit.
 
 **The RULES, local to your repo, never moved and never shipped in this package.**
-`scripts/phi-allow-list.txt` (the positive declaration that a token is synthetic, tagged `NAME`,
-`DOB`, `ADDR`, `ID`, `EMAILDOMAIN`); `phi-scan-overrides.md` (the `--allow-fixture` audit log, and
-whatever category-to-field map your detector reads); and the per-standard field detector you supply
-through `detect` (names, DOB, MRN / member id, address, phone, parsed out of your own wire format).
+`scripts/phi-allow-list.txt` (the positive declaration that a token is synthetic, in the grammar
+`AllowList` in `phi-scan.d.ts` documents); `phi-scan-overrides.md` (the `--allow-fixture` audit
+log); and the field detectors you supply as plug-ins through `detectors`, each returning a declared
+place and a rule (`PhiDetector` in `phi-scan.d.ts`), or through `detect`.
 
 The split is not a convenience. **This package's `files` list ships no repo's rules**, so a
 declaration one consumer makes can never travel to another consumer through a version bump: with no
