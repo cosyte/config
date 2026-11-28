@@ -1,49 +1,50 @@
 ---
 id: quickstart
 title: Quickstart
-description: "Parse a {{TITLE}} message with {{PKG}} and read its fields and warnings."
-sidebar_position: 1
+sidebar_label: Quickstart
+description: "Parse a {{TITLE}} payload with {{PKG}} and read the warnings the lenient parser reports."
 ---
 
 # Quickstart
 
-Parse a {{TITLE}} payload and read the result in a few lines. `{{PKG}}` is **lenient by default**
-(Postel's Law): real-world, vendor-quirky input parses into a value plus a list of tolerance
-**warnings**, rather than throwing.
+Parse a {{TITLE}} payload and read the result. The parse is lenient by default: input with a known
+deviation parses, and the deviation comes back as a warning rather than a thrown error.
 
 ## Parse a payload
 
 ```ts runnable
 import { parse{{Pascal}} } from "{{PKG}}";
 
-// Replace this with a real {{TITLE}} message once the parser lands; on clean input the lenient
-// parser recovers nothing, so `warnings` is empty.
-const { value, warnings } = parse{{Pascal}}("");
+const { warnings } = parse{{Pascal}}("");
 
-warnings; // => []
+warnings.length; // => 0
 ```
 
-`parse{{Pascal}}` always returns a `{ value, warnings }` pair. Each warning carries a **stable code**
-you can branch on without it churning between releases:
+## Branch on a warning code
 
-```ts
+Each warning carries a stable code from `WARNING_CODES`, so a branch on it keeps working from one
+release to the next. The set of codes can grow in any release, so keep a default branch:
+
+```ts runnable
 import { parse{{Pascal}}, WARNING_CODES } from "{{PKG}}";
 
-const { warnings } = parse{{Pascal}}(raw);
+const { warnings } = parse{{Pascal}}("");
 
-for (const w of warnings) {
-  if (w.code === WARNING_CODES.EXAMPLE_TOLERATED_DEVIATION) {
-    // handle the tolerated deviation
+let tolerated = 0;
+for (const warning of warnings) {
+  switch (warning.code) {
+    case WARNING_CODES.EXAMPLE_TOLERATED_DEVIATION:
+      tolerated += 1;
+      break;
+    default:
+      break;
   }
 }
-```
 
-> **About runnable examples.** The first block above is tagged ```` ```ts runnable ````: the docs
-> build extracts it, runs it against the package, and asserts the `// =>` result, so a documented
-> example can never silently drift from the code. Tag a fence `runnable` only once its `// =>`
-> assertions match the shipped behavior; leave illustrative fragments as a plain ```` ```ts ```` block.
+tolerated; // => 0
+```
 
 ## Next
 
-- [Core concepts](./concepts-archetype): the parser archetype and the tolerance model.
-- **API Reference**: every export, generated from source.
+- [Handle the warnings a parse reports](./handle-parse-warnings.md).
+- [Tolerance and warnings](./tolerance-and-warnings.md): what a parse tolerates, and what throws.

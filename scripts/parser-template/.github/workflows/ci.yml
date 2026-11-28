@@ -50,3 +50,28 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm check:release-pr
+
+  # The repository's documents, each graded by a shared checker: the README against the house
+  # skeleton and npm's size limit, CLAUDE.md against the card spec, the package description against
+  # the catalog of our libraries, docs-content/ against the docs structure, and the generated API
+  # reference under docs-content/api/ against a fresh generation from the TSDoc in src/. The last
+  # fails when a committed page differs, when an export has no TSDoc summary, or when a TSDoc
+  # comment holds a heading: regenerate with `pnpm docs:reference` and commit the pages.
+  documents:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check:readme
+      - run: pnpm check:claude-card
+      - run: pnpm check:catalog
+      - run: pnpm check:docs-content
+      - run: pnpm check:docs-reference

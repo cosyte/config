@@ -128,32 +128,26 @@ describe("a scaffolded repo is born carrying the install hardening the baseline 
 describe("parser-template docs-content spine", () => {
   const sidebar = JSON.parse(readFileSync(join(TEMPLATE, "docs-content", "sidebars.json"), "utf8"));
 
-  it("is the canonical spine: an intro doc then canonically-ordered categories, no authored API Reference", () => {
-    const canonical = [
-      "Overview",
-      "Installation",
-      "Quickstart",
-      // Sentence case (ST9, RD5). docs.cosyte.com's IA lint still lists "Core Concepts" and moves
-      // with the libraries in wave 2.
-      "Core concepts",
-      "Guides",
-      "API Reference",
-      "Troubleshooting",
-    ];
-    expect(Array.isArray(sidebar.docs)).toBe(true);
-    expect(sidebar.docs[0]).toBe("intro"); // Overview slot
-
+  it("is the standard spine: intro, the categories in their order, then the two quality pages", () => {
+    // The sidebar order docs.cosyte.com and the docs-content check hold every package to. The
+    // generated reference is never authored: the site adds its "API Reference" itself.
+    expect(sidebar.docs[0]).toBe("intro");
     const labels = sidebar.docs
       .filter(
         (d: unknown): d is { type: string; label: string } =>
           typeof d === "object" && d !== null && (d as { type?: string }).type === "category",
       )
       .map((c: { label: string }) => c.label);
-
-    expect(labels).not.toContain("API Reference"); // resolver-injected, never authored (IA030)
-    for (const label of labels) expect(canonical).toContain(label); // canonical labels only
-    const positions = labels.map((l: string) => canonical.indexOf(l));
-    expect(positions).toEqual([...positions].sort((a, b) => a - b)); // canonical order
+    expect(labels).toEqual([
+      "Installation",
+      "Quickstart",
+      "Tutorials",
+      "How-to guides",
+      "Explanation",
+      "Reference",
+      "Troubleshooting",
+    ]);
+    expect(sidebar.docs.slice(-2)).toEqual(["testing-and-quality", "performance"]);
   });
 });
 

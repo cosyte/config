@@ -1,37 +1,36 @@
 ---
 id: installation
 title: Installation
-description: "Install {{PKG}} from npm and import it from ESM or CommonJS."
-sidebar_position: 1
+sidebar_label: Installation
+description: "Install {{PKG}} from npm and import it from ESM or CommonJS on Node.js 22 or later."
 ---
 
 # Installation
 
-`{{PKG}}` is a zero-dependency TypeScript package for Node.js. It ships dual **ESM + CJS** builds with
-per-condition type declarations, so it works from either module system without configuration.
-
-> **Status:** pre-alpha (`0.0.x`), not yet published to npm. The command below is the shape it will
-> take at first publish; until then, consume it from source or a workspace link.
+`{{PKG}}` ships ESM and CommonJS builds, each with its own type declarations, so it loads from
+either module system without configuration. It has no runtime dependencies.
 
 ## Prerequisites
 
-- **Node.js >= 22** (the whole `@cosyte/*` suite targets ES2023 / Node 22+).
-- A package manager: `pnpm`, `npm`, or `yarn`.
+- Node.js 22 or later.
+- A package manager: pnpm, npm, or Yarn.
 
 ## Install
 
+We recommend an exact version, so an upgrade is a change you make on purpose:
+
 ```bash
-npm install {{PKG}}
+npm install --save-exact {{PKG}}
 ```
 
-## Smoke test
+## Check the install
 
-Confirm the package resolves and its version symbol is present:
+Import the version the package reports:
 
-```ts
+```ts runnable
 import { VERSION } from "{{PKG}}";
 
-console.log(VERSION);
+typeof VERSION; // => "string"
 ```
 
-If that prints a version string, the install is good: head to the [Quickstart](./quickstart).
+If that import resolves, the install is complete. The [Quickstart](./quickstart.md) is next.

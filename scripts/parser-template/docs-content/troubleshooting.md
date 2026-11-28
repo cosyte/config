@@ -1,52 +1,39 @@
 ---
 id: troubleshooting
 title: Troubleshooting
+sidebar_label: Troubleshooting
 description: "Common symptoms when integrating {{PKG}}, and how to read what the parser reports."
-sidebar_position: 1
 ---
 
 # Troubleshooting
 
-Common symptoms when integrating `{{PKG}}`, and how to read what the parser is telling you.
+Common symptoms when integrating `{{PKG}}`, and how to read what the parser reports.
 
-## The parse "succeeded" but the result looks wrong
+## The parse succeeded but the result looks wrong
 
-`{{PKG}}` is lenient. It recovers from vendor quirks rather than throwing. That means a surprising
-result usually comes with an explanation in `warnings`. Inspect them first:
+The parse is lenient, so a surprising result usually comes with a warning. Read the codes first:
 
-```ts
-const { value, warnings } = parse{{Pascal}}(raw);
+```ts runnable
+import { parse{{Pascal}} } from "{{PKG}}";
 
-for (const w of warnings) {
-  console.warn(w.code, w.message, w.position);
-}
+const codes = parse{{Pascal}}("").warnings.map((warning) => warning.code);
+
+codes; // => []
 ```
 
-Each warning carries a **stable code** (`WARNING_CODES`) and positional context. If a deviation
-should be a hard failure for your integration, re-parse with `{ strict: true }` to have it thrown
-instead.
+Each warning carries a stable code and a position. [Tolerance and warnings](./tolerance-and-warnings.md)
+explains what each tier means.
 
 ## A parse threw
 
-Only **Tier-3 fatal** conditions (`FATAL_CODES`) throw in lenient mode. These mark input the parser
-cannot recover into a structured result. In `{ strict: true }` mode, any tolerated deviation throws
-too. Catch and inspect the error's code to tell the two apart.
+In the default lenient mode only a fatal condition throws, with a code from `FATAL_CODES`: input
+the parser cannot turn into a structure. Catch the error and branch on its code.
 
-## Warning messages and logs
+## What to put in a log
 
-Warning `message` fields are safe to log. They **never contain PHI**. Never log the raw payload
-itself; it may carry protected health information.
+A warning's code and position are safe to log, and its message never holds a value from the
+payload. Never log the payload itself: it may carry a patient's identity.
 
-## Known limitations
+## Something is not supported
 
-> **Status:** `{{PKG}}` is a pre-alpha scaffold. `parse{{Pascal}}` currently returns a structural stub
-> (`{ value: {}, warnings: [] }`); the real lenient tokenizer, immutable model, serializer, and the
-> full warning/fatal code sets land in subsequent phases.
-
-- **`string` input only** for now: `Buffer` / `Uint8Array` support arrives with the real parser.
-- **Placeholder code registries**: `WARNING_CODES` / `FATAL_CODES` hold example entries until the
-  parser populates the real ones.
-- **No serializer yet**: the spec-clean emit side is added in a later phase.
-
-The **API Reference** always reflects exactly what this release ships: treat it as the source of
-truth over any prose above.
+[Limitations](./limitations.md) lists what this release does not do yet.

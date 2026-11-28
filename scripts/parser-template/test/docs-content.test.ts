@@ -1,18 +1,30 @@
+import { execFileSync } from "node:child_process";
 import { join } from "node:path";
+
+import { beforeAll } from "vitest";
 
 import { docSnippetSuite } from "@cosyte/vitest-config/snippets";
 
 /**
- * Doc/code-agreement gate. Every ```` ```ts runnable ```` block in `docs-content/` is extracted,
- * compiled, and executed, and its inline `// =>` assertions are checked, so a documented example can
- * never silently drift from the shipped code (the documentation analog of the conformance runners).
+ * Doc/code-agreement gate. Every TypeScript and JavaScript sample on a hand-written page of
+ * `docs-content/` is extracted, type-checked, and run, and its inline `// =>` assertions are
+ * checked, so a documented example cannot drift from the shipped code. A sample that cannot run
+ * says why in its fence (`ts no-run <reason>`). The generated pages under `docs-content/api/` are
+ * left out: their `@example` blocks are fragments written for an editor's tooltip.
  *
- * `resolve` points a snippet's `import ... from "{{PKG}}"` at this repo's source, the same way the
- * rest of the suite imports it: a fast local gate. To assert against the *built* artifact a consumer
- * installs, run `pnpm build` first and map the specifier to `../dist/index.js` instead.
+ * A sample imports the package the way a consumer does, from the built ESM entry point: it runs as
+ * a standalone module, and `dist/index.mjs` is what an installer loads. The shared CI job runs
+ * `test` before `build`, so the build is made here rather than assumed.
  */
+const root = join(import.meta.dirname, "..");
+
+beforeAll(() => {
+  execFileSync("pnpm", ["build"], { cwd: root, stdio: "inherit" });
+}, 120_000);
+
 docSnippetSuite({
-  docsDir: join(import.meta.dirname, "..", "docs-content"),
+  docsDir: join(root, "docs-content"),
+  every: true,
   resolve: (specifier) =>
-    specifier === "{{PKG}}" ? join(import.meta.dirname, "..", "src", "index.ts") : undefined,
+    specifier === "{{PKG}}" ? join(root, "dist", "index.mjs") : undefined,
 });

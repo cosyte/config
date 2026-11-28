@@ -1,8 +1,8 @@
 # {{PKG}}
 
 Our {{TITLE}} parser for Node.js and TypeScript.
-It is published to npm under MIT, reads real-world messages leniently (a warning, not a throw, short
-of structural corruption) and writes spec-clean output, with zero runtime dependencies.
+It is MIT-licensed, has zero runtime dependencies, and reads real-world messages leniently: a
+warning, not a throw, short of structural corruption.
 
 @AGENTS.md
 
@@ -26,8 +26,9 @@ logs, and keep fixtures synthetic: real patient data never enters this repositor
   exits 0 on a tarball that carries no types.
 - `scripts/phi-scan.ts` calls `@cosyte/script-utils/phi-scan`. Add this standard's field detectors
   there; each one consults `ctx.allow`, and an exclusion is a literal path, never a class.
-- A change under `src/` adds a changeset: `minor` for behavior a consumer can call, `patch` for a
-  fix. The changeset summary is the changelog entry, so never hand-edit `CHANGELOG.md`.
+- A change to what the package ships adds a changeset, and every changeset is a `patch`: a minor
+  moved one of our libraries off the line its siblings' ranges admit, and npm refused to install
+  the two together. The summary is the changelog entry, so never hand-edit `CHANGELOG.md`.
 - `.github/workflows/release.yml` keeps its four grants (`actions: read`, `contents: write`,
   `id-token: write`, `pull-requests: write`): without them the release fails at startup.
 - Fix a gate in cosyte/config (`scripts/parser-template/` or `@cosyte/script-utils`), not only here,

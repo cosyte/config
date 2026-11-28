@@ -27,6 +27,10 @@ yarn.lock
 dist/
 coverage/
 
+# The generated API reference: `pnpm check:docs-reference` compares these pages byte for byte
+# with what `cosyte-docs-reference` writes, so the formatter must never touch them.
+docs-content/api/
+
 # Mutation testing output (also in .gitignore)
 reports/
 .stryker-tmp/

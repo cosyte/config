@@ -1,40 +1,24 @@
 ---
 id: intro
-title: Getting started
-description: "What {{PKG}} is, the parser archetype it follows, and where to start."
-sidebar_position: 1
+title: Introduction
+sidebar_label: Introduction
+description: "What {{PKG}} is, the parser contract it follows, and where to start reading."
 ---
 
 # {{PKG}}
 
-Parse real-world, vendor-quirky {{TITLE}} and pull fields out in one line, without reading the spec.
-`{{PKG}}` is a zero-dependency TypeScript toolkit following the Cosyte parser archetype: a lenient
-parser, an immutable model, a spec-clean serializer, and a profile system for vendor quirks. It
-mirrors the API shape of the reference parser, `@cosyte/hl7`.
+`{{PKG}}` is our {{TITLE}} parser for Node.js and TypeScript, with no runtime dependencies. It
+follows the contract every Cosyte format parser shares: a parse is lenient by default, what it
+tolerated comes back as warnings with stable codes, and what it cannot recover from throws a coded
+error.
 
-> **Status:** pre-alpha (`0.0.x`), not yet published to npm. This page describes the scaffold; the
-> real parser lands in subsequent phases.
+The package is new. The parser, the model, and the serializer grow release by release, and
+[Limitations](./limitations.md) says what this release does not do yet.
 
-## Install
+## Where to start
 
-```bash
-npm install {{PKG}}
-```
-
-## Parse a message
-
-```ts
-import { parse{{Pascal}} } from "{{PKG}}";
-
-const result = parse{{Pascal}}(raw);
-
-result.warnings; // stable, positional tolerance warnings
-```
-
-The parser is **lenient by default** (vendor quirks become warnings, not failures) while the
-serializer always emits spec-clean output (Postel's Law). A `{ strict: true }` mode (to be added)
-escalates every tolerated deviation to a thrown error.
-
-## Next
-
-- Read the **API reference** for every export, generated from source.
+- [Installation](./installation.md): add the package and import it from ESM or CommonJS.
+- [Quickstart](./quickstart.md): parse a payload and read what it reports.
+- [Parse your first message](./parse-your-first-message.md): the same steps, one at a time.
+- [Tolerance and warnings](./tolerance-and-warnings.md): why a parse warns rather than throws.
+- The API reference: every export, generated from the source.
