@@ -16,7 +16,8 @@
   "license": "MIT",
   "author": "Cosyte <hello@cosyte.com> (https://cosyte.com)",
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "provenance": true
   },
   "main": "index.json",
   "exports": {
