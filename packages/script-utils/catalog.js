@@ -2,9 +2,10 @@
 //
 // THE CATALOG OF COSYTE'S LIBRARIES (ST13, ST14). One record per library, generated from that
 // library's own package.json, with the tier it belongs to; and one for Pathways, our integration
-// engine, which is in development and not on npm. The tiers and Pathways' status come from a small
-// hand-kept file in cosyte/config (`catalog/tiers.json`); everything else is read out of each
-// package.json by `scripts/catalog.mjs` there, and written beside this module as `catalog.json`.
+// engine. The tiers, Pathways' status, and which packages are on npm come from a small hand-kept
+// file in cosyte/config (`catalog/tiers.json`); everything else is read out of each package.json by
+// `scripts/catalog.mjs` there, and written beside this module as `catalog.json`. A record carries
+// `onNpm`, and its npm URL only when it is on npm.
 // A site, the org profile, a deck or a knowledgebase page reads that one list instead of keeping
 // its own roster.
 //
@@ -109,11 +110,18 @@ function fromManifest(name, manifest) {
   };
 }
 
+/** The npm URL of a package on npm, as a record's `npm` field, or no field at all. */
+function npmField(name, onNpm) {
+  return onNpm ? { npm: `https://www.npmjs.com/package/${name}` } : {};
+}
+
 /**
  * Build the catalog from the hand-kept tiers file and each package's package.json. Pure: it reads
- * nothing, so the generator decides where the manifests come from.
+ * nothing, so the generator decides where the manifests come from. A standard whose tiers entry
+ * says `onNpm: false` is not on npm; every other library is.
  *
- * @param {{ standards: { package: string, standard: string }[], builtOn: string[],
+ * @param {{ standards: { package: string, standard: string, onNpm?: boolean }[],
+ *   builtOn: string[],
  *   engine: { package: string, name: string, status: string, onNpm: boolean } }} tiers
  * @param {Map<string, Record<string, any>> | Record<string, Record<string, any>>} manifests
  *   Each package's parsed package.json, keyed by package name.
@@ -128,11 +136,12 @@ export function buildCatalog(tiers, manifests) {
     seen.add(name);
   };
   const libraries = [];
-  for (const { package: name, standard } of tiers.standards) {
+  for (const { package: name, standard, onNpm = true } of tiers.standards) {
     claim(name);
     libraries.push({
       ...fromManifest(name, get(name)),
-      npm: `https://www.npmjs.com/package/${name}`,
+      ...npmField(name, onNpm),
+      onNpm,
       tier: "standard",
       standard,
     });
@@ -141,7 +150,8 @@ export function buildCatalog(tiers, manifests) {
     claim(name);
     libraries.push({
       ...fromManifest(name, get(name)),
-      npm: `https://www.npmjs.com/package/${name}`,
+      ...npmField(name, true),
+      onNpm: true,
       tier: "built-on",
     });
   }
@@ -149,6 +159,7 @@ export function buildCatalog(tiers, manifests) {
   claim(enginePackage);
   const engine = {
     ...fromManifest(enginePackage, get(enginePackage)),
+    ...npmField(enginePackage, onNpm),
     tier: "engine",
     displayName: engineName,
     status,

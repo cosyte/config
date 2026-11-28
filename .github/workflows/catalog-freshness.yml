@@ -9,8 +9,8 @@ name: Catalog freshness
 #
 # A RED RUN means a library has released a line the catalog does not carry. Run
 # `node scripts/catalog.mjs write --npm`, commit the result with a patch changeset for
-# @cosyte/script-utils, and release it. Pathways is not on npm; its record is graded by
-# `check --self` in CI.
+# @cosyte/script-utils, and release it. A package the tiers file marks as not on npm is carried
+# from the committed catalog; its record is graded by `check --self` in CI.
 #
 # Read-only and credential-free: the registry is public, nothing is installed (the script and the
 # module it imports have no dependencies), and nothing is written.

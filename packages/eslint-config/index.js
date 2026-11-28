@@ -13,9 +13,10 @@ import tseslint from "typescript-eslint";
  * The type-safety guardrails (no `any`, no unjustified casts, exhaustiveness, strict imports) apply
  * to **every** consumer. The documentation-surface guardrails, the JSDoc + `@example` gate and
  * `no-console`, are *library* defaults: a published `@cosyte/*` package owes its callers documented,
- * `console`-free public exports. Applications (e.g. the `pathways` engine) are first-class consumers
- * too, but they have no published API surface to document and legitimately log, so they opt out with
- * `{ library: false }`. Everything else (strictness, type-checking, Prettier interop) is identical.
+ * `console`-free public exports, and so does a product that publishes a typed entry point (the
+ * `pathways` engine runs the library defaults). An application with no published API surface to
+ * document, which legitimately logs, opts out with `{ library: false }`. Everything else
+ * (strictness, type-checking, Prettier interop) is identical.
  *
  * @param {string} tsconfigRootDir - The consumer's package root; pass `import.meta.dirname`.
  * @param {{ ignores?: string[], files?: string[], library?: boolean }} [opts] - Optional extra
@@ -125,8 +126,12 @@ export default function cosyteConfig(tsconfigRootDir, opts = {}) {
               "jsdoc/require-example": [
                 "error",
                 {
+                  // Only contexts that can report: `ExportNamedDeclaration > VariableDeclaration`
+                  // never did (the rule finds no doc comment on a declaration whose comment sits
+                  // before `export`), so an exported constant or arrow function passes without
+                  // an `@example`. test/eslint-example-contexts.test.ts holds every context here
+                  // to reporting on its own.
                   contexts: [
-                    "ExportNamedDeclaration > VariableDeclaration",
                     "ExportNamedDeclaration > FunctionDeclaration",
                     "ExportNamedDeclaration > ClassDeclaration",
                   ],

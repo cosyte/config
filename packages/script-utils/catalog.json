@@ -12,6 +12,7 @@
       "repository": "https://github.com/cosyte/hl7",
       "docs": "https://docs.cosyte.com/hl7",
       "npm": "https://www.npmjs.com/package/@cosyte/hl7",
+      "onNpm": true,
       "tier": "standard",
       "standard": "HL7 v2"
     },
@@ -26,6 +27,7 @@
       "repository": "https://github.com/cosyte/mllp",
       "docs": "https://docs.cosyte.com/mllp",
       "npm": "https://www.npmjs.com/package/@cosyte/mllp",
+      "onNpm": true,
       "tier": "standard",
       "standard": "MLLP"
     },
@@ -40,6 +42,7 @@
       "repository": "https://github.com/cosyte/fhir",
       "docs": "https://docs.cosyte.com/fhir",
       "npm": "https://www.npmjs.com/package/@cosyte/fhir",
+      "onNpm": true,
       "tier": "standard",
       "standard": "FHIR"
     },
@@ -54,6 +57,7 @@
       "repository": "https://github.com/cosyte/ccda",
       "docs": "https://docs.cosyte.com/ccda",
       "npm": "https://www.npmjs.com/package/@cosyte/ccda",
+      "onNpm": true,
       "tier": "standard",
       "standard": "C-CDA"
     },
@@ -68,6 +72,7 @@
       "repository": "https://github.com/cosyte/x12",
       "docs": "https://docs.cosyte.com/x12",
       "npm": "https://www.npmjs.com/package/@cosyte/x12",
+      "onNpm": true,
       "tier": "standard",
       "standard": "X12"
     },
@@ -82,6 +87,7 @@
       "repository": "https://github.com/cosyte/ncpdp",
       "docs": "https://docs.cosyte.com/ncpdp",
       "npm": "https://www.npmjs.com/package/@cosyte/ncpdp",
+      "onNpm": true,
       "tier": "standard",
       "standard": "NCPDP"
     },
@@ -96,6 +102,7 @@
       "repository": "https://github.com/cosyte/astm",
       "docs": "https://docs.cosyte.com/astm",
       "npm": "https://www.npmjs.com/package/@cosyte/astm",
+      "onNpm": true,
       "tier": "standard",
       "standard": "ASTM"
     },
@@ -110,8 +117,23 @@
       "repository": "https://github.com/cosyte/dicom",
       "docs": "https://docs.cosyte.com/dicom",
       "npm": "https://www.npmjs.com/package/@cosyte/dicom",
+      "onNpm": true,
       "tier": "standard",
       "standard": "DICOM"
+    },
+    {
+      "name": "@cosyte/ihe",
+      "slug": "ihe",
+      "description": "IHE cross-community exchange parser, serializer, and builder for Node.js and TypeScript: lenient on parse, spec-clean on emit.",
+      "line": "0.0",
+      "engines": {
+        "node": ">=22"
+      },
+      "repository": "https://github.com/cosyte/ihe",
+      "docs": "https://docs.cosyte.com/ihe",
+      "onNpm": false,
+      "tier": "standard",
+      "standard": "IHE"
     },
     {
       "name": "@cosyte/terminology",
@@ -124,6 +146,7 @@
       "repository": "https://github.com/cosyte/terminology",
       "docs": "https://docs.cosyte.com/terminology",
       "npm": "https://www.npmjs.com/package/@cosyte/terminology",
+      "onNpm": true,
       "tier": "built-on"
     },
     {
@@ -137,6 +160,7 @@
       "repository": "https://github.com/cosyte/transform",
       "docs": "https://docs.cosyte.com/transform",
       "npm": "https://www.npmjs.com/package/@cosyte/transform",
+      "onNpm": true,
       "tier": "built-on"
     },
     {
@@ -150,6 +174,7 @@
       "repository": "https://github.com/cosyte/deid",
       "docs": "https://docs.cosyte.com/deid",
       "npm": "https://www.npmjs.com/package/@cosyte/deid",
+      "onNpm": true,
       "tier": "built-on"
     },
     {
@@ -163,6 +188,7 @@
       "repository": "https://github.com/cosyte/synth",
       "docs": "https://docs.cosyte.com/synth",
       "npm": "https://www.npmjs.com/package/@cosyte/synth",
+      "onNpm": true,
       "tier": "built-on"
     },
     {
@@ -176,6 +202,7 @@
       "repository": "https://github.com/cosyte/dates",
       "docs": "https://docs.cosyte.com/dates",
       "npm": "https://www.npmjs.com/package/@cosyte/dates",
+      "onNpm": true,
       "tier": "built-on"
     },
     {
@@ -189,22 +216,24 @@
       "repository": "https://github.com/cosyte/cli",
       "docs": "https://docs.cosyte.com/cli",
       "npm": "https://www.npmjs.com/package/@cosyte/cli",
+      "onNpm": true,
       "tier": "built-on"
     }
   ],
   "engine": {
     "name": "@cosyte/pathways",
     "slug": "pathways",
-    "description": "A code-first healthcare integration engine for Node.js: channels in YAML, transforms in TypeScript. Early and not yet released.",
+    "description": "A code-first healthcare integration engine for Node.js: channels in YAML, transforms in TypeScript.",
     "line": "0.0",
     "engines": {
       "node": ">=24.0.0"
     },
     "repository": "https://github.com/cosyte/pathways",
     "docs": "https://docs.cosyte.com/pathways",
+    "npm": "https://www.npmjs.com/package/@cosyte/pathways",
     "tier": "engine",
     "displayName": "Pathways",
-    "status": "in development",
-    "onNpm": false
+    "status": "released",
+    "onNpm": true
   }
 }

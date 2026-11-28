@@ -46,10 +46,10 @@ pnpm add -D @cosyte/process
 
 The tools the verbs run (tsup, vitest and its `@vitest/coverage-v8` provider, eslint, prettier,
 typescript) are dependencies of this package, and every verb runs this package's copy. A wired
-consumer declares **no direct devDependency** on tsup, `@vitest/coverage-v8`, eslint, prettier or
-typescript.
+consumer declares one of them directly **only when its own code imports it**, pinned to the exact
+version this package pins.
 
-vitest is the one exception. Test files import `describe`, `it` and `expect` from `vitest`, and
+vitest is the usual case. Test files import `describe`, `it` and `expect` from `vitest`, and
 `cosyte-process typecheck` needs those types to resolve from the consumer, so a consumer with tests
 keeps `vitest` as a devDependency pinned **exactly** to the version this package pins, which in this
 release is:

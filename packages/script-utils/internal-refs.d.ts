@@ -4,7 +4,9 @@
  * The engine owns the canonical rule set, the self-test floor, enumeration, the completeness rule,
  * the tarball drift tripwire, every refusal and the hit report. The caller owns the axes below: what
  * its prefixes are, which standards designations must never be flagged, what its public surface is,
- * what its tarball already accounts for, and whether the source doc-comment pass runs.
+ * what its tarball already accounts for, and whether the source doc-comment pass runs. Every run
+ * also reads the default surface ({@link DEFAULT_SURFACE_PATHS}, and the comments and string
+ * literals under {@link DEFAULT_SOURCE_ROOTS}), which no axis removes.
  */
 
 /** One entry of the documented configuration surface. */
@@ -125,8 +127,9 @@ export interface InternalRefsConfig {
 
   /**
    * DEFAULTED OFF. The source string-literal pass: double-quoted, single-quoted and template
-   * literals, decoded, with every comment skipped, because a string literal reaches a consumer as
-   * error and warning text and a comment does not. A NUL byte in source reads as a space.
+   * literals, decoded, with every comment skipped (the comment pass reads those, on every scan),
+   * because a string literal reaches a consumer as error and warning text. A NUL byte in source
+   * reads as a space.
    *
    * @default { enabled: false }
    */
@@ -177,9 +180,9 @@ export interface CompiledRule {
   name: string;
   patterns: RegExp[];
   /**
-   * Lets through some of what `patterns` match: a match it returns `true` for is not a hit. Only
-   * the phase rule carries one, for `phase` used as a noun before a lowercase word; a caller's
-   * extra rule never does. Read a rule with {@link ruleHits} to see what the gate reports.
+   * Lets through some of what `patterns` match: a match it returns `true` for is not a hit. The
+   * phase rule carries one, for `phase` used as a noun before a lowercase word, and the tracking
+   * row rule one, for a row-shaped value in quotes or alone; a caller's extra rule never does. Read a rule with {@link ruleHits} to see what the gate reports.
    */
   excuse?: (found: RegExpExecArray) => boolean;
   positives: string[];
@@ -258,6 +261,36 @@ export declare function extractDocComments(
   lines: { text: string; where: string }[];
   paragraphs: { text: string; where: string }[];
 };
+
+/**
+ * Extract every comment of one JavaScript or TypeScript source file, `//` and `/* *\/` alike,
+ * with each line's location beside it. Consecutive `//` lines are one paragraph.
+ * `skipDocComments` leaves out `/** *\/` blocks, for a file the doc-comment pass already read.
+ */
+export declare function extractComments(
+  text: string,
+  file: string,
+  options?: { skipDocComments?: boolean },
+): {
+  lines: { text: string; where: string }[];
+  paragraphs: { text: string; where: string }[];
+};
+
+/**
+ * The paths every run reads whole when they are tracked, whatever the caller configures: the
+ * changesets, `CLAUDE.md`, `AGENTS.md` and the workflows.
+ */
+export declare const DEFAULT_SURFACE_PATHS: readonly [
+  ".changeset",
+  "CLAUDE.md",
+  "AGENTS.md",
+  ".github/workflows",
+];
+
+/**
+ * The folders whose JavaScript and TypeScript every run reads for comments and string literals.
+ */
+export declare const DEFAULT_SOURCE_ROOTS: readonly ["src", "test", "tests"];
 
 /** The defaulted exit-code mapping. */
 export declare const DEFAULT_EXIT_CODES: InternalRefsExitCodes;

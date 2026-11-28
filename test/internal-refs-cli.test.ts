@@ -66,6 +66,23 @@ describe("the internal-reference gate from the command line", () => {
     expect(r.out).toContain(rule);
   });
 
+  it.each([
+    [
+      ".changeset/a-change.md",
+      "Every release is a patch (D977).\n",
+      "[item, decision or standard id]",
+    ],
+    ["CLAUDE.md", "# scratch\n\nRow CFG-91 is open.\n", "[internal tracking row id]"],
+    ["test/index.test.ts", "// From session_0123456789abcdefABCD\n", "[session id / comment]"],
+  ])("exits 1 on a hit in %s, which surfacePaths does not name", (path, contents, rule) => {
+    const scratch = repo("# Scratch\n");
+    scratch.write(path, contents);
+    scratch.track(path);
+    const r = cli(scratch.root);
+    expect(r.code, r.out).toBe(1);
+    expect(r.out).toContain(`${rule} ${path}:`);
+  });
+
   it("takes a case-insensitive extra rule from JSON as { source, flags }", () => {
     const config = {
       ...AXES,

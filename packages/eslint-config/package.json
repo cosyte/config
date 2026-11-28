@@ -31,7 +31,8 @@
     "CHANGELOG.md"
   ],
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "provenance": true
   },
   "dependencies": {
     "@eslint/js": "^10.0.0",

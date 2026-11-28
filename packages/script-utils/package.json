@@ -131,7 +131,8 @@
     "node": ">=22.14"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "provenance": true
   },
   "devDependencies": {
     "vitest": "5.1.0",
