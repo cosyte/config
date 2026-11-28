@@ -1,0 +1,36 @@
+name: Public-surface gate
+
+# The internal-reference gate: `pnpm check:no-internal-refs`, which is `cosyte-internal-refs` from
+# @cosyte/script-utils, run by the shared workflow. It fails when an item id, a plan or phase name,
+# a decision record number, a private repository path or a session id reaches what a consumer reads:
+# the README, docs-content/, the package description and keywords, and the doc comments and strings
+# under src/ that compile into the published declarations. This repository's axes live in
+# scripts/internal-refs.json; the rules live in the shared package, in one copy.
+#
+# The installing form of the shared gate runs `pnpm install --frozen-lockfile` first, because the
+# scan is an installed package. A failed install reds the job before the scan runs.
+#
+# THE JOB ID IS LOAD-BEARING. A called job's check run is named `<caller job id> / <inner job id>`,
+# so `no-internal-refs` below publishes `no-internal-refs / public-surface`, the context a ruleset
+# requires. Renaming the job detaches that requirement with no error anywhere.
+#
+# It reads no pull request text, so there is no `edited` trigger.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  no-internal-refs:
+    uses: cosyte/.github/.github/workflows/gate-no-internal-refs-install.yml@398cd4ded647dddd9f2e220ceb042840f59e1426 # workflows-2026-11-10-398cd4ded647
+    permissions:
+      contents: read

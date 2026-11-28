@@ -1,0 +1,13 @@
+{
+  "$comment": "The coverage and mutation floors cosyte-ratchet holds (pnpm quality:check, pnpm quality:mutation). vitest.config.ts reads the coverage floor from here, so this is the one place the number is written. A floor only rises: raise it with pnpm quality:raise after a full mutation run, and add the mutation floor that way once the first full run has a score.",
+  "packages": {
+    ".": {
+      "coverage": {
+        "lines": 100,
+        "branches": 100,
+        "functions": 100,
+        "statements": 100
+      }
+    }
+  }
+}

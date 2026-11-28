@@ -13,7 +13,7 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -120,9 +120,10 @@ describe("community, agent and editor files", () => {
   it("carries the dotfiles: .editorconfig, .gitattributes, the standard .npmrc and CODEOWNERS", () => {
     expect(read(".editorconfig")).toContain("end_of_line = lf");
     expect(read(".gitattributes")).toBe("* text=auto eol=lf\n");
-    expect(read(".npmrc")).toBe(
-      "engine-strict=true\nsave-exact=false\nauto-install-peers=true\nstrict-peer-dependencies=false\n",
-    );
+    // The setting changes here first, so a new repository takes this repository's own file. With
+    // `save-exact=true` a plain `pnpm add` writes an exact version rather than a caret.
+    expect(read(".npmrc")).toBe(readFileSync(join(REPO_ROOT, ".npmrc"), "utf8"));
+    expect(read(".npmrc").split("\n")).toContain("save-exact=true");
     expect(read(".github/CODEOWNERS").split("\n")).toContain("* @NSchatz");
   });
 
@@ -229,8 +230,8 @@ describe("docs-content", () => {
 });
 
 describe("Node and the toolchain", () => {
-  it("declares engines >=22 and runs CI on 22, 24 and 26", () => {
-    expect(json("package.json")["engines"]).toEqual({ node: ">=22" });
+  it("declares engines >=22.0.0 and runs CI on 22, 24 and 26", () => {
+    expect(json("package.json")["engines"]).toEqual({ node: ">=22.0.0" });
     expect(read(".github/workflows/ci.yml")).toContain(`node-versions: '["22", "24", "26"]'`);
   });
 
@@ -241,9 +242,107 @@ describe("Node and the toolchain", () => {
     )) {
       if (name.startsWith("@cosyte/")) expect(range, name).toMatch(/^\^0\.1\.\d+$/);
     }
-    expect(manifest["scripts"]["check:no-emdash"]).toBe(
-      "bash node_modules/@cosyte/script-utils/check-no-emdash.sh",
+    expect(manifest["scripts"]["check:no-emdash"]).toBe("cosyte-no-emdash");
+  });
+});
+
+describe("the package shape", () => {
+  // What a released library's manifest carries, so a new parser does not start a version behind.
+
+  it("points its homepage at its page on the docs site", () => {
+    expect(json("package.json")["homepage"]).toBe(`https://docs.cosyte.com/${NAME}`);
+  });
+
+  it("lists every notice it carries in `files`, and carries every file it lists", () => {
+    const files = json("package.json")["files"] as string[];
+    expect(files).toEqual(["dist", "README.md", "LICENSE", "TRADEMARKS.md", "CHANGELOG.md"]);
+    for (const file of files.filter((f) => f !== "dist")) {
+      expect(existsSync(join(repo, file)), file).toBe(true);
+    }
+  });
+
+  it("runs each shared gate and tool through its published command, under the shared name", () => {
+    const scripts = json("package.json")["scripts"] as Record<string, string>;
+    expect({
+      attw: scripts["attw"],
+      "pack:docs": scripts["pack:docs"],
+      "check:no-emdash": scripts["check:no-emdash"],
+      "check:no-internal-refs": scripts["check:no-internal-refs"],
+      "check:readme": scripts["check:readme"],
+      "check:claude-card": scripts["check:claude-card"],
+      "check:catalog": scripts["check:catalog"],
+      "check:docs-content": scripts["check:docs-content"],
+      "check:docs-reference": scripts["check:docs-reference"],
+      "docs:reference": scripts["docs:reference"],
+      "test:perf": scripts["test:perf"],
+      "quality:check": scripts["quality:check"],
+      "quality:mutation": scripts["quality:mutation"],
+      "quality:raise": scripts["quality:raise"],
+      mutate: scripts["mutate"],
+      "mutate:full": scripts["mutate:full"],
+      "api-surface": scripts["api-surface"],
+    }).toEqual({
+      attw: "cosyte-attw",
+      "pack:docs": "cosyte-process pack-docs",
+      "check:no-emdash": "cosyte-no-emdash",
+      "check:no-internal-refs": "cosyte-internal-refs",
+      "check:readme": "cosyte-readme",
+      "check:claude-card": "cosyte-claude-card",
+      "check:catalog": "cosyte-catalog",
+      "check:docs-content": "cosyte-docs-content",
+      "check:docs-reference": "cosyte-docs-reference --check",
+      "docs:reference": "cosyte-docs-reference",
+      "test:perf": "vitest run --config vitest.perf.config.ts",
+      "quality:check": "cosyte-ratchet check --skip mutation",
+      "quality:mutation": "cosyte-ratchet check --skip coverage",
+      "quality:raise": "cosyte-ratchet raise",
+      mutate: "cosyte-mutate",
+      "mutate:full": "cosyte-mutate full",
+      "api-surface": "tsx scripts/api-surface.ts",
+    });
+    // No local copy of a shared gate or tool rides along beside its command.
+    for (const copy of ["scripts/attw.mjs", "scripts/build-docs-artifacts.sh"]) {
+      expect(existsSync(join(repo, ...copy.split("/"))), copy).toBe(false);
+    }
+  });
+
+  it("ends prepublishOnly with the types check, after the gate and the build", () => {
+    expect(json("package.json")["scripts"]["prepublishOnly"]).toBe(
+      "pnpm clean && pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm attw",
     );
+  });
+
+  it("carries the configs each script names", () => {
+    expect(read("vitest.perf.config.ts")).toContain('include: ["test/perf/**/*.perf.ts"]');
+    expect(read("stryker.config.mjs")).toContain('vitestConfig: "vitest.mutation.config.ts"');
+    expect(read("vitest.mutation.config.ts")).toContain('"test/perf/**"');
+    const refs = json("scripts/internal-refs.json");
+    expect((refs["projectPrefixes"] as string[]).length).toBeGreaterThan(0);
+    for (const path of refs["surfacePaths"] as string[]) {
+      expect(existsSync(join(repo, path)), path).toBe(true);
+    }
+  });
+
+  it("holds coverage to quality-floor.json, the one place the number is written", () => {
+    expect(json("quality-floor.json")["packages"]["."]["coverage"]).toEqual({
+      lines: 100,
+      branches: 100,
+      functions: 100,
+      statements: 100,
+    });
+    const config = read("vitest.config.ts");
+    expect(config).toContain('new URL("./quality-floor.json", import.meta.url)');
+    expect(config).toContain("coverageThresholds: coverageFloor()");
+    expect(config).not.toMatch(/coverageThresholds: \{/);
+  });
+
+  it("records its export surface for the root entry point, under the emitted names", () => {
+    const record = json("release/public-api.json");
+    expect(record["typescript"]).toBe(json("package.json")["devDependencies"]["typescript"]);
+    const names = (record["exports"] as { name: string }[]).map((e) => e.name);
+    expect(names).toContain("parseProbe");
+    expect(record["exportCount"]).toBe(names.length);
+    expect(read("release/public-api.json")).not.toContain("{{");
   });
 });
 
@@ -268,7 +367,7 @@ describe("workflows", () => {
         }
       }
     }
-    expect(callers).toBe(6);
+    expect(callers).toBe(7);
     expect(refs.size, [...refs].join("\n")).toBe(1);
     expect([...refs][0]).toBe(`${SCOPED_COMMIT} # ${SCOPED_REFERENCE}`);
   });
@@ -300,6 +399,16 @@ describe("workflows", () => {
     expect(read(".github/workflows/codeql.yml")).toContain(
       "if: ${{ github.event.repository.private != true }}",
     );
+  });
+
+  it("runs the internal-reference gate on every pull request, through the installing form", () => {
+    const gate = read(".github/workflows/no-internal-refs.yml");
+    // The job id is the first half of the context a ruleset requires.
+    expect(gate).toMatch(
+      /\n {2}no-internal-refs:\n {4}uses: cosyte\/\.github\/\.github\/workflows\/gate-no-internal-refs-install\.yml@/,
+    );
+    expect(gate).toMatch(/\non:\n {2}push:\n {4}branches: \[main\]\n {2}pull_request:\n/);
+    expect(gate).not.toMatch(/\n {4}with:/);
   });
 
   it("runs the em and en dash gate on every pull request, title and body included", () => {
